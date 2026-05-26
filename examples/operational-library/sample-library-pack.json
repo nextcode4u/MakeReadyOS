@@ -1,0 +1,33 @@
+{
+  "format": "makereadyos.libraryPack",
+  "version": 1,
+  "name": "Sample Make Ready Starter Pack",
+  "description": "Safe example pack for documenting the MakeReadyOS extension contract.",
+  "category": "Make Ready",
+  "items": {
+    "customFields": [
+      {
+        "key": "vendorFollowUpDate",
+        "label": "Vendor Follow-up Date",
+        "type": "DATE",
+        "module": "make-ready"
+      }
+    ],
+    "automationTemplates": [
+      {
+        "name": "Vendor Follow-up Date Missing",
+        "description": "Adds an activity note when vendor follow-up is required but no follow-up date is set.",
+        "triggerType": "scheduled-check",
+        "enabled": false,
+        "conditions": [],
+        "actions": [
+          {
+            "type": "ADD_AUDIT_NOTE",
+            "message": "Vendor follow-up requires scheduling."
+          }
+        ]
+      }
+    ],
+    "checklistTemplates": []
+  }
+}

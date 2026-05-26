@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the MakeReadyOS PostgreSQL backup nightly
+
+[Timer]
+OnCalendar=*-*-* 02:15:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=makereadyos-backup.service
+
+[Install]
+WantedBy=timers.target

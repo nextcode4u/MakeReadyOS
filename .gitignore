@@ -1,0 +1,26 @@
+node_modules
+dist
+.DS_Store
+.env
+.env.local
+apps/api/dev.db
+apps/api/dev.db-journal
+apps/api/generated
+coverage
+*.log
+*.tsbuildinfo
+# Raw/local source references may contain exports, screenshots, or private assets.
+reference/*
+!reference/project/
+!reference/project/PROJECT_REFERENCE.md
+# Publish only curated workflow notes from the safe documentation namespace.
+references/*
+!references/workflows/
+!references/workflows/*.md
+logs/*.txt
+backups/*
+!backups/.gitkeep
+playwright-report/
+test-results/
+uploads/*
+!uploads/.gitkeep

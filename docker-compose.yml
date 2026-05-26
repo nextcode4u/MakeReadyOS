@@ -1,0 +1,65 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-makereadyos}
+      POSTGRES_USER: ${POSTGRES_USER:-makeready}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-makeready}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-makeready} -d ${POSTGRES_DB:-makereadyos}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./apps/api
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://makeready:makeready@db:5432/makereadyos?schema=public}
+      PORT: ${API_PORT:-4000}
+      NODE_ENV: production
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      DEMO_TECH_EMAIL: ${DEMO_TECH_EMAIL}
+      DEMO_TECH_PASSWORD: ${DEMO_TECH_PASSWORD}
+      DEMO_LEASING_EMAIL: ${DEMO_LEASING_EMAIL:-}
+      DEMO_LEASING_PASSWORD: ${DEMO_LEASING_PASSWORD:-}
+      DEMO_CLEANER_EMAIL: ${DEMO_CLEANER_EMAIL:-}
+      DEMO_CLEANER_PASSWORD: ${DEMO_CLEANER_PASSWORD:-}
+      SESSION_COOKIE_SECRET: ${SESSION_COOKIE_SECRET}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-makereadyos_session}
+      SESSION_COOKIE_SAME_SITE: ${SESSION_COOKIE_SAME_SITE:-lax}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-7}
+      LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-5}
+      LOGIN_RATE_LIMIT_WINDOW_MINUTES: ${LOGIN_RATE_LIMIT_WINDOW_MINUTES:-15}
+      API_TOKEN_RATE_LIMIT_MAX: ${API_TOKEN_RATE_LIMIT_MAX:-300}
+      API_TOKEN_RATE_LIMIT_WINDOW_MINUTES: ${API_TOKEN_RATE_LIMIT_WINDOW_MINUTES:-15}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
+      AUTOMATION_NOTE_COOLDOWN_HOURS: ${AUTOMATION_NOTE_COOLDOWN_HOURS:-24}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-15}
+      ENABLE_API_TIMING_LOGS: ${ENABLE_API_TIMING_LOGS:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-4000}:4000"
+    volumes:
+      - uploads_data:/app/uploads
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  postgres_data:
+  uploads_data:

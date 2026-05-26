@@ -1,0 +1,11 @@
+[Unit]
+Description=Run MakeReadyOS scheduled automation evaluation hourly
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5m
+Persistent=true
+Unit=makereadyos-automations.service
+
+[Install]
+WantedBy=timers.target

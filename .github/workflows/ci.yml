@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/api/package-lock.json
+            apps/web/package-lock.json
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Install API dependencies
+        run: npm --prefix apps/api install
+
+      - name: Install web dependencies
+        run: npm --prefix apps/web install
+
+      - name: Audit API production dependencies
+        run: npm --prefix apps/api audit --omit=dev
+
+      - name: Audit web production dependencies
+        run: npm --prefix apps/web audit --omit=dev
+
+      - name: Run build script
+        run: ./build.sh
+
+      - name: Run test script
+        run: ./test.sh
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: logs/
+          if-no-files-found: ignore

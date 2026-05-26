@@ -1,0 +1,13 @@
+[Unit]
+Description=Evaluate structured MakeReadyOS scheduled automation rules
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=makereadyos
+Group=docker
+WorkingDirectory=/opt/makereadyos
+ExecStart=/opt/makereadyos/run-automations.sh
+
+# The script reads /opt/makereadyos/.env. Keep credentials there, not in this unit.

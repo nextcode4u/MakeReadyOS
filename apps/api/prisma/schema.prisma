@@ -1,0 +1,927 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  TECH
+  LEASING
+  CLEANER
+  VIEWER
+}
+
+enum CustomFieldType {
+  TEXT
+  LONG_TEXT
+  NUMBER
+  DATE
+  SINGLE_SELECT
+  MULTI_SELECT
+  BOOLEAN
+  USER
+}
+
+model Property {
+  id               String             @id @default(cuid())
+  name             String
+  code             String             @unique
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  units            Unit[]
+  floorPlans       FloorPlan[]
+  makeReadyItems   MakeReadyItem[]
+  refrigerantLogs  RefrigerantLog[]
+  poolChemicalLogs PoolChemicalLog[]
+  pestIssues       PestIssue[]
+  notes            PropertyNote[]
+  checklistTemplates ChecklistTemplate[]
+  checklistInstances ChecklistInstance[]
+  itemComments       ItemComment[]
+  itemAttachments    ItemAttachment[]
+  vendorServiceAreas VendorServiceArea[]
+  vendorAssignments  VendorAssignment[]
+  workAssignmentBlocks WorkAssignmentBlock[]
+  propertyMaps     PropertyMap[]
+  unitMapLocations UnitMapLocation[]
+  dailyMetricSnapshots PropertyDailyMetricSnapshot[]
+  userAccess       UserPropertyAccess[]
+  auditLogs        AuditLog[]
+  automationRules  AutomationRule[]
+  boardSections    BoardSection[]
+  notifications    Notification[]
+  apiTokenScopes   ApiTokenPropertyScope[]
+  webhookScopes    WebhookPropertyScope[]
+}
+
+model Unit {
+  id          String          @id @default(cuid())
+  propertyId  String
+  property    Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  floorPlanId String?
+  floorPlanRecord FloorPlan?  @relation(fields: [floorPlanId], references: [id], onDelete: SetNull)
+  number      String
+  floorPlan   String?
+  squareFeet  Int?
+  bedrooms    Int?
+  bathrooms   Float?
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  makeReadyItems MakeReadyItem[]
+  mapLocations UnitMapLocation[]
+
+  @@unique([propertyId, number])
+  @@index([floorPlanId])
+}
+
+model FloorPlan {
+  id          String   @id @default(cuid())
+  propertyId  String
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name        String
+  bedrooms    Int?
+  bathrooms   Float?
+  squareFeet  Int?
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  units       Unit[]
+
+  @@unique([propertyId, name])
+  @@index([propertyId, isActive, name])
+}
+
+model MakeReadyItem {
+  id                 String        @id @default(cuid())
+  propertyId         String
+  unitId             String?
+  property           Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unit               Unit?         @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  boardGroup         String
+  itemName           String
+  unitNumber         String
+  floorPlan          String?
+  applicant          String?
+  assignedTech       String?
+  scopeLevel         String?
+  status             String        @default("ACTIVE")
+  vacancyStatus      String?
+  moveOutDate        DateTime?
+  vacatedDate        DateTime?
+  makeReadyDate      DateTime?
+  moveInDate         DateTime?
+  daysVacant         Int           @default(0)
+  daysUntilMoveIn    Int?
+  priority           Int           @default(0)
+  overdue            Boolean       @default(false)
+  moveInSoon         Boolean       @default(false)
+  riskScore          Int           @default(0)
+  riskLevel          String        @default("NONE")
+  riskReasons        Json          @default("[]")
+  lastRiskEvaluatedAt DateTime?
+  completionStatus   String?
+  sheetrockStatus    String?
+  pestStatus         String?
+  pestTreated        String?
+  trashOutStatus     String?
+  floorsStatus       String?
+  flooringDate       DateTime?
+  makeReadyStatus    String?
+  cleaningStatus     String?
+  keysMadeStatus     String?
+  cabinetsStatus     String?
+  countertopsStatus  String?
+  appliancesStatus   String?
+  paintStatus        String?
+  doorsStatus        String?
+  newDoorCode        String?
+  notes              String?
+  isArchived         Boolean       @default(false)
+  archivedAt         DateTime?
+  lastAutomationAt   DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  automationRuns     AutomationRun[]
+  automationCooldowns AutomationCooldown[]
+  customFieldValues  CustomFieldValue[]
+  notifications      Notification[]
+  comments           ItemComment[]
+  attachments        ItemAttachment[]
+  checklistInstances ChecklistInstance[]
+  vendorAssignments  VendorAssignment[]
+  workAssignmentBlocks WorkAssignmentBlock[]
+
+  @@index([propertyId, boardGroup])
+  @@index([propertyId, isArchived, boardGroup])
+  @@index([unitId])
+  @@index([propertyId, isArchived, assignedTech])
+  @@index([propertyId, isArchived, vacancyStatus])
+  @@index([propertyId, isArchived, updatedAt])
+  @@index([propertyId, isArchived, riskLevel])
+  @@index([propertyId, isArchived, riskScore])
+  @@index([propertyId, isArchived, moveInDate])
+  @@index([moveInDate])
+  @@index([makeReadyDate])
+}
+
+model User {
+  id             String               @id @default(cuid())
+  email          String               @unique
+  passwordHash   String
+  fullName       String
+  role           UserRole
+  isActive       Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  sessions       Session[]
+  propertyAccess UserPropertyAccess[]
+  auditLogs      AuditLog[]
+  savedViews     SavedView[]
+  notifications  Notification[]
+  notificationPreferences NotificationPreference[]
+  capacity       UserCapacity?
+  workAssignments WorkAssignmentBlock[]
+  comments       ItemComment[]
+  attachments    ItemAttachment[]
+  completedChecklistItems ChecklistInstanceItem[]
+  apiTokensCreated ApiToken[]
+  webhooksCreated  WebhookEndpoint[]
+}
+
+model ApiToken {
+  id            String   @id @default(cuid())
+  name          String
+  tokenHash     String   @unique
+  tokenPrefix   String
+  tokenLastFour String
+  createdById   String
+  createdBy     User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  scopes        String[]
+  isActive      Boolean  @default(true)
+  revokedAt     DateTime?
+  lastUsedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  propertyScopes ApiTokenPropertyScope[]
+
+  @@index([createdById, isActive])
+  @@index([tokenPrefix])
+}
+
+model ApiTokenPropertyScope {
+  id         String   @id @default(cuid())
+  apiTokenId String
+  propertyId String
+  apiToken   ApiToken @relation(fields: [apiTokenId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([apiTokenId, propertyId])
+  @@index([propertyId])
+}
+
+model WebhookEndpoint {
+  id             String   @id @default(cuid())
+  name           String
+  url            String
+  secretHash     String
+  secretLastFour String
+  eventTypes     String[]
+  isEnabled      Boolean  @default(true)
+  createdById    String
+  createdBy      User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  lastDeliveryAt DateTime?
+  failureCount   Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  propertyScopes WebhookPropertyScope[]
+
+  @@index([createdById, isEnabled])
+}
+
+model WebhookPropertyScope {
+  id         String          @id @default(cuid())
+  webhookId  String
+  propertyId String
+  webhook    WebhookEndpoint @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  property   Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdAt  DateTime        @default(now())
+
+  @@unique([webhookId, propertyId])
+  @@index([propertyId])
+}
+
+model Vendor {
+  id                 String   @id @default(cuid())
+  name               String
+  trade              String
+  phone              String?
+  email              String?
+  notes              String?
+  isActive           Boolean  @default(true)
+  isPreferred        Boolean  @default(false)
+  insuranceExpiresAt DateTime?
+  licenseExpiresAt   DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  contacts           VendorContact[]
+  serviceAreas       VendorServiceArea[]
+  assignments        VendorAssignment[]
+
+  @@index([isActive, trade, name])
+  @@index([isPreferred, trade])
+}
+
+model VendorContact {
+  id        String   @id @default(cuid())
+  vendorId  String
+  vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  name      String
+  role      String?
+  phone     String?
+  email     String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId, name])
+}
+
+model VendorServiceArea {
+  id         String   @id @default(cuid())
+  vendorId   String
+  propertyId String
+  vendor     Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([vendorId, propertyId])
+  @@index([propertyId])
+}
+
+model VendorAssignment {
+  id            String        @id @default(cuid())
+  vendorId      String
+  vendor        Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  propertyId    String
+  property      Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  itemId        String
+  item          MakeReadyItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  trade         String
+  status        String        @default("REQUESTED")
+  scheduledDate DateTime?
+  dueDate       DateTime?
+  completedAt   DateTime?
+  notes         String?
+  costEstimate  Float?
+  invoiceRef    String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([propertyId, status, dueDate])
+  @@index([itemId, status])
+  @@index([vendorId, status])
+  @@index([scheduledDate])
+  @@index([dueDate])
+}
+
+model UserCapacity {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultDailyHours   Float    @default(8)
+  tradeCategories     String[] @default([])
+  unavailableDays     Json     @default("[]")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([defaultDailyHours])
+}
+
+model WorkAssignmentBlock {
+  id             String        @id @default(cuid())
+  assignedUserId String
+  assignedUser   User          @relation(fields: [assignedUserId], references: [id], onDelete: Cascade)
+  propertyId     String
+  property       Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  itemId         String
+  item           MakeReadyItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  category       String
+  plannedDate    DateTime
+  estimatedHours Float         @default(1)
+  actualHours    Float?
+  status         String        @default("PLANNED")
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([propertyId, plannedDate])
+  @@index([assignedUserId, plannedDate])
+  @@index([itemId, status])
+  @@index([status, plannedDate])
+}
+
+model PropertyMap {
+  id           String   @id @default(cuid())
+  propertyId   String
+  property     Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name         String
+  originalName String?
+  storedName   String?
+  mimeType     String?
+  sizeBytes    Int?
+  width        Int?
+  height       Int?
+  notes        String?
+  isActive     Boolean  @default(true)
+  isArchived   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  locations    UnitMapLocation[]
+
+  @@index([propertyId, isActive, isArchived])
+}
+
+model UnitMapLocation {
+  id           String      @id @default(cuid())
+  propertyId   String
+  property     Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitId       String
+  unit         Unit        @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  mapId        String
+  map          PropertyMap @relation(fields: [mapId], references: [id], onDelete: Cascade)
+  xPercent     Float
+  yPercent     Float
+  labelXPercent Float?
+  labelYPercent Float?
+  building     String?
+  area         String?
+  floor        String?
+  isActive     Boolean     @default(true)
+  isArchived   Boolean     @default(false)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([mapId, unitId])
+  @@index([propertyId, isActive, isArchived])
+  @@index([unitId])
+  @@index([area])
+}
+
+model PropertyDailyMetricSnapshot {
+  id                    String   @id @default(cuid())
+  propertyId            String
+  property              Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  date                  DateTime
+  activeTurns           Int      @default(0)
+  vacant                Int      @default(0)
+  ntv                   Int      @default(0)
+  ready                 Int      @default(0)
+  down                  Int      @default(0)
+  overdue               Int      @default(0)
+  highRisk              Int      @default(0)
+  averageDaysVacant     Float    @default(0)
+  moveInsNext7Days      Int      @default(0)
+  completedTurnsCount   Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([propertyId, date])
+  @@index([date])
+  @@index([propertyId, date])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  tokenHash    String   @unique
+  csrfToken    String   @default("")
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+  userAgent    String?
+  ipAddress    String?
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model UserPropertyAccess {
+  id         String   @id @default(cuid())
+  userId     String
+  propertyId String
+  role       UserRole
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, propertyId])
+}
+
+model AuditLog {
+  id          String        @id @default(cuid())
+  actorUserId String?
+  entityType  String
+  entityId    String?
+  action      String
+  message     String
+  propertyId  String?
+  metadata    Json?
+  ipAddress   String?
+  createdAt   DateTime      @default(now())
+  actorUser   User?         @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  property    Property?     @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([propertyId, createdAt])
+  @@index([action, ipAddress, createdAt])
+}
+
+model LabelDefinition {
+  id        String   @id @default(cuid())
+  fieldKey  String
+  value     String
+  color     String
+  textColor String   @default("#0b1020")
+  sortOrder Int      @default(0)
+  isArchived Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([fieldKey, value])
+}
+
+model BoardColumnDefinition {
+  fieldKey  String   @id
+  label     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BoardSection {
+  id          String   @id @default(cuid())
+  propertyId  String
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  key         String
+  sectionType String
+  displayName String
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([propertyId, key])
+  @@unique([propertyId, sectionType])
+  @@index([propertyId, isActive, sortOrder])
+}
+
+model ScheduleTrack {
+  id                String   @id @default(cuid())
+  sourceField       String   @unique
+  displayName       String
+  colorBasis        String   @default("NEUTRAL")
+  colorSourceField  String?
+  fixedColor        String?
+  groupingMode      String   @default("NONE")
+  visibilityFilter  Json?
+  overdueEnabled    Boolean  @default(true)
+  moveInSoonEnabled Boolean  @default(true)
+  isEnabled         Boolean  @default(true)
+  isArchived        Boolean  @default(false)
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([isArchived, isEnabled, sortOrder])
+}
+
+model SavedView {
+  id             String   @id @default(cuid())
+  ownerUserId    String?
+  ownerUser      User?    @relation(fields: [ownerUserId], references: [id], onDelete: SetNull)
+  name           String
+  module         String
+  viewType       String   @default("table")
+  filters        Json
+  sorts          Json?
+  grouping       Json?
+  visibleColumns Json?
+  isShared       Boolean  @default(false)
+  isDefault      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([module, isShared, createdAt])
+  @@index([ownerUserId, module, createdAt])
+}
+
+model Notification {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  propertyId String?
+  property  Property?      @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  itemId    String?
+  item      MakeReadyItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  category  String
+  title     String
+  message   String
+  dedupeKey String?
+  isRead    Boolean        @default(false)
+  readAt    DateTime?
+  createdAt DateTime       @default(now())
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, isRead, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model NotificationPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, category])
+}
+
+model AutomationRule {
+  id          String          @id @default(cuid())
+  templateId  String?
+  name        String
+  description String?
+  propertyId  String?
+  property    Property?       @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  triggerType String
+  enabled     Boolean         @default(true)
+  isArchived  Boolean         @default(false)
+  conditions  Json
+  actions     Json
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  runs        AutomationRun[]
+  cooldowns   AutomationCooldown[]
+
+  @@index([propertyId, enabled, isArchived])
+  @@index([templateId, propertyId, isArchived])
+}
+
+model AutomationRun {
+  id          String          @id @default(cuid())
+  ruleId      String
+  itemId      String?
+  success     Boolean         @default(true)
+  message     String
+  context     Json?
+  runType     String          @default("EVENT")
+  checkedCount Int?
+  matchedCount Int?
+  actionCount Int?
+  warnings    Json?
+  errors      Json?
+  startedAt   DateTime?
+  completedAt DateTime?
+  ranAt       DateTime        @default(now())
+  rule        AutomationRule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  item        MakeReadyItem?  @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@index([ruleId, ranAt])
+  @@index([itemId, ranAt])
+}
+
+model AutomationCooldown {
+  id            String         @id @default(cuid())
+  ruleId        String
+  itemId        String
+  actionKey     String
+  lastAppliedAt DateTime       @default(now())
+  rule          AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  item          MakeReadyItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, itemId, actionKey])
+  @@index([lastAppliedAt])
+}
+
+model OperationalLibraryPack {
+  id          String   @id @default(cuid())
+  packKey     String   @unique
+  name        String
+  version     Int
+  category    String?
+  description String?
+  source      String   @default("IMPORTED")
+  manifest    Json
+  installedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  items       OperationalLibraryPackItem[]
+
+  @@index([source, category, name])
+}
+
+model OperationalLibraryPackItem {
+  id        String   @id @default(cuid())
+  packId    String
+  pack      OperationalLibraryPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+  itemType  String
+  itemKey   String
+  targetId  String?
+  status    String   @default("INSTALLED")
+  createdAt DateTime @default(now())
+
+  @@unique([packId, itemType, itemKey])
+  @@index([itemType, targetId])
+}
+
+model PropertyTemplate {
+  id                 String   @id @default(cuid())
+  name               String
+  description        String?
+  category           String?
+  version            Int      @default(1)
+  notes              String?
+  sourcePropertyId   String?
+  sourcePropertyCode String?
+  includeConfig      Json     @default("{}")
+  manifest           Json
+  isArchived         Boolean  @default(false)
+  createdById        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([isArchived, category, name])
+  @@index([sourcePropertyId])
+}
+
+model CustomField {
+  id          String            @id @default(cuid())
+  module      String            @default("make-ready")
+  fieldKey    String            @unique
+  label       String
+  fieldType   CustomFieldType
+  description String?
+  sortOrder   Int               @default(0)
+  isArchived  Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  options     CustomFieldOption[]
+  values      CustomFieldValue[]
+
+  @@index([module, isArchived, sortOrder])
+}
+
+model CustomFieldOption {
+  id          String      @id @default(cuid())
+  customFieldId String
+  customField CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+  label       String
+  color       String
+  sortOrder   Int         @default(0)
+  isArchived  Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([customFieldId, label])
+  @@index([customFieldId, isArchived, sortOrder])
+}
+
+model CustomFieldValue {
+  id            String        @id @default(cuid())
+  customFieldId String
+  itemId        String
+  customField   CustomField   @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+  item          MakeReadyItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  value         Json
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([customFieldId, itemId])
+  @@index([itemId])
+}
+
+model RefrigerantLog {
+  id                   String   @id @default(cuid())
+  propertyId           String
+  property             Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  systemUnit           String
+  refrigerantType      String
+  cylinderSerialNumber String?
+  startingWeight       Float?
+  amountAdded          Float?
+  amountRecovered      Float?
+  currentBalance       Float?
+  tech                 String?
+  loggedAt             DateTime
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model PoolChemicalLog {
+  id               String   @id @default(cuid())
+  propertyId       String
+  property         Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  poolName         String
+  loggedAt         DateTime
+  freeChlorine     Float?
+  totalChlorine    Float?
+  ph               Float?
+  alkalinity       Float?
+  cya              Float?
+  calciumHardness  Float?
+  temperature      Float?
+  notes            String?
+  correctiveAction String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model PestIssue {
+  id            String   @id @default(cuid())
+  propertyId    String
+  property      Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  location      String
+  issueType     String
+  reportedAt    DateTime
+  treatmentDate DateTime?
+  followUpDate  DateTime?
+  vendor        String?
+  status        String
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model PropertyNote {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  title      String
+  body       String
+  noteType   String   @default("GENERAL")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model ChecklistTemplate {
+  id         String          @id @default(cuid())
+  propertyId String?
+  property   Property?       @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  name       String
+  scope      String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  items      ChecklistItem[]
+  instances  ChecklistInstance[]
+
+  @@index([propertyId, name])
+}
+
+model ChecklistItem {
+  id          String            @id @default(cuid())
+  templateId  String
+  template    ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  label       String
+  notes       String?
+  sortOrder   Int               @default(0)
+  required    Boolean           @default(true)
+  dueOffsetDays Int?
+  tradeCategory String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model ItemComment {
+  id           String          @id @default(cuid())
+  itemId       String
+  item         MakeReadyItem   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  propertyId   String
+  property     Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  authorUserId String?
+  author       User?           @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  authorName   String
+  body         String
+  category     String          @default("UPDATE")
+  isDeleted    Boolean         @default(false)
+  editedAt     DateTime?
+  createdAt    DateTime        @default(now())
+  attachments  ItemAttachment[]
+
+  @@index([itemId, createdAt])
+  @@index([itemId, isDeleted, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model ItemAttachment {
+  id           String        @id @default(cuid())
+  itemId       String
+  item         MakeReadyItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  propertyId   String
+  property     Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  commentId    String?
+  comment      ItemComment?  @relation(fields: [commentId], references: [id], onDelete: SetNull)
+  uploadedById String?
+  uploadedBy   User?         @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploaderName String
+  originalName String
+  storedName   String        @unique
+  mimeType     String
+  sizeBytes    Int
+  note         String?
+  createdAt    DateTime      @default(now())
+
+  @@index([itemId, createdAt])
+  @@index([itemId, commentId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model ChecklistInstance {
+  id         String                 @id @default(cuid())
+  itemId     String
+  item       MakeReadyItem          @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  templateId String?
+  template   ChecklistTemplate?     @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  name       String
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+  items      ChecklistInstanceItem[]
+
+  @@index([itemId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model ChecklistInstanceItem {
+  id            String             @id @default(cuid())
+  instanceId    String
+  instance      ChecklistInstance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  title         String
+  notes         String?
+  sortOrder     Int                @default(0)
+  required      Boolean            @default(true)
+  dueOffsetDays Int?
+  tradeCategory String?
+  completed     Boolean            @default(false)
+  completedAt   DateTime?
+  completedById String?
+  completedBy   User?              @relation(fields: [completedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([instanceId, sortOrder])
+  @@index([instanceId, completed, sortOrder])
+}
