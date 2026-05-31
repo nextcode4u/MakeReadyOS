@@ -22,7 +22,9 @@ This inventory captures the current MakeReadyOS architecture so future work can 
 - `planning.ts`: scoped in-house workload planning, scheduled coverage, move-in coverage gaps, and unscheduled work buckets.
 - `operationalLibrary.ts`: versioned operational library pack preview/install.
 - `backupTransfer.ts`: native MakeReadyOS JSON backup/export/import.
-- `integrations.ts`: API token management and webhook endpoint registration scaffold.
+- `integrations.ts`: API token management, webhook endpoint registration, signed dry-run/queued test payloads, and delivery-attempt history.
+- `openapi.ts`: lightweight OpenAPI 3.1 baseline served at `/api/openapi.json`.
+- `runWebhookDeliveries.ts`: explicit script runner for queued webhook attempts with HMAC signing, timeout, and bounded retry/backoff.
 - `meta.ts`: app metadata used by the frontend shell.
 
 ## API Libraries
@@ -69,7 +71,7 @@ This inventory captures the current MakeReadyOS architecture so future work can 
 - Vendors: `Vendor`, `VendorContact`, `VendorServiceArea`, `VendorAssignment`.
 - Workload planning: `UserCapacity`, `WorkAssignmentBlock`.
 - Property maps: `PropertyMap`, `UnitMapLocation`.
-- Extension scaffold: `WebhookEndpoint`, `WebhookPropertyScope`.
+- Extension scaffold: `WebhookEndpoint`, `WebhookPropertyScope`, `WebhookDeliveryAttempt`.
 - Future/placeholder modules: `RefrigerantLog`, `PoolChemicalLog`, `PestIssue`, `PropertyNote`.
 
 ## Background And Root Scripts
@@ -124,4 +126,4 @@ This inventory captures the current MakeReadyOS architecture so future work can 
 - Webhook delivery has no queue/retry worker.
 - Upload storage is local filesystem only.
 - Offline sync is not implemented.
-- The Vite bundle currently emits a chunk-size warning.
+- The web build lazy-loads secondary workspaces and separates React/query/vendor chunks; the previous Vite main chunk-size warning has been removed.

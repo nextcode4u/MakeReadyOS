@@ -1,6 +1,6 @@
 # Frog Pond
 
-Frog Pond is a whimsical operational visualization inspired by monday.com's llama farm. It does not replace the table, dashboard, schedule, or item drawer. It gives managers and teams a quick visual read on live make-ready conditions.
+Frog Pond is a whimsical operational visualization layered on top of real make-ready data. It does not replace the table, dashboard, schedule, or item drawer. It gives managers and teams a quick visual read on live make-ready conditions.
 
 ## Runtime Assets
 

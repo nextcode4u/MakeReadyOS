@@ -127,6 +127,16 @@ export async function analyticsSummary(wherePropertyId: { in: string[] } | strin
   const completedThisMonth = completed.filter((entry) => entry.completedAt! >= monthStart).length;
   const durations = completed.map((entry) => daysBetween(entry.item.vacatedDate ?? entry.item.createdAt, entry.completedAt)).filter((value): value is number => value !== null);
   const activeItems = items.filter((item) => !item.isArchived);
+  const riskReasons = activeItems.flatMap((item) => Array.isArray(item.riskReasons) ? item.riskReasons as Array<{ category?: string }> : []);
+  const riskByCategory = riskReasons.reduce<Record<string, number>>((acc, reason) => {
+    if (reason.category) acc[reason.category] = (acc[reason.category] ?? 0) + 1;
+    return acc;
+  }, {});
+  const riskByLevel = activeItems.reduce<Record<string, number>>((acc, item) => {
+    acc[item.riskLevel] = (acc[item.riskLevel] ?? 0) + 1;
+    return acc;
+  }, {});
+  const completedWithMissedReadyDate = completed.filter((entry) => entry.item.makeReadyDate && entry.completedAt! > entry.item.makeReadyDate).length;
   const unitGroups = new Map<string, typeof items>();
   for (const item of items) {
     const key = item.unitId ?? `${item.propertyId}:${item.unitNumber}`;
@@ -160,7 +170,12 @@ export async function analyticsSummary(wherePropertyId: { in: string[] } | strin
       completedThisMonth,
       overdue: activeItems.filter((item) => item.overdue).length,
       highRisk: activeItems.filter((item) => ["HIGH", "CRITICAL"].includes(item.riskLevel)).length,
+      criticalRisk: activeItems.filter((item) => item.riskLevel === "CRITICAL").length,
+      slaMisses: completedWithMissedReadyDate,
+      staleRiskItems: activeItems.filter((item) => riskReasonsForItem(item).some((reason) => reason.category === "STALE_ACTIVITY")).length,
     },
+    riskByLevel,
+    riskByCategory,
     propertyComparison: activeItems.reduce<Record<string, { active: number; overdue: number; highRisk: number; averageDaysVacant: number }>>((acc, item) => {
       const key = item.property.code;
       const current = acc[key] ?? { active: 0, overdue: 0, highRisk: 0, averageDaysVacant: 0 };
@@ -199,4 +214,8 @@ export async function analyticsSummary(wherePropertyId: { in: string[] } | strin
           : 0,
       })),
   };
+}
+
+function riskReasonsForItem(item: { riskReasons: unknown }) {
+  return Array.isArray(item.riskReasons) ? item.riskReasons as Array<{ category?: string }> : [];
 }

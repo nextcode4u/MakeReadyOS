@@ -7,7 +7,7 @@ import { automationRuleInputSchema, validateRuleReferences } from "../lib/automa
 import { bundledOperationalLibraryPacks } from "../lib/operationalLibrary.js";
 import { prisma } from "../lib/prisma.js";
 
-const packSchema = z.object({
+export const operationalLibraryPackSchema = z.object({
   format: z.literal("makereadyos.libraryPack"),
   version: z.literal(1),
   packKey: z.string().trim().min(3).max(120).regex(/^[a-z0-9][a-z0-9._-]*$/),
@@ -91,14 +91,14 @@ const packSchema = z.object({
   }).optional(),
 }).strict();
 
-const packRequestSchema = z.object({
+export const operationalLibraryPackRequestSchema = z.object({
   packKey: z.string().optional(),
   pack: z.unknown().optional(),
 }).refine((input) => Boolean(input.packKey) !== Boolean(input.pack), {
   message: "Provide either packKey or pack",
 });
 
-type ParsedPack = z.infer<typeof packSchema>;
+type ParsedPack = z.infer<typeof operationalLibraryPackSchema>;
 type SummaryBucket = { created: number; skipped: number; conflicts: number; errors: string[] };
 type LibrarySummary = Record<string, SummaryBucket>;
 
@@ -126,7 +126,7 @@ function rejectExecutablePack(input: unknown) {
 
 function parsePack(input: unknown): ParsedPack {
   rejectExecutablePack(input);
-  return packSchema.parse(input);
+  return operationalLibraryPackSchema.parse(input);
 }
 
 function bundledPack(packKey: string) {
@@ -134,7 +134,7 @@ function bundledPack(packKey: string) {
 }
 
 async function packFromRequest(body: unknown) {
-  const request = packRequestSchema.parse(body);
+  const request = operationalLibraryPackRequestSchema.parse(body);
   if (request.packKey) {
     const pack = bundledPack(request.packKey);
     if (!pack) throw new Error("Library pack not found");

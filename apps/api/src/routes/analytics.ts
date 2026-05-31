@@ -4,8 +4,8 @@ import { requireManagerOrAdmin, scopedAllowedPropertyIds } from "../lib/auth.js"
 import { analyticsSummary, completionDateForItem, runAnalyticsSnapshot } from "../lib/analytics.js";
 import { prisma } from "../lib/prisma.js";
 
-const propertyQuerySchema = z.object({ propertyId: z.string().optional() });
-const snapshotQuerySchema = z.object({
+export const analyticsPropertyQuerySchema = z.object({ propertyId: z.string().optional() });
+export const analyticsSnapshotQuerySchema = z.object({
   propertyId: z.string().optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
@@ -30,7 +30,7 @@ function turnDuration(item: { createdAt: Date; vacatedDate?: Date | null; update
 
 export async function analyticsRoutes(app: FastifyInstance) {
   app.get("/analytics/summary", async (request, reply) => {
-    const query = propertyQuerySchema.parse(request.query);
+    const query = analyticsPropertyQuerySchema.parse(request.query);
     const accessible = scopedAllowedPropertyIds(request);
     if (query.propertyId && accessible !== null && !accessible.includes(query.propertyId)) {
       reply.code(403);
@@ -40,7 +40,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
   });
 
   app.get("/analytics/snapshots", async (request, reply) => {
-    const query = snapshotQuerySchema.parse(request.query);
+    const query = analyticsSnapshotQuerySchema.parse(request.query);
     const accessible = scopedAllowedPropertyIds(request);
     if (query.propertyId && accessible !== null && !accessible.includes(query.propertyId)) {
       reply.code(403);
@@ -67,7 +67,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
   });
 
   app.post("/analytics/snapshot/run", { preHandler: requireManagerOrAdmin }, async (request, reply) => {
-    const query = propertyQuerySchema.parse(request.query);
+    const query = analyticsPropertyQuerySchema.parse(request.query);
     const accessible = scopedAllowedPropertyIds(request);
     if (query.propertyId && accessible !== null && !accessible.includes(query.propertyId)) {
       reply.code(403);

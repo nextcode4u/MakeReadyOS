@@ -9,20 +9,20 @@ import { applyRules, computeDerivedFields, evaluateRuleConditions } from "../lib
 import { prisma } from "../lib/prisma.js";
 import { executeScheduledAutomationRules } from "../lib/scheduledAutomations.js";
 
-const updateSchema = automationRuleBaseSchema.partial().omit({ enabled: true });
-const toggleSchema = z.object({ enabled: z.boolean() });
-const listSchema = z.object({ includeArchived: z.coerce.boolean().default(false) });
-const installTemplateSchema = z.object({
+export const automationUpdateSchema = automationRuleBaseSchema.partial().omit({ enabled: true });
+export const automationToggleSchema = z.object({ enabled: z.boolean() });
+export const automationListSchema = z.object({ includeArchived: z.coerce.boolean().default(false) });
+export const automationInstallTemplateSchema = z.object({
   propertyId: z.string().nullable().optional(),
   enabled: z.boolean().default(false),
 });
-const runQuerySchema = z.object({
+export const automationRunQuerySchema = z.object({
   ruleId: z.string().optional(),
   itemId: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),
 });
-const previewSchema = z.object({
+export const automationPreviewSchema = z.object({
   ruleId: z.string().min(1).optional(),
   draft: createSchema.optional(),
   propertyId: z.string().nullable().optional(),
@@ -116,6 +116,17 @@ function describeAction(action: z.infer<typeof actionSchema>, customFieldLabels:
   if (action.type === "addAuditNote") {
     return { type: action.type, proposedValue: action.value, summary: "Add activity note" };
   }
+  if (action.type === "setDateFromField") {
+    const direction = action.offsetDays >= 0 ? "+" : "";
+    return {
+      type: action.type,
+      sourceField: action.sourceField,
+      targetField: action.targetField,
+      offsetDays: action.offsetDays,
+      proposedValue: `${action.sourceField} ${direction}${action.offsetDays} operating day${Math.abs(action.offsetDays) === 1 ? "" : "s"}`,
+      summary: `Set ${action.targetField} from ${action.sourceField} ${direction}${action.offsetDays} operating day${Math.abs(action.offsetDays) === 1 ? "" : "s"}`,
+    };
+  }
   if (action.type === "setPriority") {
     return { type: action.type, proposedValue: action.value, summary: `Set priority to ${action.value}` };
   }
@@ -129,7 +140,7 @@ function customValuesByField(values: Array<{ customFieldId: string; value: Prism
 export async function automationRoutes(app: FastifyInstance) {
   app.get("/automations", async (request, reply) => {
     if (!(await ensureManager(request, reply))) return;
-    const query = listSchema.parse(request.query);
+    const query = automationListSchema.parse(request.query);
     const rules = await prisma.automationRule.findMany({
       where: {
         ...ruleScopeWhere(request.currentUser),
@@ -165,7 +176,7 @@ export async function automationRoutes(app: FastifyInstance) {
     if (!(await ensureManager(request, reply))) return;
     const user = request.currentUser!;
     const { templateId } = z.object({ templateId: z.string() }).parse(request.params);
-    const payload = installTemplateSchema.parse(request.body);
+    const payload = automationInstallTemplateSchema.parse(request.body);
     const propertyId = payload.propertyId ?? null;
     if (!(await canChangePropertyRule(request, reply, propertyId))) return;
     const template = await templateById(templateId);
@@ -258,7 +269,7 @@ export async function automationRoutes(app: FastifyInstance) {
 
   app.post("/automations/preview", async (request, reply) => {
     if (!(await ensureManager(request, reply))) return;
-    const parsedRequest = previewSchema.safeParse(request.body);
+    const parsedRequest = automationPreviewSchema.safeParse(request.body);
     if (!parsedRequest.success) {
       reply.code(400);
       return { message: "Invalid automation preview request", errors: parsedRequest.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })) };
@@ -319,7 +330,7 @@ export async function automationRoutes(app: FastifyInstance) {
     const items = await prisma.makeReadyItem.findMany({
       where: propertyScope.length > 0 ? { AND: propertyScope } : undefined,
       include: {
-        property: { select: { id: true, code: true, name: true } },
+        property: { select: { id: true, code: true, name: true, operatingCalendar: true } },
         customFieldValues: true,
       },
       orderBy: [{ property: { code: "asc" } }, { unitNumber: "asc" }],
@@ -346,10 +357,10 @@ export async function automationRoutes(app: FastifyInstance) {
         enabled: true,
         conditions: definition.conditions,
         actions: definition.actions,
-      }], customValues);
+      }], customValues, { operatingCalendar: item.property.operatingCalendar });
       return [{
         itemId: item.id,
-        property: item.property,
+        property: { id: item.property.id, code: item.property.code, name: item.property.name },
         unitNumber: item.unitNumber,
         triggerSummary: `${definition.triggerType} evaluated against current values`,
         conditionSummary,
@@ -429,7 +440,7 @@ export async function automationRoutes(app: FastifyInstance) {
     if (!(await ensureManager(request, reply))) return;
     const user = request.currentUser!;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const payload = updateSchema.parse(request.body);
+    const payload = automationUpdateSchema.parse(request.body);
     const existing = await prisma.automationRule.findUnique({ where: { id }, include: ruleInclude });
     if (!existing || existing.isArchived || !(await canChangePropertyRule(request, reply, existing.propertyId))) {
       if (!reply.sent) reply.code(404).send({ message: "Automation rule not found" });
@@ -484,7 +495,7 @@ export async function automationRoutes(app: FastifyInstance) {
     if (!(await ensureManager(request, reply))) return;
     const user = request.currentUser!;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const payload = toggleSchema.parse(request.body);
+    const payload = automationToggleSchema.parse(request.body);
     const existing = await prisma.automationRule.findUnique({ where: { id } });
     if (!existing || existing.isArchived) {
       reply.code(404);
@@ -530,7 +541,7 @@ export async function automationRoutes(app: FastifyInstance) {
   app.get("/automations/runs", async (request, reply) => {
     if (!(await ensureManager(request, reply))) return;
     const user = request.currentUser!;
-    const query = runQuerySchema.parse(request.query);
+    const query = automationRunQuerySchema.parse(request.query);
     const propertyIds = allowedPropertyIds(user);
     const where: Prisma.AutomationRunWhereInput = {
       ruleId: query.ruleId,

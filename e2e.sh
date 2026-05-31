@@ -49,7 +49,11 @@ mkdir -p "$LOG_DIR"
   echo
 
   echo "Installing Playwright browser runtime if needed"
-  npx playwright install --with-deps chromium
+  if [ "${PLAYWRIGHT_INSTALL_DEPS:-0}" = "1" ]; then
+    npx playwright install --with-deps chromium
+  else
+    npx playwright install chromium
+  fi
   echo
 
   echo "Resetting docker compose stack for clean browser tests"

@@ -4,10 +4,14 @@ import type { ApiTokenScope, Property, WebhookEventType } from "../lib/api";
 import {
   createApiToken,
   createWebhook,
+  createWebhookTestPayload,
+  getWebhookDeliveries,
+  getWebhookHealth,
   getIntegrations,
   revokeApiToken,
   revokeWebhook,
 } from "../lib/api";
+import { formatDateTime } from "../lib/dateTime";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusState } from "./StatusState";
 
@@ -36,6 +40,8 @@ export function IntegrationsPanel({ properties }: Props) {
     eventTypes: defaultWebhookEvents,
     propertyIds: [] as string[],
   });
+  const [selectedWebhookId, setSelectedWebhookId] = useState<string | null>(null);
+  const [webhookMessage, setWebhookMessage] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<null | { type: "token" | "webhook"; id: string; label: string }>(null);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["integrations"] });
@@ -72,12 +78,40 @@ export function IntegrationsPanel({ properties }: Props) {
     onSuccess: refresh,
     onError: (error) => setErrorMessage(error instanceof Error ? error.message : "Unable to disable webhook"),
   });
+  const webhookTestMutation = useMutation({
+    mutationFn: ({ id, eventType, enqueue }: { id: string; eventType?: WebhookEventType; enqueue: boolean }) =>
+      createWebhookTestPayload(id, { eventType, enqueue }),
+    onSuccess: async (result) => {
+      setErrorMessage(null);
+      setWebhookMessage(`${result.delivery.status}: ${result.notice}`);
+      await queryClient.invalidateQueries({ queryKey: ["webhook-deliveries", result.delivery.webhookId] });
+      await queryClient.invalidateQueries({ queryKey: ["webhook-health", result.delivery.webhookId] });
+      await refresh();
+    },
+    onError: (error) => setErrorMessage(error instanceof Error ? error.message : "Unable to create webhook test payload"),
+  });
 
   const scopes = integrations.data?.scopes ?? [];
   const webhookEvents = integrations.data?.webhookEvents ?? [];
   const apiTokens = integrations.data?.apiTokens ?? [];
   const webhooks = integrations.data?.webhooks ?? [];
-  const busy = tokenMutation.isPending || webhookMutation.isPending || revokeTokenMutation.isPending || revokeWebhookMutation.isPending;
+  const selectedWebhook = webhooks.find((webhook) => webhook.id === selectedWebhookId) ?? null;
+  const webhookDeliveries = useQuery({
+    queryKey: ["webhook-deliveries", selectedWebhookId],
+    queryFn: () => getWebhookDeliveries(selectedWebhookId ?? "", { limit: 10, offset: 0 }),
+    enabled: Boolean(selectedWebhookId),
+  });
+  const webhookHealthDetails = useQuery({
+    queryKey: ["webhook-health", selectedWebhookId],
+    queryFn: () => getWebhookHealth(selectedWebhookId ?? ""),
+    enabled: Boolean(selectedWebhookId),
+  });
+  const busy =
+    tokenMutation.isPending ||
+    webhookMutation.isPending ||
+    revokeTokenMutation.isPending ||
+    revokeWebhookMutation.isPending ||
+    webhookTestMutation.isPending;
 
   const activeTokenCount = useMemo(() => apiTokens.filter((token) => token.isActive).length, [apiTokens]);
 
@@ -116,6 +150,15 @@ export function IntegrationsPanel({ properties }: Props) {
         : [...current.propertyIds, propertyId],
     }));
   };
+
+  const webhookHealth = (webhook: (typeof webhooks)[number]) => {
+    if (!webhook.isEnabled) return { label: "DISABLED", className: "status-muted" };
+    if (webhook.failureCount > 0) return { label: "FAILING", className: "status-danger" };
+    if ((webhook.deliveryAttemptCount ?? 0) === 0) return { label: "READY", className: "status-info" };
+    return { label: "HEALTHY", className: "status-active" };
+  };
+
+  const formatDate = (value: string | null) => formatDateTime(value);
 
   return (
     <section className="admin-card" data-testid="integrations-panel">
@@ -194,7 +237,7 @@ export function IntegrationsPanel({ properties }: Props) {
 
         <section className="admin-section">
           <h3>Register Webhook</h3>
-          <p className="helper-text">Webhook delivery is scaffolded for now. Registered endpoints are stored for future signed delivery.</p>
+          <p className="helper-text">Webhook endpoints can queue signed payloads for the explicit run-webhooks.sh delivery runner.</p>
           {createdWebhookSecret ? (
             <div className="admin-message success">
               <strong>Webhook secret, shown once:</strong>
@@ -276,7 +319,7 @@ export function IntegrationsPanel({ properties }: Props) {
                 <p className="helper-text">
                   {token.tokenPrefix}...{token.tokenLastFour} · {token.scopes.join(", ")} · {token.properties.length ? token.properties.map((property) => property.code).join(", ") : "all properties"}
                 </p>
-                <p className="helper-text">Last used: {token.lastUsedAt ? new Date(token.lastUsedAt).toLocaleString() : "never"}</p>
+                <p className="helper-text">Last used: {formatDate(token.lastUsedAt)}</p>
               </div>
               <div className="row-actions">
                 <span className={`status-pill ${token.isActive ? "status-active" : "status-muted"}`}>{token.isActive ? "ACTIVE" : "REVOKED"}</span>
@@ -302,29 +345,107 @@ export function IntegrationsPanel({ properties }: Props) {
         {webhooks.length === 0 ? (
           <div className="admin-empty-state">No webhook endpoints are registered.</div>
         ) : (
-          webhooks.map((webhook) => (
-            <div key={webhook.id} className="integration-row" data-testid="webhook-row">
-              <div>
-                <strong>{webhook.name}</strong>
-                <p className="helper-text">{webhook.url}</p>
-                <p className="helper-text">
-                  {webhook.eventTypes.join(", ")} · secret ends {webhook.secretLastFour} · failures {webhook.failureCount}
-                </p>
+          webhooks.map((webhook) => {
+            const health = webhookHealth(webhook);
+            return (
+              <div key={webhook.id} className="integration-row integration-row-stacked" data-testid="webhook-row">
+                <div className="integration-row-main">
+                  <div>
+                    <strong>{webhook.name}</strong>
+                    <p className="helper-text">{webhook.url}</p>
+                    <p className="helper-text">
+                      {webhook.eventTypes.join(", ")} · secret ends {webhook.secretLastFour} ·{" "}
+                      {webhook.properties.length ? webhook.properties.map((property) => property.code).join(", ") : "all properties"}
+                    </p>
+                    <p className="helper-text">
+                      Last delivered: {formatDate(webhook.lastDeliveryAt)} · attempts {webhook.deliveryAttemptCount ?? 0} · failures {webhook.failureCount}
+                    </p>
+                  </div>
+                  <div className="row-actions">
+                    <span className={`status-pill ${health.className}`}>{health.label}</span>
+                    <button
+                      className="button button-secondary"
+                      data-testid="webhook-deliveries-toggle"
+                      onClick={() => setSelectedWebhookId((current) => (current === webhook.id ? null : webhook.id))}
+                    >
+                      {selectedWebhookId === webhook.id ? "Hide deliveries" : "View deliveries"}
+                    </button>
+                    <button
+                      className="button"
+                      disabled={busy || !webhook.isEnabled}
+                      onClick={() => webhookTestMutation.mutate({ id: webhook.id, eventType: webhook.eventTypes[0], enqueue: false })}
+                    >
+                      Dry-run test
+                    </button>
+                    <button
+                      className="button button-primary"
+                      disabled={busy || !webhook.isEnabled}
+                      onClick={() => webhookTestMutation.mutate({ id: webhook.id, eventType: webhook.eventTypes[0], enqueue: true })}
+                    >
+                      Queue test
+                    </button>
+                    {webhook.isEnabled ? (
+                      <button
+                        className="button button-danger"
+                        onClick={() => setConfirm({ type: "webhook", id: webhook.id, label: webhook.name })}
+                      >
+                        Disable
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
               </div>
-              <div className="row-actions">
-                <span className={`status-pill ${webhook.isEnabled ? "status-active" : "status-muted"}`}>{webhook.isEnabled ? "ENABLED" : "DISABLED"}</span>
-                {webhook.isEnabled ? (
-                  <button
-                    className="button button-danger"
-                    onClick={() => setConfirm({ type: "webhook", id: webhook.id, label: webhook.name })}
-                  >
-                    Disable
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
+        {webhookMessage ? <div className="admin-message success">{webhookMessage}</div> : null}
+        {selectedWebhook ? (
+          <div className="webhook-delivery-panel" data-testid="webhook-delivery-panel">
+            <div className="admin-section-head">
+              <div>
+                <h4>Recent deliveries: {selectedWebhook.name}</h4>
+                <p className="helper-text">Queued payloads are delivered only when `./run-webhooks.sh` runs.</p>
+              </div>
+              <button className="button button-secondary" onClick={() => webhookDeliveries.refetch()} disabled={webhookDeliveries.isFetching}>
+                Refresh
+              </button>
+            </div>
+            {webhookDeliveries.isLoading ? <StatusState title="Loading deliveries" description="Fetching recent webhook attempts." /> : null}
+            {webhookHealthDetails.data ? (
+              <div className="webhook-health-summary" data-testid="webhook-health-summary">
+                <span>Health: <strong>{webhookHealthDetails.data.health.state}</strong></span>
+                <span>Pending: <strong>{webhookHealthDetails.data.health.pendingCount}</strong></span>
+                <span>Total attempts: <strong>{webhookHealthDetails.data.health.total}</strong></span>
+                <span>Failures: <strong>{webhookHealthDetails.data.health.failureCount}</strong></span>
+                {webhookHealthDetails.data.health.oldestPendingAt ? <span>Oldest pending: {formatDate(webhookHealthDetails.data.health.oldestPendingAt)}</span> : null}
+              </div>
+            ) : null}
+            {webhookDeliveries.isError ? (
+              <div className="admin-message error">Unable to load webhook deliveries.</div>
+            ) : webhookDeliveries.data && webhookDeliveries.data.deliveries.length === 0 ? (
+              <div className="admin-empty-state">No delivery attempts recorded yet. Use Dry-run test or Queue test to create one.</div>
+            ) : webhookDeliveries.data ? (
+              <div className="webhook-delivery-list">
+                {webhookDeliveries.data.deliveries.map((delivery) => (
+                  <div key={delivery.id} className="webhook-delivery-row">
+                    <div>
+                      <strong>{delivery.eventType}</strong>
+                      <p className="helper-text">
+                        {delivery.deliveryId} · created {formatDate(delivery.createdAt)} · attempt {delivery.attemptNumber}
+                      </p>
+                      {delivery.errorMessage ? <p className="helper-text webhook-error-text">{delivery.errorMessage}</p> : null}
+                    </div>
+                    <div className="webhook-delivery-meta">
+                      <span className={`status-pill status-${delivery.status.toLowerCase().replace("_", "-")}`}>{delivery.status}</span>
+                      <span>{delivery.responseStatus ? `HTTP ${delivery.responseStatus}` : "No response"}</span>
+                      <span>{delivery.deliveredAt ? `Delivered ${formatDate(delivery.deliveredAt)}` : delivery.nextAttemptAt ? `Retry ${formatDate(delivery.nextAttemptAt)}` : ""}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <ConfirmDialog

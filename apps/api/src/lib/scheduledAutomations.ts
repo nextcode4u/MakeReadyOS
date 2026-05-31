@@ -74,7 +74,7 @@ export async function executeScheduledAutomationRules(options: {
         }
         const items = await prisma.makeReadyItem.findMany({
           where: constraints.length > 0 ? { AND: constraints } : undefined,
-          include: { customFieldValues: true },
+          include: { customFieldValues: true, property: { include: { operatingCalendar: true } } },
         });
         checkedCount = items.length;
 
@@ -87,7 +87,7 @@ export async function executeScheduledAutomationRules(options: {
             enabled: true,
             conditions: parsed.data.conditions,
             actions: parsed.data.actions,
-          }], customValues);
+          }], customValues, { operatingCalendar: item.property.operatingCalendar });
           if (simulation.logs.length === 0) continue;
           matchedCount += 1;
 

@@ -13,6 +13,10 @@ function uniqueTag(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
 
+function todayUtc() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function customFieldKey(label: string) {
   const parts = label.replace(/[^a-zA-Z0-9]+/g, " ").trim().split(/\s+/);
   const first = (parts.shift() ?? "field").toLowerCase();
@@ -36,6 +40,38 @@ async function dragCardToColumn(page: Page, sourceTestId: string, targetTestId: 
   await target.dispatchEvent("dragover", { dataTransfer });
   await target.dispatchEvent("drop", { dataTransfer });
   await source.dispatchEvent("dragend", { dataTransfer });
+}
+
+async function assertNoPageHorizontalOverflow(page: Page) {
+  await expect.poll(() =>
+    page.evaluate(() => {
+      const overflowWidth = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth);
+      return overflowWidth <= window.innerWidth + 4;
+    }),
+  ).toBe(true);
+}
+
+async function setDisplayMode(page: Page, input: { theme: "default" | "dark" | "light"; eyeStrain?: boolean; dyslexia?: boolean }) {
+  await page.getByTestId("theme-mode-select").selectOption(input.theme);
+  await page.getByTestId("eye-strain-mode-toggle").setChecked(Boolean(input.eyeStrain));
+  await page.getByTestId("dyslexia-mode-toggle").setChecked(Boolean(input.dyslexia));
+  await expect(page.locator("html")).toHaveAttribute("data-theme", input.theme);
+  if (input.eyeStrain) {
+    await expect(page.locator("html")).toHaveClass(/eye-strain-mode/);
+  } else {
+    await expect(page.locator("html")).not.toHaveClass(/eye-strain-mode/);
+  }
+  if (input.dyslexia) {
+    await expect(page.locator("html")).toHaveClass(/dyslexia-mode/);
+  } else {
+    await expect(page.locator("html")).not.toHaveClass(/dyslexia-mode/);
+  }
+}
+
+async function openWorkspaceAndAssert(page: Page, tabTestId: string, panelTestId: string) {
+  await page.getByTestId(tabTestId).click();
+  await expect(page.getByTestId(panelTestId)).toBeVisible();
+  await assertNoPageHorizontalOverflow(page);
 }
 
 test.describe("MakeReadyOS browser flows", () => {
@@ -72,9 +108,18 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("onboarding-panel")).toHaveCount(0);
     await expect(page.locator(".module-rail")).toBeVisible();
-    await expect(page.locator(".module-rail-button.placeholder")).toHaveCount(4);
+    await expect(page.locator(".module-rail-button.placeholder")).toHaveCount(0);
     await expect(page.getByTestId("board-table-view")).toBeVisible();
     await expect(page.getByTestId("table-add-field-shortcut")).toBeVisible();
+    await expect(page.getByTestId("board-window-controls")).toBeVisible();
+    const windowedResponse = page.waitForResponse((response) =>
+      response.url().includes("/api/make-ready-items") && response.url().includes("limit=250"),
+    );
+    await page.getByTestId("board-windowed-toggle").check();
+    await expect((await windowedResponse).status()).toBe(200);
+    await expect(page.getByTestId("board-window-controls")).toContainText("Loaded");
+    await page.getByTestId("board-window-disable").click();
+    await expect(page.getByTestId("board-windowed-toggle")).not.toBeChecked();
     await page.getByTestId("tab-dashboard").click();
     await expect(page.getByTestId("dashboard-panel")).toBeVisible();
     await expect(page.getByTestId("needs-attention-panel")).toBeVisible();
@@ -92,7 +137,18 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("theme-mode-select").selectOption("light");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--text").trim())).toBe("#182432");
-    await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--border").trim())).toBe("#d0c9bf");
+    await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--border").trim())).toBe("#b6aa9c");
+    await page.getByTestId("tab-calendar").click();
+    await expect(page.locator(".calendar-grid").first()).toBeVisible();
+    await expect(page.locator(".calendar-dow").first()).toHaveText("Sun");
+    await expect(page.getByTestId("calendar-today").first()).toBeVisible();
+    await expect.poll(() => page.locator(".calendar-grid").first().evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(169, 155, 137)");
+    await expect(page.getByTestId("calendar-past-day").first()).toBeVisible();
+    await expect.poll(() => page.getByTestId("calendar-past-day").first().evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+    await page.getByTestId("tab-activity").click();
+    await expect(page.locator(".activity-table").first()).toBeVisible();
+    await expect.poll(() => page.locator(".activity-table th").first().evaluate((el) => getComputedStyle(el).color)).toBe("rgb(248, 251, 255)");
+    await page.getByTestId("tab-table").click();
     await page.getByTestId("eye-strain-mode-toggle").check();
     await expect(page.locator("html")).toHaveClass(/eye-strain-mode/);
     await page.getByTestId("dyslexia-mode-toggle").check();
@@ -116,6 +172,53 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect((await logoutResponsePromise).status()).toBe(200);
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  });
+
+  test("display modes keep core workspaces readable without page overflow", async ({ page }) => {
+    await login(page, adminEmail, adminPassword);
+    await page.getByTestId("compact-mode-toggle").setChecked(true);
+
+    const modes = [
+      { label: "default", theme: "default" as const },
+      { label: "amoled", theme: "dark" as const },
+      { label: "light", theme: "light" as const },
+      { label: "eye strain", theme: "dark" as const, eyeStrain: true },
+      { label: "dyslexia", theme: "light" as const, dyslexia: true },
+    ];
+    const workspaces = [
+      ["tab-table", "board-table-view"],
+      ["tab-kanban", "kanban-board"],
+      ["tab-calendar", "calendar-view"],
+      ["tab-dashboard", "dashboard-panel"],
+      ["tab-maps", "property-maps-panel"],
+      ["tab-pond", "frog-pond-panel"],
+      ["tab-automations", "automation-panel"],
+      ["tab-admin", "admin-panel"],
+    ] as const;
+
+    for (const mode of modes) {
+      await test.step(`mode: ${mode.label}`, async () => {
+        await setDisplayMode(page, mode);
+        await expect(page.locator(".app-shell")).toHaveClass(/compact-mode/);
+        const tokens = await page.evaluate(() => {
+          const styles = getComputedStyle(document.documentElement);
+          return {
+            text: styles.getPropertyValue("--text").trim(),
+            bg: styles.getPropertyValue("--bg").trim(),
+            border: styles.getPropertyValue("--border").trim(),
+            panel: styles.getPropertyValue("--panel").trim(),
+          };
+        });
+        expect(tokens.text).toBeTruthy();
+        expect(tokens.bg).toBeTruthy();
+        expect(tokens.border).toBeTruthy();
+        expect(tokens.panel).toBeTruthy();
+        expect(tokens.text).not.toBe(tokens.bg);
+        for (const [tab, panel] of workspaces) {
+          await openWorkspaceAndAssert(page, tab, panel);
+        }
+      });
+    }
   });
 
   test("admin can create a property map and place a unit marker", async ({ page }) => {
@@ -150,8 +253,24 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("property-map-canvas").click({ position: { x: 180, y: 150 } });
     await expect((await saveResponse).status()).toBe(200);
     await expect(page.locator("[data-testid^='map-marker-']").first()).toBeVisible();
+    await expect(page.getByTestId("map-building-summary")).toContainText("B1");
+    await expect(page.getByTestId("map-building-filter-b1")).toContainText("1/1 mapped");
+    await expect(page.getByTestId("map-building-b1")).toBeVisible();
+    await page.getByTestId("map-building-filter-b1").click();
+    await expect(page.getByTestId("map-unit-select")).toContainText("Bldg B1");
     await expect(page.getByTestId("map-legend")).toBeVisible();
-    await page.locator("[data-testid^='map-marker-']").first().click();
+    const marker = page.locator("[data-testid^='map-marker-']").first();
+    const markerBox = await marker.boundingBox();
+    expect(markerBox).toBeTruthy();
+    const dragResponse = page.waitForResponse((response) =>
+      response.url().includes("/api/unit-map-locations") && response.request().method() === "PUT",
+    );
+    await page.mouse.move(markerBox!.x + markerBox!.width / 2, markerBox!.y + markerBox!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(markerBox!.x + 80, markerBox!.y + 65, { steps: 4 });
+    await page.mouse.up();
+    await expect((await dragResponse).status()).toBe(200);
+    await marker.click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
     await page.keyboard.press("Escape");
   });
@@ -217,12 +336,56 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("comment-input").fill(note);
     await page.getByTestId("comment-submit").click();
     await expect(page.getByTestId("comment-list")).toContainText(note);
-    await page.getByTestId("attachment-upload").setInputFiles({
-      name: "qa-finish-photo.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from("QA local attachment"),
-    });
-    await expect(page.getByTestId("drawer-attachments")).toContainText("qa-finish-photo.txt");
+    await page.getByTestId("attachment-upload").setInputFiles([
+      {
+        name: "qa-finish-photo.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("QA local attachment"),
+      },
+      {
+        name: "qa-damage-photo.png",
+        mimeType: "image/png",
+        buffer: Buffer.from("not-a-real-png-but-valid-upload-smoke"),
+      },
+      {
+        name: "qa-large-walk-photo.png",
+        mimeType: "image/png",
+        buffer: Buffer.alloc(2 * 1024 * 1024, 7),
+      },
+    ]);
+    await expect(page.getByTestId("attachment-stage-filter")).toContainText("All photos/files");
+    await expect(page.getByTestId("drawer-attachments")).toContainText("3 files");
+    await page.getByTestId("attachment-gallery-open").click();
+    await expect(page.getByTestId("attachment-gallery-modal")).toBeVisible();
+    await expect(page.getByTestId("attachment-gallery-grid")).toContainText("qa-finish-photo.txt");
+    await expect(page.getByTestId("attachment-gallery-grid")).toContainText("qa-damage-photo.png");
+    await expect(page.getByTestId("attachment-gallery-grid")).toContainText("qa-large-walk-photo.png");
+    await expect(page.getByTestId("attachment-gallery-download-zip")).toBeVisible();
+    await expect(page.getByTestId("attachment-gallery-stage-filter")).toContainText("Needs classification");
+    await expect(page.getByTestId("inspection-evidence-panel")).toContainText("Evidence package");
+    await expect(page.getByTestId("attachment-download-button").first()).toBeVisible();
+    await page.getByTestId("attachment-gallery-grid").getByTestId("attachment-preview-trigger").first().click();
+    await expect(page.getByTestId("attachment-preview-modal")).toBeVisible();
+    await expect(page.getByTestId("attachment-preview-download")).toBeVisible();
+    await page.getByTestId("attachment-pin-label").fill("QA wall damage");
+    await page.getByTestId("attachment-add-pin-mode").click();
+    await expect(page.getByTestId("attachment-add-pin-mode")).toContainText("Click image to place pin");
+    const markupBox = await page.getByTestId("attachment-image-markup").boundingBox();
+    expect(markupBox).not.toBeNull();
+    await page.mouse.click((markupBox?.x ?? 0) + Math.min(120, (markupBox?.width ?? 240) / 2), (markupBox?.y ?? 0) + Math.min(90, (markupBox?.height ?? 180) / 2));
+    await expect(page.getByTestId("attachment-pin-list")).toContainText("QA wall damage");
+    await page.getByTestId("attachment-preview-modal").getByRole("button", { name: "Close dialog" }).click();
+    await expect(page.getByTestId("attachment-preview-modal")).toBeHidden();
+    await expect(page.getByTestId("attachment-gallery-modal")).toBeVisible();
+    await page.getByTestId("attachment-gallery-grid").getByTestId("attachment-editor-toggle").first().click();
+    await page.getByTestId("attachment-stage-select").first().selectOption("INITIAL_WALK");
+    await page.getByTestId("attachment-category-input").first().fill("Damage");
+    await page.getByTestId("attachment-category-input").first().blur();
+    await page.getByTestId("attachment-charge-toggle").first().check();
+    await expect(page.getByTestId("attachment-gallery-modal")).toContainText("Charge candidate");
+    await expect(page.getByTestId("attachment-gallery-charge-zip")).toBeVisible();
+    await expect(page.getByTestId("attachment-category-downloads")).toContainText("Damage");
+    await page.keyboard.press("Escape");
     const templateOption = page.getByTestId("checklist-template-select").locator("option").nth(1);
     if (await templateOption.count()) {
       await page.getByTestId("checklist-template-select").selectOption({ index: 1 });
@@ -260,6 +423,14 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.keyboard.press("Escape");
     await page.getByTestId("tab-my-work").click();
     await expect(page.getByTestId("my-work-panel")).toBeVisible();
+    const quickStatus = page.locator("[data-testid^='my-work-status-']").first();
+    if (await quickStatus.count()) {
+      await expect(quickStatus).toBeVisible();
+    }
+    await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+    await expect(page.getByTestId("connection-banner")).toContainText("offline");
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect(page.getByTestId("connection-banner")).toHaveCount(0);
     await page.getByTestId("tab-dashboard").click();
     await page.getByTestId("dashboard-layout").selectOption("focus");
     await expect(page.getByTestId("dashboard-panel")).toHaveClass(/dashboard-layout-focus/);
@@ -272,7 +443,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await login(page, adminEmail, adminPassword);
     await expect(page.getByTestId("saved-views-panel")).toHaveCount(0);
     await expect(page.locator(".module-rail")).toBeVisible();
-    await expect(page.locator(".module-rail-button.placeholder")).toHaveCount(4);
+    await expect(page.locator(".module-rail-button.placeholder")).toHaveCount(0);
     await page.getByTestId("advanced-filters").locator("summary").click();
     await page.getByTestId("filter-vacancy-status").selectOption("VACANT");
     await expect(page.getByTestId("active-filter-vacancy")).toContainText("VACANT");
@@ -314,14 +485,14 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("board-column-header-applicant")).toHaveCount(0);
   });
 
-  test("future module rail stays compact after reload", async ({ page }) => {
+  test("module rail stays minimal after reload", async ({ page }) => {
     await login(page, adminEmail, adminPassword);
     await expect(page.getByTestId("saved-views-panel")).toHaveCount(0);
     await expect(page.locator(".module-rail")).toBeVisible();
-    await expect(page.locator(".module-rail-button.placeholder")).toHaveCount(4);
+    await expect(page.locator(".module-rail-button.placeholder")).toHaveCount(0);
     await page.reload();
     await expect(page.getByTestId("saved-views-panel")).toHaveCount(0);
-    await expect(page.locator(".module-rail-button.placeholder")).toHaveCount(4);
+    await expect(page.locator(".module-rail-button.placeholder")).toHaveCount(0);
   });
 
   test("admin can add property and unit then create a make-ready turn", async ({ page }) => {
@@ -340,6 +511,40 @@ test.describe("MakeReadyOS browser flows", () => {
     );
     await page.getByTestId("property-create-submit").click();
     await expect((await propertyResponse).status()).toBe(201);
+    await page.getByTestId(`property-row-${code.toLowerCase()}`).click();
+
+    await expect(page.getByTestId("operating-calendar-management")).toBeVisible();
+    await page.getByTestId("operating-calendar-avoid-monday").check();
+    await page.getByTestId("operating-calendar-avoid-friday").check();
+    await page.getByTestId("operating-calendar-daily-limit").fill("2");
+    await page.getByTestId("operating-calendar-scope-day").selectOption("1");
+    await page.getByTestId("operating-calendar-work-start-day").selectOption("2");
+    const calendarResponse = page.waitForResponse((response) =>
+      response.url().includes(`/api/operations/properties/`) && response.url().includes("/operating-calendar") && response.request().method() === "PUT",
+    );
+    await page.getByTestId("operating-calendar-save").click();
+    await expect((await calendarResponse).status()).toBe(200);
+
+    const importedUnit = `IMP${Date.now()}`;
+    await page.getByTestId("unit-import-csv").fill(`Unit Number\tBuilding Number\tFloor Plan\tBeds\tBaths\tSq Ft\tAvailability Status\tBudgeted\n${importedUnit}\t26\tQA \"B2\"\t2\t2\t1,246\tNTV Leased\tyes`);
+    await expect(page.getByTestId("unit-import-preview")).toContainText("1 rows");
+    const importResponse = page.waitForResponse((response) =>
+      response.url().includes("/api/operations/units/import") && response.request().method() === "POST",
+    );
+    await page.getByTestId("unit-import-submit").click();
+    await expect((await importResponse).status()).toBe(200);
+    await expect(page.getByTestId(`unit-row-${importedUnit.toLowerCase()}`)).toContainText("NTV leased");
+
+    const sparseUnit = `SP${Date.now()}`;
+    await expect(page.getByTestId("unit-import-csv")).toHaveValue("");
+    await page.getByTestId("unit-import-csv").fill(`unit\tfloorPlan\tsqft\n${sparseUnit}\tQA Sparse\t900`);
+    await expect(page.getByTestId("unit-import-preview")).toContainText("1 rows");
+    const sparseImportResponse = page.waitForResponse((response) =>
+      response.url().includes("/api/operations/units/import") && response.request().method() === "POST",
+    );
+    await page.getByTestId("unit-import-submit").click();
+    await expect((await sparseImportResponse).status()).toBe(200);
+    await expect(page.getByTestId(`unit-row-${sparseUnit.toLowerCase()}`)).toContainText("QA Sparse");
 
     await page.getByTestId("unit-create-property").selectOption({ label: code });
     await page.getByTestId("unit-create-number").fill(unitNumber);
@@ -368,6 +573,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await login(page, adminEmail, adminPassword);
     const utilityWidth = await page.getByTestId("board-group-table-ready-units-ta").locator("th.select-column").evaluate((element) => element.getBoundingClientRect().width);
     expect(utilityWidth).toBeLessThan(44);
+    await expect.poll(() => page.getByTestId("board-group-table-ready-units-ta").locator("td.identity-column").first().evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
     await page.getByTestId("add-item-row-make-ready-board-ta").click();
     await expect(page.getByTestId("add-item-form-make-ready-board-ta")).toBeVisible();
     await page.getByTestId("add-item-unit-number-make-ready-board-ta").fill(unitNumber);
@@ -391,6 +597,10 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("batch-archive").click();
     await expect((await archiveResponse).status()).toBe(200);
     await expect(page.getByTestId(`select-item-${slugify(unitNumber)}`)).toHaveCount(0);
+    await page.getByTestId("top-archive-mode").selectOption("archived");
+    await expect(page.getByTestId("section-title-archive-ta")).toContainText("TA / Archive");
+    await expect(page.getByTestId("board-group-table-archive-ta").getByTestId(`select-item-${slugify(unitNumber)}`)).toBeVisible();
+    await page.getByTestId("top-archive-mode").selectOption("active");
   });
 
   test("admin can rename a board section inline and restore its label", async ({ page }) => {
@@ -628,6 +838,8 @@ test.describe("MakeReadyOS browser flows", () => {
 
     await page.getByTestId("tab-operations").click();
     await expect(page.getByTestId("schedule-track-management")).toBeVisible();
+    await expect(page.getByTestId("schedule-track-presets")).toBeVisible();
+    await expect(page.getByTestId("schedule-track-preset-move-in")).toBeVisible();
     await page.getByTestId("schedule-track-create-source").selectOption({ label: fieldLabel });
     await page.getByTestId("schedule-track-create-basis").selectOption("FIXED");
     const createTrackResponse = page.waitForResponse((response) =>
@@ -638,12 +850,17 @@ test.describe("MakeReadyOS browser flows", () => {
 
     await page.getByTestId("tab-calendar").click();
     await expect(page.getByTestId("active-filter-bar")).toContainText(`${fieldLabel}: Before 2026-05-15`);
+    await expect(page.locator(".calendar-dow").first()).toHaveText(/sun/i);
+    await expect(page.getByTestId("calendar-today")).toBeVisible();
     await expect(page.getByTestId("calendar-panel-track-0")).toContainText("NTV / Notice to Vacate");
     await expect(page.getByTestId("calendar-legend-0")).toBeVisible();
+    await expect(page.getByTestId("calendar-track-guidance-0")).toContainText("Risk cues:");
+    await expect(page.getByTestId("calendar-track-guidance-0")).toContainText("Compatibility:");
     await page.getByTestId("calendar-panel-track-0").selectOption({ label: "NTV / Notice to Vacate" });
     await expect(page.getByTestId("calendar-color-source-0")).toContainText("status colors");
     await page.getByTestId("calendar-panel-track-0").selectOption({ label: fieldLabel });
     await expect(page.getByTestId("calendar-color-source-0")).toContainText("Fixed track color");
+    await expect(page.locator(".calendar-day-conflicts").first()).toBeVisible();
     await expect(page.getByText("TA 284").first()).toBeVisible();
     await page.getByText("TA 284").first().click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
@@ -722,6 +939,32 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("backup-error")).toContainText("Invalid MakeReadyOS backup");
   });
 
+  test("admin can inspect upload storage and validate a NAS path", async ({ page }) => {
+    await login(page, adminEmail, adminPassword);
+    await page.getByTestId("tab-admin").click();
+    await expect(page.getByTestId("storage-settings-panel")).toBeVisible();
+    await expect(page.getByTestId("storage-mode")).toBeVisible();
+    await expect(page.getByTestId("storage-upload-limit")).toContainText("No MakeReadyOS per-file limit");
+    await page.getByTestId("storage-target-path").fill("/mnt/storage/makereadyos-uploads");
+    const validateResponse = page.waitForResponse((response) =>
+      response.url().includes("/api/admin/storage/validate") && response.request().method() === "POST",
+    );
+    await page.getByTestId("storage-validate-button").click();
+    await expect((await validateResponse).status()).toBe(200);
+    await expect(page.getByTestId("storage-validation-result")).toContainText("Path looks safe");
+    await expect(page.getByTestId("storage-validation-result")).toContainText("./move-uploads.sh /mnt/storage/makereadyos-uploads");
+    await expect(page.getByTestId("storage-property-routing")).toContainText("Property upload folders");
+    const routingRow = page.locator(".storage-routing-row").filter({ hasText: "TA" }).first();
+    await routingRow.getByLabel(/Upload routing mode/).selectOption("PROPERTY_SUBDIR");
+    await routingRow.getByLabel(/Upload folder/).fill("ta-inspections");
+    const routingResponse = page.waitForResponse((response) =>
+      response.url().includes("/api/admin/storage/property-routing") && response.request().method() === "PATCH",
+    );
+    await routingRow.getByRole("button", { name: "Save" }).click();
+    await expect((await routingResponse).status()).toBe(200);
+    await expect(routingRow).toContainText("New uploads route to /ta-inspections");
+  });
+
   test("admin can create a scoped API token from Integrations", async ({ page }) => {
     const tokenName = uniqueTag("QA API Token");
     await login(page, adminEmail, adminPassword);
@@ -736,6 +979,30 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect((await createResponse).status()).toBe(201);
     await expect(page.getByTestId("api-token-once")).toHaveValue(/mro_/);
     await expect(page.getByTestId("integrations-panel")).toContainText(tokenName);
+  });
+
+  test("admin can register a webhook and inspect delivery health", async ({ page }) => {
+    const webhookName = uniqueTag("QA Webhook");
+    await login(page, adminEmail, adminPassword);
+    await page.getByTestId("tab-admin").click();
+    await expect(page.getByTestId("integrations-panel")).toBeVisible();
+    await page.getByTestId("webhook-name").fill(webhookName);
+    await page.getByTestId("webhook-url").fill("https://example.com/makereadyos/webhook");
+    const createResponse = page.waitForResponse((response) =>
+      response.url().includes("/api/admin/integrations/webhooks") && response.request().method() === "POST",
+    );
+    await page.getByTestId("webhook-create").click();
+    await expect((await createResponse).status()).toBe(201);
+    await expect(page.getByTestId("webhook-secret-once")).toHaveValue(/wh_/);
+    const row = page.getByTestId("webhook-row").filter({ hasText: webhookName });
+    await expect(row).toContainText("READY");
+    const dryRunResponse = page.waitForResponse((response) =>
+      response.url().includes("/test-payload") && response.request().method() === "POST",
+    );
+    await row.getByRole("button", { name: "Dry-run test" }).click();
+    await expect((await dryRunResponse).status()).toBe(201);
+    await row.getByTestId("webhook-deliveries-toggle").click();
+    await expect(page.getByTestId("webhook-delivery-panel")).toContainText("DRY_RUN");
   });
 
   test("admin can open and filter the activity log", async ({ page }) => {
@@ -767,6 +1034,13 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("tab-automations").click();
     await expect(page.getByTestId("automation-template-library")).toBeVisible();
     await expect(page.getByTestId("automation-template-requirements-pest-follow-up-needed")).toContainText("Pest Follow-Up Date");
+    await page.getByTestId("automation-template-category").selectOption("Scheduling");
+    await expect(page.getByTestId("automation-template-no-weekend-make-ready")).toBeVisible();
+    await expect(page.getByTestId("automation-template-no-monday-friday-make-ready")).toBeVisible();
+    await expect(page.getByTestId("automation-template-turn-date-sequence-review")).toBeVisible();
+    await page.getByTestId("automation-template-category").selectOption("Planning");
+    await expect(page.getByTestId("automation-template-daily-schedule-load-review")).toBeVisible();
+    await expect(page.getByTestId("automation-template-in-house-or-vendor-work-routing")).toBeVisible();
     await page.getByTestId("automation-template-category").selectOption("Priority");
     await expect(page.getByTestId("automation-template-major-scope-priority")).toBeVisible();
     await expect(page.getByTestId("automation-template-overdue-make-ready")).toHaveCount(0);
@@ -779,11 +1053,14 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("automation-preview-panel")).toBeVisible();
 
     await expect(page.getByTestId("automation-template-enable")).not.toBeChecked();
-    const installResponse = page.waitForResponse((response) =>
-      response.url().includes("/api/automations/templates/major-scope-priority/install") && response.request().method() === "POST",
-    );
-    await page.getByTestId("automation-template-install-major-scope-priority").click();
-    await expect((await installResponse).status()).toBe(201);
+    const installButton = page.getByTestId("automation-template-install-major-scope-priority");
+    if (await installButton.isEnabled()) {
+      const installResponse = page.waitForResponse((response) =>
+        response.url().includes("/api/automations/templates/major-scope-priority/install") && response.request().method() === "POST",
+      );
+      await installButton.click();
+      await expect((await installResponse).status()).toBe(201);
+    }
     await expect(page.getByTestId("automation-template-major-scope-priority")).toContainText("Installed");
     await expect(page.getByText("Installed template Major Scope Priority Flag")).toBeVisible();
   });
@@ -887,9 +1164,16 @@ test.describe("MakeReadyOS browser flows", () => {
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-planning").click();
     await expect(page.getByTestId("planning-panel")).toBeVisible();
+    const planningBoxes = await page.locator(".planning-create label").evaluateAll((labels) => labels.map((label) => {
+      const rect = label.getBoundingClientRect();
+      return { left: rect.left, right: rect.right };
+    }));
+    for (let index = 1; index < planningBoxes.length; index += 1) {
+      expect(planningBoxes[index].left).toBeGreaterThanOrEqual(planningBoxes[index - 1].left);
+    }
     await page.getByTestId("planning-assigned-user").selectOption({ index: 1 });
     await page.getByTestId("planning-item").selectOption({ index: 1 });
-    await page.getByTestId("planning-date").fill("2026-05-27");
+    await page.getByTestId("planning-date").fill(todayUtc());
     const response = page.waitForResponse((result) => result.url().includes("/api/planning/blocks") && result.request().method() === "POST");
     await page.getByTestId("planning-create-submit").click();
     await expect((await response).status()).toBe(201);

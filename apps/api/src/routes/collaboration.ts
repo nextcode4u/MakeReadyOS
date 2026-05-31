@@ -1,38 +1,78 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, unlink } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import { unlink } from "node:fs/promises";
+import { basename, extname } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { UserRole } from "@prisma/client";
+import { Prisma, UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import yazl from "yazl";
 import { z } from "zod";
 import { allowedPropertyIds, canCompleteChecklist, canWriteOperations, requireManagerOrAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { notifyAssignedStaff } from "../lib/notifications.js";
 import { prisma } from "../lib/prisma.js";
+import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
+import { queueWebhookEvent } from "../lib/webhookQueue.js";
 
-const uploadDir = resolve(process.env.UPLOAD_DIR || "uploads");
-const maxUploadBytes = Number(process.env.MAX_UPLOAD_MB || 15) * 1024 * 1024;
-const collaborationQuerySchema = z.object({
+const maxUploadMb = Number(process.env.MAX_UPLOAD_MB ?? 0);
+const maxUploadBytes = maxUploadMb > 0 ? maxUploadMb * 1024 * 1024 : null;
+export const collaborationQuerySchema = z.object({
   commentLimit: z.coerce.number().int().min(1).max(100).default(50),
   attachmentLimit: z.coerce.number().int().min(1).max(100).default(50),
   checklistLimit: z.coerce.number().int().min(1).max(100).default(30),
 });
-const allowedAttachmentExtensions = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".pdf", ".txt", ".csv", ".doc", ".docx", ".xls", ".xlsx"]);
+const allowedAttachmentExtensions = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".heic", ".heif", ".bmp", ".tif", ".tiff", ".pdf", ".txt", ".csv", ".doc", ".docx", ".xls", ".xlsx"]);
 const allowedAttachmentTypes = new Set([
-  "image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif",
+  "image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/heic", "image/heif", "image/bmp", "image/tiff",
   "application/pdf", "text/plain", "text/csv",
   "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ]);
-const commentSchema = z.object({
+export const itemCommentInputSchema = z.object({
   body: z.string().trim().min(1).max(4000),
   category: z.string().trim().max(40).optional().default("UPDATE"),
 });
-const attachmentPatchSchema = z.object({
-  note: z.string().trim().max(1000).nullable(),
+export const attachmentPatchSchema = z.object({
+  note: z.string().trim().max(1000).nullable().optional(),
+  inspectionStage: z.enum(["GENERAL", "NTV", "VACATED", "INITIAL_WALK", "SCOPE", "TRASH_OUT", "CLEANING", "PAINT", "FLOORING", "DAMAGE", "FINAL_WALK", "MOVE_IN_READY"]).optional(),
+  category: z.string().trim().max(80).nullable().optional(),
+  chargeCandidate: z.boolean().optional(),
+  chargeNote: z.string().trim().max(1000).nullable().optional(),
+  chargePriceSheetItemId: z.string().nullable().optional(),
+  chargeQuantity: z.number().min(0).max(10000).nullable().optional(),
+  chargeEstimatedCents: z.number().int().min(0).max(100000000).nullable().optional(),
+  markupAnnotations: z.array(z.object({
+    id: z.string().trim().min(1).max(80),
+    x: z.number().min(0).max(100),
+    y: z.number().min(0).max(100),
+    label: z.string().trim().min(1).max(120),
+    note: z.string().trim().max(500).nullable().optional(),
+    category: z.string().trim().max(80).nullable().optional(),
+    chargeCandidate: z.boolean().optional().default(false),
+  })).max(100).nullable().optional(),
 });
-const templateSchema = z.object({
+export const attachmentArchiveQuerySchema = z.object({
+  stage: z.enum(["ALL", "GENERAL", "NTV", "VACATED", "INITIAL_WALK", "SCOPE", "TRASH_OUT", "CLEANING", "PAINT", "FLOORING", "DAMAGE", "FINAL_WALK", "MOVE_IN_READY", "CHARGE_CANDIDATES"]).optional().default("ALL"),
+  category: z.string().trim().max(80).optional(),
+});
+export const chargePriceSheetQuerySchema = z.object({
+  propertyId: z.string().optional(),
+  includeArchived: z.coerce.boolean().optional().default(false),
+});
+export const chargePriceSheetCreateSchema = z.object({
+  propertyId: z.string(),
+  name: z.string().trim().min(1).max(160),
+  category: z.string().trim().max(80).nullable().optional(),
+  unitLabel: z.string().trim().max(40).nullable().optional(),
+  defaultCents: z.number().int().min(0).max(100000000).nullable().optional(),
+  description: z.string().trim().max(1000).nullable().optional(),
+});
+export const chargePriceSheetPatchSchema = chargePriceSheetCreateSchema.omit({ propertyId: true }).partial().extend({
+  isActive: z.boolean().optional(),
+  isArchived: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(100000).optional(),
+});
+export const checklistTemplateInputSchema = z.object({
   propertyId: z.string().nullable().optional(),
   name: z.string().trim().min(2).max(120),
   scope: z.string().trim().max(80).nullable().optional(),
@@ -66,14 +106,25 @@ function sanitizeFilename(filename: string) {
   return basename(filename).replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 180) || "attachment";
 }
 
-async function removeStoredAttachment(path: string) {
-  try {
-    await unlink(path);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw error;
-    }
+function zipSafePath(...parts: string[]) {
+  return parts
+    .map((part) => sanitizeFilename(part).replace(/^\.+$/, "_"))
+    .filter(Boolean)
+    .join("/");
+}
+
+function uniqueZipPath(path: string, used: Set<string>) {
+  if (!used.has(path)) {
+    used.add(path);
+    return path;
   }
+  const extension = extname(path);
+  const base = extension ? path.slice(0, -extension.length) : path;
+  let index = 2;
+  while (used.has(`${base}-${index}${extension}`)) index += 1;
+  const next = `${base}-${index}${extension}`;
+  used.add(next);
+  return next;
 }
 
 export async function collaborationRoutes(app: FastifyInstance) {
@@ -92,6 +143,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
       prisma.itemComment.count({ where: { itemId: id, isDeleted: false } }),
       prisma.itemAttachment.findMany({
         where: { itemId: id, commentId: null },
+        include: { chargePriceSheetItem: true },
         orderBy: { createdAt: "desc" },
         take: query.attachmentLimit,
       }),
@@ -125,12 +177,25 @@ export async function collaborationRoutes(app: FastifyInstance) {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const item = await getScopedItem(request, reply, id);
     if (!item) return;
-    const input = commentSchema.parse(request.body);
+    const input = itemCommentInputSchema.parse(request.body);
     const user = request.currentUser!;
     const comment = await prisma.itemComment.create({
       data: { itemId: id, propertyId: item.propertyId, authorUserId: user.id, authorName: user.fullName, body: input.body, category: input.category },
     });
     await writeAuditLog({ request, actorUserId: user.id, propertyId: item.propertyId, entityType: "ITEM_COMMENT", entityId: comment.id, action: "ITEM_COMMENT_CREATED", message: `Added update to ${item.unitNumber}` });
+    await queueWebhookEvent({
+      eventType: "comment.created",
+      propertyId: item.propertyId,
+      itemId: item.id,
+      actorUserId: user.id,
+      data: {
+        id: comment.id,
+        itemId: item.id,
+        unitNumber: item.unitNumber,
+        category: comment.category,
+        authorName: comment.authorName,
+      },
+    });
     if (item.assignedTech !== user.fullName) {
       await notifyAssignedStaff({
         assignedTech: item.assignedTech,
@@ -145,6 +210,68 @@ export async function collaborationRoutes(app: FastifyInstance) {
     return { comment };
   });
 
+  app.get("/charge-price-sheet-items", async (request, reply) => {
+    const query = chargePriceSheetQuerySchema.parse(request.query);
+    const scopedProperties = allowedPropertyIds(request.currentUser!);
+    if (query.propertyId && scopedProperties && !scopedProperties.includes(query.propertyId)) {
+      return reply.code(403).send({ message: "Property access required" });
+    }
+    const items = await prisma.chargePriceSheetItem.findMany({
+      where: {
+        ...(query.propertyId ? { propertyId: query.propertyId } : scopedProperties ? { propertyId: { in: scopedProperties } } : {}),
+        ...(query.includeArchived ? {} : { isArchived: false }),
+      },
+      include: { property: { select: { id: true, code: true, name: true } } },
+      orderBy: [{ property: { code: "asc" } }, { sortOrder: "asc" }, { name: "asc" }],
+    });
+    return { items };
+  });
+
+  app.post("/charge-price-sheet-items", { preHandler: requireManagerOrAdmin }, async (request, reply) => {
+    const user = request.currentUser!;
+    const input = chargePriceSheetCreateSchema.parse(request.body);
+    const scopedProperties = allowedPropertyIds(user);
+    if (scopedProperties && !scopedProperties.includes(input.propertyId)) return reply.code(403).send({ message: "Property access required" });
+    const item = await prisma.chargePriceSheetItem.create({
+      data: {
+        propertyId: input.propertyId,
+        name: input.name,
+        category: input.category?.trim() || null,
+        unitLabel: input.unitLabel?.trim() || null,
+        defaultCents: input.defaultCents ?? null,
+        description: input.description?.trim() || null,
+      },
+    });
+    await writeAuditLog({ request, actorUserId: user.id, propertyId: input.propertyId, entityType: "CHARGE_PRICE_SHEET_ITEM", entityId: item.id, action: "CHARGE_PRICE_SHEET_ITEM_CREATED", message: `Created charge estimate price-sheet item ${item.name}` });
+    reply.code(201);
+    return { item };
+  });
+
+  app.patch("/charge-price-sheet-items/:id", { preHandler: requireManagerOrAdmin }, async (request, reply) => {
+    const user = request.currentUser!;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const input = chargePriceSheetPatchSchema.parse(request.body);
+    const existing = await prisma.chargePriceSheetItem.findUnique({ where: { id } });
+    if (!existing) return reply.code(404).send({ message: "Price-sheet item not found" });
+    const scopedProperties = allowedPropertyIds(user);
+    if (scopedProperties && !scopedProperties.includes(existing.propertyId)) return reply.code(403).send({ message: "Property access required" });
+    const item = await prisma.chargePriceSheetItem.update({
+      where: { id },
+      data: {
+        ...(Object.prototype.hasOwnProperty.call(input, "name") ? { name: input.name } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "category") ? { category: input.category?.trim() || null } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "unitLabel") ? { unitLabel: input.unitLabel?.trim() || null } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "defaultCents") ? { defaultCents: input.defaultCents ?? null } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "description") ? { description: input.description?.trim() || null } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "isActive") ? { isActive: input.isActive } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "isArchived") ? { isArchived: input.isArchived } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "sortOrder") ? { sortOrder: input.sortOrder } : {}),
+      },
+    });
+    await writeAuditLog({ request, actorUserId: user.id, propertyId: existing.propertyId, entityType: "CHARGE_PRICE_SHEET_ITEM", entityId: id, action: "CHARGE_PRICE_SHEET_ITEM_UPDATED", message: `Updated charge estimate price-sheet item ${item.name}` });
+    return { item };
+  });
+
   app.patch("/make-ready-items/:itemId/comments/:commentId", async (request, reply) => {
     if (!canWriteOperations(request.currentUser!)) return reply.code(403).send({ message: "This role cannot edit updates" });
     const { itemId, commentId } = z.object({ itemId: z.string(), commentId: z.string() }).parse(request.params);
@@ -156,7 +283,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
     if (existing.authorUserId !== user.id && user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
       return reply.code(403).send({ message: "Only the author or a manager can edit this update" });
     }
-    const input = commentSchema.pick({ body: true }).parse(request.body);
+    const input = itemCommentInputSchema.pick({ body: true }).parse(request.body);
     const comment = await prisma.itemComment.update({ where: { id: commentId }, data: { body: input.body, editedAt: new Date() } });
     await writeAuditLog({ request, actorUserId: user.id, propertyId: item.propertyId, entityType: "ITEM_COMMENT", entityId: comment.id, action: "ITEM_COMMENT_UPDATED", message: `Edited update on ${item.unitNumber}` });
     return { comment };
@@ -189,15 +316,19 @@ export async function collaborationRoutes(app: FastifyInstance) {
     const extension = extname(safeName).toLowerCase().slice(0, 12);
     if (!allowedAttachmentExtensions.has(extension) || !allowedAttachmentTypes.has(file.mimetype)) {
       file.file.resume();
-      return reply.code(415).send({ message: "Unsupported attachment type. Upload an image, PDF, text/CSV, Word, or Excel file." });
+      return reply.code(415).send({ message: "Unsupported attachment type. Upload JPG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF, PDF, text/CSV, Word, or Excel files." });
     }
-    const storedName = `${randomUUID()}${extension}`;
-    await mkdir(uploadDir, { recursive: true });
-    const path = join(uploadDir, storedName);
+    const storedName = routedStoredName(item.property, `${randomUUID()}${extension}`);
+    await ensureStoredUploadParent(storedName);
+    const path = resolveStoredUploadPath(storedName);
     await pipeline(file.file, (await import("node:fs")).createWriteStream(path));
     if (file.file.truncated) {
       await unlink(path).catch(() => undefined);
-      return reply.code(413).send({ message: `Attachment exceeds ${Math.floor(maxUploadBytes / 1024 / 1024)} MB limit` });
+      return reply.code(413).send({
+        message: maxUploadBytes
+          ? `Attachment exceeds ${Math.floor(maxUploadBytes / 1024 / 1024)} MB limit`
+          : "Attachment was truncated by an upstream upload limit. Upload fewer files at once or increase the reverse-proxy/body-size limit.",
+      });
     }
     const user = request.currentUser!;
     const attachment = await prisma.itemAttachment.create({
@@ -213,6 +344,20 @@ export async function collaborationRoutes(app: FastifyInstance) {
       },
     });
     await writeAuditLog({ request, actorUserId: user.id, propertyId: item.propertyId, entityType: "ITEM_ATTACHMENT", entityId: attachment.id, action: "ITEM_ATTACHMENT_UPLOADED", message: `Uploaded ${safeName} to ${item.unitNumber}` });
+    await queueWebhookEvent({
+      eventType: "attachment.created",
+      propertyId: item.propertyId,
+      itemId: item.id,
+      actorUserId: user.id,
+      data: {
+        id: attachment.id,
+        itemId: item.id,
+        unitNumber: item.unitNumber,
+        originalName: attachment.originalName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+      },
+    });
     reply.code(201);
     return { attachment };
   });
@@ -226,7 +371,36 @@ export async function collaborationRoutes(app: FastifyInstance) {
     reply.header("Content-Type", attachment.mimeType);
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("Content-Disposition", `${attachment.mimeType.startsWith("image/") ? "inline" : "attachment"}; filename="${attachment.originalName.replace(/"/g, "")}"`);
-    return reply.send(createReadStream(join(uploadDir, attachment.storedName)));
+    return reply.send(createReadStream(resolveStoredUploadPath(attachment.storedName)));
+  });
+
+  app.get("/make-ready-items/:id/attachments/archive", async (request, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const query = attachmentArchiveQuerySchema.parse(request.query);
+    const item = await getScopedItem(request, reply, id);
+    if (!item) return;
+    const where = {
+      itemId: id,
+      commentId: null,
+      ...(query.stage === "ALL" ? {} : query.stage === "CHARGE_CANDIDATES" ? { chargeCandidate: true } : { inspectionStage: query.stage }),
+      ...(query.category ? { category: query.category } : {}),
+    };
+    const attachments = await prisma.itemAttachment.findMany({ where, orderBy: { createdAt: "asc" } });
+    if (!attachments.length) return reply.code(404).send({ message: "No attachments match this filter" });
+    const zip = new yazl.ZipFile();
+    const usedPaths = new Set<string>();
+    for (const attachment of attachments) {
+      const stage = attachment.inspectionStage || "GENERAL";
+      const category = attachment.category || "Uncategorized";
+      const zipPath = uniqueZipPath(zipSafePath(stage, category, attachment.originalName), usedPaths);
+      zip.addFile(resolveStoredUploadPath(attachment.storedName), zipPath);
+    }
+    zip.end();
+    const scope = query.category || query.stage.toLowerCase().replace(/_/g, "-");
+    reply.header("Content-Type", "application/zip");
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`${item.unitNumber}-${scope}-attachments.zip`)}"`);
+    return reply.send(zip.outputStream);
   });
 
   app.patch("/attachments/:id", async (request, reply) => {
@@ -241,8 +415,28 @@ export async function collaborationRoutes(app: FastifyInstance) {
     if (attachment.uploadedById !== user.id && user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
       return reply.code(403).send({ message: "Only the uploader or a manager can update this attachment" });
     }
-    const updated = await prisma.itemAttachment.update({ where: { id }, data: { note: input.note?.trim() || null } });
-    await writeAuditLog({ request, actorUserId: user.id, propertyId: attachment.propertyId, entityType: "ITEM_ATTACHMENT", entityId: id, action: "ITEM_ATTACHMENT_NOTE_UPDATED", message: `Updated photo note for ${attachment.originalName} on ${item.unitNumber}` });
+    if (input.chargePriceSheetItemId) {
+      const priceSheetItem = await prisma.chargePriceSheetItem.findUnique({ where: { id: input.chargePriceSheetItemId } });
+      if (!priceSheetItem || priceSheetItem.propertyId !== attachment.propertyId || priceSheetItem.isArchived) {
+        return reply.code(400).send({ message: "Price-sheet item is not available for this attachment property" });
+      }
+    }
+    const updated = await prisma.itemAttachment.update({
+      where: { id },
+      include: { chargePriceSheetItem: true },
+      data: {
+        ...(Object.prototype.hasOwnProperty.call(input, "note") ? { note: input.note?.trim() || null } : {}),
+        ...(input.inspectionStage ? { inspectionStage: input.inspectionStage } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "category") ? { category: input.category?.trim() || null } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "chargeCandidate") ? { chargeCandidate: input.chargeCandidate } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "chargeNote") ? { chargeNote: input.chargeNote?.trim() || null } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "chargePriceSheetItemId") ? { chargePriceSheetItemId: input.chargePriceSheetItemId || null } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "chargeQuantity") ? { chargeQuantity: input.chargeQuantity ?? null } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "chargeEstimatedCents") ? { chargeEstimatedCents: input.chargeEstimatedCents ?? null } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, "markupAnnotations") ? { markupAnnotations: input.markupAnnotations ?? Prisma.JsonNull } : {}),
+      },
+    });
+    await writeAuditLog({ request, actorUserId: user.id, propertyId: attachment.propertyId, entityType: "ITEM_ATTACHMENT", entityId: id, action: "ITEM_ATTACHMENT_METADATA_UPDATED", message: `Updated photo metadata for ${attachment.originalName} on ${item.unitNumber}` });
     return { attachment: updated };
   });
 
@@ -257,9 +451,23 @@ export async function collaborationRoutes(app: FastifyInstance) {
     if (attachment.uploadedById !== user.id && user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
       return reply.code(403).send({ message: "Only the uploader or a manager can remove this attachment" });
     }
-    await removeStoredAttachment(join(uploadDir, attachment.storedName));
+    await removeStoredUpload(attachment.storedName);
     await prisma.itemAttachment.delete({ where: { id } });
     await writeAuditLog({ request, actorUserId: user.id, propertyId: attachment.propertyId, entityType: "ITEM_ATTACHMENT", entityId: id, action: "ITEM_ATTACHMENT_DELETED", message: `Removed ${attachment.originalName} from ${item.unitNumber}` });
+    await queueWebhookEvent({
+      eventType: "attachment.deleted",
+      propertyId: attachment.propertyId,
+      itemId: item.id,
+      actorUserId: user.id,
+      data: {
+        id,
+        itemId: item.id,
+        unitNumber: item.unitNumber,
+        originalName: attachment.originalName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+      },
+    });
     return { ok: true };
   });
 
@@ -275,7 +483,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
 
   app.post("/checklist-templates", { preHandler: requireManagerOrAdmin }, async (request, reply) => {
     const user = request.currentUser!;
-    const input = templateSchema.parse(request.body);
+    const input = checklistTemplateInputSchema.parse(request.body);
     const scopedProperties = allowedPropertyIds(user);
     if (input.propertyId && scopedProperties && !scopedProperties.includes(input.propertyId)) return reply.code(403).send({ message: "Property access required" });
     const template = await prisma.checklistTemplate.create({
@@ -330,6 +538,21 @@ export async function collaborationRoutes(app: FastifyInstance) {
       include: { completedBy: { select: { fullName: true } } },
     });
     await writeAuditLog({ request, actorUserId: user.id, propertyId: item.propertyId, entityType: "CHECKLIST_ITEM", entityId: id, action: completed ? "CHECKLIST_ITEM_COMPLETED" : "CHECKLIST_ITEM_REOPENED", message: `${completed ? "Completed" : "Reopened"} ${checklistItem.title} on ${item.unitNumber}` });
+    if (completed) {
+      await queueWebhookEvent({
+        eventType: "checklist.completed",
+        propertyId: item.propertyId,
+        itemId: item.id,
+        actorUserId: user.id,
+        data: {
+          checklistItemId: checklistItem.id,
+          title: checklistItem.title,
+          itemId: item.id,
+          unitNumber: item.unitNumber,
+          completedBy: user.fullName,
+        },
+      });
+    }
     return { checklistItem };
   });
 

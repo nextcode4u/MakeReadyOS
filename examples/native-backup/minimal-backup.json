@@ -1,0 +1,82 @@
+{
+  "format": "makereadyos.backup",
+  "version": 1,
+  "exportedAt": "2026-05-31T00:00:00.000Z",
+  "source": {
+    "app": "MakeReadyOS",
+    "schemaVersion": "example"
+  },
+  "data": {
+    "properties": [
+      {
+        "code": "DEMO",
+        "name": "Demo Property",
+        "occupancyGoalPercent": 95,
+        "uploadStorageMode": "DEFAULT",
+        "uploadSubdir": null,
+        "isActive": true
+      }
+    ],
+    "floorPlans": [],
+    "boardOptions": [],
+    "boardColumns": [],
+    "boardSections": [
+      {
+        "propertyCode": "DEMO",
+        "key": "MAKE_READY",
+        "sectionType": "MAKE_READY",
+        "displayName": "Make Ready",
+        "sortOrder": 10,
+        "isActive": true
+      }
+    ],
+    "scheduleTracks": [],
+    "operatingCalendars": [],
+    "riskPolicies": [],
+    "units": [
+      {
+        "propertyCode": "DEMO",
+        "number": "101",
+        "floorPlan": null,
+        "building": null,
+        "area": null,
+        "floor": null,
+        "availabilityStatus": "VACANT",
+        "budgeted": true,
+        "isActive": true
+      }
+    ],
+    "makeReadyItems": [
+      {
+        "portableKey": "DEMO|MAKE_READY|101||",
+        "propertyCode": "DEMO",
+        "unitNumber": "101",
+        "boardGroup": "MAKE_READY",
+        "floorPlan": null,
+        "applicant": null,
+        "assignedTech": null,
+        "vacancyStatus": "VACANT",
+        "makeReadyStatus": null,
+        "moveOutDate": null,
+        "moveInDate": null,
+        "isArchived": false
+      }
+    ],
+    "customFields": [],
+    "customFieldOptions": [],
+    "customFieldValues": [],
+    "savedViews": [],
+    "automationRules": [],
+    "checklistTemplates": [],
+    "chargePriceSheetItems": [],
+    "comments": [],
+    "vendors": [],
+    "vendorAssignments": [],
+    "propertyMaps": [],
+    "propertyMapAreas": [],
+    "unitMapLocations": [],
+    "checklistInstances": [],
+    "notes": [],
+    "propertyTemplates": []
+  }
+}

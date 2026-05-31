@@ -54,6 +54,8 @@ The script is Docker Compose friendly, waits for API readiness, invokes the API 
 
 All analytics routes respect property scope. Snapshot execution is restricted to `ADMIN` and `MANAGER`.
 
+The summary response includes current turn metrics, completed-turn counts, property comparisons, 30-day snapshot trends, recurring issue signals, recent completed turns, risk level counts, risk category counts, stale-risk counts, and ready-date miss counts. Risk category data is derived from persisted item risk reasons so it stays compatible with existing board filters and item drawer explanations.
+
 ## Backup Decision
 
 Daily snapshots are derived analytics. They are included in PostgreSQL disaster-recovery backups, but intentionally excluded from native JSON transfer for now. A destination instance can regenerate snapshots from its operational records.
@@ -62,4 +64,4 @@ Daily snapshots are derived analytics. They are included in PostgreSQL disaster-
 
 - Trend history starts only after snapshots are run.
 - Unit history is derived from existing records and may not reconstruct field-level changes before audit coverage existed.
-- Vendor performance and SLA analytics are foundational only; deeper reporting should build on these snapshots and timelines.
+- Vendor performance, category-level SLA trend history, and technician throughput are foundational only; deeper reporting should build on these snapshots and timelines.

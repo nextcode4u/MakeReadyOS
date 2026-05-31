@@ -1,5 +1,6 @@
 import type { AnalyticsSummaryResponse, DashboardResponse } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
+import { formatDateTime } from "../lib/dateTime";
 import { StatusState } from "./StatusState";
 
 type Props = {
@@ -27,6 +28,10 @@ const kpiLabels: Record<string, string> = {
   vendorFollowUpNeeded: "Vendor Follow-Up", blockedByVendor: "Blocked By Vendor",
   mappedUnits: "Mapped Units", unmappedUnits: "Unmapped Units", highRiskMappedUnits: "High-Risk Mapped",
   plannedWorkBlocks: "Planned Assignments", unplannedMoveIns: "Move-Ins Not Covered",
+  totalUnits: "Total Units", occupiedUnits: "Occupied Units", occupancyPercent: "Occupancy %",
+  occupancyGoalPercent: "Occupancy Goal %", vacantReadyUnits: "Vacant Ready Stock",
+  directoryVacantLeased: "Directory Vacant Leased", directoryNtv: "Directory NTV",
+  directoryNtvLeased: "Directory NTV Leased", readyStock: "Ready Stock",
 };
 
 function Breakdown({ title, data, type, onDrillDown }: { title: string; data: Record<string, number>; type: "tech" | "property"; onDrillDown: Props["onDrillDown"] }) {
@@ -97,11 +102,13 @@ function AnalyticsPanel({ data, loading }: { data?: AnalyticsSummaryResponse; lo
   return (
     <section className="dashboard-chart analytics-panel" data-testid="analytics-panel">
       <h3>Historical Analytics</h3>
-      <p className="muted">Data as of {new Date(data.generatedAt).toLocaleString()}</p>
+      <p className="muted">Data as of {formatDateTime(data.generatedAt)}</p>
       <div className="analytics-metrics">
         <span><strong>{data.metrics.averageTurnDuration}</strong> Avg turn days</span>
         <span><strong>{data.metrics.completedThisWeek}</strong> Completed this week</span>
         <span><strong>{data.metrics.completedThisMonth}</strong> Completed this month</span>
+        <span><strong>{data.metrics.slaMisses}</strong> Ready-date misses</span>
+        <span><strong>{data.metrics.staleRiskItems}</strong> Stale risk items</span>
       </div>
       {data.trends.length ? (
         <div className="analytics-trend" aria-label="Overdue and high-risk trend">
@@ -115,6 +122,13 @@ function AnalyticsPanel({ data, loading }: { data?: AnalyticsSummaryResponse; lo
           {data.recurringProblemUnits.slice(0, 4).map((entry) => <span key={`${entry.property.id}-${entry.unitNumber}`}><strong>{entry.property.code} {entry.unitNumber}</strong> recurring signals: {entry.score}</span>)}
         </div>
       ) : null}
+      {Object.keys(data.riskByCategory ?? {}).length ? (
+        <div className="analytics-risk-categories" aria-label="Risk category counts">
+          {Object.entries(data.riskByCategory).slice(0, 6).map(([category, count]) => (
+            <span key={category}><strong>{category.replace(/_/g, " ")}</strong>{count}</span>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -125,7 +139,7 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
   return (
     <section className={`dashboard-shell dashboard-layout-${layout}`} data-testid="dashboard-panel">
       <header className="panel-heading">
-        <div><h2>Operations Dashboard</h2><p>Scoped turnover visibility from the active board. Data as of {new Date().toLocaleString()}.</p></div>
+        <div><h2>Operations Dashboard</h2><p>Scoped turnover visibility from the active board. Data as of {formatDateTime(new Date())}.</p></div>
         <label className="dashboard-layout-select">Layout
           <select data-testid="dashboard-layout" value={layout} onChange={(event) => onLayoutChange(event.target.value as "overview" | "focus")}>
             <option value="overview">Overview</option>

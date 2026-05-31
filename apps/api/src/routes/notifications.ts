@@ -3,7 +3,7 @@ import { z } from "zod";
 import { notificationCategories } from "../lib/notifications.js";
 import { prisma } from "../lib/prisma.js";
 
-const querySchema = z.object({
+export const notificationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30),
   offset: z.coerce.number().int().min(0).default(0),
   unreadOnly: z.enum(["true", "false"]).optional().transform((value) => value === "true"),
@@ -11,7 +11,7 @@ const querySchema = z.object({
 
 export async function notificationRoutes(app: FastifyInstance) {
   app.get("/notifications", async (request) => {
-    const query = querySchema.parse(request.query);
+    const query = notificationQuerySchema.parse(request.query);
     const userId = request.currentUser!.id;
     const where = { userId, isRead: query.unreadOnly ? false : undefined };
     const [notifications, total, unreadCount, preferences] = await Promise.all([

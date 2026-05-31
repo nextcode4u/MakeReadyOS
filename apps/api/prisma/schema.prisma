@@ -31,6 +31,9 @@ model Property {
   id               String             @id @default(cuid())
   name             String
   code             String             @unique
+  occupancyGoalPercent Float?
+  uploadStorageMode String            @default("DEFAULT")
+  uploadSubdir      String?
   isActive         Boolean            @default(true)
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
@@ -45,16 +48,20 @@ model Property {
   checklistInstances ChecklistInstance[]
   itemComments       ItemComment[]
   itemAttachments    ItemAttachment[]
+  chargePriceSheetItems ChargePriceSheetItem[]
   vendorServiceAreas VendorServiceArea[]
   vendorAssignments  VendorAssignment[]
   workAssignmentBlocks WorkAssignmentBlock[]
   propertyMaps     PropertyMap[]
+  propertyMapAreas PropertyMapArea[]
   unitMapLocations UnitMapLocation[]
   dailyMetricSnapshots PropertyDailyMetricSnapshot[]
   userAccess       UserPropertyAccess[]
   auditLogs        AuditLog[]
   automationRules  AutomationRule[]
   boardSections    BoardSection[]
+  operatingCalendar OperatingCalendar?
+  riskPolicy       PropertyRiskPolicy?
   notifications    Notification[]
   apiTokenScopes   ApiTokenPropertyScope[]
   webhookScopes    WebhookPropertyScope[]
@@ -71,6 +78,11 @@ model Unit {
   squareFeet  Int?
   bedrooms    Int?
   bathrooms   Float?
+  occupancyStatus String          @default("OCCUPIED")
+  building    String?
+  area        String?
+  floor       String?
+  isBudgeted  Boolean             @default(true)
   isActive    Boolean         @default(true)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
@@ -79,6 +91,8 @@ model Unit {
 
   @@unique([propertyId, number])
   @@index([floorPlanId])
+  @@index([propertyId, occupancyStatus])
+  @@index([propertyId, building])
 }
 
 model FloorPlan {
@@ -233,6 +247,7 @@ model WebhookEndpoint {
   name           String
   url            String
   secretHash     String
+  secretCiphertext String?
   secretLastFour String
   eventTypes     String[]
   isEnabled      Boolean  @default(true)
@@ -243,8 +258,31 @@ model WebhookEndpoint {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   propertyScopes WebhookPropertyScope[]
+  deliveryAttempts WebhookDeliveryAttempt[]
 
   @@index([createdById, isEnabled])
+}
+
+model WebhookDeliveryAttempt {
+  id             String          @id @default(cuid())
+  webhookId      String
+  webhook        WebhookEndpoint @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  eventType      String
+  status         String          @default("PENDING")
+  deliveryId     String          @unique
+  payload        Json
+  headers        Json?
+  attemptNumber  Int             @default(1)
+  responseStatus Int?
+  responseBody   String?
+  errorMessage   String?
+  nextAttemptAt  DateTime?
+  deliveredAt    DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([webhookId, createdAt])
+  @@index([status, nextAttemptAt])
 }
 
 model WebhookPropertyScope {
@@ -386,8 +424,34 @@ model PropertyMap {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   locations    UnitMapLocation[]
+  areas        PropertyMapArea[]
 
   @@index([propertyId, isActive, isArchived])
+}
+
+model PropertyMapArea {
+  id           String      @id @default(cuid())
+  propertyId   String
+  property     Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  mapId        String
+  map          PropertyMap @relation(fields: [mapId], references: [id], onDelete: Cascade)
+  name         String
+  areaType     String      @default("BUILDING")
+  xPercent     Float
+  yPercent     Float
+  widthPercent Float?
+  heightPercent Float?
+  color        String?
+  expectedUnitCount Int?
+  notes        String?
+  isActive     Boolean     @default(true)
+  isArchived   Boolean     @default(false)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([mapId, name])
+  @@index([propertyId, isActive, isArchived])
+  @@index([mapId, areaType])
 }
 
 model UnitMapLocation {
@@ -437,6 +501,26 @@ model PropertyDailyMetricSnapshot {
   @@unique([propertyId, date])
   @@index([date])
   @@index([propertyId, date])
+}
+
+model PropertyRiskPolicy {
+  id                    String   @id @default(cuid())
+  propertyId            String   @unique
+  property              Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  moveInCriticalDays    Int      @default(1)
+  moveInHighDays        Int      @default(3)
+  moveInMediumDays      Int      @default(7)
+  unassignedHighDays    Int      @default(7)
+  staleActivityDays     Int      @default(5)
+  agingMediumDays       Int      @default(14)
+  agingHighDays         Int      @default(21)
+  vendorNearMoveInDays  Int      @default(3)
+  checklistNearMoveInDays Int    @default(7)
+  planningNearMoveInDays Int     @default(7)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([propertyId])
 }
 
 model Session {
@@ -543,6 +627,29 @@ model ScheduleTrack {
   updatedAt         DateTime @updatedAt
 
   @@index([isArchived, isEnabled, sortOrder])
+}
+
+model OperatingCalendar {
+  id                      String   @id @default(cuid())
+  propertyId              String   @unique
+  property                Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name                    String   @default("Default Operating Calendar")
+  timezone                String   @default("America/Chicago")
+  noWeekendScheduling     Boolean  @default(true)
+  avoidMondayScheduling   Boolean  @default(false)
+  avoidFridayScheduling   Boolean  @default(false)
+  maintenanceStartMinute  Int      @default(480)
+  maintenanceEndMinute    Int      @default(1020)
+  vendorLeadDays          Int      @default(3)
+  dailyScheduledUnitLimit Int?
+  scopeDay                Int?
+  workStartDay            Int?
+  autoPopulateEnabled     Boolean  @default(false)
+  notes                   String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([propertyId, noWeekendScheduling])
 }
 
 model SavedView {
@@ -715,12 +822,15 @@ model CustomField {
   description String?
   sortOrder   Int               @default(0)
   isArchived  Boolean           @default(false)
+  deletedAt   DateTime?
+  deleteAfter DateTime?
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
   options     CustomFieldOption[]
   values      CustomFieldValue[]
 
   @@index([module, isArchived, sortOrder])
+  @@index([module, deletedAt, deleteAfter])
 }
 
 model CustomFieldOption {
@@ -749,6 +859,7 @@ model CustomFieldValue {
   updatedAt     DateTime      @updatedAt
 
   @@unique([customFieldId, itemId])
+  @@index([customFieldId])
   @@index([itemId])
 }
 
@@ -881,11 +992,44 @@ model ItemAttachment {
   mimeType     String
   sizeBytes    Int
   note         String?
+  inspectionStage String      @default("GENERAL")
+  category     String?
+  chargeCandidate Boolean    @default(false)
+  chargeNote   String?
+  chargePriceSheetItemId String?
+  chargePriceSheetItem ChargePriceSheetItem? @relation(fields: [chargePriceSheetItemId], references: [id], onDelete: SetNull)
+  chargeQuantity Float?
+  chargeEstimatedCents Int?
+  markupAnnotations Json?
   createdAt    DateTime      @default(now())
 
   @@index([itemId, createdAt])
   @@index([itemId, commentId, createdAt])
+  @@index([itemId, inspectionStage, createdAt])
   @@index([propertyId, createdAt])
+  @@index([propertyId, inspectionStage, createdAt])
+  @@index([propertyId, chargeCandidate, createdAt])
+  @@index([chargePriceSheetItemId])
+}
+
+model ChargePriceSheetItem {
+  id          String   @id @default(cuid())
+  propertyId  String
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name        String
+  category    String?
+  unitLabel   String?
+  defaultCents Int?
+  description String?
+  isActive    Boolean  @default(true)
+  isArchived  Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  attachments ItemAttachment[]
+
+  @@unique([propertyId, name])
+  @@index([propertyId, isArchived, sortOrder])
 }
 
 model ChecklistInstance {

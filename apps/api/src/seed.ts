@@ -133,6 +133,105 @@ const scheduleTrackSeed = [
   ["vendorDueDate", "Vendor Due", "NEUTRAL"],
 ] as const;
 
+type SeedChecklistTemplate = {
+  name: string;
+  scope: string;
+  items: readonly (readonly [label: string, tradeCategory: string])[];
+};
+
+const makeReadyQaChecklistTemplates = [
+  {
+    name: "Make Ready QA - Resident Front Sheet",
+    scope: "QA_RESIDENT",
+    items: [
+      ["Pre-walk and documentation completed", "GENERAL"],
+      ["All left-behind items removed", "GENERAL"],
+      ["Lights, outlets, switches, breakers, and exterior lighting checked", "SAFETY"],
+      ["Smoke and carbon monoxide detectors functional and in service life", "SAFETY"],
+      ["HVAC operational, filter replaced, spare filter left if required", "HVAC"],
+      ["Water heater operational with no leaks or corrosion", "PLUMBING"],
+      ["Windows and doors open, close, lock, and seal properly", "GENERAL"],
+      ["Flooring, walls, paint, trim, shelves, rods, and brackets finished", "MAKE_READY"],
+      ["Kitchen appliances, sink, disposal, cabinets, and drawers checked", "KITCHEN"],
+      ["Bathroom drains, fixtures, caulk/grout, fans, and cabinets checked", "BATHROOM"],
+      ["Living areas, bedrooms, fans, coverings, and screens checked", "INTERIOR"],
+      ["Pest concerns cleared or preventive treatment completed if required", "PEST"],
+      ["Final clean completed; unit odor-free and move-in ready", "CLEANING"],
+      ["Locks/rekey, mailbox, keys/codes/tags, remotes, and required copies ready", "KEYS"],
+      ["Final supervisor walk completed and sign-off ready", "QC"],
+    ],
+  },
+  {
+    name: "Make Ready QA - Internal Scope & Follow-Up",
+    scope: "QA_INTERNAL",
+    items: [
+      [
+        "Scope unit first with blue painter's tape; label tape with the needed part, size, location, or note, and pull tape only after the concern is corrected",
+        "SCOPE",
+      ],
+      ["Record make-ready work still needed", "MAKE_READY"],
+      ["Record cleaning work still needed", "CLEANING"],
+      ["Record trash-out work still needed", "TRASH_OUT"],
+      ["Record painting/sheetrock work still needed", "PAINT"],
+      ["Record parts needed with size/location notes", "PARTS"],
+      ["Record material needed for orders or pending upgrades", "MATERIALS"],
+      ["Record rework/follow-up items for office or supervisor handoff", "QC"],
+      ["Record general notes that should stay internal", "NOTES"],
+      ["Confirm all tape is pulled before the unit is marked ready", "QC"],
+    ],
+  },
+] as const satisfies readonly SeedChecklistTemplate[];
+
+async function ensureChecklistTemplate(template: SeedChecklistTemplate) {
+  const existing = await prisma.checklistTemplate.findFirst({
+    where: { propertyId: null, name: template.name },
+    include: { items: true },
+  });
+  if (existing) {
+    if (existing.items.length === 0) {
+      await prisma.checklistItem.createMany({
+        data: template.items.map(([label, tradeCategory], sortOrder) => ({
+          templateId: existing.id,
+          label,
+          tradeCategory,
+          sortOrder,
+          required: true,
+        })),
+      });
+    }
+    return;
+  }
+  await prisma.checklistTemplate.create({
+    data: {
+      name: template.name,
+      scope: template.scope,
+      items: {
+        create: template.items.map(([label, tradeCategory], sortOrder) => ({
+          label,
+          tradeCategory,
+          sortOrder,
+          required: true,
+        })),
+      },
+    },
+  });
+}
+
+async function ensureDefaultChecklistTemplates() {
+  await ensureChecklistTemplate({
+    name: "Standard Make Ready",
+    scope: "TURN",
+    items: [
+      ["Trash out and inspect", "MAKE_READY"],
+      ["Complete scheduled paint and flooring work", "TURN"],
+      ["Final clean, keys, and finish photos", "QC"],
+    ],
+  });
+  for (const template of makeReadyQaChecklistTemplates) {
+    await ensureChecklistTemplate(template);
+  }
+}
+
 function d(date: string) {
   return new Date(`${date}T12:00:00.000Z`);
 }
@@ -249,6 +348,7 @@ async function main() {
     where: { sourceField: "vacatedDate", displayName: "Vacated / Possession" },
     data: { displayName: "Vacated" },
   });
+  await ensureDefaultChecklistTemplates();
 
   const existingProperties = await prisma.property.count();
   if (existingProperties > 0) {
@@ -333,21 +433,6 @@ async function main() {
             isShared: true,
           },
         ],
-      });
-    }
-    if (await prisma.checklistTemplate.count() === 0) {
-      await prisma.checklistTemplate.create({
-        data: {
-          name: "Standard Make Ready",
-          scope: "TURN",
-          items: {
-            create: [
-              { label: "Trash out and inspect", sortOrder: 1, tradeCategory: "MAKE_READY" },
-              { label: "Complete scheduled paint and flooring work", sortOrder: 2, tradeCategory: "TURN" },
-              { label: "Final clean, keys, and finish photos", sortOrder: 3, tradeCategory: "QC" },
-            ],
-          },
-        },
       });
     }
     return;

@@ -622,7 +622,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
               </thead>
               <tbody>
                 {groupItems.map((item) => (
-                  <tr key={item.id} className={item.overdue ? "row-overdue" : item.moveInSoon ? "row-soon" : ""}>
+                  <tr key={item.id} className={[item.overdue ? "row-overdue" : item.moveInSoon ? "row-soon" : "", selectedSet.has(item.id) ? "row-selected" : ""].filter(Boolean).join(" ")}>
                     {canManageItems ? <td className="select-column"><input data-testid={`select-item-${slug(item.unitNumber)}`} type="checkbox" checked={selectedSet.has(item.id)} onChange={() => toggleSelected(item.id)} aria-label={`Select ${item.unitNumber}`} /></td> : null}
                     {orderedVisibleColumns.map((entry) => {
                       if (entry.custom) {

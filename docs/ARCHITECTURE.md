@@ -82,11 +82,11 @@ Role capabilities are centralized in the API permission matrix instead of scatte
 
 First-run onboarding is browser-local guidance for `ADMIN` and `MANAGER` users. It opens automatically when no properties exist and can be reopened from the toolbar. It does not create server-side workflow state; it links operators to existing property/unit setup, user admin, property templates, automations, schedule tracks, table views, Dashboard, and Frog Pond.
 
-Deployment safety lives in root scripts rather than an in-app background service. `doctor.sh` checks core files, helper scripts, env sanity, migration presence, disk-space warning thresholds, upload/backup/log directories, and runtime `reference/` isolation. `reset-demo.sh` is explicitly destructive and requires `--yes`; it resets the local Docker database volume while preserving uploads unless `--wipe-uploads` is passed.
+Deployment safety lives in root scripts rather than an in-app background service. `doctor.sh` checks core files, helper scripts, env sanity, migration presence, disk-space warning thresholds, upload/backup/log directories, configured host upload paths, and runtime `reference/` isolation. `reset-demo.sh` is explicitly destructive and requires `--yes`; it resets the local Docker database volume while preserving uploads unless `--wipe-uploads` is passed.
 
 ## SLA / Risk Engine
 
-Make-ready items store `riskScore`, `riskLevel`, `riskReasons`, and `lastRiskEvaluatedAt`. The evaluator is structured TypeScript logic, not arbitrary JavaScript. It checks move-in timing, overdue make-ready dates, missing critical dates, assigned staff, pest/flooring/paint conditions, checklist completion, stale activity, date conflicts, and long-vacant turns. `GET /api/risk/summary` and `GET /api/risk/items` are property-scoped; `POST /api/risk/evaluate` is limited to `ADMIN` and `MANAGER` and can create deduped in-app `RISK` notifications when an item reaches `HIGH` or `CRITICAL`.
+Make-ready items store `riskScore`, `riskLevel`, `riskReasons`, and `lastRiskEvaluatedAt`. The evaluator is structured TypeScript logic, not arbitrary JavaScript. It checks move-in timing, overdue make-ready dates, missing critical dates, assigned staff, pest/flooring/paint conditions, checklist completion, stale activity, date conflicts, and long-vacant turns. `PropertyRiskPolicy` stores property-scoped thresholds for move-in windows, stale activity, aging turns, vendor timing, checklist timing, and planning coverage without changing stable risk categories or field keys. `GET /api/risk/policies` and manager/admin `PUT /api/risk/policies/:propertyId` expose safe configuration. `GET /api/risk/summary` and `GET /api/risk/items` are property-scoped; `POST /api/risk/evaluate` is limited to `ADMIN` and `MANAGER` and can create deduped in-app `RISK` notifications when an item reaches `HIGH` or `CRITICAL`.
 
 Vendor assignments also feed risk evaluation. Open follow-up work, overdue vendor due dates, and open vendor work near move-in create `VENDOR_RISK` reasons.
 
@@ -108,6 +108,10 @@ Activity route:
 
 `ADMIN` users can query all audit events. `MANAGER` users can query only events bearing a `propertyId` in their assigned property access; unscoped authentication, account-administration, and transfer events remain admin-only. `TECH`, `LEASING`, `CLEANER`, and `VIEWER` are denied access in the current UI and API boundary. Filters support dates, actor, action, entity type, and property, with limit/offset pagination.
 
+Property records include optional occupancy goals. Unit records include directory occupancy status, building, area, floor, and budgeted-unit flags so the board can distinguish occupied inventory from active turn records.
+
+`OperatingCalendar` stores property-scoped scheduling guardrails: timezone, no-weekend preference, optional Monday/Friday avoidance, maintenance operating hours, vendor lead days, daily scheduled-unit limits, scope day, work-start day, and notes. These settings are configuration for safe scheduling workflows; they do not execute arbitrary logic or automatically rewrite board dates by themselves.
+
 Core operations routes:
 
 - `GET|POST /api/operations/properties`
@@ -115,9 +119,12 @@ Core operations routes:
 - `POST /api/operations/properties/:id/archive|restore`
 - `DELETE /api/operations/properties/:id`
 - `GET|POST /api/operations/units`
+- `POST /api/operations/units/import` for merge-style unit directory imports
 - `PATCH /api/operations/units/:id`
 - `POST /api/operations/units/:id/archive|restore`
 - `DELETE /api/operations/units/:id`
+- `GET /api/operations/operating-calendars`
+- `PUT /api/operations/properties/:propertyId/operating-calendar`
 - `POST /api/make-ready-items/:id/archive|restore`
 
 Vendor routes:
@@ -138,10 +145,12 @@ Property map routes:
 - `POST /api/property-maps/:id/archive|restore`
 - `POST /api/property-maps/:id/upload`
 - `GET /api/property-maps/:id/file`
+- `GET|POST /api/property-map-areas`
+- `PATCH|DELETE /api/property-map-areas/:id`
 - `GET|PUT /api/unit-map-locations`
 - `PATCH|DELETE /api/unit-map-locations/:id`
 
-Map files are stored in the same local upload area as operational attachments and served only through authenticated, property-scoped API responses. `ADMIN` and scoped `MANAGER` users manage map records and marker locations; other scoped roles can view maps.
+Map files are stored in the same local upload area as operational attachments and served only through authenticated, property-scoped API responses. `ADMIN` and scoped `MANAGER` users manage map records, building/area markers, and unit marker locations; other scoped roles can view maps. Building/area markers are intentionally lightweight configuration records, not a full GIS hierarchy.
 
 Automation routes:
 
@@ -167,11 +176,13 @@ Manual execution accepts enabled `SCHEDULED_CHECK` rules only. Admins can run an
 
 Template definitions are application-owned, fixed structured inputs rather than stored executable content. Listing resolves setup dependencies against active custom fields and reports installed rules through nullable `AutomationRule.templateId` provenance. Installation enforces the same global/property permissions as ordinary rules, validates references, creates a normal editable `AutomationRule`, records `AUTOMATION_TEMPLATE_INSTALLED`, and defaults `enabled` to `false` unless explicitly submitted as enabled. A missing dependency returns setup requirements without creating data.
 
+The structured `setDateFromField` action can set one built-in date field from another using an integer operating-day offset. When configured to respect operating calendars, it skips weekends and optional Monday/Friday blocked days for the item's property. This is intentionally limited to known date fields and does not execute scripts.
+
 Operational library packs are versioned JSON envelopes (`makereadyos.libraryPack`, version `1`) that can install multiple normal MakeReadyOS records at once: custom fields, built-in option choices, checklist templates, schedule tracks, shared saved views, and disabled automation rules. Packs are previewed/dry-run first, duplicate-safe by stable keys/natural keys, and rejected if executable-code-like keys or JavaScript syntax are present. Installed pack history is tracked in `OperationalLibraryPack` and `OperationalLibraryPackItem`; generated automations use `templateId` provenance in the `pack:<packKey>:<itemKey>` form and are always disabled until reviewed.
 
 ## Native Backup Transfer
 
-Admin-only native transfer uses a versioned JSON envelope (`makereadyos.backup`, version `1`). Export contains properties, managed floor plans and unit mappings, managed built-in board options, built-in display-column labels, configured schedule tracks, units, make-ready records, custom fields/options/values, shared saved views, automation rule definitions, checklists, vendor records/assignments, property map metadata, unit marker locations, and property notes. It explicitly excludes users, credential material, sessions, CSRF tokens, audit logs, execution history, environment configuration, and uploaded map/image/PDF bytes. Version-1 imports accept backups created before optional presentation/setup sections existed by defaulting those arrays to empty.
+Admin-only native transfer uses a versioned JSON envelope (`makereadyos.backup`, version `1`). Export contains properties, managed floor plans and unit mappings, managed built-in board options, built-in display-column labels, configured schedule tracks, property operating calendars, units, make-ready records, custom fields/options/values, shared saved views, automation rule definitions, checklists, vendor records/assignments, property map metadata, map building/area markers, unit marker locations, and property notes. It explicitly excludes users, credential material, sessions, CSRF tokens, audit logs, execution history, environment configuration, and uploaded map/image/PDF bytes. Version-1 imports accept backups created before optional presentation/setup sections existed by defaulting those arrays to empty.
 
 Import supports `dryRun` plus non-destructive `merge` only. Records are recreated with destination IDs and relationship references are mapped through portable property codes, custom field keys, and make-ready item keys. Existing natural-key matches are skipped rather than updated. Full behavior and limitations are documented in `docs/BACKUP_AND_TRANSFER.md`.
 
@@ -262,7 +273,7 @@ Table views provide column presets (`Basic`, `Maintenance`, `Manager`, `Move-In 
 
 `BoardColumnDefinition` stores display labels for built-in fields separately from stable operational keys. `/api/operations/columns/:fieldKey` permits managers/admins to rename or reset labels and records the corresponding audit event without changing field keys, rule references, or import bindings. Custom-field display labels use the same table-header workflow through the existing custom-field route while retaining `fieldKey`. The ordered `visibleColumns` array on each saved view is used for both built-in and `custom:<id>` fields. Desktop table headers may be dragged horizontally or moved from the compact header menu; the utility selection column and required unit identity remain protected.
 
-`ScheduleTrack` management endpoints under `/api/operations/schedule-tracks` permit managers/admins to create, update, enable/disable, archive/restore, and reorder calendar tracks. A custom date source is accepted only when it points to an active `DATE` custom field; a custom color source is accepted only for active select fields. Enabled non-archived tracks are exposed in `/api/meta` for ordinary board rendering. Existing version-1 native backups remain importable because newly added optional presentation settings default safely.
+`ScheduleTrack` management endpoints under `/api/operations/schedule-tracks` permit managers/admins to create, update, enable/disable, archive/restore, and reorder calendar tracks. A custom date source is accepted only when it points to an active `DATE` custom field; a custom color source is accepted only for active select fields. Enabled non-archived tracks are exposed in `/api/meta` for ordinary board rendering. `OperatingCalendar` endpoints under `/api/operations` store property scheduling guardrails for future business-day date automation while leaving current date mutation under explicit operator control. Existing version-1 native backups remain importable because newly added optional presentation and scheduling settings default safely.
 
 The right-side item inspector is a frontend composition over existing authorized mutation paths rather than a competing item model. It opens from table item controls and Kanban cards, edits built-in and custom fields, and uses existing batch actions for section/lifecycle updates. Authorized manager/admin requests can scope `/api/activity` and `/api/automations/runs` to the selected item for contextual history; mobile renders the same inspector as a closable overlay.
 
@@ -288,13 +299,13 @@ The configurable column foundation uses three relational models:
 - `CustomFieldOption`: ordered colored labels for single/multi-select fields
 - `CustomFieldValue`: JSON value linked to a `MakeReadyItem` and `CustomField`
 
-Active definitions are exposed in `/api/meta` for board rendering. Their archived select options remain in metadata for historic value presentation but are filtered out of new table selections. Management endpoints under `/api/custom-fields` require `MANAGER` or `ADMIN`; custom value writes use the same role boundary for this initial pass. Existing hardcoded operational fields remain intact while configurable additions are appended to the table. Table toolbar and status-cell shortcuts invoke the same protected configuration APIs; they do not weaken the management boundary.
+Active definitions are exposed in `/api/meta` for board rendering. Their archived select options remain in metadata for historic value presentation but are filtered out of new table selections. Custom fields now have a two-stage lifecycle: archive hides the field while retaining historical values, and trash marks it for a 7-day recovery window before permanent deletion is allowed. Trashed fields are excluded from active metadata, native transfer, and property-template capture. Management endpoints under `/api/custom-fields` require `MANAGER` or `ADMIN`; custom value writes use the same role boundary for this initial pass. Existing hardcoded operational fields remain intact while configurable additions are appended to the table. Table toolbar and status-cell shortcuts invoke the same protected configuration APIs; they do not weaken the management boundary.
 
 Supported types are `TEXT`, `LONG_TEXT`, `NUMBER`, `DATE`, `SINGLE_SELECT`, `MULTI_SELECT`, `BOOLEAN`, and `USER`. Core assigned-tech editing now uses the active staff selector; relational assignment for generic `USER` custom fields remains deferred.
 
 The frontend structured-filter predicate evaluates active custom values on the same permission-scoped item payload as built-in board conditions. Operators are constrained by field type: text matching, numeric comparisons, date windows/ranges/overdue, active select-option matching, multi-select containment, boolean state, and staff identity. Saved views persist these operands in their existing JSON filter payload; applying a saved view normalizes references against active field definitions so archived fields are neither newly selectable nor silently enforced.
 
-The API shape intentionally keeps stable `fieldKey` identifiers and archiveable options so a later spreadsheet mapping/import pass can associate monday.com exports without redefining the schema.
+The API shape intentionally keeps stable `fieldKey` identifiers and archiveable options so a later spreadsheet mapping/import pass can associate legacy exports without redefining the schema.
 
 ## Automation Builder
 
@@ -308,11 +319,11 @@ Initial trigger vocabulary:
 - status field changed
 - scheduled check
 
-Initial conditions support equality, inequality, empty/not-empty checks, date before/after comparisons, existing multi-value matching, and scheduled relative-date checks (`before today`, `after today`, `within next X days`, `date missing`). Conditions can target built-in fields or active custom fields; custom text/number/boolean/date/single-select/multi-select types restrict operators and values to compatible choices, including multi-select option containment. Initial rule actions can set an editable board field, set an active custom-field value, or emit an activity note. Existing seed compatibility actions for priority and appended operational notes remain event-only.
+Initial conditions support equality, inequality, empty/not-empty checks, date before/after comparisons, existing multi-value matching, and scheduled relative-date checks (`before today`, `after today`, `within next X days`, `date missing`, `date on weekend`, `date on Monday/Friday`). Conditions can target built-in fields or active custom fields; custom text/number/boolean/date/single-select/multi-select types restrict operators and values to compatible choices, including multi-select option containment. Initial rule actions can set an editable board field, set an active custom-field value, or emit an activity note. Existing seed compatibility actions for priority and appended operational notes remain event-only.
 
-The evaluator is deliberately non-executable: rule inputs are schema validated against fixed operators/actions, and no JavaScript source, expression evaluation, or legacy monday.com automation script is run. The same validation boundary is used by preview, event evaluation, manual scheduled execution, and the scheduled runner; archived/missing custom fields, unavailable select options, incompatible operators, and unsupported actions are rejected before evaluation. Scheduled activity-note actions are suppressed during a configurable cooldown window to avoid repeated identical audit noise. The local legacy reference material informs future structured conversion only.
+The evaluator is deliberately non-executable: rule inputs are schema validated against fixed operators/actions, and no JavaScript source, expression evaluation, or legacy automation script is run. The same validation boundary is used by preview, event evaluation, manual scheduled execution, and the scheduled runner; archived/missing custom fields, unavailable select options, incompatible operators, and unsupported actions are rejected before evaluation. Local legacy reference material informs future structured conversion only.
 
-The bundled template catalog initially includes overdue make-ready, move-in within seven days, missing make-ready date, date fail-safe/schedule warning, pest follow-up, flooring-date requirement, and major-scope priority definitions. The pest follow-up template requires an active `Pest Follow-Up Date` custom date field. The date fail-safe template flags incomplete downstream scheduling; it does not claim field-to-field date sequence evaluation, which is not yet a supported structured condition.
+The bundled template catalog initially includes overdue make-ready, move-in within seven days, missing make-ready date, date fail-safe/schedule warning, pest follow-up, flooring-date requirement, major-scope priority, weekend schedule guards, Monday/Friday schedule guards, vendor lead-time review, scope-day planning, date-sequence review, daily schedule load review, in-house/vendor routing review, ready-unit stock expectation definitions, and a disabled-by-default flooring-date auto-population template. Date-sequence and load-review templates remain safe review scaffolds; daily load caps and multi-step date distribution are still future work.
 
 ## Data Design
 
@@ -354,17 +365,17 @@ Intended environments:
 
 Protected `/api/make-ready-items/:id/collaboration` routes resolve through the same property scope as board records. Non-viewers may author item updates, upload local files, and complete checklist tasks; manager/admin roles create templates and attach checklist instances. Comment and checklist mutations write audit records.
 
-Attachment metadata is stored in PostgreSQL and file bytes are written to `UPLOAD_DIR` with a bounded multipart upload limit (`MAX_UPLOAD_MB`). Docker Compose mounts a persistent `uploads_data` volume. Downloads require an authenticated, property-scoped request. Native JSON transfer deliberately exports comments and checklist instances but not local attachment bytes; complete recovery must preserve the upload volume along with the database.
+Attachment metadata is stored in PostgreSQL and file bytes are written to `UPLOAD_DIR`. `MAX_UPLOAD_MB=0` disables MakeReadyOS' app-level per-file cap; deployments may set a positive value when they want the API to reject oversized files. Docker deployments should keep the container path as `UPLOAD_DIR=/app/uploads`; Compose mounts that from Docker's `uploads_data` volume or an operator-provided `UPLOADS_HOST_PATH` for host/NAS storage. Properties can optionally route new uploads into safe property subfolders inside that active upload path. The bundled nginx web container does not impose a body-size limit, but external reverse proxies may still need explicit large-upload settings. Downloads require an authenticated, property-scoped request. The attachment allowlist supports common photo formats including JPG/JPEG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, and TIFF, plus PDF and office/text files. Attachment metadata includes optional inspection stage, category, charge-candidate flag, charge/recovery note, property price-sheet estimate reference, quantity, estimated amount, operational note, and non-destructive image markup pins so the item drawer and inspection gallery can support NTV, vacated, initial-walk, scope, work, and final-walk documentation without adding a billing system. `ChargePriceSheetItem` stores property-scoped estimate options for damage/cleaning/trash-out evidence; it is not an invoice, ledger, or accounting model. `GET /api/make-ready-items/:id/attachments/archive` creates an authenticated ZIP for the current item and stage/category filter; this is a convenience evidence export, not a full backup. Native JSON transfer deliberately exports price-sheet configuration, comments, and checklist instances but not local attachment bytes; complete recovery must preserve the upload volume along with the database.
 
 Upload intake additionally restricts filenames and accepted extension/MIME combinations to operational document and image formats. Download responses disable MIME sniffing, and a failed stored-file deletion does not silently remove its database pointer.
 
-`backup-uploads.sh` and `restore-uploads.sh` archive and restore the Compose upload path for attachments/photos/property-map images. PostgreSQL backups preserve metadata only; deployment recovery needs both database and upload archives.
+`backup-uploads.sh` and `restore-uploads.sh` archive and restore the Compose upload path for attachments/photos/property-map images. `move-uploads.sh` copies existing upload bytes into a new host/NAS path before switching `UPLOADS_HOST_PATH`. PostgreSQL backups preserve metadata only; deployment recovery needs both database and upload archives.
 
 `GET /api/my-work` returns assigned, scoped make-ready items with checklist progress for the signed-in user; managers/admins may query another active staff user. Dashboard presets use the existing saved-view model with `viewType: dashboard` and layout metadata in `grouping`, preserving the stable board/filter contract.
 
 `WorkAssignmentBlock` provides the first workload-planning layer. `/api/planning` returns scoped work blocks, scheduled coverage, move-ins not covered by planning, and an unscheduled work bucket. Admins/managers create and replan blocks; assigned staff can update execution status on their own block. The item drawer and My Work read active planning blocks without replacing the existing assigned-tech field. Legacy hour/capacity fields remain in the schema for compatibility, but current UI avoids hour-based planning because make-ready work is too variable for reliable hour estimates.
 
-`GET /api/units/:id/history` derives unit timelines from existing audit, comment, attachment, checklist, vendor, automation, risk, and make-ready records rather than duplicating every historical event. `PropertyDailyMetricSnapshot` is the first persisted analytics table and stores one upserted property/day rollup for trend reporting. `GET /api/analytics/summary` and `GET /api/analytics/snapshots` expose scoped trend and turn-performance foundations.
+`GET /api/units/:id/history` derives unit timelines from existing audit, comment, attachment, checklist, vendor, automation, risk, and make-ready records rather than duplicating every historical event. `PropertyDailyMetricSnapshot` is the first persisted analytics table and stores one upserted property/day rollup for trend reporting. `GET /api/analytics/summary` and `GET /api/analytics/snapshots` expose scoped trend, turn-performance, ready-date miss, stale-risk, risk-level, and risk-category foundations.
 
 Frog Pond is a frontend visualization surface over the same permission-scoped make-ready item stream. Its configuration and simple presets are browser-local in this foundation stage, so no schema migration or native-backup field is required. The scene limits rendered frogs, clusters overflow counts, derives color legends from active item metadata, respects reduced motion, and opens the shared item drawer for item-backed frogs.
 
@@ -376,11 +387,13 @@ Managed floor plans remain property-owned records attached through `Unit.floorPl
 
 ## Performance And Query Boundaries
 
-`GET /api/make-ready-items` supports optional `propertyId`, `boardGroup`/`section`, `updatedSince`, `includeArchived`, `limit`, and `offset` inputs while retaining its array response for existing views. Pagination metadata is exposed through response headers so future board loading can move incrementally without breaking current clients. Explicit property filtering is rejected when it falls outside the signed-in user's allowed property scope.
+`GET /api/make-ready-items` supports optional `propertyId`, `boardGroup`/`section`, `boardSection`, `vacancyStatus`, `assignedTech`, `scopeLevel`, `makeReadyStatus`, `riskLevel`, `riskCategory`, `moveInWindow`, common operational boolean filters, active custom-field filters, `updatedSince`, `includeArchived`, `sortBy`, `sortDirection`, `limit`, and `offset` inputs while retaining its array response for existing views. Pagination metadata, including `x-next-offset`, is exposed through response headers so future board loading can move incrementally without breaking current clients. Explicit property filtering is rejected when it falls outside the signed-in user's allowed property scope.
 
-Notifications, Activity, and automation run history expose bounded paging; collaboration responses bound comments, attachments, and checklist instances and report totals for future incremental presentation. Operational indexes cover property/archive/section, assignee, vacancy/date/update, comments, attachments, and checklist-completion access patterns.
+Custom-field item filters are validated against active field definitions and option metadata, then narrowed through indexed custom-field value lookups before final item counting and pagination. This keeps typed custom-field search compatible with saved views while avoiding an all-board candidate scan for common positive predicates.
 
-The frontend memoizes material grouped/list derivations, defers board text filtering while input is active, and lazy-loads heavy secondary workspaces such as Dashboard, Vendors, Maps, Frog Pond, Automations, Admin, Activity, and My Work. Table virtualization is deliberately deferred because grouped fast-add rows, sticky identity/utility cells, row selection, and keyboard editing need measured evidence and regression coverage before virtual scrolling is safe. `./seed-large.sh` creates disposable non-production workloads for measuring that threshold. In local development only, `ENABLE_API_TIMING_LOGS=true` enables API duration output.
+Notifications, Activity, and automation run history expose bounded paging; collaboration responses bound comments, attachments, and checklist instances and report totals for future incremental presentation. Operational indexes cover property/archive/section, assignee, vacancy/date/update, custom-field value lookup, comments, attachments, and checklist-completion access patterns.
+
+The frontend memoizes material grouped/list derivations, defers board text filtering while input is active, and lazy-loads heavy secondary workspaces such as Dashboard, Vendors, Maps, Frog Pond, Automations, Admin, Activity, My Work, Planning, Setup, Fields, Kanban, Schedule, and the item drawer. The Vite build also splits React, React Query, and other vendor modules into explicit chunks so the initial table-first shell stays small. Table virtualization is deliberately deferred because grouped fast-add rows, sticky identity/utility cells, row selection, and keyboard editing need measured evidence and regression coverage before virtual scrolling is safe. `./seed-large.sh` creates disposable non-production workloads for measuring that threshold. In local development only, `ENABLE_API_TIMING_LOGS=true` enables API duration output.
 
 ## API And Extension Foundation
 
@@ -388,7 +401,9 @@ External integrations use `Authorization: Bearer <token>` with admin-created API
 
 API-token traffic has a basic in-memory per-token limiter controlled by `API_TOKEN_RATE_LIMIT_MAX` and `API_TOKEN_RATE_LIMIT_WINDOW_MINUTES`. This is sufficient for single-node self-hosted deployments, but multi-node or public deployments should move enforcement to shared infrastructure or a reverse proxy.
 
-Webhook endpoints are modeled and configurable from Admin -> Integrations, but delivery is scaffolded for a later queue-backed implementation. This avoids blocking operational writes on external HTTP calls while preserving the schema and UI contract for signed webhook delivery.
+The API serves an OpenAPI 3.1 contract at `GET /api/openapi.json`. The path surface remains conservative, but request/query component schemas are generated from exported Zod route validators where available, and major response envelopes are documented as reusable schemas. Handwritten docs remain the deeper workflow reference while the OpenAPI contract gives external collaborators a machine-readable starting point.
+
+Webhook endpoints are modeled and configurable from Admin -> Integrations. New endpoint secrets are stored as a one-way hash plus encrypted signing material derived from `WEBHOOK_SECRET_ENCRYPTION_KEY` or, if unset, the session secret. Admins can generate signed dry-run payloads, queue signed test payloads, inspect `WebhookDeliveryAttempt` history, and see delivery-health status, last-delivered time, attempt counts, and failure counts in the UI. Core item/comment/checklist/vendor/risk writes queue subscribed events as `PENDING` delivery attempts. Delivery is still script-driven through `./run-webhooks.sh` rather than a long-running API worker, so operational writes do not block on external services. Public deployments can set `WEBHOOK_ALLOW_PRIVATE_URLS=false` to reject localhost/private/link-local webhook targets and DNS names that resolve to private addresses, with explicit exceptions through `WEBHOOK_ALLOWED_HOSTS`.
 
 MakeReadyOS extension points are JSON contracts only: operational library packs, native backup files, API integrations, and future dashboard/widget definitions. The app does not execute arbitrary plugin JavaScript.
 

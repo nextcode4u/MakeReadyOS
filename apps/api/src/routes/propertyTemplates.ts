@@ -5,7 +5,7 @@ import { allowedPropertyIds, requireManagerOrAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
 
-const includeSchema = z.object({
+export const propertyTemplateIncludeSchema = z.object({
   boardSections: z.boolean().default(true),
   optionSets: z.boolean().default(true),
   customFields: z.boolean().default(true),
@@ -19,17 +19,17 @@ const includeSchema = z.object({
   planningDefaults: z.boolean().default(false),
 });
 
-const createFromPropertySchema = z.object({
+export const propertyTemplateCreateFromPropertySchema = z.object({
   propertyId: z.string(),
   name: z.string().trim().min(2).max(160),
   description: z.string().trim().max(1000).optional().nullable(),
   category: z.string().trim().max(80).optional().nullable(),
   version: z.number().int().min(1).max(999).default(1),
   notes: z.string().trim().max(2000).optional().nullable(),
-  include: includeSchema.default({}),
+  include: propertyTemplateIncludeSchema.default({}),
 });
 
-const applySchema = z.object({
+export const propertyTemplateApplySchema = z.object({
   dryRun: z.boolean().default(true),
   mode: z.literal("merge").default("merge"),
   targetPropertyId: z.string().optional().nullable(),
@@ -43,7 +43,7 @@ const applySchema = z.object({
   message: "Choose either an existing target property or a new property, not both",
 });
 
-const libraryTemplateSchema = z.object({
+export const propertyTemplateLibrarySchema = z.object({
   key: z.string().trim().min(1).max(120),
   name: z.string().trim().min(2).max(160),
   description: z.string().trim().max(1000).optional().nullable(),
@@ -53,9 +53,9 @@ const libraryTemplateSchema = z.object({
   manifest: z.unknown(),
 });
 
-export const propertyTemplatePackItemSchema = libraryTemplateSchema;
+export const propertyTemplatePackItemSchema = propertyTemplateLibrarySchema;
 
-type IncludeConfig = z.infer<typeof includeSchema>;
+type IncludeConfig = z.infer<typeof propertyTemplateIncludeSchema>;
 type TemplateManifest = {
   format: "makereadyos.propertyTemplate";
   version: 1;
@@ -168,7 +168,7 @@ async function buildManifest(propertyId: string, include: IncludeConfig): Promis
   const [boardSections, optionSets, customFields, floorPlans, scheduleTracks, savedViews, checklistTemplates, automationRules] = await Promise.all([
     include.boardSections ? prisma.boardSection.findMany({ where: { propertyId, isActive: true }, orderBy: { sortOrder: "asc" } }) : [],
     include.optionSets ? prisma.labelDefinition.findMany({ orderBy: [{ fieldKey: "asc" }, { sortOrder: "asc" }] }) : [],
-    include.customFields ? prisma.customField.findMany({ include: { options: { orderBy: { sortOrder: "asc" } } }, where: { module: "make-ready" }, orderBy: { sortOrder: "asc" } }) : [],
+    include.customFields ? prisma.customField.findMany({ include: { options: { orderBy: { sortOrder: "asc" } } }, where: { module: "make-ready", deletedAt: null }, orderBy: { sortOrder: "asc" } }) : [],
     include.floorPlans ? prisma.floorPlan.findMany({ where: { propertyId }, orderBy: { name: "asc" } }) : [],
     include.scheduleTracks ? prisma.scheduleTrack.findMany({ where: { isArchived: false }, orderBy: [{ sortOrder: "asc" }, { displayName: "asc" }] }) : [],
     include.savedViews || include.dashboardPresets ? prisma.savedView.findMany({
@@ -268,7 +268,7 @@ async function applyTemplateManifest(options: {
       if (!options.dryRun) {
         property = await tx.property.create({ data: options.newProperty });
       } else {
-        property = { id: "__dry_run__", ...options.newProperty, isActive: true, createdAt: new Date(), updatedAt: new Date() };
+        property = { id: "__dry_run__", occupancyGoalPercent: null, uploadStorageMode: "DEFAULT", uploadSubdir: null, ...options.newProperty, isActive: true, createdAt: new Date(), updatedAt: new Date() };
       }
     }
 
@@ -445,7 +445,7 @@ export async function propertyTemplateRoutes(app: FastifyInstance) {
 
   app.post("/property-templates/from-property/preview", async (request, reply) => {
     if (!(await ensureTemplateManager(request, reply))) return;
-    const input = createFromPropertySchema.parse(request.body);
+    const input = propertyTemplateCreateFromPropertySchema.parse(request.body);
     const property = await requireAccessibleProperty(request, reply, input.propertyId);
     if (!property) return;
     const manifest = await buildManifest(property.id, input.include);
@@ -460,7 +460,7 @@ export async function propertyTemplateRoutes(app: FastifyInstance) {
 
   app.post("/property-templates/from-property", async (request, reply) => {
     if (!(await ensureTemplateManager(request, reply))) return;
-    const input = createFromPropertySchema.parse(request.body);
+    const input = propertyTemplateCreateFromPropertySchema.parse(request.body);
     const property = await requireAccessibleProperty(request, reply, input.propertyId);
     if (!property) return;
     const manifest = await buildManifest(property.id, input.include);
@@ -495,7 +495,7 @@ export async function propertyTemplateRoutes(app: FastifyInstance) {
   app.post("/property-templates/:id/apply", async (request, reply) => {
     if (!(await ensureTemplateManager(request, reply))) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = applySchema.parse(request.body);
+    const input = propertyTemplateApplySchema.parse(request.body);
     const template = await prisma.propertyTemplate.findUnique({ where: { id } });
     if (!template || template.isArchived) {
       reply.code(404);

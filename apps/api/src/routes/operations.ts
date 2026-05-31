@@ -5,30 +5,57 @@ import { allowedPropertyIds } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
 
-const querySchema = z.object({
+export const operationsQuerySchema = z.object({
   includeArchived: z.enum(["true", "false"]).optional().transform((value) => value === "true"),
   propertyId: z.string().optional(),
 });
 
-const propertyCreateSchema = z.object({
+export const propertyCreateSchema = z.object({
   name: z.string().trim().min(2).max(120),
   code: z.string().trim().min(2).max(20).regex(/^[A-Za-z0-9_-]+$/).transform((value) => value.toUpperCase()),
+  occupancyGoalPercent: z.number().min(0).max(100).optional().nullable(),
 });
 
-const propertyPatchSchema = propertyCreateSchema.partial().refine((value) => Object.keys(value).length > 0, {
+export const propertyPatchSchema = propertyCreateSchema.partial().refine((value) => Object.keys(value).length > 0, {
   message: "Provide a property name or code to update",
 });
 
-const unitCreateSchema = z.object({
+export const unitCreateSchema = z.object({
   propertyId: z.string(),
   number: z.string().trim().min(1).max(30),
   floorPlanId: z.string().optional().nullable(),
   floorPlan: z.string().trim().max(80).optional().nullable(),
   squareFeet: z.number().int().positive().max(10000).optional().nullable(),
+  bedrooms: z.number().int().min(0).max(20).optional().nullable(),
+  bathrooms: z.number().min(0).max(20).optional().nullable(),
+  occupancyStatus: z.enum(["OCCUPIED", "VACANT_READY", "VACANT_LEASED", "VACANT_NOT_LEASED", "NTV", "NTV_LEASED", "DOWN", "MODEL", "UNKNOWN"]).optional(),
+  building: z.string().trim().max(40).optional().nullable(),
+  area: z.string().trim().max(80).optional().nullable(),
+  floor: z.string().trim().max(20).optional().nullable(),
+  isBudgeted: z.boolean().optional(),
 });
 
-const unitPatchSchema = unitCreateSchema.partial().refine((value) => Object.keys(value).length > 0, {
+export const unitPatchSchema = unitCreateSchema.partial().refine((value) => Object.keys(value).length > 0, {
   message: "Provide unit fields to update",
+});
+
+export const unitImportRowSchema = z.object({
+  number: z.string().trim().min(1).max(30),
+  floorPlan: z.string().trim().max(100).optional().nullable(),
+  squareFeet: z.number().int().positive().max(10000).optional().nullable(),
+  bedrooms: z.number().int().min(0).max(20).optional().nullable(),
+  bathrooms: z.number().min(0).max(20).optional().nullable(),
+  occupancyStatus: z.enum(["OCCUPIED", "VACANT_READY", "VACANT_LEASED", "VACANT_NOT_LEASED", "NTV", "NTV_LEASED", "DOWN", "MODEL", "UNKNOWN"]).optional(),
+  building: z.string().trim().max(40).optional().nullable(),
+  area: z.string().trim().max(80).optional().nullable(),
+  floor: z.string().trim().max(20).optional().nullable(),
+  isBudgeted: z.boolean().optional(),
+});
+
+export const unitImportSchema = z.object({
+  propertyId: z.string(),
+  units: z.array(unitImportRowSchema).min(1).max(1500),
+  updateExisting: z.boolean().default(true),
 });
 
 const managedOptionFields = new Set([
@@ -54,13 +81,13 @@ const defaultColumnLabels: Record<string, string> = {
   makeReadyStatus: "Make Ready Scope", cleaningStatus: "Cleaning", keysMadeStatus: "Keys Made",
   cabinetsStatus: "Cabinets", countertopsStatus: "Countertops", appliancesStatus: "Appliances", notes: "Notes",
 };
-const columnLabelSchema = z.object({
+export const columnLabelSchema = z.object({
   label: z.string().trim().min(1).max(80).optional(),
   reset: z.boolean().optional(),
 }).refine((value) => Boolean(value.label || value.reset), {
   message: "Provide a label or request reset",
 });
-const scheduleTrackSchema = z.object({
+export const scheduleTrackSchema = z.object({
   sourceField: z.string().trim().min(1).max(120),
   displayName: z.string().trim().min(1).max(80),
   colorBasis: z.enum(["STATUS", "SCOPE", "FIELD", "FIXED", "NEUTRAL"]),
@@ -75,25 +102,44 @@ const scheduleTrackSchema = z.object({
   moveInSoonEnabled: z.boolean().default(true),
   isEnabled: z.boolean().default(true),
 });
-const scheduleTrackPatchSchema = scheduleTrackSchema.partial().refine((value) => Object.keys(value).length > 0, {
+export const scheduleTrackPatchSchema = scheduleTrackSchema.partial().refine((value) => Object.keys(value).length > 0, {
   message: "Provide schedule track fields to update",
 });
-const reorderScheduleTracksSchema = z.object({ ids: z.array(z.string()).min(1) });
+export const reorderScheduleTracksSchema = z.object({ ids: z.array(z.string()).min(1) });
+export const operatingCalendarSchema = z.object({
+  name: z.string().trim().min(1).max(80).default("Default Operating Calendar"),
+  timezone: z.string().trim().min(1).max(80).default("America/Chicago"),
+  noWeekendScheduling: z.boolean().default(true),
+  avoidMondayScheduling: z.boolean().default(false),
+  avoidFridayScheduling: z.boolean().default(false),
+  maintenanceStartMinute: z.number().int().min(0).max(1439).default(480),
+  maintenanceEndMinute: z.number().int().min(1).max(1440).default(1020),
+  vendorLeadDays: z.number().int().min(0).max(60).default(3),
+  dailyScheduledUnitLimit: z.number().int().min(1).max(50).nullable().optional(),
+  scopeDay: z.number().int().min(0).max(6).nullable().optional(),
+  workStartDay: z.number().int().min(0).max(6).nullable().optional(),
+  autoPopulateEnabled: z.boolean().default(false),
+  notes: z.string().trim().max(500).nullable().optional(),
+}).superRefine((value, context) => {
+  if (value.maintenanceEndMinute <= value.maintenanceStartMinute) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "End time must be after start time", path: ["maintenanceEndMinute"] });
+  }
+});
 
-const optionSchema = z.object({
+export const boardOptionInputSchema = z.object({
   fieldKey: z.string(),
   value: z.string().trim().min(1).max(80),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   textColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#f4f6fa"),
 });
 
-const optionPatchSchema = optionSchema.omit({ fieldKey: true }).partial().refine((value) => Object.keys(value).length > 0, {
+export const boardOptionPatchSchema = boardOptionInputSchema.omit({ fieldKey: true }).partial().refine((value) => Object.keys(value).length > 0, {
   message: "Provide an option value or color to update",
 });
 
-const reorderOptionsSchema = z.object({ ids: z.array(z.string()).min(1) });
+export const reorderOptionsSchema = z.object({ ids: z.array(z.string()).min(1) });
 
-const floorPlanCreateSchema = z.object({
+export const floorPlanCreateSchema = z.object({
   propertyId: z.string(),
   name: z.string().trim().min(1).max(100),
   bedrooms: z.number().int().min(0).max(20).optional().nullable(),
@@ -102,10 +148,10 @@ const floorPlanCreateSchema = z.object({
   description: z.string().trim().max(500).optional().nullable(),
 });
 
-const floorPlanPatchSchema = floorPlanCreateSchema.partial().refine((value) => Object.keys(value).length > 0, {
+export const floorPlanPatchSchema = floorPlanCreateSchema.partial().refine((value) => Object.keys(value).length > 0, {
   message: "Provide floor plan fields to update",
 });
-const sectionPatchSchema = z.object({ displayName: z.string().trim().min(1).max(80) });
+export const sectionPatchSchema = z.object({ displayName: z.string().trim().min(1).max(80) });
 
 function defaultSections(propertyCode: string) {
   const code = propertyCode.toUpperCase();
@@ -131,6 +177,29 @@ function defaultSections(propertyCode: string) {
 
 function mayManage(userRole: UserRole) {
   return userRole === UserRole.ADMIN || userRole === UserRole.MANAGER;
+}
+
+function defaultOperatingCalendar(propertyId: string, property?: { code: string }) {
+  return {
+    id: `default:${propertyId}`,
+    propertyId,
+    name: property ? `${property.code} Operating Calendar` : "Default Operating Calendar",
+    timezone: "America/Chicago",
+    noWeekendScheduling: true,
+    avoidMondayScheduling: false,
+    avoidFridayScheduling: false,
+    maintenanceStartMinute: 480,
+    maintenanceEndMinute: 1020,
+    vendorLeadDays: 3,
+    dailyScheduledUnitLimit: null,
+    scopeDay: null,
+    workStartDay: null,
+    autoPopulateEnabled: false,
+    notes: null,
+    createdAt: null,
+    updatedAt: null,
+    property,
+  };
 }
 
 async function ensureManagerOrAdmin(request: FastifyRequest, reply: FastifyReply) {
@@ -178,7 +247,7 @@ async function normalizeUnitFloorPlan(request: FastifyRequest, reply: FastifyRep
 export async function operationsRoutes(app: FastifyInstance) {
   app.get("/operations/board-sections", async (request, reply) => {
     if (!(await ensureManagerOrAdmin(request, reply))) return;
-    const query = querySchema.parse(request.query);
+    const query = operationsQuerySchema.parse(request.query);
     const propertyIds = allowedPropertyIds(request.currentUser!);
     if (query.propertyId && !canAccessProperty(request, query.propertyId)) {
       reply.code(403);
@@ -434,9 +503,65 @@ export async function operationsRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  app.get("/operations/operating-calendars", async (request, reply) => {
+    if (!(await ensureManagerOrAdmin(request, reply))) return;
+    const query = operationsQuerySchema.parse(request.query);
+    const propertyIds = allowedPropertyIds(request.currentUser!);
+    if (query.propertyId && !canAccessProperty(request, query.propertyId)) {
+      reply.code(403);
+      return { message: "Property access denied" };
+    }
+    const properties = await prisma.property.findMany({
+      where: {
+        id: query.propertyId ?? (propertyIds === null ? undefined : { in: propertyIds }),
+        isActive: query.includeArchived ? undefined : true,
+      },
+      orderBy: { code: "asc" },
+    });
+    const calendars = await prisma.operatingCalendar.findMany({
+      where: { propertyId: { in: properties.map((property) => property.id) } },
+      include: { property: true },
+    });
+    const byProperty = new Map(calendars.map((calendar) => [calendar.propertyId, calendar]));
+    return {
+      calendars: properties.map((property) => byProperty.get(property.id) ?? defaultOperatingCalendar(property.id, property)),
+    };
+  });
+
+  app.put("/operations/properties/:propertyId/operating-calendar", async (request, reply) => {
+    if (!(await ensureManagerOrAdmin(request, reply))) return;
+    const { propertyId } = z.object({ propertyId: z.string() }).parse(request.params);
+    const property = await requireAccessibleProperty(request, reply, propertyId, true);
+    if (!property) return;
+    const payload = operatingCalendarSchema.parse(request.body);
+    const calendar = await prisma.operatingCalendar.upsert({
+      where: { propertyId },
+      create: { ...payload, propertyId },
+      update: payload,
+      include: { property: true },
+    });
+    await writeAuditLog({
+      request,
+      actorUserId: request.currentUser!.id,
+      propertyId,
+      entityType: "OPERATING_CALENDAR",
+      entityId: calendar.id,
+      action: "OPERATING_CALENDAR_UPDATED",
+      message: `Updated operating calendar for ${property.code}`,
+      metadata: {
+        noWeekendScheduling: calendar.noWeekendScheduling,
+        avoidMondayScheduling: calendar.avoidMondayScheduling,
+        avoidFridayScheduling: calendar.avoidFridayScheduling,
+        dailyScheduledUnitLimit: calendar.dailyScheduledUnitLimit,
+        autoPopulateEnabled: calendar.autoPopulateEnabled,
+      },
+    });
+    return { calendar };
+  });
+
   app.get("/operations/properties", async (request, reply) => {
     if (!(await ensureManagerOrAdmin(request, reply))) return;
-    const query = querySchema.parse(request.query);
+    const query = operationsQuerySchema.parse(request.query);
     const propertyIds = allowedPropertyIds(request.currentUser!);
     const properties = await prisma.property.findMany({
       where: {
@@ -593,7 +718,7 @@ export async function operationsRoutes(app: FastifyInstance) {
 
   app.get("/operations/units", async (request, reply) => {
     if (!(await ensureManagerOrAdmin(request, reply))) return;
-    const query = querySchema.parse(request.query);
+    const query = operationsQuerySchema.parse(request.query);
     const propertyIds = allowedPropertyIds(request.currentUser!);
     if (query.propertyId && !canAccessProperty(request, query.propertyId)) {
       reply.code(403);
@@ -643,6 +768,80 @@ export async function operationsRoutes(app: FastifyInstance) {
     });
     reply.code(201);
     return { unit };
+  });
+
+  app.post("/operations/units/import", async (request, reply) => {
+    if (!(await ensureManagerOrAdmin(request, reply))) return;
+    const payload = unitImportSchema.parse(request.body);
+    const property = await requireAccessibleProperty(request, reply, payload.propertyId);
+    if (!property) return;
+
+    const summary = { created: 0, updated: 0, skipped: 0, errors: [] as string[] };
+    const seen = new Set<string>();
+    const sanitizedRows = payload.units.flatMap((row, index) => {
+      const number = row.number.trim();
+      const key = number.toUpperCase();
+      if (seen.has(key)) {
+        summary.skipped += 1;
+        summary.errors.push(`Row ${index + 1}: duplicate unit ${number} in import file`);
+        return [];
+      }
+      seen.add(key);
+      return [{ ...row, number }];
+    });
+
+    await prisma.$transaction(async (tx) => {
+      for (const row of sanitizedRows) {
+        const existing = await tx.unit.findUnique({
+          where: { propertyId_number: { propertyId: payload.propertyId, number: row.number } },
+        });
+        const createData = {
+          floorPlan: row.floorPlan || null,
+          squareFeet: row.squareFeet ?? null,
+          bedrooms: row.bedrooms ?? null,
+          bathrooms: row.bathrooms ?? null,
+          occupancyStatus: row.occupancyStatus ?? "OCCUPIED",
+          building: row.building || null,
+          area: row.area || null,
+          floor: row.floor || null,
+          isBudgeted: row.isBudgeted ?? true,
+        };
+        if (existing) {
+          if (!payload.updateExisting) {
+            summary.skipped += 1;
+            continue;
+          }
+          const updateData: Prisma.UnitUncheckedUpdateInput = {};
+          if (Object.prototype.hasOwnProperty.call(row, "floorPlan") && row.floorPlan) updateData.floorPlan = row.floorPlan;
+          if (Object.prototype.hasOwnProperty.call(row, "squareFeet") && row.squareFeet !== null && row.squareFeet !== undefined) updateData.squareFeet = row.squareFeet;
+          if (Object.prototype.hasOwnProperty.call(row, "bedrooms") && row.bedrooms !== null && row.bedrooms !== undefined) updateData.bedrooms = row.bedrooms;
+          if (Object.prototype.hasOwnProperty.call(row, "bathrooms") && row.bathrooms !== null && row.bathrooms !== undefined) updateData.bathrooms = row.bathrooms;
+          if (Object.prototype.hasOwnProperty.call(row, "occupancyStatus") && row.occupancyStatus) updateData.occupancyStatus = row.occupancyStatus;
+          if (Object.prototype.hasOwnProperty.call(row, "building") && row.building) updateData.building = row.building;
+          if (Object.prototype.hasOwnProperty.call(row, "area") && row.area) updateData.area = row.area;
+          if (Object.prototype.hasOwnProperty.call(row, "floor") && row.floor) updateData.floor = row.floor;
+          if (Object.prototype.hasOwnProperty.call(row, "isBudgeted") && row.isBudgeted !== undefined) updateData.isBudgeted = row.isBudgeted;
+          if (Object.keys(updateData).length > 0) {
+            await tx.unit.update({ where: { id: existing.id }, data: updateData });
+          }
+          summary.updated += 1;
+        } else {
+          await tx.unit.create({ data: { ...createData, propertyId: payload.propertyId, number: row.number } });
+          summary.created += 1;
+        }
+      }
+    });
+
+    await writeAuditLog({
+      request,
+      actorUserId: request.currentUser!.id,
+      propertyId: property.id,
+      entityType: "UNIT_DIRECTORY",
+      action: "UNIT_DIRECTORY_IMPORTED",
+      message: `Imported unit directory rows for ${property.code}: ${summary.created} created, ${summary.updated} updated, ${summary.skipped} skipped`,
+      metadata: summary,
+    });
+    return { summary };
   });
 
   app.patch("/operations/units/:id", async (request, reply) => {
@@ -798,7 +997,7 @@ export async function operationsRoutes(app: FastifyInstance) {
 
   app.post("/operations/options", async (request, reply) => {
     if (!(await ensureManagerOrAdmin(request, reply))) return;
-    const payload = optionSchema.parse(request.body);
+    const payload = boardOptionInputSchema.parse(request.body);
     if (!managedOptionFields.has(payload.fieldKey)) {
       reply.code(400);
       return { message: "Unsupported built-in option set" };
@@ -825,7 +1024,7 @@ export async function operationsRoutes(app: FastifyInstance) {
   app.patch("/operations/options/:id", async (request, reply) => {
     if (!(await ensureManagerOrAdmin(request, reply))) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const payload = optionPatchSchema.parse(request.body);
+    const payload = boardOptionPatchSchema.parse(request.body);
     const existing = await prisma.labelDefinition.findUnique({ where: { id } });
     if (!existing || !managedOptionFields.has(existing.fieldKey)) {
       reply.code(404);
@@ -917,7 +1116,7 @@ export async function operationsRoutes(app: FastifyInstance) {
 
   app.get("/operations/floor-plans", async (request, reply) => {
     if (!(await ensureManagerOrAdmin(request, reply))) return;
-    const query = querySchema.parse(request.query);
+    const query = operationsQuerySchema.parse(request.query);
     if (query.propertyId && !canAccessProperty(request, query.propertyId)) {
       reply.code(403);
       return { message: "Property access denied" };

@@ -1,4 +1,5 @@
 import type { NotificationResponse } from "../lib/api";
+import { formatDateTime } from "../lib/dateTime";
 
 type Props = {
   open: boolean;
@@ -52,7 +53,7 @@ export function NotificationDrawer({ open, data, loading, onClose, onRead, onRea
                   <span className="notification-category">{notification.category.replace(/_/g, " ")}</span>
                   <strong>{notification.title}</strong>
                   <p>{notification.message}</p>
-                  <small>{new Date(notification.createdAt).toLocaleString()}</small>
+                  <small>{formatDateTime(notification.createdAt)}</small>
                 </button>
                 <button type="button" className="notification-dismiss" data-testid={`notification-dismiss-${notification.id}`} onClick={() => void onDismiss(notification.id)} aria-label={`Dismiss ${notification.title}`}>×</button>
               </article>

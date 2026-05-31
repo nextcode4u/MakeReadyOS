@@ -96,6 +96,79 @@ export function BoardConfigurationPanel({
     ...optionSets.map(([key, label]) => ({ key, label })),
     ...customFields.filter((field) => !field.isArchived && (field.fieldType === "SINGLE_SELECT" || field.fieldType === "MULTI_SELECT")).map((field) => ({ key: `custom:${field.id}`, label: field.label })),
   ];
+  const schedulePresets: Array<{
+    id: string;
+    label: string;
+    description: string;
+    sourceField: string;
+    colorBasis: ScheduleTrack["colorBasis"];
+    colorSourceField: string | null;
+    fixedColor: string | null;
+    groupingMode: ScheduleTrack["groupingMode"];
+    overdueEnabled: boolean;
+    moveInSoonEnabled: boolean;
+  }> = [
+    {
+      id: "ntv",
+      label: "NTV / Notice",
+      description: "Expected vacate dates with vacancy status colors.",
+      sourceField: "moveOutDate",
+      colorBasis: "STATUS",
+      colorSourceField: null,
+      fixedColor: null,
+      groupingMode: "PROPERTY",
+      overdueEnabled: false,
+      moveInSoonEnabled: true,
+    },
+    {
+      id: "vacated",
+      label: "Vacated",
+      description: "Actual possession/vacated date grouped by property.",
+      sourceField: "vacatedDate",
+      colorBasis: "STATUS",
+      colorSourceField: null,
+      fixedColor: null,
+      groupingMode: "PROPERTY",
+      overdueEnabled: false,
+      moveInSoonEnabled: false,
+    },
+    {
+      id: "make-ready",
+      label: "Make Ready",
+      description: "Make-ready due date with scope colors and overdue cues.",
+      sourceField: "makeReadyDate",
+      colorBasis: "SCOPE",
+      colorSourceField: null,
+      fixedColor: null,
+      groupingMode: "BOARD_GROUP",
+      overdueEnabled: true,
+      moveInSoonEnabled: true,
+    },
+    {
+      id: "move-in",
+      label: "Move-In",
+      description: "Move-in dates with risk/status overlays.",
+      sourceField: "moveInDate",
+      colorBasis: "STATUS",
+      colorSourceField: null,
+      fixedColor: null,
+      groupingMode: "PROPERTY",
+      overdueEnabled: false,
+      moveInSoonEnabled: true,
+    },
+    {
+      id: "flooring",
+      label: "Flooring",
+      description: "Flooring schedule colored by floor status.",
+      sourceField: "flooringDate",
+      colorBasis: "FIELD",
+      colorSourceField: "floorsStatus",
+      fixedColor: null,
+      groupingMode: "PROPERTY",
+      overdueEnabled: true,
+      moveInSoonEnabled: true,
+    },
+  ];
 
   useEffect(() => {
     if (!propertyId && properties[0]) setPropertyId(properties[0].id);
@@ -153,6 +226,21 @@ export function BoardConfigurationPanel({
     const ids = scheduleTracks.map((track) => track.id);
     [ids[index], ids[swap]] = [ids[swap], ids[index]];
     await onReorderScheduleTracks(ids);
+  };
+  const createSchedulePreset = async (preset: (typeof schedulePresets)[number]) => {
+    await onCreateScheduleTrack({
+      sourceField: preset.sourceField,
+      displayName: preset.label,
+      colorBasis: preset.colorBasis,
+      colorSourceField: preset.colorBasis === "FIELD" ? preset.colorSourceField : null,
+      fixedColor: preset.colorBasis === "FIXED" ? preset.fixedColor : null,
+      groupingMode: preset.groupingMode,
+      visibilityFilter: null,
+      overdueEnabled: preset.overdueEnabled,
+      moveInSoonEnabled: preset.moveInSoonEnabled,
+      isEnabled: true,
+      isArchived: false,
+    });
   };
 
   return (
@@ -272,6 +360,31 @@ export function BoardConfigurationPanel({
         <div className="admin-section-head">
           <h3>Schedule Tracks</h3>
           <span className="subtitle">Calendar fields and color basis</span>
+        </div>
+        <div className="schedule-track-presets" data-testid="schedule-track-presets">
+          {schedulePresets.map((preset) => {
+            const sourceExists = scheduleSources.some((source) => source.key === preset.sourceField);
+            const colorSourceExists = !preset.colorSourceField || scheduleColorSources.some((source) => source.key === preset.colorSourceField);
+            const alreadyConfigured = configuredSources.has(preset.sourceField);
+            const disabled = loading || !sourceExists || !colorSourceExists || alreadyConfigured;
+            const note = alreadyConfigured ? "Already configured" : !sourceExists ? "Date field missing" : !colorSourceExists ? "Color field missing" : "Create preset";
+
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                data-testid={`schedule-track-preset-${preset.id}`}
+                className="schedule-track-preset"
+                disabled={disabled}
+                title={note}
+                onClick={() => void createSchedulePreset(preset)}
+              >
+                <strong>{preset.label}</strong>
+                <span>{preset.description}</span>
+                <small>{note}</small>
+              </button>
+            );
+          })}
         </div>
         <form className="schedule-track-create" onSubmit={(event) => {
           event.preventDefault();

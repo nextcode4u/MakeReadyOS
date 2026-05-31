@@ -1,4 +1,5 @@
 import type { MakeReadyItem, Prisma } from "@prisma/client";
+import { applyBusinessDayOffset, type DateOffsetField, type OperatingCalendarPolicy } from "./operatingCalendar.js";
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -66,7 +67,9 @@ export type RuleOperator =
   | "dateBeforeToday"
   | "dateAfterToday"
   | "dateWithinNextDays"
-  | "dateMissing";
+  | "dateMissing"
+  | "dateOnWeekend"
+  | "dateOnMondayOrFriday";
 
 export type RuleCondition = {
   field?: string;
@@ -98,6 +101,13 @@ export type RuleAction =
   | {
       type: "addAuditNote";
       value: string;
+    }
+  | {
+      type: "setDateFromField";
+      sourceField: DateOffsetField;
+      targetField: DateOffsetField;
+      offsetDays: number;
+      respectOperatingCalendar?: boolean;
     };
 
 export type RuleConfig = {
@@ -205,6 +215,18 @@ function isConditionMatch(item: Partial<MakeReadyItem>, condition: RuleCondition
     }
     case "dateMissing":
       return isValueEmpty(rawValue);
+    case "dateOnWeekend": {
+      const left = rawValue instanceof Date ? rawValue : new Date(String(rawValue));
+      if (Number.isNaN(left.getTime())) return false;
+      const day = left.getDay();
+      return day === 0 || day === 6;
+    }
+    case "dateOnMondayOrFriday": {
+      const left = rawValue instanceof Date ? rawValue : new Date(String(rawValue));
+      if (Number.isNaN(left.getTime())) return false;
+      const day = left.getDay();
+      return day === 1 || day === 5;
+    }
     default:
       return false;
   }
@@ -231,6 +253,7 @@ export function applyRules(
   item: Partial<MakeReadyItem>,
   rules: AutomationDefinition[],
   customValues: CustomFieldValueMap = {},
+  options: { operatingCalendar?: OperatingCalendarPolicy | null } = {},
 ): {
   next: Partial<MakeReadyItem>;
   logs: Array<{ ruleId: string; message: string }>;
@@ -267,6 +290,17 @@ export function applyRules(
       }
       if (action.type === "addAuditNote") {
         auditNotes.push({ ruleId: rule.id, message: action.value });
+      }
+      if (action.type === "setDateFromField") {
+        const sourceValue = next[action.sourceField];
+        const sourceDate = sourceValue instanceof Date ? sourceValue : sourceValue ? new Date(String(sourceValue)) : null;
+        if (sourceDate && !Number.isNaN(sourceDate.getTime())) {
+          next[action.targetField] = applyBusinessDayOffset(
+            sourceDate,
+            action.offsetDays,
+            action.respectOperatingCalendar === false ? null : options.operatingCalendar,
+          ) as never;
+        }
       }
     }
 

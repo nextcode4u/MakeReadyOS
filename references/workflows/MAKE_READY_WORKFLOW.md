@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document captures the operational workflow visible in the legacy monday.com board without reproducing resident or unit-specific records. Raw screenshots and exports remain local reference material.
+This document captures the operational workflow visible in the legacy software-defined spreadsheet board without reproducing resident or unit-specific records. Raw screenshots and exports remain local reference material.
 
 ## Evidence Used
 

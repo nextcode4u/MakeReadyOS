@@ -1,6 +1,6 @@
 # MakeReadyOS
 
-MakeReadyOS is a self-hosted property operations platform focused on apartment make-ready and maintenance workflows. It is inspired by dense monday.com-style boards, but built for local ownership, Docker deployment, and property maintenance operations.
+MakeReadyOS is a self-hosted property operations platform focused on apartment make-ready and maintenance workflows. It uses a dense software-defined spreadsheet workflow built for local ownership, Docker deployment, and property maintenance operations.
 
 The core workflow is a fast table-first make-ready board with Kanban, Schedule, Dashboard, item drawer, comments, attachments, checklists, vendors, risk scoring, automations, property maps, and a Frog Pond visualization.
 
@@ -37,10 +37,11 @@ MakeReadyOS is not:
 
 ## What It Includes
 
-- Dense make-ready table with inline editing, custom fields, managed labels, floor plans, batch actions, and archive/restore workflows.
+- Dense make-ready table with inline editing, custom fields, managed labels, floor plans, structured server-side board filters, batch actions, and archive/restore workflows.
 - Kanban, Schedule, Dashboard, Activity, My Work, Planning, Vendors, Maps, Frog Pond, Automations, Setup, Fields, Admin, and Integrations workspaces.
 - Authentication, roles, property-scoped permissions, audit logs, API tokens, and in-app notifications.
 - Local attachments/photos, item comments, checklist templates, item drawer, unit history, analytics snapshots, and risk scoring.
+- Scoped integration API with examples and a lightweight OpenAPI contract at `/api/openapi.json`.
 - Docker Compose, PostgreSQL, Prisma, Fastify, React, Vite, TypeScript, backup scripts, and deployment docs.
 
 For a fuller feature walkthrough, see [docs/PRODUCT_OVERVIEW.md](docs/PRODUCT_OVERVIEW.md) and [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md).
@@ -50,7 +51,7 @@ For a fuller feature walkthrough, see [docs/PRODUCT_OVERVIEW.md](docs/PRODUCT_OV
 - `apps/api`: Node 20, Fastify 5, Prisma, PostgreSQL
 - `apps/web`: React, Vite, TypeScript
 - `docker-compose.yml`: web, API, and PostgreSQL services
-- Root scripts for build, test, E2E, backups, automation runs, analytics snapshots, and diagnostics
+- Root scripts for build, test, E2E, backups, automation runs, analytics snapshots, webhook delivery runs, and diagnostics
 
 ## Quick Start With Docker
 
@@ -136,6 +137,8 @@ Restore scripts are intentionally confirmation-gated:
 
 See [docs/BACKUP_AND_TRANSFER.md](docs/BACKUP_AND_TRANSFER.md), [docs/DISASTER_RECOVERY.md](docs/DISASTER_RECOVERY.md), and [docs/SCHEDULED_BACKUPS.md](docs/SCHEDULED_BACKUPS.md).
 
+Photo uploads are local-first. `MAX_UPLOAD_MB=0` disables MakeReadyOS' per-file API limit so high-resolution phone/HDR photos are not blocked by the app, though browsers, disk space, and external reverse proxies can still impose limits. The inspection gallery supports multi-file upload, in-app preview, markup pins, explicit per-file download, and filtered ZIP export. Use `UPLOADS_HOST_PATH` when uploads should live on a host directory, external drive, or NAS/Samba mount. The Admin storage screen can inspect the active upload path, validate a proposed NAS path, and route new uploads into property-specific subfolders, but Docker still needs the host path mounted and the stack restarted. Existing root-level upload files can be previewed and moved into property folders with `./route-existing-uploads.sh`.
+
 ## Documentation
 
 Start here:
@@ -146,16 +149,23 @@ Start here:
 - [Deployment](docs/DEPLOYMENT.md)
 - [Onboarding](docs/ONBOARDING.md)
 - [Build And Test](docs/BUILD_AND_TEST.md)
+- [Release Process](docs/RELEASE_PROCESS.md)
 - [Security](SECURITY.md)
 - [Support](SUPPORT.md)
 - [Roles And Permissions](docs/ROLES_AND_PERMISSIONS.md)
 - [API](docs/API.md)
 - [Extensions](docs/EXTENSIONS.md)
+- [JSON Schemas](docs/schemas/)
 - [Operational Library](docs/OPERATIONAL_LIBRARY.md)
 - [Property Templates](docs/PROPERTY_TEMPLATES.md)
 - [Risk Engine](docs/RISK_ENGINE.md)
 - [Vendors](docs/VENDORS.md)
 - [Property Maps](docs/PROPERTY_MAPS.md)
+- [Unit Directory And Occupancy](docs/UNIT_DIRECTORY_AND_OCCUPANCY.md)
+- [Photo Inspections](docs/PHOTO_INSPECTIONS.md)
+- [Make Ready QA Checklist](docs/MAKE_READY_QA_CHECKLIST.md)
+- [Upload Storage](docs/UPLOAD_STORAGE.md)
+- [Operating Calendars](docs/OPERATING_CALENDARS.md)
 - [Frog Pond](docs/FROG_POND.md)
 - [Analytics And History](docs/ANALYTICS_AND_HISTORY.md)
 - [Workload Planning](docs/WORKLOAD_PLANNING.md)

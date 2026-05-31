@@ -48,6 +48,7 @@ need_file docs/WORKLOAD_PLANNING.md
 need_file docs/PROPERTY_TEMPLATES.md
 need_file docs/ONBOARDING.md
 need_file docs/DEPLOYMENT.md
+need_file docs/UPLOAD_STORAGE.md
 need_file .github/ISSUE_TEMPLATE/bug_report.md
 need_file .github/ISSUE_TEMPLATE/feature_request.md
 need_file examples/api/curl/list-make-ready-items.sh
@@ -94,7 +95,7 @@ else
   warn "docker compose is not available"
 fi
 
-for script in build.sh test.sh e2e.sh run-automations.sh run-analytics-snapshot.sh backup-db.sh restore-db.sh backup-uploads.sh restore-uploads.sh prune-backups.sh seed-large.sh reset-demo.sh; do
+for script in build.sh test.sh e2e.sh run-automations.sh run-analytics-snapshot.sh backup-db.sh restore-db.sh backup-uploads.sh restore-uploads.sh move-uploads.sh prune-backups.sh seed-large.sh reset-demo.sh; do
   [ -x "$script" ] || fail "$script is missing or not executable"
   bash -n "$script"
 done
@@ -118,6 +119,17 @@ echo "Prisma migrations: present. For deployed updates run npm --prefix apps/api
 
 if [ "${UPLOAD_DIR:-/app/uploads}" != "/app/uploads" ]; then
   warn "UPLOAD_DIR is customized; verify backup-uploads.sh/restore-uploads.sh and host volume backups cover this path"
+fi
+if [ -n "${UPLOADS_HOST_PATH:-}" ] && [ "${UPLOADS_HOST_PATH:-uploads_data}" != "uploads_data" ]; then
+  if [[ "$UPLOADS_HOST_PATH" != /* ]]; then
+    warn "UPLOADS_HOST_PATH should be an absolute host path or the default named volume uploads_data"
+  elif [ ! -d "$UPLOADS_HOST_PATH" ]; then
+    warn "UPLOADS_HOST_PATH does not exist yet: $UPLOADS_HOST_PATH"
+  elif [ ! -w "$UPLOADS_HOST_PATH" ]; then
+    warn "UPLOADS_HOST_PATH is not writable by the current user; Docker may still write depending on mount ownership"
+  else
+    echo "Host upload path: $UPLOADS_HOST_PATH"
+  fi
 fi
 
 if [ -f .env ]; then

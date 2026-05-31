@@ -103,7 +103,7 @@ export function BackupTransferPanel({ onImported }: Props) {
         <span className="subtitle">Move operational data between MakeReadyOS instances.</span>
       </div>
       <div className="admin-message warning">
-        Native JSON backups only. This does not import monday.com Excel files or reporting CSV exports.
+        Native JSON backups only. This does not import legacy spreadsheet files or reporting CSV exports.
       </div>
       {message ? <div className="admin-message success" data-testid="backup-message">{message}</div> : null}
       {error ? <div className="admin-message error" data-testid="backup-error">{error}</div> : null}

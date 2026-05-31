@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getActivity, isApiError } from "../lib/api";
+import { formatDateTime } from "../lib/dateTime";
 import { StatusState } from "./StatusState";
 
 type Props = {
@@ -21,13 +22,6 @@ function titleCase(value: string) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function formatTimestamp(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
 }
 
 export function ActivityPanel({ onSessionExpired }: Props) {
@@ -169,7 +163,7 @@ export function ActivityPanel({ onSessionExpired }: Props) {
               <tbody>
                 {activityData.activity.map((entry) => (
                   <tr key={entry.id} data-testid="activity-row">
-                    <td className="activity-time">{formatTimestamp(entry.createdAt)}</td>
+                    <td className="activity-time">{formatDateTime(entry.createdAt)}</td>
                     <td>{entry.actor?.fullName ?? "System / unknown"}</td>
                     <td><span className="activity-action">{titleCase(entry.action)}</span></td>
                     <td>{titleCase(entry.entityType)}</td>

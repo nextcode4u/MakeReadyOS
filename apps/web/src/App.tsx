@@ -1,17 +1,12 @@
 import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ActiveFilterBar } from "./components/ActiveFilterBar";
-import { BoardConfigurationPanel } from "./components/BoardConfigurationPanel";
 import { BoardTable } from "./components/BoardTable";
-import { CalendarView } from "./components/CalendarView";
 import { CommandPalette } from "./components/CommandPalette";
-import { CustomFieldsPanel } from "./components/CustomFieldsPanel";
+import { ConnectionStatus } from "./components/ConnectionStatus";
 import { FilterBar, type ThemeMode } from "./components/FilterBar";
-import { KanbanBoard } from "./components/KanbanBoard";
-import { ItemDrawer } from "./components/ItemDrawer";
 import { LoginScreen } from "./components/LoginScreen";
 import { NotificationDrawer } from "./components/NotificationDrawer";
-import { OperationsPanel } from "./components/OperationsPanel";
 import { OnboardingPanel } from "./components/OnboardingPanel";
 import { StatusState } from "./components/StatusState";
 import { ToastItem, ToastViewport } from "./components/ToastViewport";
@@ -30,6 +25,7 @@ import {
   createVendorAssignment,
   createPropertyMap,
   createPropertyTemplateFromProperty,
+  importUnits,
   archiveMakeReadyItem,
   archiveProperty,
   archiveUnit,
@@ -37,6 +33,9 @@ import {
   archiveFloorPlan,
   archiveScheduleTrack,
   archiveCustomField,
+  restoreCustomField,
+  trashCustomField,
+  permanentlyDeleteCustomField,
   archiveAutomation,
   archiveVendor,
   archivePropertyMap,
@@ -56,24 +55,27 @@ import {
   getCurrentUser,
   getCustomFields,
   getDashboard,
-  getMakeReadyItems,
+  getMakeReadyItemPage,
   MakeReadyItem,
   ManagedUser,
   getMeta,
   getNotifications,
   getMyWork,
   getPlanning,
+  getRiskPolicies,
   getOperationsProperties,
   getOperationsUnits,
   getBoardOptions,
   getFloorPlans,
   getScheduleTracks,
+  getOperatingCalendars,
   getSavedViews,
   getVendors,
   getVendorAssignments,
   getPropertyMaps,
   getPropertyTemplates,
   getUnitMapLocations,
+  getPropertyMapAreas,
   login,
   logout,
   installAutomationTemplate,
@@ -102,6 +104,8 @@ import {
   updateBoardColumn,
   updateBoardSection,
   updateScheduleTrack,
+  updateOperatingCalendar,
+  updateRiskPolicy,
   reorderBoardOptions,
   reorderScheduleTracks,
   batchMakeReadyItems,
@@ -116,19 +120,29 @@ import {
   uploadPropertyMap,
   saveUnitMapLocation,
   removeUnitMapLocation,
+  createPropertyMapArea,
+  updatePropertyMapArea,
+  removePropertyMapArea,
   createWorkAssignmentBlock,
   updateWorkAssignmentBlock,
   applyPropertyTemplate,
 } from "./lib/api";
 import { configuredScheduleTracks, kanbanGroupOptions, labelMap, normalizeVisibleColumns, visibleColumnOptions } from "./lib/board";
+import { clockModeStorageKey, type ClockMode } from "./lib/dateTime";
 import { customFieldFilterChipLabel, customOperatorsByType, defaultCustomFilterFor, defaultStructuredFilters, itemMatchesStructuredFilters, normalizeCustomFieldFilters, type CustomFieldFilter, type StructuredFilters } from "./lib/structuredFilters";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel").then((module) => ({ default: module.AdminPanel })));
 const ActivityPanel = lazy(() => import("./components/ActivityPanel").then((module) => ({ default: module.ActivityPanel })));
 const AutomationPanel = lazy(() => import("./components/AutomationPanel").then((module) => ({ default: module.AutomationPanel })));
+const BoardConfigurationPanel = lazy(() => import("./components/BoardConfigurationPanel").then((module) => ({ default: module.BoardConfigurationPanel })));
+const CalendarView = lazy(() => import("./components/CalendarView").then((module) => ({ default: module.CalendarView })));
+const CustomFieldsPanel = lazy(() => import("./components/CustomFieldsPanel").then((module) => ({ default: module.CustomFieldsPanel })));
 const DashboardPanel = lazy(() => import("./components/DashboardPanel").then((module) => ({ default: module.DashboardPanel })));
 const FrogPondPanel = lazy(() => import("./components/FrogPondPanel").then((module) => ({ default: module.FrogPondPanel })));
+const ItemDrawer = lazy(() => import("./components/ItemDrawer").then((module) => ({ default: module.ItemDrawer })));
+const KanbanBoard = lazy(() => import("./components/KanbanBoard").then((module) => ({ default: module.KanbanBoard })));
 const MyWorkPanel = lazy(() => import("./components/MyWorkPanel").then((module) => ({ default: module.MyWorkPanel })));
+const OperationsPanel = lazy(() => import("./components/OperationsPanel").then((module) => ({ default: module.OperationsPanel })));
 const PlanningPanel = lazy(() => import("./components/PlanningPanel").then((module) => ({ default: module.PlanningPanel })));
 const PropertyMapsPanel = lazy(() => import("./components/PropertyMapsPanel").then((module) => ({ default: module.PropertyMapsPanel })));
 const VendorsPanel = lazy(() => import("./components/VendorsPanel").then((module) => ({ default: module.VendorsPanel })));
@@ -140,6 +154,23 @@ const themeModeStorageKey = "makereadyos.themeMode";
 const eyeStrainModeStorageKey = "makereadyos.eyeStrainMode";
 const dyslexiaModeStorageKey = "makereadyos.dyslexiaMode";
 const onboardingSkippedStorageKey = "makereadyos.onboardingSkipped";
+const boardWindowedModeStorageKey = "makereadyos.boardWindowedMode";
+const boardWindowLimitStorageKey = "makereadyos.boardWindowLimit";
+const boardWindowPageSize = 250;
+const serverSortableItemFields = new Set([
+  "boardGroup",
+  "unitNumber",
+  "moveInDate",
+  "makeReadyDate",
+  "vacatedDate",
+  "flooringDate",
+  "daysVacant",
+  "riskScore",
+  "riskLevel",
+  "assignedTech",
+  "updatedAt",
+  "createdAt",
+]);
 
 const techEditableFields = new Set([
   "assignedTech",
@@ -224,6 +255,7 @@ function App() {
   const [structuredFilters, setStructuredFilters] = useState<StructuredFilters>(defaultStructuredFilters);
   const [visibleColumns, setVisibleColumns] = useState<string[] | null>(null);
   const [customFieldToAdd, setCustomFieldToAdd] = useState("");
+  const [tableFiltersOpen, setTableFiltersOpen] = useState(false);
   const [loginError, setLoginError] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
   const [adminError, setAdminError] = useState("");
@@ -249,12 +281,21 @@ function App() {
   });
   const [eyeStrainMode, setEyeStrainMode] = useState(() => window.localStorage.getItem(eyeStrainModeStorageKey) === "true");
   const [dyslexiaMode, setDyslexiaMode] = useState(() => window.localStorage.getItem(dyslexiaModeStorageKey) === "true");
+  const [clockMode, setClockMode] = useState<ClockMode>(() => (window.localStorage.getItem(clockModeStorageKey) === "24h" ? "24h" : "12h"));
+  const [boardWindowedMode, setBoardWindowedMode] = useState(() => window.localStorage.getItem(boardWindowedModeStorageKey) === "true");
+  const [boardWindowLimit, setBoardWindowLimit] = useState(() => {
+    const stored = Number(window.localStorage.getItem(boardWindowLimitStorageKey));
+    return Number.isFinite(stored) && stored >= boardWindowPageSize ? stored : boardWindowPageSize;
+  });
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingSkipped, setOnboardingSkipped] = useState(() => window.localStorage.getItem(onboardingSkippedStorageKey) === "true");
   const [myWorkUserId, setMyWorkUserId] = useState("");
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
+  const [apiDegraded, setApiDegraded] = useState(false);
+  const [lastConnectionIssueAt, setLastConnectionIssueAt] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const pushToast = (title: string, message: string | undefined, tone: ToastItem["tone"]) => {
@@ -279,6 +320,12 @@ function App() {
     pushToast("Session expired", message, "error");
   };
 
+  const retryConnection = () => {
+    setApiDegraded(false);
+    void queryClient.invalidateQueries();
+    pushToast("Retrying connection", "Refreshing active MakeReadyOS data.", "info");
+  };
+
   const meQuery = useQuery({
     queryKey: ["auth", "me"],
     queryFn: getCurrentUser,
@@ -291,11 +338,63 @@ function App() {
     enabled: meQuery.isSuccess,
   });
 
+  const itemServerFilters = useMemo(() => ({
+    propertyId: propertyId || undefined,
+    q: deferredSearch || undefined,
+    includeArchived: structuredFilters.archiveState !== "active" || activeView === "operations",
+    boardSection: structuredFilters.boardSection || undefined,
+    vacancyStatus: structuredFilters.vacancyStatus || undefined,
+    assignedTech: structuredFilters.assignedTech || undefined,
+    scopeLevel: scopeLevelFilter || undefined,
+    makeReadyStatus: structuredFilters.makeReadyStatus || undefined,
+    riskLevel: structuredFilters.riskLevel || undefined,
+    riskCategory: structuredFilters.riskCategory || undefined,
+    moveInWindow: structuredFilters.moveInWindow || undefined,
+    overdueOnly: structuredFilters.overdueOnly,
+    missingDatesOnly: structuredFilters.missingDatesOnly,
+    pestIssuesOnly: structuredFilters.pestIssuesOnly,
+    flooringNeededOnly: structuredFilters.flooringNeededOnly,
+    paintNeededOnly: structuredFilters.paintNeededOnly,
+    moveInRiskOnly: structuredFilters.moveInRiskOnly,
+    customFieldFilters: structuredFilters.customFieldFilters,
+  }), [
+    activeView,
+    deferredSearch,
+    propertyId,
+    scopeLevelFilter,
+    structuredFilters.archiveState,
+    structuredFilters.assignedTech,
+    structuredFilters.boardSection,
+    structuredFilters.flooringNeededOnly,
+    structuredFilters.makeReadyStatus,
+    structuredFilters.missingDatesOnly,
+    structuredFilters.moveInRiskOnly,
+    structuredFilters.moveInWindow,
+    structuredFilters.overdueOnly,
+    structuredFilters.paintNeededOnly,
+    structuredFilters.pestIssuesOnly,
+    structuredFilters.riskLevel,
+    structuredFilters.riskCategory,
+    structuredFilters.vacancyStatus,
+    structuredFilters.customFieldFilters,
+  ]);
+
+  const effectiveItemServerFilters = useMemo(() => ({
+    ...itemServerFilters,
+    ...(boardWindowedMode ? {
+      limit: boardWindowLimit,
+      offset: 0,
+      ...(serverSortableItemFields.has(sortKey) ? { sortBy: sortKey as NonNullable<Parameters<typeof getMakeReadyItemPage>[0]["sortBy"]>, sortDirection } : {}),
+    } : {}),
+  }), [boardWindowLimit, boardWindowedMode, itemServerFilters, sortDirection, sortKey]);
+
   const itemsQuery = useQuery({
-    queryKey: ["make-ready-items", structuredFilters.archiveState !== "active" || activeView === "operations"],
-    queryFn: () => getMakeReadyItems({ includeArchived: structuredFilters.archiveState !== "active" || activeView === "operations" }),
+    queryKey: ["make-ready-items", effectiveItemServerFilters],
+    queryFn: () => getMakeReadyItemPage(effectiveItemServerFilters),
     enabled: meQuery.isSuccess,
   });
+  const boardItems = itemsQuery.data?.items ?? [];
+  const boardPagination = itemsQuery.data?.pagination;
 
   const savedViewsQuery = useQuery({
     queryKey: ["saved-views"],
@@ -386,9 +485,31 @@ function App() {
     enabled: meQuery.isSuccess && ["maps", "dashboard"].includes(activeView),
   });
 
+  const propertyMapAreasQuery = useQuery({
+    queryKey: ["property-map-areas", propertyId],
+    queryFn: () => getPropertyMapAreas({ propertyId: propertyId || undefined, includeArchived: false }),
+    enabled: meQuery.isSuccess && ["maps", "dashboard"].includes(activeView),
+  });
+
   const scheduleTracksQuery = useQuery({
     queryKey: ["operations", "schedule-tracks"],
     queryFn: getScheduleTracks,
+    enabled: meQuery.isSuccess
+      && (meQuery.data?.user.role === "ADMIN" || meQuery.data?.user.role === "MANAGER")
+      && activeView === "operations",
+  });
+
+  const operatingCalendarsQuery = useQuery({
+    queryKey: ["operations", "operating-calendars"],
+    queryFn: () => getOperatingCalendars(undefined, true),
+    enabled: meQuery.isSuccess
+      && (meQuery.data?.user.role === "ADMIN" || meQuery.data?.user.role === "MANAGER")
+      && activeView === "operations",
+  });
+
+  const riskPoliciesQuery = useQuery({
+    queryKey: ["operations", "risk-policies"],
+    queryFn: () => getRiskPolicies(),
     enabled: meQuery.isSuccess
       && (meQuery.data?.user.role === "ADMIN" || meQuery.data?.user.role === "MANAGER")
       && activeView === "operations",
@@ -408,7 +529,7 @@ function App() {
 
   const customFieldsQuery = useQuery({
     queryKey: ["custom-fields", "manage"],
-    queryFn: () => getCustomFields(true),
+    queryFn: () => getCustomFields(true, true),
     enabled: meQuery.isSuccess
       && (meQuery.data?.user.role === "ADMIN" || meQuery.data?.user.role === "MANAGER")
       && activeView === "fields",
@@ -558,7 +679,7 @@ function App() {
   });
 
   const updatePropertyMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { name: string; code: string } }) => updateProperty(id, data),
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateProperty>[1] }) => updateProperty(id, data),
     onSuccess: async (data) => {
       await refreshOperations(`Updated property ${data.property.code}`);
       pushToast("Property updated", `${data.property.name} was saved.`, "success");
@@ -614,6 +735,18 @@ function App() {
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Unit update failed");
       pushToast("Unit update failed", error instanceof Error ? error.message : undefined, "error");
+    },
+  });
+
+  const importUnitsMutation = useMutation({
+    mutationFn: importUnits,
+    onSuccess: async (data) => {
+      await refreshOperations(`Imported unit directory: ${data.summary.created} created, ${data.summary.updated} updated`);
+      pushToast("Unit directory imported", `${data.summary.created} created, ${data.summary.updated} updated, ${data.summary.skipped} skipped.`, "success");
+    },
+    onError: (error) => {
+      setOperationsError(error instanceof Error ? error.message : "Unit import failed");
+      pushToast("Unit import failed", error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -807,6 +940,24 @@ function App() {
     },
     onError: (error) => pushToast("Schedule track status failed", error instanceof Error ? error.message : undefined, "error"),
   });
+  const operatingCalendarUpdateMutation = useMutation({
+    mutationFn: ({ propertyId, data }: { propertyId: string; data: Parameters<typeof updateOperatingCalendar>[1] }) => updateOperatingCalendar(propertyId, data),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["operations", "operating-calendars"] });
+      pushToast("Operating calendar saved", "Scheduling guardrails are ready for planning and automation review.", "success");
+    },
+    onError: (error) => pushToast("Operating calendar update failed", error instanceof Error ? error.message : undefined, "error"),
+  });
+  const riskPolicyUpdateMutation = useMutation({
+    mutationFn: ({ propertyId, data }: { propertyId: string; data: Parameters<typeof updateRiskPolicy>[1] }) => updateRiskPolicy(propertyId, data),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["operations", "risk-policies"] });
+      await queryClient.invalidateQueries({ queryKey: ["risk"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      pushToast("Risk policy saved", "Thresholds will apply to the next risk evaluation.", "success");
+    },
+    onError: (error) => pushToast("Risk policy update failed", error instanceof Error ? error.message : undefined, "error"),
+  });
 
   const refreshVendors = async () => {
     await queryClient.invalidateQueries({ queryKey: ["vendors"] });
@@ -874,6 +1025,7 @@ function App() {
   const refreshMaps = async () => {
     await queryClient.invalidateQueries({ queryKey: ["property-maps"] });
     await queryClient.invalidateQueries({ queryKey: ["unit-map-locations"] });
+    await queryClient.invalidateQueries({ queryKey: ["property-map-areas"] });
     await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     await queryClient.invalidateQueries({ queryKey: ["activity"] });
   };
@@ -916,6 +1068,30 @@ function App() {
       pushToast("Unit marker removed", "The unit is now listed as unmapped.", "info");
     },
     onError: (error) => pushToast("Marker remove failed", error instanceof Error ? error.message : undefined, "error"),
+  });
+  const propertyMapAreaCreateMutation = useMutation({
+    mutationFn: createPropertyMapArea,
+    onSuccess: async () => {
+      await refreshMaps();
+      pushToast("Map area saved", "Building or area marker was added.", "success");
+    },
+    onError: (error) => pushToast("Area save failed", error instanceof Error ? error.message : undefined, "error"),
+  });
+  const propertyMapAreaUpdateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updatePropertyMapArea>[1] }) => updatePropertyMapArea(id, data),
+    onSuccess: async () => {
+      await refreshMaps();
+      pushToast("Map area updated", "Building or area marker was updated.", "success");
+    },
+    onError: (error) => pushToast("Area update failed", error instanceof Error ? error.message : undefined, "error"),
+  });
+  const propertyMapAreaRemoveMutation = useMutation({
+    mutationFn: removePropertyMapArea,
+    onSuccess: async () => {
+      await refreshMaps();
+      pushToast("Map area archived", "The building or area marker was hidden.", "info");
+    },
+    onError: (error) => pushToast("Area archive failed", error instanceof Error ? error.message : undefined, "error"),
   });
 
   const refreshFields = async (message: string) => {
@@ -962,6 +1138,45 @@ function App() {
       setFieldMessage("");
       setFieldError(error instanceof Error ? error.message : "Archive field failed");
       pushToast("Archive failed", error instanceof Error ? error.message : "Archive field failed", "error");
+    },
+  });
+
+  const restoreFieldMutation = useMutation({
+    mutationFn: restoreCustomField,
+    onSuccess: async () => {
+      await refreshFields("Restored custom field");
+      pushToast("Field restored", "The field is active again.", "success");
+    },
+    onError: (error) => {
+      setFieldMessage("");
+      setFieldError(error instanceof Error ? error.message : "Restore field failed");
+      pushToast("Restore failed", error instanceof Error ? error.message : "Restore field failed", "error");
+    },
+  });
+
+  const trashFieldMutation = useMutation({
+    mutationFn: trashCustomField,
+    onSuccess: async (data) => {
+      await refreshFields("Moved custom field to trash");
+      pushToast("Field moved to trash", `Retained until ${new Date(data.deleteAfter).toLocaleDateString()}.`, "info");
+    },
+    onError: (error) => {
+      setFieldMessage("");
+      setFieldError(error instanceof Error ? error.message : "Move field to trash failed");
+      pushToast("Trash failed", error instanceof Error ? error.message : "Move field to trash failed", "error");
+    },
+  });
+
+  const deleteFieldMutation = useMutation({
+    mutationFn: permanentlyDeleteCustomField,
+    onSuccess: async () => {
+      await refreshFields("Permanently deleted custom field");
+      pushToast("Field deleted", "The field was permanently removed.", "success");
+    },
+    onError: (error) => {
+      setFieldMessage("");
+      setFieldError(error instanceof Error ? error.message : "Permanent delete failed");
+      pushToast("Delete failed", error instanceof Error ? error.message : "Permanent delete failed", "error");
     },
   });
 
@@ -1346,6 +1561,23 @@ function App() {
     document.documentElement.classList.toggle("dyslexia-mode", dyslexiaMode);
   }, [dyslexiaMode]);
 
+  useEffect(() => {
+    window.localStorage.setItem(clockModeStorageKey, clockMode);
+    document.documentElement.dataset.clockMode = clockMode;
+  }, [clockMode]);
+
+  useEffect(() => {
+    window.localStorage.setItem(boardWindowedModeStorageKey, String(boardWindowedMode));
+  }, [boardWindowedMode]);
+
+  useEffect(() => {
+    window.localStorage.setItem(boardWindowLimitStorageKey, String(boardWindowLimit));
+  }, [boardWindowLimit]);
+
+  useEffect(() => {
+    setBoardWindowLimit(boardWindowPageSize);
+  }, [itemServerFilters, sortDirection, sortKey]);
+
   const onboardingUser = forceLoggedOut ? undefined : meQuery.data?.user;
   const canUseOnboarding = onboardingUser?.role === "ADMIN" || onboardingUser?.role === "MANAGER";
   const firstRunDetected = Boolean(canUseOnboarding && metaQuery.isSuccess && (metaQuery.data?.properties.length ?? 0) === 0);
@@ -1367,6 +1599,33 @@ function App() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  useEffect(() => {
+    const online = () => {
+      setIsOnline(true);
+      setApiDegraded(false);
+      pushToast("Back online", "Refreshing current workspace data.", "success");
+      void queryClient.invalidateQueries();
+    };
+    const offline = () => {
+      setIsOnline(false);
+      setLastConnectionIssueAt(new Date().toISOString());
+      pushToast("Offline", "Do not close this screen. Save changes after reconnecting.", "error");
+    };
+    const unreachable = (event: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail as { at?: string } : {};
+      setApiDegraded(true);
+      setLastConnectionIssueAt(detail.at ?? new Date().toISOString());
+    };
+    window.addEventListener("online", online);
+    window.addEventListener("offline", offline);
+    window.addEventListener("makereadyos:api-unreachable", unreachable);
+    return () => {
+      window.removeEventListener("online", online);
+      window.removeEventListener("offline", offline);
+      window.removeEventListener("makereadyos:api-unreachable", unreachable);
+    };
+  }, [queryClient]);
 
   useEffect(() => {
     const possible401Errors = [
@@ -1421,7 +1680,7 @@ function App() {
   };
 
   const filteredItems = useMemo(() => {
-    const allItems = itemsQuery.data ?? [];
+    const allItems = boardItems;
 
     return allItems.filter((item) => {
       if (propertyId && item.propertyId !== propertyId) {
@@ -1440,12 +1699,12 @@ function App() {
       }
       return itemMatchesStructuredFilters(item, structuredFilters, metaQuery.data?.boardSections ?? [], metaQuery.data?.customFields ?? []);
     });
-  }, [itemsQuery.data, metaQuery.data?.boardSections, propertyId, scopeLevelFilter, deferredSearch, structuredFilters]);
+  }, [boardItems, metaQuery.data?.boardSections, propertyId, scopeLevelFilter, deferredSearch, structuredFilters]);
 
   const sortedItems = useMemo(() => {
     return [...filteredItems].sort((a, b) => compareValues(a[sortKey as keyof typeof a], b[sortKey as keyof typeof b], sortDirection));
   }, [filteredItems, sortDirection, sortKey]);
-  const itemsById = useMemo(() => new Map((itemsQuery.data ?? []).map((item) => [item.id, item])), [itemsQuery.data]);
+  const itemsById = useMemo(() => new Map(boardItems.map((item) => [item.id, item])), [boardItems]);
   const selectedItem = selectedItemId ? itemsById.get(selectedItemId) ?? null : null;
   const selectedItemPlanningQuery = useQuery({
     queryKey: ["planning", "item-drawer", selectedItemId],
@@ -1665,12 +1924,14 @@ function App() {
         onCompactModeChange={setCompactMode}
         themeMode={themeMode}
         onThemeModeChange={setThemeMode}
+        clockMode={clockMode}
+        onClockModeChange={setClockMode}
         eyeStrainMode={eyeStrainMode}
         onEyeStrainModeChange={setEyeStrainMode}
         dyslexiaMode={dyslexiaMode}
         onDyslexiaModeChange={setDyslexiaMode}
-        showArchivedItems={structuredFilters.archiveState !== "active"}
-        onShowArchivedItemsChange={(value) => setStructuredFilters((current) => ({ ...current, archiveState: value ? "all" : "active" }))}
+        archiveMode={structuredFilters.archiveState}
+        onArchiveModeChange={(value) => setStructuredFilters((current) => ({ ...current, archiveState: value }))}
         notificationUnreadCount={notificationsQuery.data?.unreadCount ?? 0}
         onOpenNotifications={() => setNotificationsOpen(true)}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
@@ -1692,21 +1953,10 @@ function App() {
           {activeFilterChips.length ? (
             <button className="module-rail-button rail-filter-count" type="button" onClick={() => clearBoardFilters(true)} aria-label="Clear active filters">{activeFilterChips.length}</button>
           ) : null}
-          <button className="module-rail-button placeholder" type="button" title="PestLogOS placeholder" aria-label="PestLogOS placeholder" disabled>
-            <img src="/icons/fontawesome/pest.svg" alt="" />
-          </button>
-          <button className="module-rail-button placeholder" type="button" title="RefrigerantLogOS placeholder" aria-label="RefrigerantLogOS placeholder" disabled>
-            <img src="/icons/fontawesome/refrigerant.svg" alt="" />
-          </button>
-          <button className="module-rail-button placeholder" type="button" title="PropertyWikiOS placeholder" aria-label="PropertyWikiOS placeholder" disabled>
-            <img src="/icons/fontawesome/wiki.svg" alt="" />
-          </button>
-          <button className="module-rail-button placeholder" type="button" title="PoolLogOS placeholder" aria-label="PoolLogOS placeholder" disabled>
-            <img src="/icons/fontawesome/pool.svg" alt="" />
-          </button>
         </aside>
 
         <section className="primary-panel">
+          <ConnectionStatus online={isOnline} degraded={apiDegraded} lastIssueAt={lastConnectionIssueAt} onRetry={retryConnection} />
           <Suspense fallback={
             <div className="panel-state-wrap">
               <StatusState title="Loading workspace" description="Preparing this MakeReadyOS view." />
@@ -1777,15 +2027,20 @@ function App() {
               error={myWorkQuery.isError}
               currentUser={currentUser}
               staff={metaQuery.data?.staff ?? []}
+              labelsByField={labelsByField}
               selectedUserId={myWorkUserId}
               onUserChange={setMyWorkUserId}
               onOpenItem={setSelectedItemId}
+              onRetry={() => void myWorkQuery.refetch()}
+              onQuickStatusChange={async (id, value) => {
+                await patchMutation.mutateAsync({ id, data: { makeReadyStatus: value } });
+              }}
             />
           ) : activeView === "planning" ? (
             <PlanningPanel
               data={planningQuery.data}
               properties={metaQuery.data?.properties ?? []}
-              items={itemsQuery.data ?? []}
+              items={boardItems}
               propertyId={propertyId}
               onPropertyChange={setPropertyId}
               loading={planningQuery.isLoading || itemsQuery.isLoading}
@@ -1796,11 +2051,11 @@ function App() {
               onOpenItem={setSelectedItemId}
             />
           ) : activeView === "operations" && (currentUser.role === "ADMIN" || currentUser.role === "MANAGER") ? (
-            operationsPropertiesQuery.isLoading || operationsUnitsQuery.isLoading || operationsOptionsQuery.isLoading || floorPlansQuery.isLoading || scheduleTracksQuery.isLoading ? (
+            operationsPropertiesQuery.isLoading || operationsUnitsQuery.isLoading || operationsOptionsQuery.isLoading || floorPlansQuery.isLoading || scheduleTracksQuery.isLoading || operatingCalendarsQuery.isLoading || riskPoliciesQuery.isLoading ? (
               <div className="panel-state-wrap">
                 <StatusState title="Loading board setup" description="Fetching properties, units, and turnover lifecycle records." />
               </div>
-            ) : operationsPropertiesQuery.isError || operationsUnitsQuery.isError || operationsOptionsQuery.isError || floorPlansQuery.isError || scheduleTracksQuery.isError ? (
+            ) : operationsPropertiesQuery.isError || operationsUnitsQuery.isError || operationsOptionsQuery.isError || floorPlansQuery.isError || scheduleTracksQuery.isError || operatingCalendarsQuery.isError || riskPoliciesQuery.isError ? (
               <div className="panel-state-wrap">
                 <StatusState title="Board setup failed to load" description="Refresh the workspace and retry." tone="error" />
               </div>
@@ -1811,15 +2066,19 @@ function App() {
                 properties={operationsPropertiesQuery.data?.properties ?? []}
                 units={operationsUnitsQuery.data?.units ?? []}
                 floorPlans={floorPlansQuery.data?.floorPlans ?? []}
+                operatingCalendars={operatingCalendarsQuery.data?.calendars ?? []}
+                riskPolicies={riskPoliciesQuery.data?.policies ?? []}
                 labels={operationsOptionsQuery.data?.options ?? []}
                 staff={metaQuery.data?.staff ?? []}
-                items={itemsQuery.data ?? []}
+                items={boardItems}
                 boardGroups={metaQuery.data?.boardGroups ?? []}
                 boardSections={metaQuery.data?.boardSections ?? []}
                 loading={
                   createPropertyMutation.isPending || updatePropertyMutation.isPending || propertyLifecycleMutation.isPending || deletePropertyMutation.isPending
-                  || createUnitMutation.isPending || updateUnitMutation.isPending || unitLifecycleMutation.isPending || deleteUnitMutation.isPending
+                  || createUnitMutation.isPending || updateUnitMutation.isPending || importUnitsMutation.isPending || unitLifecycleMutation.isPending || deleteUnitMutation.isPending
                   || createItemMutation.isPending || itemLifecycleMutation.isPending
+                  || operatingCalendarUpdateMutation.isPending
+                  || riskPolicyUpdateMutation.isPending
                 }
                 message={operationsMessage}
                 error={operationsError}
@@ -1829,10 +2088,14 @@ function App() {
                 onDeleteProperty={async (id) => { await deletePropertyMutation.mutateAsync(id); }}
                 onCreateUnit={async (input) => { await createUnitMutation.mutateAsync(input); }}
                 onUpdateUnit={async (id, input) => { await updateUnitMutation.mutateAsync({ id, data: input }); }}
+                onImportUnits={async (input) => { await importUnitsMutation.mutateAsync(input); }}
                 onArchiveUnit={async (id, restore) => { await unitLifecycleMutation.mutateAsync({ id, restore }); }}
                 onDeleteUnit={async (id) => { await deleteUnitMutation.mutateAsync(id); }}
                 onCreateItem={async (input) => { await createItemMutation.mutateAsync(input); }}
                 onArchiveItem={async (id, restore) => { await itemLifecycleMutation.mutateAsync({ id, restore }); }}
+                onOpenItem={setSelectedItemId}
+                onUpdateOperatingCalendar={async (propertyId, input) => { await operatingCalendarUpdateMutation.mutateAsync({ propertyId, data: input }); }}
+                onUpdateRiskPolicy={async (propertyId, input) => { await riskPolicyUpdateMutation.mutateAsync({ propertyId, data: input }); }}
               />
               <BoardConfigurationPanel
                 properties={operationsPropertiesQuery.data?.properties ?? []}
@@ -1861,21 +2124,25 @@ function App() {
             <PropertyMapsPanel
               properties={metaQuery.data?.properties ?? []}
               units={metaQuery.data?.units ?? []}
-              items={itemsQuery.data ?? []}
+              items={boardItems}
               maps={propertyMapsQuery.data?.maps ?? []}
               locations={unitMapLocationsQuery.data?.locations ?? []}
+              areas={propertyMapAreasQuery.data?.areas ?? []}
               labelsByField={labelsByField}
               boardSections={metaQuery.data?.boardSections ?? []}
               selectedPropertyId={propertyId}
               canManage={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
-              loading={propertyMapsQuery.isLoading || unitMapLocationsQuery.isLoading}
-              error={propertyMapsQuery.isError || unitMapLocationsQuery.isError ? "Property map data failed to load." : null}
+              loading={propertyMapsQuery.isLoading || unitMapLocationsQuery.isLoading || propertyMapAreasQuery.isLoading}
+              error={propertyMapsQuery.isError || unitMapLocationsQuery.isError || propertyMapAreasQuery.isError ? "Property map data failed to load." : null}
               onPropertyChange={setPropertyId}
               onCreateMap={async (input) => { await propertyMapCreateMutation.mutateAsync(input); }}
               onArchiveMap={async (id, restore = false) => { await propertyMapArchiveMutation.mutateAsync({ id, restore }); }}
               onUploadMap={async (id, file) => { await propertyMapUploadMutation.mutateAsync({ id, file }); }}
               onSaveLocation={async (input) => { await unitMapLocationSaveMutation.mutateAsync(input); }}
               onRemoveLocation={async (id) => { await unitMapLocationRemoveMutation.mutateAsync(id); }}
+              onCreateArea={async (input) => { await propertyMapAreaCreateMutation.mutateAsync(input); }}
+              onUpdateArea={async (id, input) => { await propertyMapAreaUpdateMutation.mutateAsync({ id, data: input }); }}
+              onRemoveArea={async (id) => { await propertyMapAreaRemoveMutation.mutateAsync(id); }}
               onOpenItem={setSelectedItemId}
             />
           ) : activeView === "pond" ? (
@@ -1908,7 +2175,7 @@ function App() {
               vendors={vendorsQuery.data?.vendors ?? []}
               assignments={vendorAssignmentsQuery.data?.assignments ?? []}
               properties={metaQuery.data?.properties ?? []}
-              items={itemsQuery.data ?? []}
+              items={boardItems}
               canManage={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
               loading={vendorsQuery.isLoading || vendorAssignmentsQuery.isLoading}
               error={vendorsQuery.isError || vendorAssignmentsQuery.isError ? "Vendor data failed to load." : null}
@@ -1929,7 +2196,7 @@ function App() {
             ) : (
               <CustomFieldsPanel
                 fields={customFieldsQuery.data?.fields ?? []}
-                loading={createFieldMutation.isPending || updateFieldMutation.isPending || archiveFieldMutation.isPending || reorderFieldMutation.isPending}
+                loading={createFieldMutation.isPending || updateFieldMutation.isPending || archiveFieldMutation.isPending || restoreFieldMutation.isPending || trashFieldMutation.isPending || deleteFieldMutation.isPending || reorderFieldMutation.isPending}
                 message={fieldMessage}
                 error={fieldError}
                 onCreate={async (input) => {
@@ -1940,6 +2207,15 @@ function App() {
                 }}
                 onArchive={async (id) => {
                   await archiveFieldMutation.mutateAsync(id);
+                }}
+                onRestore={async (id) => {
+                  await restoreFieldMutation.mutateAsync(id);
+                }}
+                onTrash={async (id) => {
+                  await trashFieldMutation.mutateAsync(id);
+                }}
+                onPermanentDelete={async (id) => {
+                  await deleteFieldMutation.mutateAsync(id);
                 }}
                 onReorder={async (fieldIds) => {
                   await reorderFieldMutation.mutateAsync(fieldIds);
@@ -2096,11 +2372,50 @@ function App() {
             </div>
           ) : <>
             {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
-              <ActiveFilterBar chips={activeFilterChips} resultCount={sortedItems.length} onClear={() => clearBoardFilters()} />
+              <>
+                <ActiveFilterBar chips={activeFilterChips} resultCount={sortedItems.length} onClear={() => clearBoardFilters()} />
+                <div className="board-window-controls" data-testid="board-window-controls">
+                  <label className="toggle-row">
+                    <input
+                      type="checkbox"
+                      data-testid="board-windowed-toggle"
+                      checked={boardWindowedMode}
+                      onChange={(event) => setBoardWindowedMode(event.target.checked)}
+                    />
+                    Windowed loading
+                  </label>
+                  <span>
+                    {boardWindowedMode
+                      ? `Loaded ${boardItems.length}${boardPagination?.total !== undefined ? ` of ${boardPagination.total}` : ""} records`
+                      : `Full board stream: ${boardItems.length} records`}
+                  </span>
+                  {boardWindowedMode && boardPagination?.hasMore ? (
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      data-testid="board-window-load-more"
+                      disabled={itemsQuery.isFetching}
+                      onClick={() => setBoardWindowLimit((current) => Math.min(current + boardWindowPageSize, boardPagination.total || current + boardWindowPageSize))}
+                    >
+                      Load next {boardWindowPageSize}
+                    </button>
+                  ) : null}
+                  {boardWindowedMode ? (
+                    <button
+                      type="button"
+                      className="button button-ghost"
+                      data-testid="board-window-disable"
+                      onClick={() => setBoardWindowedMode(false)}
+                    >
+                      Load full board
+                    </button>
+                  ) : null}
+                </div>
+              </>
             ) : null}
             {activeView === "table" ? (
             <>
-            <details className="table-filter-panel advanced-filters" data-testid="advanced-filters">
+            <details className="table-filter-panel advanced-filters" data-testid="advanced-filters" open={tableFiltersOpen} onToggle={(event) => setTableFiltersOpen(event.currentTarget.open)}>
               <summary>Table filters</summary>
               <div className="table-filter-row table-filter-row-selects">
                 <label>Property
@@ -2254,7 +2569,10 @@ function App() {
                     </select>
                     <button type="button" className="button button-secondary" data-testid="custom-filter-add" disabled={!customFieldToAdd} onClick={() => {
                       const field = activeCustomFields.find((entry) => entry.id === customFieldToAdd);
-                      if (field) setStructuredFilters((current) => ({ ...current, customFieldFilters: [...current.customFieldFilters, defaultCustomFilterFor(field)] }));
+                      if (field) {
+                        setTableFiltersOpen(true);
+                        setStructuredFilters((current) => ({ ...current, customFieldFilters: [...current.customFieldFilters, defaultCustomFilterFor(field)] }));
+                      }
                       setCustomFieldToAdd("");
                     }}>Add</button>
                   </div>
@@ -2408,31 +2726,33 @@ function App() {
         </section>
       </main>
       {selectedItem && metaQuery.data ? (
-        <ItemDrawer
-          item={selectedItem}
-          currentUser={currentUser}
-          labelsByField={labelsByField}
-          customFields={metaQuery.data.customFields}
-          columnDefinitions={metaQuery.data.columns}
-          staff={metaQuery.data.staff}
-          floorPlans={floorPlansQuery.data?.floorPlans ?? []}
-          boardGroups={metaQuery.data.boardGroups}
-          boardSections={metaQuery.data.boardSections}
-          vendors={vendorsQuery.data?.vendors ?? []}
-          vendorAssignments={vendorAssignmentsQuery.data?.assignments ?? []}
-          workBlocks={selectedItemPlanningQuery.data?.blocks ?? []}
-          canEditField={(item, key) => canEditField(currentUser, key)}
-          canEditCustomFields={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
-          canManageItems={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
-          canViewActivity={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
-          onClose={() => setSelectedItemId(null)}
-          onPatch={async (id, data) => { await patchMutation.mutateAsync({ id, data }); }}
-          onPatchCustomField={async (itemId, fieldId, value) => { await customValueMutation.mutateAsync({ itemId, fieldId, value }); }}
-          onAssignFloorPlan={assignFloorPlan}
-          onCreateVendorAssignment={async (input) => { await vendorAssignmentCreateMutation.mutateAsync(input); }}
-          onUpdateVendorAssignment={async (id, input) => { await vendorAssignmentUpdateMutation.mutateAsync({ id, data: input }); }}
-          onBatch={async (input) => { await batchItemsMutation.mutateAsync(input); }}
-        />
+        <Suspense fallback={null}>
+          <ItemDrawer
+            item={selectedItem}
+            currentUser={currentUser}
+            labelsByField={labelsByField}
+            customFields={metaQuery.data.customFields}
+            columnDefinitions={metaQuery.data.columns}
+            staff={metaQuery.data.staff}
+            floorPlans={floorPlansQuery.data?.floorPlans ?? []}
+            boardGroups={metaQuery.data.boardGroups}
+            boardSections={metaQuery.data.boardSections}
+            vendors={vendorsQuery.data?.vendors ?? []}
+            vendorAssignments={vendorAssignmentsQuery.data?.assignments ?? []}
+            workBlocks={selectedItemPlanningQuery.data?.blocks ?? []}
+            canEditField={(item, key) => canEditField(currentUser, key)}
+            canEditCustomFields={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
+            canManageItems={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
+            canViewActivity={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
+            onClose={() => setSelectedItemId(null)}
+            onPatch={async (id, data) => { await patchMutation.mutateAsync({ id, data }); }}
+            onPatchCustomField={async (itemId, fieldId, value) => { await customValueMutation.mutateAsync({ itemId, fieldId, value }); }}
+            onAssignFloorPlan={assignFloorPlan}
+            onCreateVendorAssignment={async (input) => { await vendorAssignmentCreateMutation.mutateAsync(input); }}
+            onUpdateVendorAssignment={async (id, input) => { await vendorAssignmentUpdateMutation.mutateAsync({ id, data: input }); }}
+            onBatch={async (input) => { await batchItemsMutation.mutateAsync(input); }}
+          />
+        </Suspense>
       ) : null}
       <NotificationDrawer
         open={notificationsOpen}
@@ -2447,7 +2767,7 @@ function App() {
       />
       <CommandPalette
         open={commandPaletteOpen}
-        items={itemsQuery.data ?? []}
+        items={boardItems}
         properties={metaQuery.data?.properties ?? []}
         views={savedViewsQuery.data?.views ?? []}
         staff={metaQuery.data?.staff ?? []}

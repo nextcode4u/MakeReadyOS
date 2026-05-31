@@ -4,7 +4,7 @@
 
 - Project name: `MakeReadyOS`
 - Expanded origin name: `PIMP` = `Property Information Maintenance Pro`
-- Purpose: self-hosted property maintenance and make-ready management web app inspired by the monday.com board screenshots currently used by the team
+- Purpose: self-hosted property maintenance and make-ready management web app inspired by dense, software-defined spreadsheet operations used by the team
 
 ## Current MVP Scope
 
@@ -20,17 +20,20 @@
 - Calendar scheduling view
 - Saved personal/shared views for table, Kanban, and calendar states
 - Configurable make-ready custom fields with inline table values
+- Custom fields support archive, restore, and a 7-day trash retention flow before permanent deletion is available.
 - Polished frontend feedback layer with toasts, modals, and stronger empty/loading/error states
 - Playwright browser E2E coverage for core login, board workflow, saved view, and admin lifecycle flows
 - Read-only Activity workspace for auditing application operations
-- Property map/unit directory foundation for local map uploads, unit marker placement, visual status/risk navigation, and mapped/unmapped setup tracking
+- Property map/unit directory foundation for local map uploads, building/area markers, unit marker placement, visual status/risk navigation, mapped/unmapped setup tracking, building/area/floor metadata, and directory occupancy states
 - Seed/demo data modeled after screenshot workflows
 - Structured Automation workspace with validated rule definitions and run history
 - Scheduled/date-driven automation runner with safe manual execution and cooldown dedupe
 - Typed custom-field conditions for automation preview, manual execution, and scheduled checks
-- Operational automation template library with safe disabled-by-default installation
+- Operational automation template library with safe disabled-by-default installation, including starter schedule/risk templates for weekend guards, Monday/Friday guards, vendor lead-time reminders, scope-day planning, date-sequence review, daily load review, in-house/vendor routing review, and ready-unit stock expectations.
 - Versioned Operational Library packs for installing safe fields, options, checklists, views, schedule tracks, and disabled automations
-- Core `Setup` workspace for property/unit maintenance and make-ready item creation
+- Core `Setup` workspace for property/unit maintenance, occupancy goals, merge-style unit-directory import, and make-ready item creation
+- Property operating-calendar configuration for no-weekend rules, optional Monday/Friday avoidance, maintenance operating hours, vendor lead days, daily scheduled-unit limits, and scope/work-day preferences
+- Structured automation date offsets can populate a built-in date from another date while respecting property operating calendars; date-changing templates install disabled and should be previewed before enabling.
 - Managed built-in label options and property-owned floor plans with legacy unit-text compatibility
 - Group `+ Add item` rows and protected checked-row batch actions
 - Safe archive/restore lifecycle for make-ready records, with archived turns hidden from normal board views
@@ -39,11 +42,15 @@
 - Browser-local Default/Dark/Light themes plus independent Dyslexia and Eye-Strain modes
 - AMOLED-black Dark theme, reinforced warm Light contrast, and OFL-licensed OpenDyslexic assets served from tracked `assets/fonts/opendyslexic/`
 - Table-first header menus/popovers for display-label rename/reset, column visibility/order/sort, managed option lifecycle editing, and managed floor-plan lifecycle editing
-- Item-drawer updates, local attachment uploads, checklist templates/instances, `My Work`, and Ctrl/Cmd+K quick search
+- Item-drawer updates, local attachment uploads, checklist templates/instances, seeded make-ready QA front/internal paper workflow templates, `My Work` quick status updates, weak-connection retry messaging, and Ctrl/Cmd+K quick search
+- Inspection gallery charge-candidate workflow includes property-scoped price-sheet estimate items, per-photo estimate metadata, and evidence ZIPs; this remains operational documentation, not accounting.
 - In-app notification preferences and saved dashboard presets
 - Bounded collaboration/inbox payloads, attachment validation, indexed operational queries, and optional synthetic load seeding
 - Grouped workspace navigation plus a browser-local setup guide for first-run property, unit, staff, template, automation, schedule, and dashboard onboarding
 - Deployment hardening docs and helpers now include `docs/DEPLOYMENT.md`, `docs/ONBOARDING.md`, expanded `doctor.sh`, and `reset-demo.sh`
+- Release housekeeping includes GitHub CI/E2E workflows, issue templates, pull request template, 0BSD license, `SECURITY.md`, `SUPPORT.md`, `CHANGELOG.md`, and `docs/RELEASE_PROCESS.md`.
+- Admin Integrations includes webhook delivery-health visibility, signed dry-run payloads, queued test payloads, delivery-attempt history, and the explicit `run-webhooks.sh` delivery path. Current webhook events cover item create/update/assignment/archive/restore, risk changes, comments, attachment create/delete, checklist completion, and vendor assignment updates.
+- `GET /api/openapi.json` now exposes an expanded OpenAPI 3.1 contract covering operations setup, custom fields, saved views, planning, notifications, analytics, property templates, backup transfer, and webhook delivery history in addition to the core board/integration paths. Request/query component schemas are generated from exported Zod route validators where available, major response envelopes are documented as reusable schemas, and common long-tail integration routes now have exact serializers for options, floor plans, schedule tracks, automation history, operational-library installs, API tokens, and webhooks.
 
 ## Source Layout
 
@@ -76,7 +83,7 @@
 
 ## UI Direction
 
-- Maintenance-focused monday.com alternative
+- Maintenance-focused operations board alternative
 - Dense but readable grid
 - Dark mode first
 - Strong status color pills
@@ -107,7 +114,7 @@
 - Supported types: text, long text, number, date, single-select/status, multi-select, boolean, and user/assignee storage
 - `MANAGER` and `ADMIN` manage field definitions and edit custom values in this initial boundary
 - Fields and select options are archiveable to retain historical meaning
-- The local monday.com Excel export is reference material for a later mapping/import pass; no importer exists yet
+- The local legacy spreadsheet export is reference material for a later mapping/import pass; no importer exists yet
 
 ## Curated Workflow References
 
@@ -143,7 +150,7 @@
 - `./e2e.sh` starts a clean Docker Compose stack, waits for readiness, runs Playwright, and writes a timestamped log
 - A separate manual GitHub Actions workflow now exists for E2E so default CI remains lightweight
 - Core browser coverage now includes compact/theme/accessibility persistence, right-side inspector entry, logout click, Kanban drag/drop, saved view create/delete, header drag ordering, admin user lifecycle actions, custom field editing, table option creation, fast group entry/batch movement, staff assignment selection, and NTV/custom-date scheduling with calendar legend
-- Presentation QA coverage includes column label mutation, ordered saved-column rendering, configured/archiveable custom schedule tracks, AMOLED theme token selection, bundled OpenDyslexic selection, and runtime source isolation from ignored `reference/` assets
+- Presentation QA coverage includes column label mutation, ordered saved-column rendering, configured/archiveable custom schedule tracks, AMOLED theme token selection, bundled OpenDyslexic selection, local 12-hour/24-hour clock preference, and runtime source isolation from ignored `reference/` assets
 - Saved table views now persist visible built-in/custom columns, expose compact role-focused presets, and always retain the unit identity column
 - Admin-only MakeReadyOS native JSON backup/transfer supports versioned export plus dry-run/non-destructive merge import, including managed floor plans/unit mappings and built-in board options; users, secrets, sessions, and audit history are excluded
 - `./backup-db.sh` and confirmation-gated `./restore-db.sh` provide Docker Compose PostgreSQL disaster recovery; database dumps include database-backed auth/audit records and remain ignored under `backups/`
@@ -153,7 +160,7 @@
 - Operational Library packs use `makereadyos.libraryPack` version `1`, are data-only, reject executable JavaScript, track install provenance, and install automations disabled by default.
 - Local upload bytes live in the Docker `uploads_data` volume; native transfer includes comments/checklists but excludes file bytes and user inbox preferences.
 - `./seed-large.sh` creates opt-in synthetic records in non-production and logs each run; scale boundaries and virtualization rationale live in `docs/PERFORMANCE_AND_SCALE.md`.
-- Property map metadata and unit marker coordinates are included in native backup, but uploaded map image/PDF bytes remain in local upload storage; see `docs/PROPERTY_MAPS.md`.
+- Property map metadata, building/area markers, and unit marker coordinates are included in native backup, but uploaded map image/PDF bytes remain in local upload storage; see `docs/PROPERTY_MAPS.md`.
 
 ## Key Label Vocabulary
 
@@ -185,7 +192,7 @@
 - Bundled templates cover overdue, move-in risk, missing schedule dates, schedule review, pest follow-up, flooring scheduling, and major scope priority; installed rules retain `templateId` provenance and remain ordinary editable rules.
 - Template installation defaults to disabled and reports missing custom-field requirements, including the `Pest Follow-Up Date` requirement for the pest follow-up template.
 - Activity-note actions from scheduled rules are deduplicated per rule/item during `AUTOMATION_NOTE_COOLDOWN_HOURS` to avoid recurring log spam.
-- Rules never execute arbitrary JavaScript. Local legacy monday-style automation files remain documentation/reference material only.
+- Rules never execute arbitrary JavaScript. Local legacy board automation files remain documentation/reference material only.
 
 ## Authentication Notes
 
@@ -215,7 +222,7 @@
 
 ## Important Context For Future Chats
 
-- The monday.com screenshots are reference material only; the app is being rebuilt as a self-hosted open-source system
+- Legacy screenshots are reference material only; the app is being built as a self-hosted, software-defined spreadsheet operations system
 - The root README is setup-oriented; `docs/` should remain the durable source for architecture, product scope, and contributor-facing explanations
 - GitHub Actions CI now verifies clean-checkout installs, API/web production audits, build, and test on pushes and pull requests
 - Public-release docs now include `SECURITY.md`, `SUPPORT.md`, issue templates, screenshots in `docs/screenshots/`, and a README section clarifying what MakeReadyOS is and is not
@@ -232,11 +239,13 @@
 
 - Dashboard tab provides permission-scoped KPIs, workload summaries, and a Needs Attention path into the item inspector.
 - SLA/risk foundation persists item `riskScore`, `riskLevel`, structured `riskReasons`, and `lastRiskEvaluatedAt`; dashboard, table, Kanban, Schedule, My Work, and the item drawer now use those risk indicators.
+- `PropertyRiskPolicy` stores property-level threshold configuration for move-in windows, stale work, aging turns, vendor timing, checklist timing, and planned coverage. Risk policy APIs are `/api/risk/policies` and manager/admin-only `PUT /api/risk/policies/:propertyId`; stable risk categories and field keys are unchanged.
 - Risk APIs are `/api/risk/summary`, `/api/risk/items`, and manager/admin-only `/api/risk/evaluate`; high/critical risk notification creation uses dedupe keys.
 - Dashboard presentation adds theme-safe vacancy/scope donuts, readiness/workload percentages, freshness text, and precise structured table drilldowns with removable filter chips while keeping the board as the primary workflow.
 - Saved-view filter JSON now preserves vacancy, assignee, section, make-ready status, move-in window, risk/attention, archive-state, and typed active custom-field predicates; legacy filter payloads still load, archived custom definitions are not newly applied, and Table/Kanban/Schedule share the same filtered records.
 - Alerts is a user-scoped in-app notification inbox for assignment, comments, checklist activity, status/scheduling, lifecycle, section-move, batch-change, and scheduled automation-warning events with read/dismiss and category preference handling; no external delivery is included.
-- Item drawers now host operational comments, local photo/document uploads, and checklist completion; `My Work` gives staff a compact assigned-turn queue and checklist progress surface.
+- Item drawers now host operational comments, local multi-photo/document uploads, staged inspection metadata, per-image notes, non-destructive image markup pins, charge-candidate flags, charge/recovery notes, and checklist completion. A dedicated inspection gallery keeps large unit walks readable instead of rendering every photo inline in the drawer; cards open an in-app preview first, with markup pins, explicit per-file downloads plus all/filter/category/charge-candidate ZIP exports for evidence packets. The gallery also has a needs-classification filter and evidence panel that flags charge candidates missing notes. `MAX_UPLOAD_MB=0` disables MakeReadyOS' app-level per-file cap; practical limits still come from browser memory, storage, network, and any external reverse proxy. `My Work` gives staff a compact assigned-turn queue, checklist progress surface, and quick make-ready status control. The app detects offline/API-unreachable states and shows a retry banner; it does not yet queue offline edits.
+- The make-ready QA paper workflow is documented in `docs/MAKE_READY_QA_CHECKLIST.md`; the ignored source PDF remains under `reference/make ready/` and is not a runtime dependency. Seeded templates split resident-facing final QA sign-off from internal scope/follow-up notes, with blue painter's tape as the in-unit scope marker system.
 - Make-ready reads support scoped optional property/section/date/limit filters; growing drawer/inbox/history surfaces are bounded and out-of-scope explicit manager item requests are rejected.
 - Dashboard saved views can store dashboard scope/filter state and an overview or attention-focus layout; Ctrl/Cmd+K provides fast navigation and record search.
 - Property-owned board section metadata supplies renameable Ready Units, Make Ready, Down Units, and Archive presentation over stable group keys.
@@ -244,14 +253,16 @@
 - Kanban metadata settings and single/two/four/auto Schedule layout choices are kept as saved-view-safe configuration.
 - Schedule legends derive from actual event colors and schedule events open the shared item inspector.
 - Vendor foundation adds `Vendor`, `VendorContact`, `VendorServiceArea`, and `VendorAssignment`; API/UI support a Vendors workspace, item-drawer vendor assignments, schedule tracks for vendor scheduled/due dates, vendor dashboard KPIs, `VENDOR_RISK`, `VENDOR` notifications, and native backup transfer for vendor records.
-- Property map foundation adds `PropertyMap` and `UnitMapLocation`; API/UI support scoped map upload/view, unit marker placement/removal, marker color legends by risk/status/section/tech/make-ready state, map dashboard KPIs, and native backup transfer for metadata/locations only.
+- Property map foundation adds `PropertyMap`, `PropertyMapArea`, and `UnitMapLocation`; API/UI support scoped map upload/view, building/area marker placement, unit marker placement/drag adjustment/removal, marker color legends by risk/status/section/tech/make-ready state, map dashboard KPIs, and native backup transfer for metadata/locations only.
+- Map QOL derives building/area groups from unit-directory and saved marker metadata; Maps can show building labels, mapped/expected unit counts, and building-filtered unit placement without adding a rigid building table yet.
 - Frog Pond foundation adds a playful data visualization over scoped make-ready items. Runtime pond backgrounds, frog sprite sheets, tadpole sprites, decorative fly sheet, accessory/hat sheets, and licenses are copied to committed `assets/frogs/`; the ignored `reference/resources/Frogs` source is never served at runtime. Numbered pond backgrounds are selectable and stretch to fill the scene frame, frog sheets are cropped to animated 32x32 horizontal frame runs with compatible row variation, frogs gently hop and jump away from the cursor once, tadpoles cycle image frames and swim away from the cursor once, decorative flies occasionally loop through the pond without representing data and disappear if they pass over a frog marker, operators can drag markers to preferred local positions, markers are constrained to the lower pond area, group summaries drive drilldowns, and clicking a frog opens the shared item drawer. Config/presets/marker positions are browser-local for now, so native backup does not include them.
-- Recent table UX notes: property-prefixed section labels are required because each property owns Ready Units, Make Ready, Down Units, and Archive sections; Archive is for completed turnover records after move-in while Ready Units remains the ready-to-lease stock area. Table-side filters now supplement Dashboard drilldowns.
+- Recent table UX notes: property-prefixed section labels are required because each property owns Ready Units, Make Ready, Down Units, and Archive sections; Archive is for completed turnover records after move-in while Ready Units remains the ready-to-lease stock area. Table-side filters now supplement Dashboard drilldowns, and the top board toolbar has explicit active/archive/all archive modes instead of an ambiguous archive toggle.
 - Vendor compliance expiration is intentionally excluded from dashboard scope because dedicated vendor compliance systems such as NetVendor own that workflow.
+- Browser regression coverage includes a display-mode pass across Default, AMOLED, Light, Eye-Strain, and Dyslexia on the core workspaces so broad theme/layout overflow regressions are caught before manual review.
 
 ## Plugin / API Ecosystem Foundation
 
-MakeReadyOS now has an admin-only Integrations area for scoped API tokens and webhook endpoint registration scaffolding. API tokens use bearer auth, are stored as hashes, are shown once on creation, support capability scopes plus optional property scope, and cannot access admin-only management endpoints. Public API and extension contracts are documented in `docs/API.md` and `docs/EXTENSIONS.md`; examples live under `examples/api/` and `examples/operational-library/`. Webhook delivery is intentionally scaffolded only until a safe queue/retry worker is added.
+MakeReadyOS now has an admin-only Integrations area for scoped API tokens and webhook endpoint registration. API tokens use bearer auth, are stored as hashes, are shown once on creation, support capability scopes plus optional property scope, and cannot access admin-only management endpoints. Public API and extension contracts are documented in `docs/API.md` and `docs/EXTENSIONS.md`; an expanded OpenAPI 3.1 baseline is served at `GET /api/openapi.json`; examples live under `examples/api/`, `examples/operational-library/`, and `examples/native-backup/`. The OpenAPI contract now covers the high-use item surface plus long-tail operations for floor plans, options, schedule tracks, custom fields, saved views, collaboration/photo/checklist flows, planning, map areas, automations/library packs, admin users, and admin storage metadata. Exact serializers now cover common integration responses for operation metadata, checklist/price-sheet metadata, calendar events, automation run history, operational-library install summaries, API tokens, webhook endpoints, and webhook delivery attempts. Repository JSON Schemas now document the `makereadyos.libraryPack` and `makereadyos.backup` file-exchange envelopes. Webhook endpoints store encrypted signing-secret material, support signed dry-run payloads, queue subscribed item/comment/checklist/vendor/risk events, and `./run-webhooks.sh` performs explicit HMAC-signed delivery with timeout, bounded retry/backoff, optional endpoint auto-disable through `WEBHOOK_AUTO_DISABLE_FAILURES`, and optional private/local URL blocking through `WEBHOOK_ALLOW_PRIVATE_URLS=false` plus `WEBHOOK_ALLOWED_HOSTS`.
 
 ## Stabilization Documentation
 
@@ -261,19 +272,22 @@ Feature expansion is paused for a stabilization/documentation pass. Current main
 
 - Prisma now has an initial versioned migration under `apps/api/prisma/migrations/`; use `db:migrate` for development schema changes and `db:deploy` for deployed environments.
 - Docker startup attempts migration deploy before falling back to `db push` for early-development volume compatibility.
-- Heavy frontend workspaces are lazy-loaded to reduce the initial Vite bundle pressure while preserving the table-first shell.
-- `GET /api/make-ready-items` supports bounded item queries and returns pagination metadata headers while keeping the legacy array response.
+- Heavy frontend workspaces, Kanban, Schedule, Setup, Fields, and the item drawer are lazy-loaded to reduce the initial Vite bundle pressure while preserving the table-first shell.
+- The Vite build splits React, React Query, and vendor modules into explicit chunks; the previous oversized main app chunk warning is currently resolved.
+- `GET /api/make-ready-items` supports bounded item queries, server-side coarse structured board filters, risk-category drilldown filters, active custom-field filters, deterministic sort parameters, and pagination metadata headers including `x-next-offset` while keeping the legacy array response. The web board now has an opt-in local Windowed Loading mode that requests bounded slices and grows by fixed pages while the default remains the full dense board stream. Custom-field predicates validate active field/option references and narrow through indexed `CustomFieldValue.customFieldId` lookups before final item pagination.
 - `backup-uploads.sh` and `restore-uploads.sh` cover local attachment/photo/property-map bytes; PostgreSQL dumps alone are not complete disaster recovery.
+- Upload bytes default to Docker's `uploads_data` volume mounted at `/app/uploads`. Operators can set `UPLOADS_HOST_PATH` to an absolute host/NAS path while keeping `UPLOAD_DIR=/app/uploads`; `move-uploads.sh` copies current upload bytes into the new path and logs the migration.
+- Admin storage UI now exposes current upload storage mode/path, current write/free-space status, upload limit mode, bundled proxy behavior, per-property upload subfolder routing, and a host/NAS path validator that generates backup, dry-run, move, `.env`, and restart commands. `route-existing-uploads.sh` can dry-run/apply existing root-level upload moves into configured property subfolders while updating database paths. `MAX_UPLOAD_MB=0` disables MakeReadyOS' app-level per-file cap for high-resolution phone/HDR photos, while external proxies, disk space, and browser memory can still limit uploads. The storage UI remains a safety assistant rather than a silent Docker remount mechanism; activation still requires `UPLOADS_HOST_PATH` and a Compose restart.
 - API token requests have a configurable in-memory per-token limiter for single-node deployments.
-- OpenAPI and webhook delivery remain planned hardening work documented in `docs/API_SPEC_PLAN.md` and `docs/WEBHOOK_DELIVERY_PLAN.md`.
+- OpenAPI remains intentionally conservative for newly added routes until they are integration targets, but request/query component schemas now come from route validators, major response envelopes are documented, and common long-tail operational/admin responses have exact serializers. Future route-specific serializer work and webhook delivery-health polish remain tracked in `docs/API_SPEC_PLAN.md` and `docs/WEBHOOK_DELIVERY_PLAN.md`.
 
 ## Analytics And Unit History Foundation
 
 - Unit history is exposed through `GET /api/units/:id/history` and is derived from existing make-ready records, audit/activity, comments, attachments, checklist completion, vendor assignments, lifecycle dates, automation runs, and current risk state.
 - Turn history is currently derived from make-ready items linked to a unit; it reports prior/current turns, dates, days vacant, turn duration, risk level, assigned tech, vendor count, and checklist completion percentage without duplicating operational source data.
 - `PropertyDailyMetricSnapshot` stores lightweight property/day rollups for trend panels. `./run-analytics-snapshot.sh` upserts those snapshots through Docker Compose and writes timestamped logs under `logs/`.
-- Dashboard now has a lightweight analytics panel for average days vacant, average turn duration, completed turns, trends, and recurring issue signals.
-- Native JSON transfer intentionally excludes daily analytics snapshots because they are derived; PostgreSQL disaster-recovery dumps include them. See `docs/ANALYTICS_AND_HISTORY.md`.
+- Dashboard now has a lightweight analytics panel for average days vacant, average turn duration, completed turns, ready-date misses, stale-risk counts, category counts, trends, and recurring issue signals.
+- Native JSON transfer includes property operating calendars and property risk policies but intentionally excludes daily analytics snapshots because they are derived; PostgreSQL disaster-recovery dumps include snapshots. See `docs/ANALYTICS_AND_HISTORY.md`.
 
 ## Workload Planning Foundation
 
@@ -291,3 +305,12 @@ Feature expansion is paused for a stabilization/documentation pass. Current main
 - Templates intentionally exclude live turns, units, resident/private data, comments, attachments, users, tokens, sessions, audit history, and unit history.
 - Native backup includes property template manifests, and operational library packs can carry property templates as data-only reusable setup. See `docs/PROPERTY_TEMPLATES.md`.
 - Frontend regression polish keeps the dense top toolbar compact by horizontally scrolling crowded workspace/filter controls, adds local section navigation inside the Automation workspace, widens the operational item drawer slightly, raises column-header menu stacking so popovers are not clipped by sticky table cells, and extends browser coverage for map marker links into the shared item drawer.
+- Current UI hardening keeps Schedule Sunday-first with visible today/past-day states, makes sticky table utility/identity columns opaque to prevent scroll bleed-through, and uses responsive workload-planning form columns so select controls do not overlap.
+- Light-theme QA now reinforces calendar grid lines, table sticky columns, Kanban cards, activity/admin table contrast, status/risk pills, checkbox chips, warning/success/error messages, drawer surfaces, planning forms, and integrations/setup labels so the warm light palette remains readable across operational screens. Eye-Strain and Dyslexia remain density-safe overlays on the selected theme rather than replacement themes.
+- Schedule setup now includes manager/admin preset buttons for common NTV, Vacated, Make Ready, Move-In, and Flooring tracks. Presets use existing metadata, stay disabled when the matching source is already configured or unavailable, and do not change stable field keys.
+- Calendar panels now show lightweight track guidance derived from rendered events: enabled risk cues, weekend items, crowded days with 3+ events, and high-risk scheduled work. Property operating calendars now persist no-weekend/no-edge-day/daily-limit guardrails, but automatic date movement still requires a future safe business-day offset action.
+- Calendar day cells now add explicit badges for weekend, Monday/Friday, crowded-day, high-risk, and overdue schedule conditions so operators can see planning conflicts on the date itself without relying only on color.
+
+## Unit directory and occupancy foundation
+
+Properties can store an occupancy goal percentage. Units can store occupancy status, building, area, floor, and budgeted-unit metadata independently from active make-ready records. Setup supports merge-style paste/file import for comma-delimited or tab-delimited unit directories and availability reports, including common column aliases and preview counts before writing. Sparse imports are supported for files that only include unit, floor plan, and square footage; missing columns are ignored on existing units instead of wiping known metadata. Dashboard surfaces occupancy percentage, goal, total/occupied units, ready stock, and availability-report statuses. Local RealPage unit-directory and availability samples under ignored `reference/` were inspected for structure only: unit directories commonly include detail plus floor-plan/occupancy summary sheets, while availability PDFs are status-section snapshots where section headings drive status mapping. Public docs now capture this structure without copying resident/private row data.

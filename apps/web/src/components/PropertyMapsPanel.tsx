@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
-import type { BoardSection, LabelDefinition, MakeReadyItem, Property, PropertyMap, Unit, UnitMapLocation } from "../lib/api";
+import { useMemo, useRef, useState } from "react";
+import type { PointerEvent } from "react";
+import type { BoardSection, LabelDefinition, MakeReadyItem, Property, PropertyMap, PropertyMapArea, Unit, UnitMapLocation } from "../lib/api";
 import { propertyMapFileUrl } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
 
@@ -11,6 +12,7 @@ type Props = {
   items: MakeReadyItem[];
   maps: PropertyMap[];
   locations: UnitMapLocation[];
+  areas: PropertyMapArea[];
   labelsByField: Record<string, Record<string, LabelDefinition>>;
   boardSections: BoardSection[];
   selectedPropertyId: string;
@@ -32,6 +34,28 @@ type Props = {
     floor?: string | null;
   }) => Promise<void>;
   onRemoveLocation: (id: string) => Promise<void>;
+  onCreateArea: (input: {
+    propertyId: string;
+    mapId: string;
+    name: string;
+    areaType?: string;
+    xPercent: number;
+    yPercent: number;
+    color?: string | null;
+    expectedUnitCount?: number | null;
+    notes?: string | null;
+  }) => Promise<void>;
+  onUpdateArea: (id: string, input: Partial<{
+    name: string;
+    areaType: string;
+    xPercent: number;
+    yPercent: number;
+    color: string | null;
+    expectedUnitCount: number | null;
+    notes: string | null;
+    isArchived: boolean;
+  }>) => Promise<void>;
+  onRemoveArea: (id: string) => Promise<void>;
   onOpenItem: (itemId: string) => void;
 };
 
@@ -83,6 +107,7 @@ export function PropertyMapsPanel({
   items,
   maps,
   locations,
+  areas,
   labelsByField,
   boardSections,
   selectedPropertyId,
@@ -95,6 +120,9 @@ export function PropertyMapsPanel({
   onUploadMap,
   onSaveLocation,
   onRemoveLocation,
+  onCreateArea,
+  onUpdateArea,
+  onRemoveArea,
   onOpenItem,
 }: Props) {
   const initialPropertyId = selectedPropertyId || properties[0]?.id || "";
@@ -109,6 +137,12 @@ export function PropertyMapsPanel({
   const [colorSource, setColorSource] = useState<ColorSource>("riskLevel");
   const [draftName, setDraftName] = useState("");
   const [locationMeta, setLocationMeta] = useState({ building: "", area: "", floor: "" });
+  const [areaDraft, setAreaDraft] = useState({ name: "", areaType: "BUILDING", expectedUnitCount: "", color: "#1f8fdb" });
+  const [placingArea, setPlacingArea] = useState(false);
+  const [selectedBuilding, setSelectedBuilding] = useState("");
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const dragState = useRef<{ locationId: string; startX: number; startY: number; moved: boolean } | null>(null);
+  const suppressMarkerClick = useRef<string | null>(null);
 
   const propertyUnits = units.filter((unit) => unit.propertyId === propertyId && unit.isActive);
   const itemByUnit = useMemo(() => {
@@ -119,9 +153,58 @@ export function PropertyMapsPanel({
     return result;
   }, [items, propertyId]);
   const mapLocations = locations.filter((location) => location.mapId === selectedMap?.id && !location.isArchived);
+  const mapAreas = areas.filter((area) => area.mapId === selectedMap?.id && !area.isArchived);
   const locationByUnit = useMemo(() => new Map(mapLocations.map((location) => [location.unitId, location])), [mapLocations]);
   const unmappedUnits = propertyUnits.filter((unit) => !locationByUnit.has(unit.id));
   const imagePreview = selectedMap?.mimeType?.startsWith("image/");
+  const buildingSummaries = useMemo(() => {
+    const summaries = new Map<string, {
+      key: string;
+      label: string;
+      units: Unit[];
+      mapped: number;
+      activeTurns: number;
+      x: number | null;
+      y: number | null;
+    }>();
+    for (const area of mapAreas) {
+      const label = area.name.trim() || "Unnamed area";
+      summaries.set(label.toLowerCase(), {
+        key: label.toLowerCase(),
+        label,
+        units: [],
+        mapped: 0,
+        activeTurns: 0,
+        x: area.xPercent,
+        y: area.yPercent,
+      });
+    }
+    for (const unit of propertyUnits) {
+      const location = locationByUnit.get(unit.id);
+      const label = unit.building?.trim() || location?.building?.trim() || unit.area?.trim() || location?.area?.trim() || "No building";
+      const key = label.toLowerCase();
+      const existing = summaries.get(key) ?? { key, label, units: [], mapped: 0, activeTurns: 0, x: null, y: null };
+      existing.units.push(unit);
+      if (location) {
+        existing.mapped += 1;
+        existing.x = existing.x === null ? location.xPercent : (existing.x + location.xPercent) / 2;
+        existing.y = existing.y === null ? location.yPercent : (existing.y + location.yPercent) / 2;
+      }
+      if (itemByUnit.has(unit.id)) existing.activeTurns += 1;
+      summaries.set(key, existing);
+    }
+    return Array.from(summaries.values()).sort((left, right) => {
+      if (left.label === "No building") return 1;
+      if (right.label === "No building") return -1;
+      return left.label.localeCompare(right.label, undefined, { numeric: true });
+    });
+  }, [itemByUnit, locationByUnit, mapAreas, propertyUnits]);
+  const filteredPropertyUnits = selectedBuilding
+    ? propertyUnits.filter((unit) => {
+      const location = locationByUnit.get(unit.id);
+      return (unit.building?.trim() || location?.building?.trim() || unit.area?.trim() || location?.area?.trim() || "No building").toLowerCase() === selectedBuilding;
+    })
+    : propertyUnits;
 
   const legendEntries = useMemo(() => {
     const entries = new Map<string, string>();
@@ -137,6 +220,7 @@ export function PropertyMapsPanel({
     onPropertyChange(value);
     setActiveMapId("");
     setSelectedUnitId("");
+    setSelectedBuilding("");
   };
 
   const saveAt = async (xPercent: number, yPercent: number) => {
@@ -151,6 +235,43 @@ export function PropertyMapsPanel({
       area: locationMeta.area || null,
       floor: locationMeta.floor || null,
     });
+  };
+  const saveAreaAt = async (xPercent: number, yPercent: number) => {
+    if (!canManage || !selectedMap || !areaDraft.name.trim()) return;
+    await onCreateArea({
+      propertyId,
+      mapId: selectedMap.id,
+      name: areaDraft.name.trim(),
+      areaType: areaDraft.areaType,
+      xPercent,
+      yPercent,
+      color: areaDraft.color || null,
+      expectedUnitCount: areaDraft.expectedUnitCount ? Number(areaDraft.expectedUnitCount) : null,
+    });
+    setAreaDraft((current) => ({ ...current, name: "", expectedUnitCount: "" }));
+    setPlacingArea(false);
+  };
+  const saveLocationAt = async (location: UnitMapLocation, xPercent: number, yPercent: number) => {
+    if (!canManage || !selectedMap) return;
+    const unit = propertyUnits.find((entry) => entry.id === location.unitId) ?? location.unit;
+    await onSaveLocation({
+      propertyId,
+      mapId: selectedMap.id,
+      unitId: location.unitId,
+      xPercent: Math.max(0, Math.min(100, xPercent)),
+      yPercent: Math.max(0, Math.min(100, yPercent)),
+      building: location.building ?? unit?.building ?? null,
+      area: location.area ?? unit?.area ?? null,
+      floor: location.floor ?? unit?.floor ?? null,
+    });
+  };
+  const percentFromPointer = (event: PointerEvent<HTMLElement>) => {
+    const box = canvasRef.current?.getBoundingClientRect();
+    if (!box) return null;
+    return {
+      xPercent: Math.max(0, Math.min(100, ((event.clientX - box.left) / box.width) * 100)),
+      yPercent: Math.max(0, Math.min(100, ((event.clientY - box.top) / box.height) * 100)),
+    };
   };
 
   return (
@@ -226,11 +347,15 @@ export function PropertyMapsPanel({
             </div>
           </div>
           <div
+            ref={canvasRef}
             className={`property-map-canvas ${imagePreview ? "" : "no-preview"}`}
             data-testid="property-map-canvas"
             onClick={(event) => {
               const box = event.currentTarget.getBoundingClientRect();
-              void saveAt(((event.clientX - box.left) / box.width) * 100, ((event.clientY - box.top) / box.height) * 100);
+              const xPercent = ((event.clientX - box.left) / box.width) * 100;
+              const yPercent = ((event.clientY - box.top) / box.height) * 100;
+              if (placingArea) void saveAreaAt(xPercent, yPercent);
+              else void saveAt(xPercent, yPercent);
             }}
           >
             {selectedMap && imagePreview ? <img src={propertyMapFileUrl(selectedMap.id)} alt={`${selectedMap.name} map`} /> : (
@@ -251,8 +376,39 @@ export function PropertyMapsPanel({
                   data-testid={`map-marker-${unit.number}`}
                   style={{ left: `${location.xPercent}%`, top: `${location.yPercent}%`, background: color }}
                   title={`${unit.number} / ${markerLabel(colorSource, item, boardSections)}`}
+                  draggable={false}
+                  onPointerDown={(event) => {
+                    if (!canManage) return;
+                    event.stopPropagation();
+                    dragState.current = { locationId: location.id, startX: event.clientX, startY: event.clientY, moved: false };
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                  }}
+                  onPointerMove={(event) => {
+                    const drag = dragState.current;
+                    if (!drag || drag.locationId !== location.id) return;
+                    if (Math.abs(event.clientX - drag.startX) > 4 || Math.abs(event.clientY - drag.startY) > 4) drag.moved = true;
+                  }}
+                  onPointerUp={(event) => {
+                    const drag = dragState.current;
+                    if (!drag || drag.locationId !== location.id) return;
+                    dragState.current = null;
+                    if (drag.moved) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      suppressMarkerClick.current = location.id;
+                      const point = percentFromPointer(event);
+                      if (point) void saveLocationAt(location, point.xPercent, point.yPercent);
+                    }
+                  }}
+                  onPointerCancel={() => {
+                    dragState.current = null;
+                  }}
                   onClick={(event) => {
                     event.stopPropagation();
+                    if (suppressMarkerClick.current === location.id) {
+                      suppressMarkerClick.current = null;
+                      return;
+                    }
                     if (item) onOpenItem(item.id);
                   }}
                 >
@@ -260,21 +416,134 @@ export function PropertyMapsPanel({
                 </button>
               );
             })}
+            {buildingSummaries
+              .filter((summary) => summary.units.length > 0 && summary.mapped > 0 && summary.x !== null && summary.y !== null)
+              .map((summary) => (
+                <button
+                  key={summary.key}
+                  type="button"
+                  className="map-building-marker"
+                  data-testid={`map-building-${summary.key.replace(/[^a-z0-9]+/g, "-")}`}
+                  style={{ left: `${summary.x}%`, top: `${summary.y}%` }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedBuilding(summary.key);
+                  }}
+                  title={`${summary.label}: ${summary.units.length} units, ${summary.mapped} mapped`}
+                >
+                  <strong>{summary.label}</strong>
+                  <span>{summary.units.length} units</span>
+                </button>
+              ))}
+            {mapAreas.map((area) => (
+              <button
+                key={area.id}
+                type="button"
+                className="map-area-marker"
+                data-testid={`map-area-${area.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}
+                style={{ left: `${area.xPercent}%`, top: `${area.yPercent}%`, borderColor: area.color ?? undefined }}
+                title={`${area.name}: ${area.expectedUnitCount ?? "unknown"} expected units`}
+                onPointerDown={(event) => {
+                  if (!canManage) return;
+                  event.stopPropagation();
+                  dragState.current = { locationId: `area:${area.id}`, startX: event.clientX, startY: event.clientY, moved: false };
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                }}
+                onPointerMove={(event) => {
+                  const drag = dragState.current;
+                  if (!drag || drag.locationId !== `area:${area.id}`) return;
+                  if (Math.abs(event.clientX - drag.startX) > 4 || Math.abs(event.clientY - drag.startY) > 4) drag.moved = true;
+                }}
+                onPointerUp={(event) => {
+                  const drag = dragState.current;
+                  if (!drag || drag.locationId !== `area:${area.id}`) return;
+                  dragState.current = null;
+                  event.stopPropagation();
+                  if (drag.moved) {
+                    const point = percentFromPointer(event);
+                    if (point) void onUpdateArea(area.id, { xPercent: point.xPercent, yPercent: point.yPercent });
+                  } else {
+                    setSelectedBuilding(area.name.toLowerCase());
+                  }
+                }}
+                onPointerCancel={() => {
+                  dragState.current = null;
+                }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <strong>{area.name}</strong>
+                <span>{area.expectedUnitCount ?? 0} expected</span>
+              </button>
+            ))}
           </div>
           {selectedMap?.mimeType === "application/pdf" ? <a className="button button-secondary" href={propertyMapFileUrl(selectedMap.id)} target="_blank" rel="noreferrer">Open PDF map</a> : null}
         </div>
 
         <div className="operations-card unit-directory-card" data-testid="unit-directory-panel">
           <h3>Unit Directory</h3>
+          <div className="map-building-summary" data-testid="map-building-summary">
+            <button type="button" className={!selectedBuilding ? "selected" : ""} onClick={() => setSelectedBuilding("")}>
+              All buildings <strong>{propertyUnits.length}</strong>
+            </button>
+            {buildingSummaries.map((summary) => (
+              <button
+                key={summary.key}
+                type="button"
+                className={selectedBuilding === summary.key ? "selected" : ""}
+                data-testid={`map-building-filter-${summary.key.replace(/[^a-z0-9]+/g, "-")}`}
+                onClick={() => setSelectedBuilding(summary.key)}
+              >
+                {summary.label}
+                <strong>{summary.mapped}/{summary.units.length} mapped</strong>
+                {summary.activeTurns ? <span>{summary.activeTurns} active</span> : null}
+              </button>
+            ))}
+          </div>
+          {canManage ? (
+            <div className="map-area-editor" data-testid="map-area-editor">
+              <h4>Building / area markers</h4>
+              <p className="muted">Mark buildings, floors, or site zones. Unit placement still stays unit-specific.</p>
+              <div className="map-area-form">
+                <input value={areaDraft.name} onChange={(event) => setAreaDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Building or area name" />
+                <select value={areaDraft.areaType} onChange={(event) => setAreaDraft((current) => ({ ...current, areaType: event.target.value }))}>
+                  <option value="BUILDING">Building</option>
+                  <option value="AREA">Area</option>
+                  <option value="FLOOR">Floor</option>
+                  <option value="ZONE">Zone</option>
+                </select>
+                <input type="number" min="0" value={areaDraft.expectedUnitCount} onChange={(event) => setAreaDraft((current) => ({ ...current, expectedUnitCount: event.target.value }))} placeholder="Expected units" />
+                <input type="color" value={areaDraft.color} onChange={(event) => setAreaDraft((current) => ({ ...current, color: event.target.value }))} aria-label="Area marker color" />
+                <button className="button button-secondary" type="button" disabled={!selectedMap || !areaDraft.name.trim()} onClick={() => setPlacingArea((current) => !current)}>
+                  {placingArea ? "Click map to place" : "Place marker"}
+                </button>
+              </div>
+              <div className="map-area-list">
+                {mapAreas.length === 0 ? <span className="muted">No building or area markers yet.</span> : mapAreas.map((area) => (
+                  <article key={area.id}>
+                    <button type="button" onClick={() => setSelectedBuilding(area.name.toLowerCase())}>
+                      <strong>{area.name}</strong>
+                      <small>{area.areaType.toLowerCase()} / {area.expectedUnitCount ?? 0} expected units</small>
+                    </button>
+                    <button type="button" className="button button-secondary" onClick={() => void onRemoveArea(area.id)}>Archive</button>
+                  </article>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="stacked-form">
             <label>Unit to place
               <select data-testid="map-unit-select" value={selectedUnitId} onChange={(event) => {
                 setSelectedUnitId(event.target.value);
                 const existing = locationByUnit.get(event.target.value);
-                setLocationMeta({ building: existing?.building ?? "", area: existing?.area ?? "", floor: existing?.floor ?? "" });
+                const unit = propertyUnits.find((entry) => entry.id === event.target.value);
+                setLocationMeta({ building: existing?.building ?? unit?.building ?? "", area: existing?.area ?? unit?.area ?? "", floor: existing?.floor ?? unit?.floor ?? "" });
               }}>
                 <option value="">Select unit</option>
-                {propertyUnits.map((unit) => <option key={unit.id} value={unit.id}>{displayUnitNumber(property?.code ?? "", unit.number)}{locationByUnit.has(unit.id) ? " / mapped" : " / unmapped"}</option>)}
+                {filteredPropertyUnits.map((unit) => {
+                  const location = locationByUnit.get(unit.id);
+                  const building = unit.building || location?.building;
+                  return <option key={unit.id} value={unit.id}>{displayUnitNumber(property?.code ?? "", unit.number)}{building ? ` / Bldg ${building}` : ""}{location ? " / mapped" : " / unmapped"}</option>;
+                })}
               </select>
             </label>
             <div className="three-column-form">
@@ -282,17 +551,17 @@ export function PropertyMapsPanel({
               <input data-testid="map-location-area" value={locationMeta.area} onChange={(event) => setLocationMeta((current) => ({ ...current, area: event.target.value }))} placeholder="Area" />
               <input data-testid="map-location-floor" value={locationMeta.floor} onChange={(event) => setLocationMeta((current) => ({ ...current, floor: event.target.value }))} placeholder="Floor" />
             </div>
-            {canManage ? <p className="muted">Select a unit, then click the map to save or move its marker.</p> : <p className="muted">Map editing requires manager or admin access.</p>}
+            {canManage ? <p className="muted">Select a unit, then click the map to place it. Drag existing markers to adjust placement.</p> : <p className="muted">Map editing requires manager or admin access.</p>}
           </div>
           <div className="unit-directory-list">
-            {propertyUnits.map((unit) => {
+            {filteredPropertyUnits.map((unit) => {
               const location = locationByUnit.get(unit.id);
               const item = itemByUnit.get(unit.id);
               return (
                 <article key={unit.id} className="unit-directory-row">
                   <button type="button" onClick={() => item && onOpenItem(item.id)} disabled={!item}>
                     <strong>{displayUnitNumber(property?.code ?? "", unit.number)}</strong>
-                    <small>{unit.floorPlanRecord?.name ?? unit.floorPlan ?? "No floor plan"} / {location ? `${location.area || "No area"} ${location.floor || ""}` : "Unmapped"}</small>
+                    <small>{unit.floorPlanRecord?.name ?? unit.floorPlan ?? "No floor plan"} / {unit.occupancyStatus?.replace(/_/g, " ") ?? "UNKNOWN"} / {location ? `${location.building ? `Bldg ${location.building} ` : ""}${location.area || "No area"} ${location.floor || ""}` : "Unmapped"}</small>
                   </button>
                   {location && canManage ? <button className="button button-secondary" data-testid={`map-location-remove-${unit.number}`} onClick={() => void onRemoveLocation(location.id)}>Remove</button> : null}
                 </article>

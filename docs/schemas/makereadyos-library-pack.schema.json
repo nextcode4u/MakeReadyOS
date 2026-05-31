@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://makereadyos.local/schemas/makereadyos-library-pack.schema.json",
+  "title": "MakeReadyOS Operational Library Pack",
+  "description": "Safe JSON-only extension package for installing reusable MakeReadyOS configuration. Packs must not contain executable code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "packKey", "name"],
+  "properties": {
+    "format": { "const": "makereadyos.libraryPack" },
+    "version": { "const": 1 },
+    "packKey": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 120,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "name": { "type": "string", "minLength": 2, "maxLength": 160 },
+    "description": { "type": "string", "maxLength": 1000 },
+    "category": { "type": "string", "maxLength": 80 },
+    "setupNotes": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 500 }
+    },
+    "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "automationTemplates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/automationTemplate" }
+        },
+        "checklistTemplates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/checklistTemplate" }
+        },
+        "customFields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/customField" }
+        },
+        "optionSets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/optionSet" }
+        },
+        "scheduleTracks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/scheduleTrack" }
+        },
+        "savedViews": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/savedView" }
+        },
+        "propertyTemplates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/propertyTemplate" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "hexColor": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "jsonObject": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "automationTemplate": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["key", "name", "triggerType", "conditions", "actions"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "enabled": { "type": "boolean", "default": false },
+        "triggerType": {
+          "type": "string",
+          "description": "Structured trigger identifier. Imported automations are installed disabled unless explicitly enabled by the operator."
+        },
+        "conditions": { "type": "object", "additionalProperties": true },
+        "actions": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "category": { "type": "string", "maxLength": 80 },
+        "setupNotes": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 500 }
+        }
+      }
+    },
+    "checklistTemplate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "name", "items"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "scope": { "type": ["string", "null"], "maxLength": 80 },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title"],
+            "properties": {
+              "title": { "type": "string", "minLength": 1, "maxLength": 240 },
+              "notes": { "type": ["string", "null"], "maxLength": 1000 },
+              "required": { "type": "boolean" },
+              "dueOffsetDays": { "type": ["integer", "null"], "minimum": -365, "maximum": 365 },
+              "tradeCategory": { "type": ["string", "null"], "maxLength": 80 }
+            }
+          }
+        }
+      }
+    },
+    "customField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "fieldKey", "label", "fieldType"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "fieldKey": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9]*$" },
+        "label": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "fieldType": {
+          "enum": ["TEXT", "LONG_TEXT", "NUMBER", "DATE", "SINGLE_SELECT", "MULTI_SELECT", "BOOLEAN", "USER"]
+        },
+        "description": { "type": ["string", "null"], "maxLength": 280 },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "color"],
+            "properties": {
+              "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+              "color": { "$ref": "#/$defs/hexColor" },
+              "sortOrder": { "type": "integer", "minimum": 0 },
+              "isArchived": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "optionSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "fieldKey", "options"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "fieldKey": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value", "color"],
+            "properties": {
+              "value": { "type": "string", "minLength": 1, "maxLength": 80 },
+              "color": { "$ref": "#/$defs/hexColor" },
+              "textColor": { "$ref": "#/$defs/hexColor" },
+              "sortOrder": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "scheduleTrack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "sourceField", "displayName"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "sourceField": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "displayName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "colorBasis": { "type": "string", "maxLength": 40 },
+        "colorSourceField": { "type": ["string", "null"], "maxLength": 120 },
+        "fixedColor": { "anyOf": [{ "$ref": "#/$defs/hexColor" }, { "type": "null" }] },
+        "groupingMode": { "type": "string", "maxLength": 40 },
+        "visibilityFilter": true,
+        "overdueEnabled": { "type": "boolean" },
+        "moveInSoonEnabled": { "type": "boolean" }
+      }
+    },
+    "savedView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "name", "module", "viewType", "filters"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "module": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "viewType": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "filters": { "type": "object", "additionalProperties": true },
+        "sorts": true,
+        "grouping": true,
+        "visibleColumns": true,
+        "isShared": { "type": "boolean" }
+      }
+    },
+    "propertyTemplate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "name", "manifest"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "description": { "type": ["string", "null"], "maxLength": 1000 },
+        "category": { "type": ["string", "null"], "maxLength": 80 },
+        "version": { "type": "integer", "minimum": 1, "maximum": 999, "default": 1 },
+        "notes": { "type": ["string", "null"], "maxLength": 2000 },
+        "manifest": true
+      }
+    }
+  }
+}

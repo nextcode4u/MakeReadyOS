@@ -7,13 +7,22 @@ MakeReadyOS native backup files move operational configuration and board data be
 - CSV export is intended for reports, spreadsheets, and review outside MakeReadyOS.
 - Native backup JSON is intended for transfer to another MakeReadyOS installation.
 - PostgreSQL dumps created with `./backup-db.sh` are intended for complete database disaster recovery after host or database loss.
-- Native import accepts `.json` MakeReadyOS backup files only. It does not accept monday.com XLS exports or CSV reports.
+- Native import accepts `.json` MakeReadyOS backup files only. It does not accept legacy spreadsheet exports or reporting CSV exports.
 
 Native transfer intentionally omits credential and audit data. It is not a substitute for a full PostgreSQL backup. See [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) for database backup and restore operations.
 
 Attachment/photo/property-map bytes are also outside native JSON transfer. For full instance movement or disaster recovery, pair the database dump with `./backup-uploads.sh` and restore with `./restore-uploads.sh` after the database restore.
 
+Native transfer includes property risk-policy threshold configuration because it is reusable operational setup. It still excludes generated daily analytics snapshots; destination instances can regenerate snapshots from their transferred operational records.
+
+Upload bytes can live in Docker's managed `uploads_data` volume or a host/NAS path configured with `UPLOADS_HOST_PATH`. Use `./move-uploads.sh <absolute-host-path>` before switching an existing deployment to host-mounted storage. Properties may also route new uploads into property-specific subfolders inside that active upload path; native JSON backup preserves the routing metadata but still does not embed file bytes. If older root-level files should be physically reorganized after enabling routing, use `./route-existing-uploads.sh` for a dry run, then `./route-existing-uploads.sh --apply` after confirming an upload backup exists.
+
 ## Format
+
+The native backup JSON Schema and a minimal portable example live at:
+
+- [`docs/schemas/makereadyos-native-backup.schema.json`](schemas/makereadyos-native-backup.schema.json)
+- [`examples/native-backup/minimal-backup.json`](../examples/native-backup/minimal-backup.json)
 
 The first supported package format is:
 
@@ -32,6 +41,7 @@ The first supported package format is:
     "boardOptions": [],
     "boardColumns": [],
     "scheduleTracks": [],
+    "operatingCalendars": [],
     "units": [],
     "makeReadyItems": [],
     "customFields": [],
@@ -46,20 +56,21 @@ The first supported package format is:
     "propertyMaps": [],
     "unitMapLocations": [],
     "propertyTemplates": [],
+    "propertyMapAreas": [],
     "checklistInstances": [],
     "notes": []
   }
 }
 ```
 
-References are portable rather than database-ID based. Properties use property codes; floor plans use property code plus plan name; managed board options and built-in display columns use stable field keys; schedule tracks use stable built-in keys or portable custom field keys; custom field values use field keys plus make-ready item portable keys; and custom columns in saved views use field keys during transfer.
+References are portable rather than database-ID based. Properties use property codes; floor plans use property code plus plan name; managed board options and built-in display columns use stable field keys; schedule tracks use stable built-in keys or portable custom field keys; operating calendars use property codes; custom field values use field keys plus make-ready item portable keys; and custom columns in saved views use field keys during transfer.
 
 ## Included Data
 
 - Properties and units
 - Property-owned managed floor plans and unit mappings
 - Managed built-in board label/status options, including archived historic choices
-- Built-in display column labels and configured schedule tracks, including grouping, visibility, risk cue, archive, and option-driven color-source presentation metadata
+- Built-in display column labels, configured schedule tracks, and property operating calendars for scheduling guardrails such as no-weekend rules, edge-day avoidance, operating hours, vendor lead days, daily load caps, and scope/work-day preferences
 - Make-ready board items
 - Custom field definitions, options, and values
 - Shared saved views
@@ -67,8 +78,9 @@ References are portable rather than database-ID based. Properties use property c
 - Operational library install history is not required to run the app; installed library items export through their normal fields/options/views/checklists/automation records
 - Checklist templates and checklist items
 - Item operational comments/updates and checklist instance completion state
+- Attachment/photo metadata is preserved by PostgreSQL backups. Local uploaded file bytes require an uploads backup and are not embedded in native JSON transfer files.
 - Vendor directory records and vendor assignments linked to make-ready items
-- Property map metadata and unit marker locations
+- Property map metadata, building/area markers, and unit marker locations
 - Property/board template metadata and manifests
 - Property notes
 
@@ -86,6 +98,8 @@ References are portable rather than database-ID based. Properties use property c
 - Uploaded attachment/photo/map file bytes; move the local upload volume separately with `backup-uploads.sh`/`restore-uploads.sh` for full continuity
 
 Users are excluded in version 1 so the destination administrator explicitly creates accounts and access permissions rather than transferring authentication material. Personal saved views are also excluded because they have no safe destination owner without user transfer.
+
+Property charge price-sheet configuration is included because it is reusable operational setup. Per-photo attachment records and uploaded bytes remain outside native JSON transfer; use PostgreSQL plus upload-volume disaster recovery when inspection evidence must move intact.
 
 Property notes can contain sensitive operating information. Treat exported files as private backups and store them securely.
 
@@ -114,7 +128,7 @@ Property notes can contain sensitive operating information. Treat exported files
 
 - There is no destructive replace or restore-in-place mode.
 - Merge does not reconcile changes to already-existing records.
-- A destination that already seeded a built-in column or schedule source keeps its existing configuration during merge; review and adjust presentation labels/tracks after transfer when local choices differ. Older version-1 backups without newer optional schedule presentation keys remain accepted with safe defaults.
+- A destination that already seeded a built-in column, schedule source, or property operating calendar keeps its existing configuration during merge; review and adjust presentation labels, tracks, and calendar rules after transfer when local choices differ. Older version-1 backups without newer optional schedule presentation keys remain accepted with safe defaults.
 - Personal saved views and users are not transported.
 - Native backup is not a full database disaster-recovery snapshot; maintain PostgreSQL-level backups using the procedure in [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md).
 ## Section And Inbox Notes
@@ -125,9 +139,9 @@ Comments transfer as author display snapshots rather than user-account relations
 
 Frog Pond uses committed runtime assets and browser-local display preferences in this foundation stage. Native JSON transfer does not include ignored raw reference assets, copied runtime assets, or local pond presets. If shared server-side pond presets are introduced later, they should be exported as safe configuration only.
 
-Attachment intake permits bounded operational image, PDF, text/CSV, Word, and Excel files only. Local bytes remain excluded from native JSON transfer even though upload and download access is authenticated and property-scoped.
+Attachment intake permits bounded operational image, PDF, text/CSV, Word, and Excel files only. Local bytes remain excluded from native JSON transfer even though upload and download access is authenticated and property-scoped. Inspection-gallery ZIP exports are per-item convenience packages for the selected stage/category filter; they do not replace the upload-volume archive required for disaster recovery.
 
-Property map records transfer as metadata plus marker coordinates only. Uploaded PNG/JPG/WebP/PDF map files stay in the local upload volume and should be included in PostgreSQL disaster-recovery/host backup procedures when visual maps are important.
+Property map records transfer as metadata plus building/area marker and unit marker coordinates only. Uploaded PNG/JPG/WebP/PDF map files stay in the local upload volume and should be included in PostgreSQL disaster-recovery/host backup procedures when visual maps are important.
 
 ## Integration Secrets
 

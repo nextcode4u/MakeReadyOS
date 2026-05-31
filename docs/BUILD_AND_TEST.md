@@ -13,16 +13,19 @@ The project keeps root-level scripts for predictable operation across environmen
 - `./prune-backups.sh [--dry-run] [--days DAYS]`
 - `./restore-db.sh <backup-file>`
 - `./restore-uploads.sh <backup-archive>`
+- `./move-uploads.sh <absolute-host-path> [--dry-run]`
+- `./route-existing-uploads.sh [--apply] [--property-id PROPERTY_ID]`
 - `./run-automations.sh`
 - `./run-analytics-snapshot.sh`
+- `./run-webhooks.sh`
 - `./reset-demo.sh [--dry-run] [--yes] [--wipe-uploads]`
 - `./seed-large.sh` for opt-in non-production synthetic workload generation
 
-API integration examples live under `examples/api/`. They expect `MAKEREADYOS_URL` and a scoped `MAKEREADYOS_TOKEN` created from `Admin -> Integrations`.
+API integration examples live under `examples/api/`. They expect `MAKEREADYOS_URL` and a scoped `MAKEREADYOS_TOKEN` created from `Admin -> Integrations`. A running instance also exposes an OpenAPI 3.1 contract at `GET /api/openapi.json`; `./test.sh` verifies the contract is parseable, includes expected auth/integration paths, contains generated request schemas from route validators, and documents exact response schemas for common integration targets such as options, floor plans, schedules, automation run history, operational library installs, API tokens, and webhooks.
 
 ## Logs
 
-Every build, test, E2E, database backup, upload backup, backup-prune, database restore, upload restore, scheduled automation, analytics snapshot, and synthetic large-seed invocation writes a timestamped text log to `logs/`.
+Every build, test, E2E, database backup, upload backup, backup-prune, database restore, upload restore, scheduled automation, analytics snapshot, webhook delivery, and synthetic large-seed invocation writes a timestamped text log to `logs/`.
 
 Examples:
 
@@ -33,8 +36,10 @@ Examples:
 - `logs/prune-backups-20260523-220001.txt`
 - `logs/restore-db-20260523-221000.txt`
 - `logs/restore-uploads-20260523-221000.txt`
+- `logs/route-existing-uploads-20260523-221200.txt`
 - `logs/automations-run-20260523-221500.txt`
 - `logs/analytics-snapshot-20260523-221700.txt`
+- `logs/webhooks-run-20260523-221800.txt`
 - `logs/reset-demo-20260523-221900.txt`
 - `logs/seed-large-20260523-222000.txt`
 
@@ -49,9 +54,12 @@ These logs are ignored by git to avoid repository noise.
 ./e2e.sh
 ./run-automations.sh
 ./run-analytics-snapshot.sh
+./run-webhooks.sh
 ```
 
-For database disaster-recovery operations, see [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md). `backup-db.sh` creates an ignored custom-format dump in `backups/`; `backup-uploads.sh` creates a timestamped archive of the Docker upload volume used for attachments and property maps; `prune-backups.sh` safely previews or removes expired local dumps; restore scripts require an input path and explicit interactive confirmation. Scheduler setup is documented in [SCHEDULED_BACKUPS.md](SCHEDULED_BACKUPS.md).
+The web build uses route/workspace-level lazy loading plus explicit React, React Query, and vendor chunks. If Vite reports a future chunk-size warning, inspect whether a new workspace should be lazy-loaded or whether shared chart/editor code should be split before raising the warning threshold.
+
+For database disaster-recovery operations, see [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md). `backup-db.sh` creates an ignored custom-format dump in `backups/`; `backup-uploads.sh` creates a timestamped archive of the Docker upload volume or configured host upload path used for attachments and property maps; `move-uploads.sh` copies existing upload bytes to a new host/NAS path before switching `UPLOADS_HOST_PATH`; `route-existing-uploads.sh` dry-runs or applies root-level file moves into configured property upload subfolders; Admin storage tests also verify per-property new-upload routing metadata; `prune-backups.sh` safely previews or removes expired local dumps; restore scripts require an input path and explicit interactive confirmation. Scheduler setup is documented in [SCHEDULED_BACKUPS.md](SCHEDULED_BACKUPS.md).
 
 ## Prisma Migrations
 
@@ -92,13 +100,16 @@ Full browser E2E is intentionally kept in a separate manual workflow at `.github
 ./e2e.sh
 ```
 
+`./e2e.sh` installs the Playwright Chromium browser runtime by default. On a fresh Linux machine that still needs OS-level browser dependencies, run `PLAYWRIGHT_INSTALL_DEPS=1 ./e2e.sh`.
+The manual GitHub Actions E2E workflow sets `PLAYWRIGHT_INSTALL_DEPS=1` because hosted runners start clean.
+
 ## Auth Smoke Checks
 
 `test.sh` now does more than compile verification when Docker is available.
 
 It will:
 
-1. verify `backup-db.sh`, `backup-uploads.sh`, `prune-backups.sh`, `restore-db.sh`, `restore-uploads.sh`, `run-automations.sh`, `run-analytics-snapshot.sh`, and `seed-large.sh` exist, are executable, and parse cleanly
+1. verify `backup-db.sh`, `backup-uploads.sh`, `move-uploads.sh`, `route-existing-uploads.sh`, `prune-backups.sh`, `restore-db.sh`, `restore-uploads.sh`, `run-automations.sh`, `run-analytics-snapshot.sh`, and `seed-large.sh` exist, are executable, and parse cleanly
 2. verify restore helpers refuse missing backup paths, prune dry-run/unsafe-path protections work, and `reset-demo.sh` refuses destructive reset without `--yes`
 3. validate `docker compose config`
 4. start the Compose stack
@@ -109,12 +120,12 @@ It will:
 9. verify authenticated access to session and board routes
 10. verify admin access to `/api/admin/users`, assignment properties, and operations property/unit routes
 11. verify property, floor-plan, and unit create/update/archive/restore, managed unit/floor-plan linkage, linked-property delete refusal, and make-ready create/archive/restore hiding behavior
-12. verify admin property-template creation, duplicate-safe dry-run apply, native backup export shape including template metadata, invalid import rejection, and dry-run summary
+12. verify admin property-template creation, duplicate-safe dry-run apply, native backup export shape including template metadata, invalid import rejection, dry-run summary, and unit-directory import behavior, including sparse unit import updates that do not erase existing metadata
 13. verify the admin can query/filter Activity and retrieve the native export audit event
-14. verify admin automation listing, template catalog/setup requirements/disabled installation, structured rule creation, preview/no-mutation behavior, custom-field condition validation/preview/manual/scheduled execution, invalid condition rejection, scheduled runner cooldown behavior, enable/disable, and run history access
+14. verify admin automation listing, template catalog/setup requirements/disabled installation, scheduling guard operators, structured rule creation, preview/no-mutation behavior, custom-field condition validation/preview/manual/scheduled execution, invalid condition rejection, scheduled runner cooldown behavior, enable/disable, and run history access
 15. create and update a test user and assign property access
 16. verify last-admin protection blocks self-demotion
-17. verify admin saved-view, built-in option lifecycle, batch-item lifecycle, item-query limit/filter behavior including pagination headers, SLA/risk evaluation/summary/items, analytics summary/snapshot/unit-history behavior, workload-planning assignment/coverage behavior, notification/collaboration limits, attachment type rejection, property-map metadata/upload/location behavior, and custom-field workflows
+17. verify admin saved-view, built-in option lifecycle, operating-calendar configuration and business-day date offsets, property risk-policy threshold configuration, batch-item lifecycle, item-query limit/filter/sort behavior including server-side structured/risk-category/custom-field filters, indexed custom-field value narrowing, bounded pagination headers, and invalid query rejection, SLA/risk evaluation/summary/items, analytics summary/snapshot/unit-history behavior, workload-planning assignment/coverage behavior, notification/collaboration limits, attachment type rejection, property-map metadata/upload/location behavior, and custom-field workflows
 18. verify logout invalidates the active session
 19. log in as the generated manager and verify scoped operations/Activity/Automation access and out-of-property unit/item-query rejection
 20. log in with the seeded demo tech user
@@ -124,7 +135,7 @@ It will:
 24. verify logout-all invalidates all sessions for the current user
 25. tear the stack down
 
-The smoke suite also verifies the integrations foundation: admin token creation, one-time token response behavior, bearer token access, insufficient-scope denial, property-scoped token denial outside scope, token revocation, and webhook registration scaffolding.
+The smoke suite also verifies the integrations foundation: admin token creation, one-time token response behavior, bearer token access, insufficient-scope denial, property-scoped token denial outside scope, token revocation, webhook registration, expanded webhook event metadata, signed dry-run webhook payload generation, webhook health summaries, queued webhook delivery processing through `run-webhooks.sh`, and webhook delivery-attempt history.
 
 The smoke run also invokes a three-record synthetic large seed and verifies that dashboard and bounded item responses continue to load. For larger non-production checks:
 
@@ -191,6 +202,7 @@ Automation smoke coverage checks:
 Risk smoke coverage checks:
 
 - dashboard responses include risk KPIs and risk breakdowns
+- admin/manager can read and update property risk-policy thresholds
 - admin/manager can run scoped `POST /api/risk/evaluate`
 - risk summary and risk item APIs respect scoped property filters
 - native JSON backup includes persisted risk score/level/reasons
@@ -217,19 +229,22 @@ Risk smoke coverage checks:
 - admin user create/update/deactivate/reactivate works in-browser
 - admin can create a property, unit, and make-ready item through the `Setup` workspace
 - a group `+ Add item` row infers context, creates a unit/turn from a unit number, and selected rows can be batch moved and archived
+- the board can opt into windowed loading, request the first bounded slice from the item API, and return to the full board stream
 - assigned-tech edits use the active staff selector and configured schedule tracks render updated option-driven legend/color-source guidance
 - the table exposes the field shortcut and can add/edit managed status options or create managed floor plans in place
 - custom field create and inline board-value editing works in-browser
 - active custom text/status/date fields filter the board through type-aware Advanced Filters, display removable chips, restore from saved views, and persist in Kanban/Schedule
 - archived custom fields are omitted from the new-filter selector while retained values remain available for historical data
 - a custom date field can be installed as a schedule track through Setup and displayed in Calendar
-- Dark theme selects an AMOLED-black root surface while the warm high-contrast Light token set, Eye-Strain, and OFL OpenDyslexic preferences persist
+- a property operating calendar can be saved with weekend, Monday/Friday, vendor lead-time, daily-limit, scope-day, and work-start guardrails
+- Dark theme selects an AMOLED-black root surface while the warm high-contrast Light token set, calendar grid contrast, activity table contrast, Eye-Strain, and OFL OpenDyslexic preferences persist
+- Display-mode regression coverage cycles core workspaces through Default, AMOLED, Light, Eye-Strain, and Dyslexia modes and fails if the page shell develops obvious horizontal overflow
 - Schedule displays NTV terminology and renders an active custom date-field track
-- Schedule legends derive from rendered color logic and support responsive multi-calendar layout
+- Schedule legends derive from rendered color logic and support responsive multi-calendar layout; browser coverage also checks Sunday-first ordering and current-day highlighting
 - notification records can be read and dismissed by their owning user
 - item updates, local attachment upload/removal, checklist attachment/completion, notification preferences, and My Work routes are exercised
 - vendor tab, vendor creation, and item-drawer vendor assignment are exercised
-- the browser verifies drawer collaboration, checklist execution, My Work, Ctrl/Cmd+K search, and dashboard layout controls
+- the browser verifies drawer collaboration, multi-file attachment upload, staged inspection-gallery metadata, image markup pins, attachment preview/download affordances, checklist execution, My Work, weak-connection messaging, Ctrl/Cmd+K search, and dashboard layout controls
 - admin backup/transfer controls render and invalid native import displays an error
 - admin Activity tab renders and filters existing audit events
 - admin Automation tab renders the structured builder and recent run history
@@ -243,7 +258,7 @@ Risk smoke coverage checks:
 The E2E script also:
 
 1. sources `.env` or `.env.example`
-2. installs the Playwright Chromium runtime if needed
+2. installs the Playwright Chromium runtime if needed, and installs OS browser dependencies only when `PLAYWRIGHT_INSTALL_DEPS=1`
 3. resets and starts Docker Compose
 4. waits for API and web readiness
 5. runs Playwright tests
@@ -267,6 +282,23 @@ AUTOMATION_NOTE_COOLDOWN_HOURS=24
 
 Example hourly systemd units are provided at `deploy/examples/makereadyos-automations.service` and `deploy/examples/makereadyos-automations.timer`. Scheduled execution never evaluates user-provided JavaScript.
 
+## Webhook Delivery Runner
+
+`./run-webhooks.sh` loads the local environment file, ensures the deployed API container is running, invokes the compiled webhook delivery runner, and writes `logs/webhooks-run-<timestamp>.txt`. It processes queued delivery attempts with HMAC signatures, a bounded batch size, HTTP timeout, and retry/backoff. It is intentionally script-driven; MakeReadyOS does not keep a long-running webhook worker inside the web/API process.
+
+Configure delivery behavior in `.env`:
+
+```bash
+WEBHOOK_DELIVERY_BATCH_SIZE=25
+WEBHOOK_DELIVERY_TIMEOUT_MS=5000
+WEBHOOK_DELIVERY_MAX_ATTEMPTS=5
+WEBHOOK_AUTO_DISABLE_FAILURES=0
+WEBHOOK_ALLOW_PRIVATE_URLS=true
+WEBHOOK_ALLOWED_HOSTS=
+```
+
+Set `WEBHOOK_ALLOW_PRIVATE_URLS=false` for public deployments that should reject webhook endpoints targeting localhost, private networks, link-local addresses, or DNS names resolving to private addresses. `WEBHOOK_ALLOWED_HOSTS` can list explicit trusted exceptions.
+
 ## Notes
 
 - The installer currently targets Debian/Ubuntu-style environments with `apt-get`
@@ -276,4 +308,6 @@ Example hourly systemd units are provided at `deploy/examples/makereadyos-automa
 - `test.sh` validates `docker compose config` when Docker is available
 ## Dashboard And Workflow Checks
 
-Smoke coverage verifies scoped Dashboard output, saved-view persistence of built-in and custom-field structured filter tokens, board-section rename metadata, built-in column label reset, notification/read-preference endpoints, collaboration/checklist/file endpoints, vendor CRUD/assignment lifecycle, Frog Pond runtime asset presence, and backup inclusion of portable item comments/checklist/vendor records while excluding personal notifications and uploaded bytes. Browser coverage verifies Dashboard KPI/chart drilldowns apply visible structured chips, drawer collaboration/vendor work/checklists, My Work and keyboard palette surfaces, custom filters, table-side configuration, theme contrast, Kanban controls, map marker/item-drawer links, Frog Pond rendering/config/item-drawer links, automation/library/property-template surfaces, and multi-calendar schedule layouts.
+Smoke coverage verifies scoped Dashboard output, saved-view persistence of built-in and custom-field structured filter tokens, board-section rename metadata, built-in column label reset, notification/read-preference endpoints, collaboration/checklist/file endpoints, staged attachment metadata, attachment markup metadata, filtered attachment ZIP export, upload storage settings/host-path validation, vendor CRUD/assignment lifecycle, Frog Pond runtime asset presence, and backup inclusion of portable item comments/checklist/vendor records while excluding personal notifications and uploaded bytes. Browser coverage verifies Dashboard KPI/chart drilldowns apply visible structured chips, drawer collaboration/photo-gallery metadata/markup/preview/download affordances/vendor work/checklists, Admin upload/NAS storage validation, My Work quick status and keyboard palette surfaces, weak-connection retry messaging, custom filters, table-side configuration, display-mode overflow checks across core workspaces, theme contrast, Kanban controls, map marker/item-drawer links, Frog Pond rendering/config/item-drawer links, automation/library/property-template surfaces, and multi-calendar schedule layouts.
+
+Upload/storage smoke checks also verify that `.env.example` defaults `MAX_UPLOAD_MB=0` and the bundled nginx configuration does not impose a separate body-size cap. Deployments behind an external reverse proxy still need their proxy upload limits configured separately.

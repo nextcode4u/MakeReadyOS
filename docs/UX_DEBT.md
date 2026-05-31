@@ -12,7 +12,8 @@ This list captures usability debt without turning it into immediate feature work
 
 - Mobile uses card/drawer patterns, but the full table remains hard on small screens.
 - Batch operations and column configuration are still desktop-first.
-- Recommended polish: mobile bulk mode, better drawer bottom actions, and larger field touch targets.
+- My Work now has quick status controls and connection retry messaging, but full offline-safe edits are not implemented.
+- Recommended polish: mobile bulk mode, better drawer bottom actions, larger field touch targets, and queued offline sync with conflict handling.
 
 ## Dropdown And Option Complexity
 

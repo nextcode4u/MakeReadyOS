@@ -36,7 +36,7 @@ export async function metaRoutes(app: FastifyInstance) {
         include: { property: true, floorPlanRecord: true },
       }),
       prisma.customField.findMany({
-        where: { module: "make-ready", isArchived: false },
+        where: { module: "make-ready", isArchived: false, deletedAt: null },
         include: {
           options: {
             orderBy: { sortOrder: "asc" },

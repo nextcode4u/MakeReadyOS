@@ -8,6 +8,15 @@ LOG_FILE="$LOG_DIR/restore-uploads-$TIMESTAMP.txt"
 
 mkdir -p "$LOG_DIR"
 
+validate_container_upload_dir() {
+  local upload_dir="$1"
+  if [[ "$upload_dir" != /* ]] || [[ "$upload_dir" == "/" ]] || [[ "$upload_dir" == "/app" ]] || [[ "$upload_dir" == *"'"* ]]; then
+    echo "ERROR: refusing unsafe container upload path: $upload_dir"
+    echo "Use UPLOAD_DIR=/app/uploads unless you have also reviewed the backup/restore scripts."
+    return 1
+  fi
+}
+
 run_restore() {
   if [ "$#" -ne 1 ]; then
     echo "ERROR: an upload backup archive path is required"
@@ -34,11 +43,7 @@ run_restore() {
   fi
 
   local upload_dir="${UPLOAD_DIR:-/app/uploads}"
-  if [ "$upload_dir" != "/app/uploads" ]; then
-    echo "ERROR: refusing unsupported container upload path: $upload_dir"
-    echo "Expected UPLOAD_DIR=/app/uploads for Docker Compose volume restores."
-    return 1
-  fi
+  validate_container_upload_dir "$upload_dir" || return 1
 
   if ! tar -tzf "$backup_file" >/dev/null 2>&1; then
     echo "ERROR: upload backup is not a readable .tgz archive"
@@ -48,6 +53,7 @@ run_restore() {
   echo "Upload restore requested: $(date -Iseconds)"
   echo "Source: $backup_file"
   echo "Container upload path: $upload_dir"
+  echo "Host upload target: ${UPLOADS_HOST_PATH:-uploads_data}"
   echo
   echo "WARNING: THIS OPERATION REPLACES LOCAL UPLOAD FILES."
   echo "WARNING: Existing attachments/photos/property map files in the upload volume will be removed."

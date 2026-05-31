@@ -8,14 +8,14 @@ import { activePlanningStatuses, defaultPlanningWindow, planningStaffRoles, plan
 import { prisma } from "../lib/prisma.js";
 import { evaluateAndPersistItemRisk } from "../lib/risk.js";
 
-const querySchema = z.object({
+export const planningQuerySchema = z.object({
   propertyId: z.string().optional(),
   assignedUserId: z.string().optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
 });
 
-const blockSchema = z.object({
+export const planningBlockSchema = z.object({
   assignedUserId: z.string(),
   itemId: z.string(),
   category: z.string().trim().min(1).max(80),
@@ -26,8 +26,8 @@ const blockSchema = z.object({
   notes: z.string().trim().max(1000).nullable().optional(),
 });
 
-const patchBlockSchema = blockSchema.partial();
-const capacitySchema = z.object({
+export const planningPatchBlockSchema = planningBlockSchema.partial();
+export const planningCapacitySchema = z.object({
   defaultDailyHours: z.coerce.number().positive().max(24),
   tradeCategories: z.array(z.string().trim().min(1).max(80)).max(20).optional().default([]),
   unavailableDays: z.array(z.string()).max(200).optional().default([]),
@@ -53,7 +53,7 @@ async function ensureScopedItem(itemId: string, propertyIds: string[] | null) {
 
 export async function planningRoutes(app: FastifyInstance) {
   app.get("/planning", async (request, reply) => {
-    const query = querySchema.parse(request.query);
+    const query = planningQuerySchema.parse(request.query);
     const scoped = scopedAllowedPropertyIds(request);
     if (query.propertyId && scoped !== null && !scoped.includes(query.propertyId)) return reply.code(403).send({ message: "Property access denied" });
     const window = { ...defaultPlanningWindow(), from: query.from ?? defaultPlanningWindow().from, to: query.to ?? defaultPlanningWindow().to };
@@ -88,7 +88,7 @@ export async function planningRoutes(app: FastifyInstance) {
   });
 
   app.post("/planning/blocks", { preHandler: requireManagerOrAdmin }, async (request, reply) => {
-    const input = blockSchema.parse(request.body);
+    const input = planningBlockSchema.parse(request.body);
     const scoped = scopedAllowedPropertyIds(request);
     const { item, error, status } = await ensureScopedItem(input.itemId, scoped);
     if (!item) return reply.code(status).send({ message: error });
@@ -134,7 +134,7 @@ export async function planningRoutes(app: FastifyInstance) {
     const scoped = scopedAllowedPropertyIds(request);
     if (scoped !== null && !scoped.includes(existing.propertyId)) return reply.code(403).send({ message: "Property access denied" });
     if (!canManagePlanning(user.role) && existing.assignedUserId !== user.id) return reply.code(403).send({ message: "Only managers or the assigned user can update this work block" });
-    const input = patchBlockSchema.parse(request.body);
+    const input = planningPatchBlockSchema.parse(request.body);
     if ((input.assignedUserId || input.itemId || input.estimatedHours || input.plannedDate || input.category) && !canManagePlanning(user.role)) {
       return reply.code(403).send({ message: "Only managers can replan work blocks" });
     }
@@ -186,7 +186,7 @@ export async function planningRoutes(app: FastifyInstance) {
 
   app.put("/planning/capacities/:userId", { preHandler: requireManagerOrAdmin }, async (request) => {
     const { userId } = z.object({ userId: z.string() }).parse(request.params);
-    const input = capacitySchema.parse(request.body);
+    const input = planningCapacitySchema.parse(request.body);
     const capacity = await prisma.userCapacity.upsert({
       where: { userId },
       create: { userId, defaultDailyHours: input.defaultDailyHours, tradeCategories: input.tradeCategories, unavailableDays: input.unavailableDays },

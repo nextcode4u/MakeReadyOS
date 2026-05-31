@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import type { CurrentUser, MyWorkResponse, StaffOption } from "../lib/api";
+import type { CurrentUser, LabelDefinition, MyWorkResponse, StaffOption } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
+import { LabelPill } from "./LabelPill";
 import { StatusState } from "./StatusState";
 
 type Props = {
@@ -9,19 +10,24 @@ type Props = {
   error: boolean;
   currentUser: CurrentUser;
   staff: StaffOption[];
+  labelsByField: Record<string, Record<string, LabelDefinition>>;
   selectedUserId: string;
   onUserChange: (id: string) => void;
   onOpenItem: (id: string) => void;
+  onRetry: () => void;
+  onQuickStatusChange: (id: string, value: string | null) => Promise<void>;
 };
 
-export function MyWorkPanel({ data, loading, error, currentUser, staff, selectedUserId, onUserChange, onOpenItem }: Props) {
+export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsByField, selectedUserId, onUserChange, onOpenItem, onRetry, onQuickStatusChange }: Props) {
   const workItems = useMemo(() => (data?.items ?? []).map((item) => {
     const tasks = item.checklistInstances.flatMap((checklist) => checklist.items);
     return { item, tasks, done: tasks.filter((task) => task.completed).length };
   }), [data?.items]);
   if (loading) return <StatusState title="Loading assigned work" description="Gathering active turns and checklist progress." />;
-  if (error || !data) return <StatusState title="My Work unavailable" description="Refresh to retrieve assigned operational work." tone="error" />;
+  if (error || !data) return <StatusState title="My Work unavailable" description="Check the connection, then retry assigned work." tone="error" action={{ label: "Retry", onClick: onRetry }} />;
   const canSelectStaff = currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
+  const canQuickUpdate = ["ADMIN", "MANAGER", "TECH", "CLEANER"].includes(currentUser.role);
+  const makeReadyOptions = Object.values(labelsByField.makeReadyStatus ?? {}).filter((label) => !label.isArchived);
   return (
     <section className="my-work-panel" data-testid="my-work-panel">
       <header className="panel-heading my-work-heading">
@@ -61,7 +67,25 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, selected
                   <span>Checklist {done}/{tasks.length}</span>
                   <progress value={done} max={tasks.length || 1} />
                 </div>
-                <button className="button button-primary" type="button" onClick={() => onOpenItem(item.id)}>Open work item</button>
+                <div className="my-work-actions">
+                  <button className="button button-primary" type="button" onClick={() => onOpenItem(item.id)}>Open work item</button>
+                  {canQuickUpdate ? (
+                    <label className="my-work-quick-status">
+                      <span>Quick status</span>
+                      <select
+                        data-testid={`my-work-status-${item.id}`}
+                        value={item.makeReadyStatus ?? ""}
+                        onChange={(event) => void onQuickStatusChange(item.id, event.target.value || null)}
+                        aria-label={`Quick make-ready status for ${item.unitNumber}`}
+                      >
+                        <option value="">Unset</option>
+                        {makeReadyOptions.map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}
+                      </select>
+                    </label>
+                  ) : (
+                    <LabelPill value={item.makeReadyStatus} label={item.makeReadyStatus ? labelsByField.makeReadyStatus?.[item.makeReadyStatus] : undefined} muted />
+                  )}
+                </div>
               </article>
             );
           })}

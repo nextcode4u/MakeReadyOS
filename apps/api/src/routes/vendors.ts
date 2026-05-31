@@ -6,17 +6,18 @@ import { writeAuditLog } from "../lib/audit.js";
 import { createNotification, notifyAssignedStaff } from "../lib/notifications.js";
 import { prisma } from "../lib/prisma.js";
 import { evaluateAndPersistItemRisk } from "../lib/risk.js";
+import { queueWebhookEvent } from "../lib/webhookQueue.js";
 
 const vendorStatuses = ["REQUESTED", "SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELED", "FOLLOW_UP_NEEDED"] as const;
 
-const vendorQuerySchema = z.object({
+export const vendorQuerySchema = z.object({
   includeArchived: z.enum(["true", "false"]).optional().transform((value) => value === "true"),
   propertyId: z.string().optional(),
   trade: z.string().optional(),
   q: z.string().optional(),
 });
 
-const vendorSchema = z.object({
+export const vendorSchema = z.object({
   name: z.string().trim().min(2).max(160),
   trade: z.string().trim().min(2).max(80),
   phone: z.string().trim().max(40).nullable().optional(),
@@ -28,11 +29,11 @@ const vendorSchema = z.object({
   propertyIds: z.array(z.string()).max(100).optional().default([]),
 });
 
-const vendorPatchSchema = vendorSchema.partial().extend({
+export const vendorPatchSchema = vendorSchema.partial().extend({
   isActive: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: "Provide vendor fields to update" });
 
-const assignmentQuerySchema = z.object({
+export const vendorAssignmentQuerySchema = z.object({
   itemId: z.string().optional(),
   propertyId: z.string().optional(),
   vendorId: z.string().optional(),
@@ -42,7 +43,7 @@ const assignmentQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-const assignmentSchema = z.object({
+export const vendorAssignmentSchema = z.object({
   vendorId: z.string(),
   itemId: z.string(),
   trade: z.string().trim().min(2).max(80),
@@ -54,7 +55,7 @@ const assignmentSchema = z.object({
   invoiceRef: z.string().trim().max(120).nullable().optional(),
 });
 
-const assignmentPatchSchema = assignmentSchema.omit({ vendorId: true, itemId: true }).partial().extend({
+export const vendorAssignmentPatchSchema = vendorAssignmentSchema.omit({ vendorId: true, itemId: true }).partial().extend({
   vendorId: z.string().optional(),
   completedAt: z.string().nullable().optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: "Provide assignment fields to update" });
@@ -224,7 +225,7 @@ export async function vendorRoutes(app: FastifyInstance) {
   });
 
   app.get("/vendor-assignments", async (request, reply) => {
-    const query = assignmentQuerySchema.parse(request.query);
+    const query = vendorAssignmentQuerySchema.parse(request.query);
     const scope = propertyScope(request, query.propertyId);
     if (scope.denied) return reply.code(403).send({ message: "Property access denied" });
     const where = {
@@ -248,7 +249,7 @@ export async function vendorRoutes(app: FastifyInstance) {
 
   app.post("/vendor-assignments", async (request, reply) => {
     if (!mayManage(request.currentUser!.role)) return reply.code(403).send({ message: "Manager or admin access required" });
-    const payload = assignmentSchema.parse(request.body);
+    const payload = vendorAssignmentSchema.parse(request.body);
     const item = await prisma.makeReadyItem.findUnique({ where: { id: payload.itemId } });
     if (!item) return reply.code(404).send({ message: "Make-ready item not found" });
     if (!(await assertVendorScope(request, reply, [item.propertyId]))) return;
@@ -274,6 +275,21 @@ export async function vendorRoutes(app: FastifyInstance) {
       include: { vendor: true, property: true, item: { select: { id: true, unitNumber: true, assignedTech: true, moveInDate: true } } },
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: item.propertyId, entityType: "VENDOR_ASSIGNMENT", entityId: assignment.id, action: "VENDOR_ASSIGNMENT_CREATED", message: `Assigned ${vendor.name} to ${item.unitNumber}` });
+    await queueWebhookEvent({
+      eventType: "vendor.assignment.updated",
+      propertyId: item.propertyId,
+      itemId: item.id,
+      actorUserId: request.currentUser!.id,
+      data: {
+        id: assignment.id,
+        itemId: item.id,
+        unitNumber: item.unitNumber,
+        vendorId: vendor.id,
+        vendorName: vendor.name,
+        trade: assignment.trade,
+        status: assignment.status,
+      },
+    });
     await notifyVendorAssignment({ assignmentId: assignment.id, itemId: item.id, propertyId: item.propertyId, unitNumber: item.unitNumber, assignedTech: item.assignedTech, status: assignment.status, message: `${vendor.name} ${assignment.trade} work was added.` });
     await evaluateAndPersistItemRisk(item.id, { notify: true });
     reply.code(201);
@@ -283,7 +299,7 @@ export async function vendorRoutes(app: FastifyInstance) {
   app.patch("/vendor-assignments/:id", async (request, reply) => {
     if (!mayUpdateAssignment(request.currentUser!.role)) return reply.code(403).send({ message: "This role cannot update vendor work" });
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const payload = assignmentPatchSchema.parse(request.body);
+    const payload = vendorAssignmentPatchSchema.parse(request.body);
     const existing = await assignmentById(id);
     if (!existing) return reply.code(404).send({ message: "Vendor assignment not found" });
     if (!(await assertVendorScope(request, reply, [existing.propertyId]))) return;
@@ -304,6 +320,21 @@ export async function vendorRoutes(app: FastifyInstance) {
       include: { vendor: true, property: true, item: { select: { id: true, unitNumber: true, assignedTech: true, moveInDate: true } } },
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: assignment.propertyId, entityType: "VENDOR_ASSIGNMENT", entityId: assignment.id, action: "VENDOR_ASSIGNMENT_UPDATED", message: `Updated vendor work for ${assignment.item.unitNumber}`, metadata: { status: assignment.status } });
+    await queueWebhookEvent({
+      eventType: "vendor.assignment.updated",
+      propertyId: assignment.propertyId,
+      itemId: assignment.itemId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        id: assignment.id,
+        itemId: assignment.itemId,
+        unitNumber: assignment.item.unitNumber,
+        vendorId: assignment.vendorId,
+        vendorName: assignment.vendor.name,
+        trade: assignment.trade,
+        status: assignment.status,
+      },
+    });
     await notifyVendorAssignment({ assignmentId: assignment.id, itemId: assignment.itemId, propertyId: assignment.propertyId, unitNumber: assignment.item.unitNumber, assignedTech: assignment.item.assignedTech, status: assignment.status, message: `${assignment.vendor.name} ${assignment.trade} work is ${assignment.status.toLowerCase().replace(/_/g, " ")}.` });
     await evaluateAndPersistItemRisk(assignment.itemId, { notify: true });
     return { assignment };
@@ -321,6 +352,21 @@ export async function vendorRoutes(app: FastifyInstance) {
       include: { vendor: true, property: true, item: { select: { id: true, unitNumber: true, assignedTech: true, moveInDate: true } } },
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: assignment.propertyId, entityType: "VENDOR_ASSIGNMENT", entityId: assignment.id, action: "VENDOR_ASSIGNMENT_COMPLETED", message: `Completed vendor work for ${assignment.item.unitNumber}` });
+    await queueWebhookEvent({
+      eventType: "vendor.assignment.updated",
+      propertyId: assignment.propertyId,
+      itemId: assignment.itemId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        id: assignment.id,
+        itemId: assignment.itemId,
+        unitNumber: assignment.item.unitNumber,
+        vendorId: assignment.vendorId,
+        vendorName: assignment.vendor.name,
+        trade: assignment.trade,
+        status: assignment.status,
+      },
+    });
     await notifyVendorAssignment({ assignmentId: assignment.id, itemId: assignment.itemId, propertyId: assignment.propertyId, unitNumber: assignment.item.unitNumber, assignedTech: assignment.item.assignedTech, status: assignment.status, message: `${assignment.vendor.name} ${assignment.trade} work was completed.` });
     await evaluateAndPersistItemRisk(assignment.itemId, { notify: true });
     return { assignment };
@@ -338,6 +384,21 @@ export async function vendorRoutes(app: FastifyInstance) {
       include: { vendor: true, property: true, item: { select: { id: true, unitNumber: true, assignedTech: true, moveInDate: true } } },
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: assignment.propertyId, entityType: "VENDOR_ASSIGNMENT", entityId: assignment.id, action: "VENDOR_ASSIGNMENT_CANCELED", message: `Canceled vendor work for ${assignment.item.unitNumber}` });
+    await queueWebhookEvent({
+      eventType: "vendor.assignment.updated",
+      propertyId: assignment.propertyId,
+      itemId: assignment.itemId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        id: assignment.id,
+        itemId: assignment.itemId,
+        unitNumber: assignment.item.unitNumber,
+        vendorId: assignment.vendorId,
+        vendorName: assignment.vendor.name,
+        trade: assignment.trade,
+        status: assignment.status,
+      },
+    });
     await evaluateAndPersistItemRisk(assignment.itemId, { notify: true });
     return { assignment };
   });

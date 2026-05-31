@@ -10,7 +10,7 @@ Use this before tagging or deploying a MakeReadyOS release.
 - Set strong `ADMIN_PASSWORD`.
 - Set a unique `SESSION_COOKIE_SECRET` of at least 32 characters.
 - Confirm `CORS_ORIGIN` matches the deployment URL.
-- Confirm `UPLOAD_DIR`, `MAX_UPLOAD_MB`, and backup retention settings.
+- Confirm `UPLOAD_DIR`, `UPLOADS_HOST_PATH`, `MAX_UPLOAD_MB`, external reverse-proxy upload limits, and backup retention settings.
 
 ## Build And Test
 
@@ -29,6 +29,8 @@ npm --prefix apps/web audit --omit=dev
 
 Review generated logs in `logs/`.
 
+On fresh Linux hosts or GitHub Actions E2E runners, use `PLAYWRIGHT_INSTALL_DEPS=1 ./e2e.sh` so Playwright installs OS browser dependencies. On machines where dependencies are already installed, plain `./e2e.sh` avoids unrelated apt repository failures.
+
 ## Docker Validation
 
 ```bash
@@ -45,6 +47,7 @@ For a fresh instance, complete or intentionally skip the in-app setup guide.
 - Run `./backup-db.sh`.
 - Confirm a new dump exists in `backups/`.
 - Run `./backup-uploads.sh` when attachments/photos/property maps exist.
+- Run `./move-uploads.sh <host-path> --dry-run` before moving uploads from Docker's managed volume to host/NAS storage.
 - Confirm a new upload archive exists in `backups/`.
 - Confirm `./prune-backups.sh --dry-run` behaves as expected.
 - Document where database and upload archives are copied off-host.
@@ -66,7 +69,9 @@ For a fresh instance, complete or intentionally skip the in-app setup guide.
 - Confirm no token hashes/password hashes are exported in native backup files.
 - Confirm no runtime source imports `reference/`.
 - Confirm API token rate-limit settings are intentional for the deployment.
-- Keep webhook delivery disabled/scaffolded until signed delivery exists.
+- Set `WEBHOOK_SECRET_ENCRYPTION_KEY` before relying on webhook signing-secret persistence.
+- For public deployments, decide whether webhook endpoints may target local/LAN services. Set `WEBHOOK_ALLOW_PRIVATE_URLS=false` to block private/local targets and use `WEBHOOK_ALLOWED_HOSTS` only for explicit trusted exceptions.
+- If webhook integrations are used, run `./run-webhooks.sh` manually or schedule it and verify delivery-attempt history.
 - Confirm `SECURITY.md` and `SUPPORT.md` match the repository's public contact/support expectations.
 
 ## Documentation
@@ -76,7 +81,9 @@ For a fresh instance, complete or intentionally skip the in-app setup guide.
 - Update `reference/project/PROJECT_REFERENCE.md` with concise context only.
 - Keep raw screenshots/exports out of git.
 - Confirm issue templates are present under `.github/ISSUE_TEMPLATE/`.
+- Confirm `.github/PULL_REQUEST_TEMPLATE.md` is current.
 - Confirm screenshots referenced by the root README are committed under `docs/screenshots/`.
+- Confirm `CHANGELOG.md` and `docs/RELEASE_PROCESS.md` describe the intended release/tag.
 
 ## Demo Data
 

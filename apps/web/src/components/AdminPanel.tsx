@@ -4,6 +4,7 @@ import { BackupTransferPanel } from "./BackupTransferPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { IntegrationsPanel } from "./IntegrationsPanel";
 import { StatusState } from "./StatusState";
+import { StorageSettingsPanel } from "./StorageSettingsPanel";
 
 const roles: UserRole[] = ["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "VIEWER"];
 const roleFilterOptions = ["ALL", ...roles] as const;
@@ -478,6 +479,7 @@ export function AdminPanel({
       </section>
 
       <IntegrationsPanel properties={properties} />
+      <StorageSettingsPanel />
       <BackupTransferPanel onImported={onBackupImported} />
 
       <ConfirmDialog

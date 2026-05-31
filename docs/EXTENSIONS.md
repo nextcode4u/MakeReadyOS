@@ -7,7 +7,8 @@ MakeReadyOS currently supports safe JSON-based extension points. It does not exe
 - API integrations through scoped bearer tokens.
 - Operational library packs using `makereadyos.libraryPack` JSON.
 - Native MakeReadyOS backup/transfer files using `makereadyos.backup` JSON.
-- Webhook endpoint registration metadata for future signed delivery.
+- Webhook endpoint registration plus explicit signed test delivery through `./run-webhooks.sh`.
+- Admin-visible webhook health and delivery history for queued, delivered, failed, gave-up, and dry-run attempts.
 
 ## Future-Safe Contracts
 
@@ -21,30 +22,45 @@ The following are planned extension surfaces, but they are not runtime plugin ex
 
 ## Operational Library Pack Format
 
-Library packs are versioned JSON:
+Library packs are versioned JSON. The published schema is available at:
+
+- [`docs/schemas/makereadyos-library-pack.schema.json`](schemas/makereadyos-library-pack.schema.json)
+- [`examples/operational-library/sample-library-pack.json`](../examples/operational-library/sample-library-pack.json)
 
 ```json
 {
   "format": "makereadyos.libraryPack",
   "version": 1,
+  "packKey": "example-make-ready-pack",
   "name": "Example Pack",
   "description": "Adds safe workflow configuration.",
   "category": "Make Ready",
   "items": {
     "customFields": [],
-    "statusOptions": [],
+    "optionSets": [],
     "checklistTemplates": [],
     "automationTemplates": [],
     "scheduleTracks": [],
     "savedViews": [],
-    "dashboardPresets": []
+    "propertyTemplates": []
   }
 }
 ```
 
 Imported automations are structured JSON only and must remain disabled until explicitly enabled. Packs must not contain JavaScript or executable payloads.
 
+Use `packKey` and each item `key` as stable identifiers. Display names can change, but keys should remain stable so imports stay duplicate-safe.
+
 See `examples/operational-library/sample-library-pack.json`.
+
+## Native Backup Contract
+
+Native transfer files are also versioned JSON. The published schema and minimal example are available at:
+
+- [`docs/schemas/makereadyos-native-backup.schema.json`](schemas/makereadyos-native-backup.schema.json)
+- [`examples/native-backup/minimal-backup.json`](../examples/native-backup/minimal-backup.json)
+
+Native backup JSON is for MakeReadyOS-to-MakeReadyOS operational transfer. It is not a disaster-recovery backup because uploaded photo/map/document bytes, credentials, sessions, and audit logs are excluded.
 
 ## Webhooks
 
@@ -53,11 +69,12 @@ The current release stores webhook endpoint configuration:
 - name
 - URL
 - event types
-- generated secret hash
+- generated secret hash plus encrypted signing secret for future HMAC delivery
 - property scope
 - enabled/disabled state
+- dry-run, queued, delivered, failed, and gave-up delivery attempt history
 
-Delivery is intentionally scaffolded for a later queue-backed implementation. When delivery is enabled, payloads should be HMAC-signed, timeout-limited, retried safely, and never block the primary user action.
+Delivery is intentionally script-driven. Admins can generate a signed dry-run payload to validate headers and payload shape, or queue a signed test payload for `./run-webhooks.sh`. Core application writes also queue subscribed events for item create/update/assignment, risk-level changes, comment creation, checklist completion, and vendor assignment changes. The runner HMAC-signs payloads, applies a short timeout, retries with bounded backoff, records delivery attempts, optionally disables endpoints after repeated consecutive failures, can reject private/local webhook targets for public deployments, and never blocks the primary user action.
 
 Initial event names:
 
@@ -94,6 +111,7 @@ Initial event names:
 - Use property-scoped tokens for property-specific integrations.
 - Treat `limit`/`offset` as required for growing datasets.
 - Handle JSON error responses with a `message` field.
+- Use `GET /api/openapi.json` on a running instance for the baseline machine-readable API contract, then check [API.md](API.md) for workflow-specific filter and pagination notes.
 
 ## Adding Operational Library Packs
 

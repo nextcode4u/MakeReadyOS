@@ -8,7 +8,7 @@ MakeReadyOS provides two backup paths with different purposes:
 | --- | --- | --- | --- |
 | Native JSON transfer in the Admin UI | Move operational board data between MakeReadyOS instances | Selected operational records and configuration intended for safe merge import | Users, passwords, sessions, audit history, environment secrets, destructive replacement |
 | `./backup-db.sh` PostgreSQL dump | Restore a failed or lost deployment as a whole | The complete PostgreSQL database, including users, sessions, audit history, attachment metadata, configuration records, and operational data stored in PostgreSQL | `.env` secrets, reverse proxy configuration, and uploaded file bytes stored in the separate `uploads_data` volume |
-| `./backup-uploads.sh` upload archive | Preserve local attachment/photo/property-map bytes | The Docker API container upload directory (`/app/uploads`) as a timestamped `.tgz` archive | PostgreSQL records, users, sessions, secrets, reverse proxy configuration |
+| `./backup-uploads.sh` upload archive | Preserve local attachment/photo/property-map bytes | The Docker API container upload directory (`/app/uploads`) as a timestamped `.tgz` archive, backed by Docker `uploads_data` or the configured `UPLOADS_HOST_PATH` | PostgreSQL records, users, sessions, secrets, reverse proxy configuration |
 
 Native JSON is a controlled migration/export feature. A PostgreSQL dump is the disaster-recovery backup for replacing a lost database.
 
@@ -46,7 +46,7 @@ backups/makereadyos-uploads-YYYYMMDD-HHMMSS.tgz
 logs/backup-uploads-YYYYMMDD-HHMMSS.txt
 ```
 
-The helper refuses unexpected upload paths by default and expects the Compose API service path `/app/uploads`. If you customize upload storage, verify the helper and host volume mapping before relying on it.
+The helper expects the Compose API service path `/app/uploads`. The host side may be Docker's managed `uploads_data` volume or a configured `UPLOADS_HOST_PATH`. If you customize `UPLOAD_DIR` inside the container, verify the helper and host volume mapping before relying on it.
 
 ## Restore An Upload Backup
 
@@ -106,6 +106,12 @@ The PostgreSQL dump restores database-backed authentication records. Existing br
 Linux scheduling and local retention examples are provided in [SCHEDULED_BACKUPS.md](SCHEDULED_BACKUPS.md). Local pruning protects disk capacity; it does not provide off-device disaster recovery.
 
 Attachments uploaded through the item drawer are stored in the Docker `uploads_data` volume. A complete deployment backup must preserve both the PostgreSQL dump and that volume's files; restoring the database alone restores attachment metadata but not the actual downloadable photos/documents.
+
+Inspection-gallery ZIP downloads are useful for exporting a unit walk or charge-candidate packet, but they are not disaster-recovery backups. Use `backup-uploads.sh` for the complete upload volume, especially if property maps and large photo walks matter.
+
+If uploads are moved to host/NAS storage with `UPLOADS_HOST_PATH`, make sure the host backup plan includes that path. `./move-uploads.sh` can copy the current Docker upload volume to a new host path before switching Compose configuration.
+
+If per-property upload routing is enabled after files already exist, use `./route-existing-uploads.sh` first to preview which root-level files would move into property subfolders. Use `./route-existing-uploads.sh --apply` only after taking an upload backup and confirming the dry-run output.
 
 `./seed-large.sh` is intended only for non-production load validation. Its generated rows, light comments, checklist instances, and custom values are regular database records and appear in dumps unless removed before backup.
 

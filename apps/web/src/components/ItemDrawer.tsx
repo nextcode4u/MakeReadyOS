@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { BoardColumnDefinition, BoardSection, CurrentUser, CustomField, FloorPlan, ItemCollaboration, LabelDefinition, MakeReadyItem, StaffOption, UnitHistoryResponse, Vendor, VendorAssignment, WorkAssignmentBlock } from "../lib/api";
-import { attachmentDownloadUrl, attachChecklist, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getItemCollaboration, getUnitHistory, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
+import type { BoardColumnDefinition, BoardSection, ChargePriceSheetItem, CurrentUser, CustomField, FloorPlan, ItemCollaboration, LabelDefinition, MakeReadyItem, StaffOption, UnitHistoryResponse, Vendor, VendorAssignment, WorkAssignmentBlock } from "../lib/api";
+import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getItemCollaboration, getUnitHistory, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
 import { boardGroupLabel, configuredBoardColumns } from "../lib/board";
+import { formatDateTime } from "../lib/dateTime";
 import { LabelPill } from "./LabelPill";
+import { Modal } from "./Modal";
 import { StatusState } from "./StatusState";
 
 type Props = {
@@ -44,6 +46,67 @@ function customValue(item: MakeReadyItem, id: string) {
   return item.customFieldValues.find((value) => value.customFieldId === id)?.value ?? null;
 }
 
+const attachmentStageOptions = [
+  { value: "ALL", label: "All photos/files" },
+  { value: "NEEDS_CLASSIFICATION", label: "Needs classification" },
+  { value: "GENERAL", label: "General" },
+  { value: "NTV", label: "NTV / Notice" },
+  { value: "VACATED", label: "Vacated" },
+  { value: "INITIAL_WALK", label: "Initial Walk" },
+  { value: "SCOPE", label: "Scope" },
+  { value: "TRASH_OUT", label: "Trash Out" },
+  { value: "CLEANING", label: "Cleaning" },
+  { value: "PAINT", label: "Paint" },
+  { value: "FLOORING", label: "Flooring" },
+  { value: "DAMAGE", label: "Damage" },
+  { value: "FINAL_WALK", label: "Final Walk" },
+  { value: "MOVE_IN_READY", label: "Move-In Ready" },
+  { value: "CHARGE_CANDIDATES", label: "Charge candidates" },
+];
+
+const attachmentCategoryOptions = ["Damage", "Cleaning", "Trash-out", "Paint", "Flooring", "Appliance", "Keys/locks", "Resident items", "Vendor proof", "Final QC"];
+const attachmentAccept = [
+  ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".heic", ".heif", ".bmp", ".tif", ".tiff",
+  ".pdf", ".doc", ".docx", ".txt", ".csv", ".xls", ".xlsx",
+].join(",");
+type DrawerAttachment = ItemCollaboration["attachments"][number];
+type AttachmentAnnotation = NonNullable<DrawerAttachment["markupAnnotations"]>[number];
+
+function nextAnnotationId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `pin-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function dollarsToCents(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) : null;
+}
+
+function centsToDollars(value: number | null | undefined) {
+  return typeof value === "number" ? (value / 100).toFixed(2) : "";
+}
+
+function formatCents(value: number | null | undefined) {
+  return typeof value === "number" ? `$${(value / 100).toFixed(2)}` : "No estimate";
+}
+
+function AttachmentMedia({ attachment, onOpen }: { attachment: DrawerAttachment; onOpen: () => void }) {
+  const [failed, setFailed] = useState(false);
+  if (attachment.mimeType.startsWith("image/") && !failed) {
+    return (
+      <button type="button" className="attachment-preview" data-testid="attachment-preview-trigger" onClick={onOpen} aria-label={`Preview ${attachment.originalName}`}>
+        <img src={attachmentDownloadUrl(attachment.id)} alt={attachment.note || attachment.originalName} loading="lazy" onError={() => setFailed(true)} />
+      </button>
+    );
+  }
+  return (
+    <button type="button" className="attachment-file" data-testid="attachment-preview-trigger" onClick={onOpen} aria-label={`View details for ${attachment.originalName}`}>
+      <span>{attachment.originalName.split(".").pop()?.toUpperCase() || "FILE"}</span>
+      <strong>{attachment.originalName}</strong>
+      {failed ? <small>Preview unavailable</small> : null}
+    </button>
+  );
+}
+
 export function ItemDrawer({
   item,
   currentUser,
@@ -74,6 +137,14 @@ export function ItemDrawer({
   const [error, setError] = useState("");
   const [commentText, setCommentText] = useState("");
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [attachmentStageFilter, setAttachmentStageFilter] = useState("ALL");
+  const [attachmentGalleryOpen, setAttachmentGalleryOpen] = useState(false);
+  const [previewAttachmentId, setPreviewAttachmentId] = useState<string | null>(null);
+  const [pinModeAttachmentId, setPinModeAttachmentId] = useState<string | null>(null);
+  const [newPinLabel, setNewPinLabel] = useState("Damage");
+  const [newPinCategory, setNewPinCategory] = useState("Damage");
+  const [newPinChargeCandidate, setNewPinChargeCandidate] = useState(true);
+  const [newChargeItem, setNewChargeItem] = useState({ name: "", category: "", amount: "", unitLabel: "" });
   const [templateId, setTemplateId] = useState("");
   const [vendorDraft, setVendorDraft] = useState({ vendorId: "", trade: "", scheduledDate: "", dueDate: "", notes: "" });
   const [newTemplateName, setNewTemplateName] = useState("");
@@ -91,7 +162,11 @@ export function ItemDrawer({
   });
   const collaborationQuery = useQuery({
     queryKey: ["collaboration", item.id],
-    queryFn: () => getItemCollaboration(item.id),
+    queryFn: () => getItemCollaboration(item.id, { attachmentLimit: 100 }),
+  });
+  const chargePriceSheetQuery = useQuery({
+    queryKey: ["charge-price-sheet-items", item.propertyId],
+    queryFn: () => getChargePriceSheetItems(item.propertyId),
   });
   const historyQuery = useQuery<UnitHistoryResponse>({
     queryKey: ["unit-history", item.unitId],
@@ -101,12 +176,87 @@ export function ItemDrawer({
   const canCollaborate = currentUser.role !== "VIEWER";
   const itemVendorAssignments = vendorAssignments.filter((assignment) => assignment.itemId === item.id);
   const itemWorkBlocks = workBlocks.filter((block) => block.itemId === item.id && block.status !== "CANCELED");
+  const attachments = collaborationQuery.data?.attachments ?? [];
+  const needsClassification = attachments.filter((attachment) => (attachment.inspectionStage || "GENERAL") === "GENERAL" && !attachment.category && !attachment.note && !attachment.chargeCandidate);
+  const chargeCandidates = attachments.filter((attachment) => attachment.chargeCandidate);
+  const chargeCandidatesMissingContext = chargeCandidates.filter((attachment) => !attachment.chargeNote && !attachment.note);
+  const chargeEstimateTotal = chargeCandidates.reduce((total, attachment) => total + (attachment.chargeEstimatedCents ?? 0), 0);
+  const filteredAttachments = attachments.filter((attachment) => {
+    if (attachmentStageFilter === "ALL") return true;
+    if (attachmentStageFilter === "NEEDS_CLASSIFICATION") return needsClassification.some((entry) => entry.id === attachment.id);
+    if (attachmentStageFilter === "CHARGE_CANDIDATES") return attachment.chargeCandidate;
+    return (attachment.inspectionStage || "GENERAL") === attachmentStageFilter;
+  });
+  const imageCount = attachments.filter((attachment) => attachment.mimeType.startsWith("image/")).length;
+  const chargeCount = chargeCandidates.length;
+  const recentAttachments = filteredAttachments.slice(0, 6);
+  const previewAttachment = previewAttachmentId ? attachments.find((attachment) => attachment.id === previewAttachmentId) ?? null : null;
+  const canUpdatePreviewAttachment = Boolean(previewAttachment && canCollaborate && (previewAttachment.uploadedById === currentUser.id || canManageItems));
+  const activeStageLabel = attachmentStageOptions.find((stage) => stage.value === attachmentStageFilter)?.label ?? "current filter";
+  const attachmentCategories = Array.from(new Set(attachments.map((attachment) => attachment.category?.trim()).filter((category): category is string => Boolean(category)))).sort((a, b) => a.localeCompare(b));
   const canManageVendorWork = currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
+  const canManageChargePriceSheet = currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
   const canUpdateVendorWork = canManageVendorWork || currentUser.role === "TECH";
   const refreshCollaboration = async () => {
     await queryClient.invalidateQueries({ queryKey: ["collaboration", item.id] });
     await queryClient.invalidateQueries({ queryKey: ["notifications"] });
     await queryClient.invalidateQueries({ queryKey: ["my-work"] });
+  };
+  const patchAttachmentMetadata = (attachmentId: string, patch: Parameters<typeof updateItemAttachment>[1]) => {
+    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current ? {
+      ...current,
+      attachments: current.attachments.map((attachment) => attachment.id === attachmentId ? { ...attachment, ...patch } : attachment),
+    } : current);
+    void operation(`attachment-${attachmentId}`, () => updateItemAttachment(attachmentId, patch));
+  };
+  const addChargePriceSheetItem = () => {
+    if (!newChargeItem.name.trim()) return;
+    void operation("charge-price-sheet-create", async () => {
+      const created = await createChargePriceSheetItem({
+        propertyId: item.propertyId,
+        name: newChargeItem.name.trim(),
+        category: newChargeItem.category.trim() || null,
+        unitLabel: newChargeItem.unitLabel.trim() || null,
+        defaultCents: dollarsToCents(newChargeItem.amount),
+      });
+      setNewChargeItem({ name: "", category: "", amount: "", unitLabel: "" });
+      await queryClient.invalidateQueries({ queryKey: ["charge-price-sheet-items", item.propertyId] });
+      return created;
+    });
+  };
+  const saveAttachmentAnnotations = (attachment: DrawerAttachment, annotations: AttachmentAnnotation[]) => {
+    patchAttachmentMetadata(attachment.id, { markupAnnotations: annotations });
+  };
+  const addAttachmentAnnotation = (attachment: DrawerAttachment, event: MouseEvent<HTMLDivElement>) => {
+    if (pinModeAttachmentId !== attachment.id || !newPinLabel.trim()) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
+    const y = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
+    const nextAnnotations = [
+      ...(attachment.markupAnnotations ?? []),
+      {
+        id: nextAnnotationId(),
+        x: Number(x.toFixed(2)),
+        y: Number(y.toFixed(2)),
+        label: newPinLabel.trim(),
+        category: newPinCategory.trim() || null,
+        chargeCandidate: newPinChargeCandidate,
+      },
+    ];
+    saveAttachmentAnnotations(attachment, nextAnnotations);
+    setPinModeAttachmentId(null);
+  };
+  const removeAttachmentAnnotation = (attachment: DrawerAttachment, annotationId: string) => {
+    saveAttachmentAnnotations(attachment, (attachment.markupAnnotations ?? []).filter((annotation) => annotation.id !== annotationId));
+  };
+  const uploadFiles = (files: FileList | null) => {
+    const selected = Array.from(files ?? []);
+    if (!selected.length) return;
+    void operation("attachments-upload", async () => {
+      for (const file of selected) {
+        await uploadItemAttachment(item.id, file);
+      }
+    });
   };
   const operation = async (key: string, action: () => Promise<unknown>) => {
     setSaving(key);
@@ -134,11 +284,20 @@ export function ItemDrawer({
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      if (previewAttachmentId) {
+        setPreviewAttachmentId(null);
+        return;
+      }
+      if (attachmentGalleryOpen) {
+        setAttachmentGalleryOpen(false);
+        return;
+      }
+      onClose();
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  }, [attachmentGalleryOpen, onClose, previewAttachmentId]);
 
   const commit = async (key: string, value: unknown) => {
     setSaving(key);
@@ -163,6 +322,126 @@ export function ItemDrawer({
     }
   };
 
+  const renderAttachmentCard = (attachment: DrawerAttachment) => (
+    <article key={attachment.id} className={attachment.mimeType.startsWith("image/") ? "attachment-card image" : "attachment-card"} data-testid="attachment-card">
+      <div className="attachment-media-wrap">
+        <AttachmentMedia attachment={attachment} onOpen={() => setPreviewAttachmentId(attachment.id)} />
+      </div>
+      <div className="attachment-card-summary">
+        <div className="attachment-meta">
+          <strong title={attachment.originalName}>{attachment.originalName}</strong>
+          <small>{Math.ceil(attachment.sizeBytes / 1024)} KB / {attachment.uploaderName}</small>
+          <small>{attachmentStageOptions.find((stage) => stage.value === (attachment.inspectionStage || "GENERAL"))?.label ?? "General"}{attachment.category ? ` / ${attachment.category}` : ""}{attachment.chargeCandidate ? " / Charge candidate" : ""}</small>
+          {attachment.chargeCandidate ? <small>{attachment.chargePriceSheetItem?.name ?? "No price-sheet item"} / {formatCents(attachment.chargeEstimatedCents)}</small> : null}
+          {(attachment.markupAnnotations?.length ?? 0) > 0 ? <small>{attachment.markupAnnotations?.length} markup pin{attachment.markupAnnotations?.length === 1 ? "" : "s"}</small> : null}
+        </div>
+        <a className="button button-secondary attachment-download-button" data-testid="attachment-download-button" href={attachmentDownloadUrl(attachment.id)} download={attachment.originalName} aria-label={`Download ${attachment.originalName}`}>
+          Download
+        </a>
+      </div>
+      <details className="attachment-editor">
+        <summary data-testid="attachment-editor-toggle">Details & notes</summary>
+        <div className="attachment-metadata-grid">
+          <label>Inspection stage
+            <select
+              data-testid="attachment-stage-select"
+              value={attachment.inspectionStage || "GENERAL"}
+              disabled={!canCollaborate || (attachment.uploadedById !== currentUser.id && !canManageItems)}
+              onChange={(event) => patchAttachmentMetadata(attachment.id, { inspectionStage: event.target.value })}
+            >
+              {attachmentStageOptions.filter((stage) => !["ALL", "NEEDS_CLASSIFICATION", "CHARGE_CANDIDATES"].includes(stage.value)).map((stage) => <option key={stage.value} value={stage.value}>{stage.label}</option>)}
+            </select>
+          </label>
+          <label>Category
+            <input
+              list="attachment-category-options"
+              data-testid="attachment-category-input"
+              defaultValue={attachment.category ?? ""}
+              disabled={!canCollaborate || (attachment.uploadedById !== currentUser.id && !canManageItems)}
+              placeholder="Damage, cleaning, trash-out..."
+              onBlur={(event) => patchAttachmentMetadata(attachment.id, { category: event.target.value || null })}
+            />
+          </label>
+          <label className="attachment-charge-toggle">
+            <input
+              data-testid="attachment-charge-toggle"
+              type="checkbox"
+              checked={attachment.chargeCandidate}
+              disabled={!canCollaborate || (attachment.uploadedById !== currentUser.id && !canManageItems)}
+              onChange={(event) => patchAttachmentMetadata(attachment.id, { chargeCandidate: event.target.checked })}
+            />
+            Charge candidate
+          </label>
+          {attachment.chargeCandidate ? (
+            <>
+              <label>Price sheet
+                <select
+                  data-testid="attachment-charge-price-select"
+                  value={attachment.chargePriceSheetItemId ?? ""}
+                  disabled={!canCollaborate || (attachment.uploadedById !== currentUser.id && !canManageItems)}
+                  onChange={(event) => {
+                    const selected = chargePriceSheetQuery.data?.items.find((entry) => entry.id === event.target.value) ?? null;
+                    patchAttachmentMetadata(attachment.id, {
+                      chargePriceSheetItemId: selected?.id ?? null,
+                      chargeEstimatedCents: selected?.defaultCents ?? attachment.chargeEstimatedCents ?? null,
+                      chargeQuantity: selected ? attachment.chargeQuantity ?? 1 : attachment.chargeQuantity,
+                    });
+                  }}
+                >
+                  <option value="">No price-sheet item</option>
+                  {(chargePriceSheetQuery.data?.items ?? []).filter((entry) => entry.isActive && !entry.isArchived).map((entry) => (
+                    <option key={entry.id} value={entry.id}>{entry.name}{entry.defaultCents !== null ? ` (${formatCents(entry.defaultCents)})` : ""}</option>
+                  ))}
+                </select>
+              </label>
+              <label>Quantity
+                <input
+                  type="number"
+                  min="0"
+                  step="0.25"
+                  data-testid="attachment-charge-quantity"
+                  defaultValue={attachment.chargeQuantity ?? ""}
+                  disabled={!canCollaborate || (attachment.uploadedById !== currentUser.id && !canManageItems)}
+                  onBlur={(event) => patchAttachmentMetadata(attachment.id, { chargeQuantity: event.target.value ? Number(event.target.value) : null })}
+                />
+              </label>
+              <label>Estimate
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  data-testid="attachment-charge-estimate"
+                  defaultValue={centsToDollars(attachment.chargeEstimatedCents)}
+                  disabled={!canCollaborate || (attachment.uploadedById !== currentUser.id && !canManageItems)}
+                  onBlur={(event) => patchAttachmentMetadata(attachment.id, { chargeEstimatedCents: event.target.value ? dollarsToCents(event.target.value) : null })}
+                />
+              </label>
+            </>
+          ) : null}
+        </div>
+        <label className="attachment-note">Image/file note
+          <textarea
+            data-testid={`attachment-note-${attachment.id}`}
+            defaultValue={attachment.note ?? ""}
+            disabled={!canCollaborate || (attachment.uploadedById !== currentUser.id && !canManageItems)}
+            placeholder="Damage, cleaning, trash-out, charge notes..."
+            onBlur={(event) => patchAttachmentMetadata(attachment.id, { note: event.target.value || null })}
+          />
+        </label>
+        <label className="attachment-note">Charge / recovery note
+          <textarea
+            data-testid={`attachment-charge-note-${attachment.id}`}
+            defaultValue={attachment.chargeNote ?? ""}
+            disabled={!canCollaborate || (attachment.uploadedById !== currentUser.id && !canManageItems)}
+            placeholder="Optional charge context, damage responsibility, or follow-up..."
+            onBlur={(event) => patchAttachmentMetadata(attachment.id, { chargeNote: event.target.value || null })}
+          />
+        </label>
+        {canCollaborate && (attachment.uploadedById === currentUser.id || canManageItems) ? <button className="button button-ghost danger" type="button" onClick={() => void operation(`attachment-delete-${attachment.id}`, () => deleteItemAttachment(attachment.id))}>Remove</button> : null}
+      </details>
+    </article>
+  );
+
   return (
     <>
       <div className="item-drawer-backdrop" onClick={onClose} aria-hidden="true" />
@@ -185,7 +464,7 @@ export function ItemDrawer({
           <h3>SLA / Risk</h3>
           {item.riskLevel && item.riskLevel !== "NONE" ? (
             <>
-              <p><strong className={`risk-level-badge ${item.riskLevel.toLowerCase()}`}>{item.riskLevel}</strong> Score {item.riskScore}{item.lastRiskEvaluatedAt ? ` / evaluated ${new Date(item.lastRiskEvaluatedAt).toLocaleString()}` : ""}</p>
+              <p><strong className={`risk-level-badge ${item.riskLevel.toLowerCase()}`}>{item.riskLevel}</strong> Score {item.riskScore}{item.lastRiskEvaluatedAt ? ` / evaluated ${formatDateTime(item.lastRiskEvaluatedAt)}` : ""}</p>
               <ul className="risk-reason-list">
                 {(item.riskReasons ?? []).map((reason, index) => <li key={`${reason.category}-${index}`}><strong>{reason.category.replace(/_/g, " ")}</strong><span>{reason.message}</span></li>)}
               </ul>
@@ -417,7 +696,7 @@ export function ItemDrawer({
             <div className="comment-list" data-testid="comment-list">
               {collaborationQuery.data.comments.map((comment) => (
                 <article key={comment.id} className="comment-card">
-                  <header><strong>{comment.authorName}</strong><time>{new Date(comment.createdAt).toLocaleString()}{comment.editedAt ? " / edited" : ""}</time></header>
+                  <header><strong>{comment.authorName}</strong><time>{formatDateTime(comment.createdAt)}{comment.editedAt ? " / edited" : ""}</time></header>
                   <p>{comment.body}</p>
                   {canCollaborate && (comment.authorUserId === currentUser.id || canManageItems) ? (
                     <div className="comment-actions">
@@ -434,43 +713,61 @@ export function ItemDrawer({
         <section className="drawer-section" data-testid="drawer-attachments">
           <div className="drawer-section-title"><h3>Photos &amp; Attachments</h3>{canCollaborate ? (
             <label className="button button-secondary file-action">
-              Upload
-              <input data-testid="attachment-upload" type="file" accept="image/*,.pdf,.doc,.docx,.txt" onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void operation("attachment", () => uploadItemAttachment(item.id, file));
+              Upload Photos/Files
+              <input data-testid="attachment-upload" type="file" multiple accept={attachmentAccept} onChange={(event) => {
+                uploadFiles(event.target.files);
                 event.target.value = "";
               }} />
             </label>
           ) : null}</div>
-          {!collaborationQuery.data?.attachments.length ? <p className="drawer-empty">No local files uploaded. Phone photo capture is supported.</p> : (
-            <div className="attachment-gallery">
-              {collaborationQuery.data.attachments.map((attachment) => (
-                <article key={attachment.id} className={attachment.mimeType.startsWith("image/") ? "attachment-card image" : "attachment-card"}>
-                  {attachment.mimeType.startsWith("image/") ? (
-                    <a className="attachment-preview" href={attachmentDownloadUrl(attachment.id)} target="_blank" rel="noreferrer" aria-label={`Open ${attachment.originalName}`}>
-                      <img src={attachmentDownloadUrl(attachment.id)} alt={attachment.note || attachment.originalName} loading="lazy" />
-                    </a>
-                  ) : (
-                    <a className="attachment-file" href={attachmentDownloadUrl(attachment.id)} target="_blank" rel="noreferrer">{attachment.originalName}</a>
-                  )}
-                  <div className="attachment-meta">
-                    <strong>{attachment.originalName}</strong>
-                    <small>{Math.ceil(attachment.sizeBytes / 1024)} KB / {attachment.uploaderName}</small>
-                  </div>
-                  <label className="attachment-note">Image/file note
-                    <textarea
-                      data-testid={`attachment-note-${attachment.id}`}
-                      defaultValue={attachment.note ?? ""}
-                      disabled={!canCollaborate || (attachment.uploadedById !== currentUser.id && !canManageItems)}
-                      placeholder="Damage, cleaning, trash-out, charge notes..."
-                      onBlur={(event) => void operation(`attachment-note-${attachment.id}`, () => updateItemAttachment(attachment.id, event.target.value || null))}
-                    />
-                  </label>
-                  {canCollaborate && (attachment.uploadedById === currentUser.id || canManageItems) ? <button className="button button-ghost danger" type="button" onClick={() => void operation(`attachment-delete-${attachment.id}`, () => deleteItemAttachment(attachment.id))}>Remove</button> : null}
-                </article>
-              ))}
+          <div className="attachment-workflow-summary">
+            <span><strong>{attachments.length}</strong> files</span>
+            <span><strong>{imageCount}</strong> images</span>
+            <span><strong>{chargeCount}</strong> charge candidates</span>
+            <span><strong>{needsClassification.length}</strong> need classification</span>
+            <span>Use stages for NTV, vacated, initial walk, scope, work, and final-walk documentation.</span>
+          </div>
+          {attachments.length ? (
+            <div className="attachment-stage-filter" data-testid="attachment-stage-filter">
+              {attachmentStageOptions.map((stage) => {
+                const count = stage.value === "ALL"
+                  ? attachments.length
+                  : stage.value === "NEEDS_CLASSIFICATION"
+                    ? needsClassification.length
+                    : stage.value === "CHARGE_CANDIDATES"
+                      ? chargeCount
+                      : attachments.filter((attachment) => (attachment.inspectionStage || "GENERAL") === stage.value).length;
+                return (
+                  <button key={stage.value} type="button" className={attachmentStageFilter === stage.value ? "active" : ""} onClick={() => setAttachmentStageFilter(stage.value)}>
+                    {stage.label} <span>{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {!attachments.length ? <p className="drawer-empty">No local files uploaded. Phone photo capture is supported.</p> : filteredAttachments.length === 0 ? <p className="drawer-empty">No files match this inspection stage.</p> : (
+            <div className="attachment-drawer-preview">
+              <div className="attachment-thumb-strip">
+                {recentAttachments.map((attachment) => (
+                  <button key={attachment.id} type="button" className="attachment-thumb" onClick={() => setAttachmentGalleryOpen(true)} title={attachment.originalName}>
+                    {attachment.mimeType.startsWith("image/") ? <img src={attachmentDownloadUrl(attachment.id)} alt="" loading="lazy" /> : <span>{attachment.originalName.split(".").pop()?.toUpperCase() || "FILE"}</span>}
+                  </button>
+                ))}
+              </div>
+              <button type="button" className="button button-primary" data-testid="attachment-gallery-open" onClick={() => setAttachmentGalleryOpen(true)}>
+                Open Inspection Gallery
+              </button>
+              {chargeCount ? (
+                <a className="button button-secondary" data-testid="attachment-charge-package-download" href={attachmentArchiveUrl(item.id, { stage: "CHARGE_CANDIDATES" })} download={`${item.unitNumber}-charge-candidates.zip`}>
+                  Download Charge Package
+                </a>
+              ) : null}
+              <p className="drawer-empty">{filteredAttachments.length > recentAttachments.length ? `${filteredAttachments.length - recentAttachments.length} more files in this filter. ` : ""}Use the gallery to classify walk photos, damage candidates, and charge notes without crowding the drawer.</p>
             </div>
           )}
+          <datalist id="attachment-category-options">
+            {attachmentCategoryOptions.map((category) => <option key={category} value={category} />)}
+          </datalist>
         </section>
 
         <section className="drawer-section" data-testid="drawer-checklists">
@@ -541,7 +838,7 @@ export function ItemDrawer({
                 {historyQuery.data?.events.slice(0, 16).map((entry, index) => (
                   <div key={`${entry.type}-${entry.occurredAt}-${index}`} className="drawer-timeline-row">
                     <strong>{entry.title}</strong>
-                    <span>{entry.description} / {new Date(entry.occurredAt).toLocaleString()}</span>
+                    <span>{entry.description} / {formatDateTime(entry.occurredAt)}</span>
                   </div>
                 ))}
               </div>
@@ -571,18 +868,235 @@ export function ItemDrawer({
             activityQuery.data?.activity.map((record) => (
               <div key={record.id} className="drawer-timeline-row">
                 <strong>{record.description}</strong>
-                <span>{record.actor?.fullName ?? "System"} / {new Date(record.createdAt).toLocaleString()}</span>
+                <span>{record.actor?.fullName ?? "System"} / {formatDateTime(record.createdAt)}</span>
               </div>
             ))
           )}
           {canViewActivity && (runsQuery.data?.runs.length ?? 0) > 0 ? (
             <>
               <h3>Automation History</h3>
-              {runsQuery.data?.runs.map((run) => <div key={run.id} className="drawer-timeline-row"><strong>{run.rule.name}</strong><span>{run.message} / {new Date(run.ranAt).toLocaleString()}</span></div>)}
+              {runsQuery.data?.runs.map((run) => <div key={run.id} className="drawer-timeline-row"><strong>{run.rule.name}</strong><span>{run.message} / {formatDateTime(run.ranAt)}</span></div>)}
             </>
           ) : null}
         </section>
       </aside>
+      <Modal open={attachmentGalleryOpen} title={`${item.unitNumber} Inspection Gallery`} onClose={() => setAttachmentGalleryOpen(false)} testId="attachment-gallery-modal">
+        <div className="inspection-gallery-toolbar">
+          <div className="attachment-workflow-summary">
+            <span><strong>{attachments.length}</strong> files</span>
+            <span><strong>{imageCount}</strong> images</span>
+            <span><strong>{chargeCount}</strong> charge candidates</span>
+            <span><strong>{needsClassification.length}</strong> need classification</span>
+          </div>
+          {canCollaborate ? (
+            <label className="button button-secondary file-action">
+              Upload Multiple
+              <input data-testid="attachment-gallery-upload" type="file" multiple accept={attachmentAccept} onChange={(event) => {
+                uploadFiles(event.target.files);
+                event.target.value = "";
+              }} />
+            </label>
+          ) : null}
+          {filteredAttachments.length && attachmentStageFilter !== "NEEDS_CLASSIFICATION" ? (
+            <a
+              className="button button-secondary"
+              data-testid="attachment-gallery-download-zip"
+              href={attachmentArchiveUrl(item.id, { stage: attachmentStageFilter })}
+              download={`${item.unitNumber}-${attachmentStageFilter.toLowerCase()}-attachments.zip`}
+            >
+              Download {attachmentStageFilter === "ALL" ? "All" : activeStageLabel} ZIP
+            </a>
+          ) : null}
+        </div>
+        <div className="attachment-stage-filter" data-testid="attachment-gallery-stage-filter">
+          {attachmentStageOptions.map((stage) => {
+            const count = stage.value === "ALL"
+              ? attachments.length
+              : stage.value === "NEEDS_CLASSIFICATION"
+                ? needsClassification.length
+                : stage.value === "CHARGE_CANDIDATES"
+                  ? chargeCount
+                  : attachments.filter((attachment) => (attachment.inspectionStage || "GENERAL") === stage.value).length;
+            return (
+              <button key={stage.value} type="button" className={attachmentStageFilter === stage.value ? "active" : ""} onClick={() => setAttachmentStageFilter(stage.value)}>
+                {stage.label} <span>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="inspection-gallery-help">
+          Classify walk photos after bulk upload. Click a photo to preview it in-app; use explicit download buttons only when you need the original file.
+        </div>
+        <div className={chargeCandidatesMissingContext.length ? "inspection-evidence-panel warning" : "inspection-evidence-panel"} data-testid="inspection-evidence-panel">
+          <div>
+            <strong>Evidence package</strong>
+            <span>{chargeCount ? `${chargeCount} charge candidate file${chargeCount === 1 ? "" : "s"}` : "No charge candidates marked yet"}{chargeCandidatesMissingContext.length ? ` / ${chargeCandidatesMissingContext.length} need notes` : ""} / Estimate total {formatCents(chargeEstimateTotal)}</span>
+          </div>
+          <div className="inspection-evidence-actions">
+            <button type="button" className="button button-ghost" onClick={() => setAttachmentStageFilter("CHARGE_CANDIDATES")}>Review charge candidates</button>
+            {chargeCount ? (
+              <a className="button button-secondary" data-testid="attachment-gallery-charge-zip" href={attachmentArchiveUrl(item.id, { stage: "CHARGE_CANDIDATES" })} download={`${item.unitNumber}-charge-candidates.zip`}>
+                Download Charge ZIP
+              </a>
+            ) : null}
+          </div>
+        </div>
+        <div className="inspection-price-sheet-panel" data-testid="inspection-price-sheet-panel">
+          <div>
+            <strong>Property price sheet</strong>
+            <span>{chargePriceSheetQuery.data?.items.length ?? 0} estimate option{chargePriceSheetQuery.data?.items.length === 1 ? "" : "s"} for this property. Use estimates for walk documentation only.</span>
+          </div>
+          {canManageChargePriceSheet ? (
+            <div className="inspection-price-sheet-form">
+              <input
+                data-testid="charge-price-name"
+                placeholder="Item, e.g. blind replacement"
+                value={newChargeItem.name}
+                onChange={(event) => setNewChargeItem((current) => ({ ...current, name: event.target.value }))}
+              />
+              <input
+                placeholder="Category"
+                value={newChargeItem.category}
+                onChange={(event) => setNewChargeItem((current) => ({ ...current, category: event.target.value }))}
+              />
+              <input
+                placeholder="Unit"
+                value={newChargeItem.unitLabel}
+                onChange={(event) => setNewChargeItem((current) => ({ ...current, unitLabel: event.target.value }))}
+              />
+              <input
+                data-testid="charge-price-amount"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Default $"
+                value={newChargeItem.amount}
+                onChange={(event) => setNewChargeItem((current) => ({ ...current, amount: event.target.value }))}
+              />
+              <button type="button" className="button button-secondary" data-testid="charge-price-create" disabled={!newChargeItem.name.trim()} onClick={addChargePriceSheetItem}>Add price item</button>
+            </div>
+          ) : null}
+        </div>
+        {attachmentCategories.length ? (
+          <div className="inspection-gallery-downloads" data-testid="attachment-category-downloads" aria-label="Download category ZIPs">
+            <strong>Category ZIPs</strong>
+            {attachmentCategories.map((category) => (
+              <a key={category} className="button button-ghost" href={attachmentArchiveUrl(item.id, { category })} download={`${item.unitNumber}-${category.toLowerCase().replace(/\s+/g, "-")}-attachments.zip`}>
+                {category}
+              </a>
+            ))}
+          </div>
+        ) : null}
+        {!filteredAttachments.length ? (
+          <p className="drawer-empty">No files match this inspection stage.</p>
+        ) : (
+          <div className="attachment-gallery inspection-gallery-grid" data-testid="attachment-gallery-grid">
+            {filteredAttachments.map(renderAttachmentCard)}
+          </div>
+        )}
+      </Modal>
+      <Modal
+        open={Boolean(previewAttachment)}
+        title={previewAttachment?.originalName ?? "Attachment preview"}
+        onClose={() => setPreviewAttachmentId(null)}
+        testId="attachment-preview-modal"
+        actions={previewAttachment ? (
+          <a className="button button-primary" data-testid="attachment-preview-download" href={attachmentDownloadUrl(previewAttachment.id)} download={previewAttachment.originalName}>
+            Download file
+          </a>
+        ) : null}
+      >
+        {previewAttachment ? (
+          <div className="attachment-lightbox">
+            {previewAttachment.mimeType.startsWith("image/") ? (
+              <>
+                {canUpdatePreviewAttachment ? (
+                  <div className="attachment-markup-toolbar" data-testid="attachment-markup-toolbar">
+                    <label>Pin label
+                      <input
+                        data-testid="attachment-pin-label"
+                        value={newPinLabel}
+                        maxLength={120}
+                        onChange={(event) => setNewPinLabel(event.target.value)}
+                      />
+                    </label>
+                    <label>Category
+                      <input
+                        data-testid="attachment-pin-category"
+                        value={newPinCategory}
+                        maxLength={80}
+                        onChange={(event) => setNewPinCategory(event.target.value)}
+                      />
+                    </label>
+                    <label className="inline-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={newPinChargeCandidate}
+                        onChange={(event) => setNewPinChargeCandidate(event.target.checked)}
+                      />
+                      Charge pin
+                    </label>
+                    <button
+                      type="button"
+                      className={pinModeAttachmentId === previewAttachment.id ? "button button-primary" : "button button-secondary"}
+                      data-testid="attachment-add-pin-mode"
+                      onClick={() => setPinModeAttachmentId(pinModeAttachmentId === previewAttachment.id ? null : previewAttachment.id)}
+                    >
+                      {pinModeAttachmentId === previewAttachment.id ? "Click image to place pin" : "Add markup pin"}
+                    </button>
+                  </div>
+                ) : null}
+                <div
+                  className={pinModeAttachmentId === previewAttachment.id ? "attachment-image-markup placing" : "attachment-image-markup"}
+                  data-testid="attachment-image-markup"
+                  onClick={(event) => addAttachmentAnnotation(previewAttachment, event)}
+                >
+                  <img src={attachmentDownloadUrl(previewAttachment.id)} alt={previewAttachment.note || previewAttachment.originalName} />
+                  {(previewAttachment.markupAnnotations ?? []).map((annotation, index) => (
+                    <button
+                      key={annotation.id}
+                      type="button"
+                      className={annotation.chargeCandidate ? "attachment-pin charge" : "attachment-pin"}
+                      style={{ left: `${annotation.x}%`, top: `${annotation.y}%` }}
+                      title={`${annotation.label}${annotation.category ? ` / ${annotation.category}` : ""}`}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {index + 1}
+                    </button>
+                  ))}
+                </div>
+                {(previewAttachment.markupAnnotations?.length ?? 0) > 0 ? (
+                  <div className="attachment-pin-list" data-testid="attachment-pin-list">
+                    {previewAttachment.markupAnnotations?.map((annotation, index) => (
+                      <div key={annotation.id} className="attachment-pin-row">
+                        <strong>{index + 1}. {annotation.label}</strong>
+                        <span>{annotation.category || "Uncategorized"}{annotation.chargeCandidate ? " / charge candidate" : ""}</span>
+                        {canUpdatePreviewAttachment ? <button type="button" className="button button-ghost danger" onClick={() => removeAttachmentAnnotation(previewAttachment, annotation.id)}>Remove pin</button> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="drawer-empty">No markup pins yet. Use pins for damage, trash-out, cleaning, vendor proof, or charge context.</p>
+                )}
+              </>
+            ) : (
+              <div className="attachment-lightbox-file">
+                <strong>{previewAttachment.originalName}</strong>
+                <span>{previewAttachment.mimeType}</span>
+                <span>{Math.ceil(previewAttachment.sizeBytes / 1024)} KB</span>
+              </div>
+            )}
+            <div className="attachment-lightbox-meta">
+              <span>{attachmentStageOptions.find((stage) => stage.value === (previewAttachment.inspectionStage || "GENERAL"))?.label ?? "General"}</span>
+              {previewAttachment.category ? <span>{previewAttachment.category}</span> : null}
+              {previewAttachment.chargeCandidate ? <span>Charge candidate</span> : null}
+              {previewAttachment.chargeCandidate ? <span>{previewAttachment.chargePriceSheetItem?.name ?? "No price-sheet item"} / {formatCents(previewAttachment.chargeEstimatedCents)}</span> : null}
+            </div>
+            {previewAttachment.note ? <p>{previewAttachment.note}</p> : null}
+            {previewAttachment.chargeNote ? <p><strong>Charge / recovery:</strong> {previewAttachment.chargeNote}</p> : null}
+          </div>
+        ) : null}
+      </Modal>
     </>
   );
 }

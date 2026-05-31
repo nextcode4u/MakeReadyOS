@@ -1,26 +1,29 @@
-import type { MakeReadyItem, Prisma } from "@prisma/client";
+import type { MakeReadyItem, Prisma, PropertyRiskPolicy } from "@prisma/client";
 import { createNotification } from "./notifications.js";
 import { prisma } from "./prisma.js";
+import { queueWebhookEvent } from "./webhookQueue.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const riskLevels = ["NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 export type RiskLevel = (typeof riskLevels)[number];
 
-export type RiskCategory =
-  | "MOVE_IN_RISK"
-  | "OVERDUE_MAKE_READY"
-  | "MISSING_CRITICAL_DATES"
-  | "UNASSIGNED_WORK"
-  | "PEST_RISK"
-  | "FLOORING_RISK"
-  | "PAINT_RISK"
-  | "CHECKLIST_RISK"
-  | "STALE_ACTIVITY"
-  | "DATE_CONFLICT"
-  | "PROPERTY_WORKLOAD"
-  | "VENDOR_RISK"
-  | "PLANNING_RISK";
+export const riskCategories = [
+  "MOVE_IN_RISK",
+  "OVERDUE_MAKE_READY",
+  "MISSING_CRITICAL_DATES",
+  "UNASSIGNED_WORK",
+  "PEST_RISK",
+  "FLOORING_RISK",
+  "PAINT_RISK",
+  "CHECKLIST_RISK",
+  "STALE_ACTIVITY",
+  "DATE_CONFLICT",
+  "PROPERTY_WORKLOAD",
+  "VENDOR_RISK",
+  "PLANNING_RISK",
+] as const;
+export type RiskCategory = (typeof riskCategories)[number];
 
 export type RiskReason = {
   category: RiskCategory;
@@ -46,6 +49,36 @@ type RiskItem = MakeReadyItem & {
     estimatedHours: number;
   }>;
 };
+
+export type RiskPolicyInput = Pick<PropertyRiskPolicy,
+  "moveInCriticalDays" |
+  "moveInHighDays" |
+  "moveInMediumDays" |
+  "unassignedHighDays" |
+  "staleActivityDays" |
+  "agingMediumDays" |
+  "agingHighDays" |
+  "vendorNearMoveInDays" |
+  "checklistNearMoveInDays" |
+  "planningNearMoveInDays"
+>;
+
+export const defaultRiskPolicy: RiskPolicyInput = {
+  moveInCriticalDays: 1,
+  moveInHighDays: 3,
+  moveInMediumDays: 7,
+  unassignedHighDays: 7,
+  staleActivityDays: 5,
+  agingMediumDays: 14,
+  agingHighDays: 21,
+  vendorNearMoveInDays: 3,
+  checklistNearMoveInDays: 7,
+  planningNearMoveInDays: 7,
+};
+
+export function normalizeRiskPolicy(policy?: Partial<RiskPolicyInput> | null): RiskPolicyInput {
+  return { ...defaultRiskPolicy, ...(policy ?? {}) };
+}
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -73,7 +106,8 @@ function maxLevel(reasons: RiskReason[], score: number): RiskLevel {
   return levelFromScore(score);
 }
 
-export function evaluateItemRisk(item: RiskItem, now = new Date()) {
+export function evaluateItemRisk(item: RiskItem, now = new Date(), policyInput?: Partial<RiskPolicyInput> | null) {
+  const policy = normalizeRiskPolicy(policyInput);
   const reasons: RiskReason[] = [];
   const daysUntilMoveIn = item.moveInDate ? daysBetween(now, item.moveInDate) : null;
   const daysVacant = item.daysVacant ?? (item.vacatedDate ? Math.max(0, daysBetween(item.vacatedDate, now)) : 0);
@@ -81,12 +115,12 @@ export function evaluateItemRisk(item: RiskItem, now = new Date()) {
 
   const add = (reason: RiskReason) => reasons.push(reason);
 
-  if (daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= 1 && !isDone(item.cleaningStatus)) {
-    add({ category: "MOVE_IN_RISK", level: "CRITICAL", score: 95, message: "Move-in is within 1 day and cleaning is incomplete." });
-  } else if (daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= 3 && incomplete) {
-    add({ category: "MOVE_IN_RISK", level: "HIGH", score: 75, message: "Move-in is within 3 days and make-ready is incomplete." });
-  } else if (daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= 7 && incomplete) {
-    add({ category: "MOVE_IN_RISK", level: "MEDIUM", score: 45, message: "Move-in is within 7 days and still needs work." });
+  if (daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= policy.moveInCriticalDays && !isDone(item.cleaningStatus)) {
+    add({ category: "MOVE_IN_RISK", level: "CRITICAL", score: 95, message: `Move-in is within ${policy.moveInCriticalDays} day${policy.moveInCriticalDays === 1 ? "" : "s"} and cleaning is incomplete.` });
+  } else if (daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= policy.moveInHighDays && incomplete) {
+    add({ category: "MOVE_IN_RISK", level: "HIGH", score: 75, message: `Move-in is within ${policy.moveInHighDays} days and make-ready is incomplete.` });
+  } else if (daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= policy.moveInMediumDays && incomplete) {
+    add({ category: "MOVE_IN_RISK", level: "MEDIUM", score: 45, message: `Move-in is within ${policy.moveInMediumDays} days and still needs work.` });
   }
 
   if (item.overdue || (item.makeReadyDate && item.makeReadyDate < startOfDay(now) && incomplete)) {
@@ -94,11 +128,11 @@ export function evaluateItemRisk(item: RiskItem, now = new Date()) {
   }
 
   if (!item.makeReadyDate || !item.vacatedDate || !item.moveInDate) {
-    add({ category: "MISSING_CRITICAL_DATES", level: daysUntilMoveIn !== null && daysUntilMoveIn <= 7 ? "HIGH" : "MEDIUM", score: daysUntilMoveIn !== null && daysUntilMoveIn <= 7 ? 70 : 40, message: "One or more critical schedule dates are missing." });
+    add({ category: "MISSING_CRITICAL_DATES", level: daysUntilMoveIn !== null && daysUntilMoveIn <= policy.moveInMediumDays ? "HIGH" : "MEDIUM", score: daysUntilMoveIn !== null && daysUntilMoveIn <= policy.moveInMediumDays ? 70 : 40, message: "One or more critical schedule dates are missing." });
   }
 
-  if (!item.assignedTech && daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= 7) {
-    add({ category: "UNASSIGNED_WORK", level: "HIGH", score: 70, message: "No assigned tech with move-in within 7 days." });
+  if (!item.assignedTech && daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= policy.unassignedHighDays) {
+    add({ category: "UNASSIGNED_WORK", level: "HIGH", score: 70, message: `No assigned tech with move-in within ${policy.unassignedHighDays} days.` });
   } else if (!item.assignedTech) {
     add({ category: "UNASSIGNED_WORK", level: "LOW", score: 20, message: "No assigned tech." });
   }
@@ -112,28 +146,28 @@ export function evaluateItemRisk(item: RiskItem, now = new Date()) {
   }
 
   if (item.paintStatus && !["GOOD", "DONE", "NONE"].includes(item.paintStatus.toUpperCase())) {
-    add({ category: "PAINT_RISK", level: daysUntilMoveIn !== null && daysUntilMoveIn <= 7 ? "HIGH" : "MEDIUM", score: daysUntilMoveIn !== null && daysUntilMoveIn <= 7 ? 65 : 35, message: `Paint still needs attention: ${item.paintStatus}.` });
+    add({ category: "PAINT_RISK", level: daysUntilMoveIn !== null && daysUntilMoveIn <= policy.moveInMediumDays ? "HIGH" : "MEDIUM", score: daysUntilMoveIn !== null && daysUntilMoveIn <= policy.moveInMediumDays ? 65 : 35, message: `Paint still needs attention: ${item.paintStatus}.` });
   }
 
   const requiredChecklistItems = item.checklistInstances?.flatMap((instance) => instance.items.filter((entry) => entry.required)) ?? [];
-  if (requiredChecklistItems.some((entry) => !entry.completed) && daysUntilMoveIn !== null && daysUntilMoveIn <= 7) {
+  if (requiredChecklistItems.some((entry) => !entry.completed) && daysUntilMoveIn !== null && daysUntilMoveIn <= policy.checklistNearMoveInDays) {
     add({ category: "CHECKLIST_RISK", level: "HIGH", score: 65, message: "Required checklist items are incomplete near move-in." });
   }
 
   const latestCommentAt = item.comments?.[0]?.createdAt;
   const latestActivityAt = latestCommentAt && latestCommentAt > item.updatedAt ? latestCommentAt : item.updatedAt;
-  if (incomplete && daysBetween(latestActivityAt, now) >= 5) {
-    add({ category: "STALE_ACTIVITY", level: "MEDIUM", score: 35, message: "No recent item update or comment in 5+ days." });
+  if (incomplete && daysBetween(latestActivityAt, now) >= policy.staleActivityDays) {
+    add({ category: "STALE_ACTIVITY", level: "MEDIUM", score: 35, message: `No recent item update or comment in ${policy.staleActivityDays}+ days.` });
   }
 
   if (item.moveInDate && item.makeReadyDate && item.moveInDate < item.makeReadyDate) {
     add({ category: "DATE_CONFLICT", level: "CRITICAL", score: 95, message: "Move-in date is before make-ready date." });
   }
 
-  if (daysVacant >= 21 && incomplete) {
-    add({ category: "PROPERTY_WORKLOAD", level: "HIGH", score: 65, message: "Turn has been vacant for 21+ days and is not ready." });
-  } else if (daysVacant >= 14 && incomplete) {
-    add({ category: "PROPERTY_WORKLOAD", level: "MEDIUM", score: 40, message: "Turn has been vacant for 14+ days and is not ready." });
+  if (daysVacant >= policy.agingHighDays && incomplete) {
+    add({ category: "PROPERTY_WORKLOAD", level: "HIGH", score: 65, message: `Turn has been vacant for ${policy.agingHighDays}+ days and is not ready.` });
+  } else if (daysVacant >= policy.agingMediumDays && incomplete) {
+    add({ category: "PROPERTY_WORKLOAD", level: "MEDIUM", score: 40, message: `Turn has been vacant for ${policy.agingMediumDays}+ days and is not ready.` });
   }
 
   const openVendorAssignments = item.vendorAssignments?.filter((assignment) => !["COMPLETED", "CANCELED"].includes(assignment.status)) ?? [];
@@ -143,15 +177,15 @@ export function evaluateItemRisk(item: RiskItem, now = new Date()) {
   if (openVendorAssignments.some((assignment) => assignment.dueDate && assignment.dueDate < startOfDay(now))) {
     add({ category: "VENDOR_RISK", level: "HIGH", score: 70, message: "Vendor work is overdue." });
   }
-  if (daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= 3 && openVendorAssignments.length > 0) {
+  if (daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= policy.vendorNearMoveInDays && openVendorAssignments.length > 0) {
     add({ category: "VENDOR_RISK", level: "HIGH", score: 65, message: "Open vendor work remains near move-in." });
   }
 
   const activeWorkBlocks = item.workAssignmentBlocks?.filter((block) => ["PLANNED", "IN_PROGRESS"].includes(block.status)) ?? [];
-  if (daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= 7 && incomplete && activeWorkBlocks.length === 0) {
-    add({ category: "PLANNING_RISK", level: "HIGH", score: 70, message: "Move-in is within 7 days and no in-house work is planned." });
+  if (daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= policy.planningNearMoveInDays && incomplete && activeWorkBlocks.length === 0) {
+    add({ category: "PLANNING_RISK", level: "HIGH", score: 70, message: `Move-in is within ${policy.planningNearMoveInDays} days and no in-house work is planned.` });
   }
-  if (requiredChecklistItems.some((entry) => !entry.completed) && daysUntilMoveIn !== null && daysUntilMoveIn <= 3 && activeWorkBlocks.length === 0) {
+  if (requiredChecklistItems.some((entry) => !entry.completed) && daysUntilMoveIn !== null && daysUntilMoveIn <= policy.moveInHighDays && activeWorkBlocks.length === 0) {
     add({ category: "PLANNING_RISK", level: "HIGH", score: 65, message: "Required checklist work is incomplete near move-in with no planned work block." });
   }
 
@@ -176,7 +210,8 @@ export async function evaluateAndPersistItemRisk(itemId: string, options: { noti
   const item = await loadItemForRisk(itemId);
   if (!item) return null;
   const previousLevel = item.riskLevel as RiskLevel;
-  const result = evaluateItemRisk(item);
+  const policy = await prisma.propertyRiskPolicy.findUnique({ where: { propertyId: item.propertyId } });
+  const result = evaluateItemRisk(item, new Date(), policy);
   const updated = await prisma.makeReadyItem.update({
     where: { id: item.id },
     data: {
@@ -211,6 +246,22 @@ export async function evaluateAndPersistItemRisk(itemId: string, options: { noti
       message: `${item.unitNumber}: ${result.riskReasons[0]?.message ?? "Risk level increased."}`,
       dedupeKey: `risk:${item.id}:${result.riskLevel}`,
     })));
+  }
+
+  if (previousLevel !== result.riskLevel) {
+    await queueWebhookEvent({
+      eventType: "item.risk.changed",
+      propertyId: item.propertyId,
+      itemId: item.id,
+      data: {
+        id: item.id,
+        unitNumber: item.unitNumber,
+        previousRiskLevel: previousLevel,
+        riskLevel: result.riskLevel,
+        riskScore: result.riskScore,
+        riskReasons: result.riskReasons.slice(0, 5),
+      },
+    });
   }
 
   return { item: updated, ...result };

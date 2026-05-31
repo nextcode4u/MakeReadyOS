@@ -1,33 +1,122 @@
 {
   "format": "makereadyos.libraryPack",
   "version": 1,
+  "packKey": "sample-make-ready-starter",
   "name": "Sample Make Ready Starter Pack",
   "description": "Safe example pack for documenting the MakeReadyOS extension contract.",
   "category": "Make Ready",
+  "setupNotes": [
+    "Imported automations should be reviewed before enabling.",
+    "This example is intentionally small and does not include executable code."
+  ],
   "items": {
     "customFields": [
       {
-        "key": "vendorFollowUpDate",
+        "key": "vendor-follow-up-date",
+        "fieldKey": "vendorFollowUpDate",
         "label": "Vendor Follow-up Date",
-        "type": "DATE",
-        "module": "make-ready"
-      }
-    ],
-    "automationTemplates": [
+        "fieldType": "DATE",
+        "description": "Date used by scheduling and vendor follow-up review rules."
+      },
       {
-        "name": "Vendor Follow-up Date Missing",
-        "description": "Adds an activity note when vendor follow-up is required but no follow-up date is set.",
-        "triggerType": "scheduled-check",
-        "enabled": false,
-        "conditions": [],
-        "actions": [
+        "key": "turn-risk-review",
+        "fieldKey": "turnRiskReview",
+        "label": "Turn Risk Review",
+        "fieldType": "SINGLE_SELECT",
+        "description": "Simple operational risk review status.",
+        "options": [
           {
-            "type": "ADD_AUDIT_NOTE",
-            "message": "Vendor follow-up requires scheduling."
+            "label": "LOW",
+            "color": "#44d19d",
+            "sortOrder": 0
+          },
+          {
+            "label": "REVIEW",
+            "color": "#f7b955",
+            "sortOrder": 1
+          },
+          {
+            "label": "ESCALATE",
+            "color": "#e9697a",
+            "sortOrder": 2
           }
         ]
       }
     ],
-    "checklistTemplates": []
+    "checklistTemplates": [
+      {
+        "key": "sample-final-walk",
+        "name": "Sample Final Walk",
+        "scope": "FINAL_WALK",
+        "items": [
+          {
+            "title": "Confirm keys and access are ready",
+            "required": true,
+            "tradeCategory": "QC"
+          },
+          {
+            "title": "Confirm photo evidence is classified",
+            "required": false,
+            "tradeCategory": "Inspection"
+          }
+        ]
+      }
+    ],
+    "automationTemplates": [
+      {
+        "key": "sample-vendor-follow-up-missing",
+        "name": "Vendor Follow-up Date Missing",
+        "description": "Adds an activity note when vendor follow-up should be reviewed but no follow-up date has been recorded.",
+        "triggerType": "SCHEDULED_CHECK",
+        "enabled": false,
+        "conditions": {
+          "all": [
+            {
+              "field": "vendorFollowUpDate",
+              "operator": "isEmpty"
+            },
+            {
+              "field": "moveInDate",
+              "operator": "dateWithinNextDays",
+              "value": 7
+            }
+          ]
+        },
+        "actions": [
+          {
+            "type": "addAuditNote",
+            "value": "Vendor follow-up should be scheduled before the upcoming move-in."
+          }
+        ],
+        "category": "Vendors",
+        "setupNotes": [
+          "Requires the Vendor Follow-up Date custom field from this pack."
+        ]
+      }
+    ],
+    "savedViews": [
+      {
+        "key": "sample-vendor-follow-up-view",
+        "name": "Vendor Follow-up Review",
+        "module": "make-ready",
+        "viewType": "table",
+        "filters": {
+          "structured": {
+            "moveInSoon": true
+          }
+        },
+        "grouping": {
+          "kanbanBy": "assignedTech"
+        },
+        "visibleColumns": [
+          "unitNumber",
+          "property",
+          "moveInDate",
+          "assignedTech",
+          "custom-field:vendorFollowUpDate"
+        ],
+        "isShared": true
+      }
+    ]
   }
 }

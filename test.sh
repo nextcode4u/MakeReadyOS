@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$ROOT_DIR/logs"
 TIMESTAMP="$(date +"%Y%m%d-%H%M%S")"
 LOG_FILE="$LOG_DIR/test-$TIMESTAMP.txt"
+PLANNING_TEST_DATE="$(date -u +%F)"
 
 mkdir -p "$LOG_DIR"
 
@@ -34,7 +35,7 @@ mkdir -p "$LOG_DIR"
   echo
 
   echo "Checking database backup/restore helper scripts"
-  for helper_script in backup-db.sh restore-db.sh backup-uploads.sh restore-uploads.sh prune-backups.sh run-automations.sh run-analytics-snapshot.sh seed-large.sh reset-demo.sh doctor.sh; do
+  for helper_script in backup-db.sh restore-db.sh backup-uploads.sh restore-uploads.sh move-uploads.sh route-existing-uploads.sh prune-backups.sh run-automations.sh run-analytics-snapshot.sh run-webhooks.sh seed-large.sh reset-demo.sh doctor.sh; do
     if [ ! -f "$helper_script" ] || [ ! -x "$helper_script" ]; then
       echo "ERROR: $helper_script is missing or is not executable"
       exit 1
@@ -61,6 +62,46 @@ mkdir -p "$LOG_DIR"
     exit 1
   fi
   rm -f /tmp/makereadyos-restore-uploads-no-argument.txt
+  if ./move-uploads.sh >/tmp/makereadyos-move-uploads-no-argument.txt 2>&1; then
+    echo "ERROR: move-uploads.sh accepted a missing target path"
+    exit 1
+  fi
+  if ! grep -q "a target upload path is required" /tmp/makereadyos-move-uploads-no-argument.txt; then
+    cat /tmp/makereadyos-move-uploads-no-argument.txt
+    echo "ERROR: move-uploads.sh did not clearly reject a missing target path"
+    exit 1
+  fi
+  if ./move-uploads.sh /tmp --dry-run >/tmp/makereadyos-move-uploads-unsafe.txt 2>&1; then
+    echo "ERROR: move-uploads.sh accepted an unsafe target path"
+    exit 1
+  fi
+  if ! grep -q "refusing unsafe" /tmp/makereadyos-move-uploads-unsafe.txt; then
+    cat /tmp/makereadyos-move-uploads-unsafe.txt
+    echo "ERROR: move-uploads.sh did not clearly reject an unsafe target path"
+    exit 1
+  fi
+  if ! ./move-uploads.sh /mnt/makereadyos-test-uploads --dry-run >/tmp/makereadyos-move-uploads-dry-run.txt 2>&1; then
+    cat /tmp/makereadyos-move-uploads-dry-run.txt
+    echo "ERROR: move-uploads.sh dry-run failed"
+    exit 1
+  fi
+  if ! grep -q "Dry run complete" /tmp/makereadyos-move-uploads-dry-run.txt; then
+    cat /tmp/makereadyos-move-uploads-dry-run.txt
+    echo "ERROR: move-uploads.sh dry-run did not clearly report safe completion"
+    exit 1
+  fi
+  rm -f /tmp/makereadyos-move-uploads-no-argument.txt /tmp/makereadyos-move-uploads-unsafe.txt /tmp/makereadyos-move-uploads-dry-run.txt
+  if ! ./route-existing-uploads.sh --help >/tmp/makereadyos-route-existing-uploads-help.txt 2>&1; then
+    cat /tmp/makereadyos-route-existing-uploads-help.txt
+    echo "ERROR: route-existing-uploads.sh help failed"
+    exit 1
+  fi
+  if ! grep -q "Dry-run is the default" /tmp/makereadyos-route-existing-uploads-help.txt; then
+    cat /tmp/makereadyos-route-existing-uploads-help.txt
+    echo "ERROR: route-existing-uploads.sh help does not clearly explain dry-run behavior"
+    exit 1
+  fi
+  rm -f /tmp/makereadyos-route-existing-uploads-help.txt
 
   RETENTION_TEST_FILE="backups/makereadyos-db-retention-test.dump"
   mkdir -p backups
@@ -106,6 +147,14 @@ mkdir -p "$LOG_DIR"
     exit 1
   fi
   rm -f /tmp/makereadyos-reset-demo-dry-run.txt /tmp/makereadyos-reset-demo-no-confirm.txt
+  if ! grep -q "MAX_UPLOAD_MB=0" .env.example; then
+    echo "ERROR: .env.example should default MAX_UPLOAD_MB to 0 for uncapped app-level photo uploads"
+    exit 1
+  fi
+  if ! grep -q "client_max_body_size 0" apps/web/nginx.conf; then
+    echo "ERROR: bundled nginx should not impose its own upload body-size cap"
+    exit 1
+  fi
   echo "Database backup/restore helper validation passed"
   echo
 
@@ -149,14 +198,48 @@ mkdir -p "$LOG_DIR"
   echo "Stabilization docs and doctor checks passed"
   echo
 
-  echo "Checking API extension docs and examples"
-  for required_path in docs/API.md docs/EXTENSIONS.md examples/api/curl/list-make-ready-items.sh examples/api/node/list-make-ready-items.mjs examples/operational-library/sample-library-pack.json; do
+  echo "Checking API extension docs, schemas, and examples"
+  for required_env in WEBHOOK_ALLOW_PRIVATE_URLS WEBHOOK_ALLOWED_HOSTS WEBHOOK_AUTO_DISABLE_FAILURES; do
+    if ! rg -q "^${required_env}=" .env.example; then
+      echo "ERROR: .env.example missing $required_env"
+      exit 1
+    fi
+  done
+  for required_path in \
+    docs/API.md \
+    docs/EXTENSIONS.md \
+    docs/schemas/makereadyos-library-pack.schema.json \
+    docs/schemas/makereadyos-native-backup.schema.json \
+    examples/api/curl/list-make-ready-items.sh \
+    examples/api/node/list-make-ready-items.mjs \
+    examples/operational-library/sample-library-pack.json \
+    examples/native-backup/minimal-backup.json; do
     if [ ! -s "$required_path" ]; then
       echo "ERROR: missing integration documentation/example: $required_path"
       exit 1
     fi
   done
-  echo "API extension docs and examples are present"
+  node -e '
+    const fs = require("fs");
+    for (const path of [
+      "docs/schemas/makereadyos-library-pack.schema.json",
+      "docs/schemas/makereadyos-native-backup.schema.json",
+      "examples/operational-library/sample-library-pack.json",
+      "examples/native-backup/minimal-backup.json",
+    ]) {
+      const body = JSON.parse(fs.readFileSync(path, "utf8"));
+      if (!body || typeof body !== "object") throw new Error(`invalid JSON object: ${path}`);
+    }
+    const pack = JSON.parse(fs.readFileSync("examples/operational-library/sample-library-pack.json", "utf8"));
+    if (pack.format !== "makereadyos.libraryPack" || pack.version !== 1 || !pack.packKey) {
+      throw new Error("sample library pack does not match the v1 envelope");
+    }
+    const backup = JSON.parse(fs.readFileSync("examples/native-backup/minimal-backup.json", "utf8"));
+    if (backup.format !== "makereadyos.backup" || backup.version !== 1 || backup.source?.app !== "MakeReadyOS") {
+      throw new Error("sample native backup does not match the v1 envelope");
+    }
+  '
+  echo "API extension docs, schemas, and examples are present"
   echo
 
   echo "Running API build verification"
@@ -191,7 +274,7 @@ mkdir -p "$LOG_DIR"
     docker compose up --build -d
     echo
 
-    echo "Waiting for health endpoint"
+  echo "Waiting for health endpoint"
     for _ in $(seq 1 30); do
       if curl -fsS "http://localhost:${API_PORT:-4000}/health" >/dev/null 2>&1; then
         break
@@ -200,6 +283,89 @@ mkdir -p "$LOG_DIR"
     done
     curl -fsS "http://localhost:${API_PORT:-4000}/health"
     echo
+    echo
+
+    echo "Checking public OpenAPI contract"
+    OPENAPI_JSON="$(mktemp)"
+    curl -fsS "http://localhost:${API_PORT:-4000}/api/openapi.json" >"$OPENAPI_JSON"
+    node -e '
+      const fs = require("fs");
+      const body = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const schemes = body.components?.securitySchemes || {};
+      if (body.openapi !== "3.1.0") throw new Error("unexpected OpenAPI version");
+      if (!schemes.cookieSession || !schemes.bearerApiToken) throw new Error("missing auth security schemes");
+      if (!body.paths?.["/api/make-ready-items"]) throw new Error("missing make-ready items path");
+      if (!body.paths?.["/api/operations/units"]) throw new Error("missing unit directory path");
+      if (!body.paths?.["/api/custom-fields"]) throw new Error("missing custom fields path");
+      if (!body.paths?.["/api/planning/blocks"]) throw new Error("missing planning blocks path");
+      if (!body.paths?.["/api/notifications"]) throw new Error("missing notifications path");
+      if (!body.paths?.["/api/property-templates"]) throw new Error("missing property templates path");
+      if (!body.paths?.["/api/admin/integrations/api-tokens"]) throw new Error("missing API token path");
+      for (const requiredPath of [
+        "/api/auth/logout-all",
+        "/api/operations/floor-plans",
+        "/api/operations/options",
+        "/api/operations/schedule-tracks",
+        "/api/make-ready-items/batch",
+        "/api/calendar",
+        "/api/charge-price-sheet-items",
+        "/api/checklist-templates",
+        "/api/my-work",
+        "/api/planning",
+        "/api/property-map-areas",
+        "/api/automations",
+        "/api/operational-library/packs",
+        "/api/admin/users",
+        "/api/admin/storage",
+      ]) {
+        if (!body.paths?.[requiredPath]) throw new Error(`missing long-tail OpenAPI path: ${requiredPath}`);
+      }
+      if (!body.components?.schemas?.CustomField) throw new Error("missing CustomField schema");
+      if (!body.components?.schemas?.WebhookDeliveryAttempt) throw new Error("missing WebhookDeliveryAttempt schema");
+      if (!body.components?.schemas?.WebhookHealthResponse) throw new Error("missing WebhookHealthResponse schema");
+      if (!body.components?.schemas?.MakeReadyCreateRequest) throw new Error("missing generated make-ready request schema");
+      if (!body.components?.schemas?.UnitImportRequest) throw new Error("missing generated unit import schema");
+      if (!body.components?.schemas?.OperationalLibraryPack) throw new Error("missing generated library pack schema");
+      if (!body.components?.schemas?.WebhookCreateRequest) throw new Error("missing generated webhook schema");
+      if (!body.components?.schemas?.AuthSessionResponse) throw new Error("missing auth response schema");
+      if (!body.components?.schemas?.MakeReadyItemResponse) throw new Error("missing make-ready response schema");
+      if (!body.components?.schemas?.VendorAssignmentsResponse) throw new Error("missing vendor assignments response schema");
+      if (!body.components?.schemas?.AdminStorageResponse) throw new Error("missing admin storage response schema");
+      if (!body.components?.schemas?.PlanningSummaryResponse) throw new Error("missing planning summary response schema");
+      for (const schemaName of [
+        "BoardOption",
+        "FloorPlan",
+        "ScheduleTrack",
+        "OperatingCalendar",
+        "ChecklistTemplate",
+        "ChargePriceSheetItem",
+        "CalendarEvent",
+        "AutomationRule",
+        "AutomationRunsResponse",
+        "OperationalLibraryPackSummary",
+        "OperationalLibraryInstallSummary",
+        "ApiToken",
+        "WebhookEndpoint",
+      ]) {
+        if (!body.components?.schemas?.[schemaName]) throw new Error(`missing exact OpenAPI schema: ${schemaName}`);
+      }
+      if (!body.components?.schemas?.NativeBackup) throw new Error("missing native backup schema");
+      if (!body.components?.schemas?.BackupImportRequest) throw new Error("missing backup import request schema");
+      if (!body.paths?.["/api/auth/login"]?.post?.responses?.["200"]?.content) throw new Error("login response is not schema documented");
+      if (!body.paths?.["/api/make-ready-items"]?.post?.requestBody) throw new Error("make-ready create request body is not documented");
+      if (!body.paths?.["/api/operations/floor-plans"]?.post?.requestBody) throw new Error("floor-plan create request body is not documented");
+      if (!body.paths?.["/api/automations/preview"]?.post?.requestBody) throw new Error("automation preview request body is not documented");
+      const automationRunsSchema = body.paths?.["/api/automations/runs"]?.get?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref;
+      if (automationRunsSchema !== "#/components/schemas/AutomationRunsResponse") throw new Error("automation run history response is not exact-schema documented");
+      if (!body.paths?.["/api/admin/import"]?.post?.requestBody) throw new Error("backup import request body is not documented");
+      if (!body.paths?.["/api/admin/integrations/webhooks/{id}/health"]) throw new Error("missing webhook health path");
+      const webhookEvents = body.components?.schemas?.WebhookCreateRequest?.properties?.eventTypes?.items?.enum || [];
+      for (const eventName of ["item.archived", "item.restored", "attachment.created", "attachment.deleted"]) {
+        if (!webhookEvents.includes(eventName)) throw new Error(`missing webhook event enum: ${eventName}`);
+      }
+    ' "$OPENAPI_JSON"
+    rm -f "$OPENAPI_JSON"
+    echo "OpenAPI contract is available"
     echo
 
     echo "Checking unauthorized auth/session access"
@@ -258,14 +424,21 @@ mkdir -p "$LOG_DIR"
     curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/make-ready-items" >/dev/null
     PAGINATION_HEADERS="$(mktemp)"
     curl -fsS -D "$PAGINATION_HEADERS" -o /tmp/makereadyos-items-page.json -b "$COOKIE_JAR" \
-      "http://localhost:${API_PORT:-4000}/api/make-ready-items?limit=1&offset=0" >/dev/null
-    for header_name in x-total-count x-limit x-offset x-has-more; do
+      "http://localhost:${API_PORT:-4000}/api/make-ready-items?limit=1&offset=0&sortBy=unitNumber&sortDirection=asc" >/dev/null
+    for header_name in x-total-count x-limit x-offset x-has-more x-next-offset; do
       if ! grep -qi "^$header_name:" "$PAGINATION_HEADERS"; then
         cat "$PAGINATION_HEADERS"
         echo "ERROR: make-ready item pagination header is missing: $header_name"
         exit 1
       fi
     done
+    INVALID_SORT_STATUS="$(curl -s -o /tmp/makereadyos-invalid-item-sort.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/make-ready-items?sortBy=notAField")"
+    if [ "$INVALID_SORT_STATUS" != "400" ]; then
+      cat /tmp/makereadyos-invalid-item-sort.json
+      echo "ERROR: invalid make-ready item sort should be rejected"
+      exit 1
+    fi
     ADMIN_ROUTE_STATUS="$(curl -s -o /tmp/makereadyos-admin.json -b "$COOKIE_JAR" -w "%{http_code}" "http://localhost:${API_PORT:-4000}/api/admin/users")"
     echo "Admin route status as admin: $ADMIN_ROUTE_STATUS"
     if [ "$ADMIN_ROUTE_STATUS" != "200" ]; then
@@ -285,6 +458,37 @@ mkdir -p "$LOG_DIR"
       echo "ERROR: missing property id for admin tests"
       exit 1
     fi
+    STORAGE_STATUS="$(curl -s -o /tmp/makereadyos-storage.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/admin/storage")"
+    if [ "$STORAGE_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-storage.json
+      echo "ERROR: admin storage settings endpoint failed"
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-storage.json","utf8")); if (!body.storage?.uploadDir || !body.storage?.hostPath || typeof body.storage?.current?.writable !== "boolean" || !Array.isArray(body.storage?.propertyRouting)) process.exit(1);'
+    STORAGE_VALIDATE_STATUS="$(curl -s -o /tmp/makereadyos-storage-validate.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"hostPath\":\"/mnt/storage/makereadyos-uploads\"}" \
+      "http://localhost:${API_PORT:-4000}/api/admin/storage/validate")"
+    if [ "$STORAGE_VALIDATE_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-storage-validate.json
+      echo "ERROR: admin storage validation endpoint failed"
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-storage-validate.json","utf8")); if (!body.safe || !body.commands?.move?.includes("move-uploads.sh")) process.exit(1);'
+    STORAGE_ROUTING_STATUS="$(curl -s -o /tmp/makereadyos-storage-routing.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -X PATCH \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"uploadStorageMode\":\"PROPERTY_SUBDIR\",\"uploadSubdir\":\"qa-property-uploads\"}" \
+      "http://localhost:${API_PORT:-4000}/api/admin/storage/property-routing")"
+    if [ "$STORAGE_ROUTING_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-storage-routing.json
+      echo "ERROR: admin property upload routing update failed"
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-storage-routing.json","utf8")); if (body.property?.effectiveSubdir !== "qa-property-uploads") process.exit(1);'
 
     echo "Checking API token and integration management as admin"
     INTEGRATIONS_STATUS="$(curl -s -o /tmp/makereadyos-integrations.json -b "$COOKIE_JAR" -w "%{http_code}" \
@@ -293,6 +497,7 @@ mkdir -p "$LOG_DIR"
       cat /tmp/makereadyos-integrations.json
       exit 1
     fi
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-integrations.json","utf8")); for (const eventName of ["item.archived","item.restored","attachment.created","attachment.deleted"]) { if (!body.webhookEvents?.includes(eventName)) process.exit(1); }'
     API_TOKEN_JSON="$(mktemp)"
     API_TOKEN_STATUS="$(curl -s -o "$API_TOKEN_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
@@ -365,7 +570,7 @@ mkdir -p "$LOG_DIR"
     WEBHOOK_STATUS="$(curl -s -o "$WEBHOOK_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
-      -d "{\"name\":\"Smoke webhook $TIMESTAMP\",\"url\":\"https://example.invalid/makereadyos\",\"eventTypes\":[\"item.updated\"],\"propertyIds\":[\"$TEST_PROPERTY_ID\"]}" \
+      -d "{\"name\":\"Smoke webhook $TIMESTAMP\",\"url\":\"http://127.0.0.1:9/makereadyos\",\"eventTypes\":[\"item.updated\"],\"propertyIds\":[\"$TEST_PROPERTY_ID\"]}" \
       "http://localhost:${API_PORT:-4000}/api/admin/integrations/webhooks")"
     WEBHOOK_ID="$(node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (body.webhook?.secretHash) process.exit(2); process.stdout.write(body.webhook?.id || "");' "$WEBHOOK_JSON")"
     if [ "$WEBHOOK_STATUS" != "201" ] || [ -z "$WEBHOOK_ID" ]; then
@@ -373,6 +578,40 @@ mkdir -p "$LOG_DIR"
       echo "ERROR: webhook scaffold registration failed"
       exit 1
     fi
+    WEBHOOK_TEST_PAYLOAD_STATUS="$(curl -s -o /tmp/makereadyos-webhook-test-payload.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d '{"eventType":"item.updated"}' \
+      "http://localhost:${API_PORT:-4000}/api/admin/integrations/webhooks/$WEBHOOK_ID/test-payload")"
+    WEBHOOK_DELIVERIES_STATUS="$(curl -s -o /tmp/makereadyos-webhook-deliveries.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/admin/integrations/webhooks/$WEBHOOK_ID/deliveries?limit=5")"
+    WEBHOOK_HEALTH_STATUS="$(curl -s -o /tmp/makereadyos-webhook-health.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/admin/integrations/webhooks/$WEBHOOK_ID/health")"
+    if [ "$WEBHOOK_TEST_PAYLOAD_STATUS" != "201" ] || [ "$WEBHOOK_DELIVERIES_STATUS" != "200" ] || [ "$WEBHOOK_HEALTH_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-webhook-test-payload.json /tmp/makereadyos-webhook-deliveries.json
+      echo "ERROR: webhook signed test payload or delivery history failed"
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const created=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const deliveries=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const health=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); if (created.webhook?.secretHash || created.webhook?.secretCiphertext || created.delivery?.headers?.["x-makereadyos-signature"]?.startsWith("sha256=") !== true || created.delivery?.status !== "DRY_RUN" || created.notice !== "No outbound HTTP delivery was attempted." || deliveries.deliveries.length < 1 || deliveries.deliveries[0].deliveryId !== created.delivery.deliveryId || !health.health?.statusCounts?.DRY_RUN || health.health?.eventCounts?.["item.updated"] < 1) process.exit(1);' /tmp/makereadyos-webhook-test-payload.json /tmp/makereadyos-webhook-deliveries.json /tmp/makereadyos-webhook-health.json
+    WEBHOOK_QUEUE_STATUS="$(curl -s -o /tmp/makereadyos-webhook-queued-payload.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d '{"eventType":"item.updated","enqueue":true}' \
+      "http://localhost:${API_PORT:-4000}/api/admin/integrations/webhooks/$WEBHOOK_ID/test-payload")"
+    if [ "$WEBHOOK_QUEUE_STATUS" != "201" ]; then
+      cat /tmp/makereadyos-webhook-queued-payload.json
+      echo "ERROR: webhook queued test payload failed"
+      exit 1
+    fi
+    WEBHOOK_DELIVERY_TIMEOUT_MS=750 WEBHOOK_DELIVERY_MAX_ATTEMPTS=1 ./run-webhooks.sh >/tmp/makereadyos-webhook-run.txt
+    WEBHOOK_POST_RUN_DELIVERIES_STATUS="$(curl -s -o /tmp/makereadyos-webhook-deliveries-post-run.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/admin/integrations/webhooks/$WEBHOOK_ID/deliveries?limit=10")"
+    if [ "$WEBHOOK_POST_RUN_DELIVERIES_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-webhook-deliveries-post-run.json
+      echo "ERROR: webhook delivery history after runner failed"
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const queued=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const deliveries=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const found=deliveries.deliveries.find((delivery)=>delivery.deliveryId===queued.delivery.deliveryId); if (queued.delivery.status !== "PENDING" || queued.notice !== "Payload queued for delivery by run-webhooks.sh." || !found || !["FAILED","GAVE_UP"].includes(found.status) || !found.errorMessage) process.exit(1);' /tmp/makereadyos-webhook-queued-payload.json /tmp/makereadyos-webhook-deliveries-post-run.json
     WEBHOOK_REVOKE_STATUS="$(curl -s -o /tmp/makereadyos-webhook-revoke.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
       -X POST "http://localhost:${API_PORT:-4000}/api/admin/integrations/webhooks/$WEBHOOK_ID/revoke")"
@@ -391,15 +630,23 @@ mkdir -p "$LOG_DIR"
     CREATE_PROPERTY_STATUS="$(curl -s -o "$OPS_PROPERTY_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
-      -d "{\"name\":\"QA Operations Property\",\"code\":\"$OPS_PROPERTY_CODE\"}" \
+      -d "{\"name\":\"QA Operations Property\",\"code\":\"$OPS_PROPERTY_CODE\",\"occupancyGoalPercent\":94.5}" \
       "http://localhost:${API_PORT:-4000}/api/operations/properties")"
     OPS_PROPERTY_ID="$(node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(body.property?.id || "");' "$OPS_PROPERTY_JSON")"
     UPDATE_PROPERTY_STATUS="$(curl -s -o /tmp/makereadyos-ops-property-update.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
       -X PATCH \
-      -d '{"name":"QA Operations Property Updated"}' \
+      -d '{"name":"QA Operations Property Updated","occupancyGoalPercent":95}' \
       "http://localhost:${API_PORT:-4000}/api/operations/properties/$OPS_PROPERTY_ID")"
+    OPERATING_CALENDAR_LIST_STATUS="$(curl -s -o /tmp/makereadyos-operating-calendars.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/operations/operating-calendars?propertyId=$OPS_PROPERTY_ID&includeArchived=true")"
+    OPERATING_CALENDAR_UPDATE_STATUS="$(curl -s -o /tmp/makereadyos-operating-calendar-update.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -X PUT \
+      -d '{"name":"QA Operating Calendar","timezone":"America/Chicago","noWeekendScheduling":true,"avoidMondayScheduling":true,"avoidFridayScheduling":true,"maintenanceStartMinute":480,"maintenanceEndMinute":1020,"vendorLeadDays":4,"dailyScheduledUnitLimit":2,"scopeDay":1,"workStartDay":2,"autoPopulateEnabled":false,"notes":"QA schedule guardrails"}' \
+      "http://localhost:${API_PORT:-4000}/api/operations/properties/$OPS_PROPERTY_ID/operating-calendar")"
     OPS_FLOOR_PLAN_JSON="$(mktemp)"
     CREATE_FLOOR_PLAN_STATUS="$(curl -s -o "$OPS_FLOOR_PLAN_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
@@ -416,15 +663,28 @@ mkdir -p "$LOG_DIR"
     CREATE_OPS_UNIT_STATUS="$(curl -s -o "$OPS_UNIT_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
-      -d "{\"propertyId\":\"$OPS_PROPERTY_ID\",\"number\":\"101\",\"floorPlanId\":\"$OPS_FLOOR_PLAN_ID\",\"floorPlan\":null,\"squareFeet\":null}" \
+      -d "{\"propertyId\":\"$OPS_PROPERTY_ID\",\"number\":\"101\",\"floorPlanId\":\"$OPS_FLOOR_PLAN_ID\",\"floorPlan\":null,\"squareFeet\":null,\"building\":\"1\",\"area\":\"North\",\"floor\":\"1\",\"occupancyStatus\":\"OCCUPIED\"}" \
       "http://localhost:${API_PORT:-4000}/api/operations/units")"
     OPS_UNIT_ID="$(node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(body.unit?.id || "");' "$OPS_UNIT_JSON")"
     UPDATE_OPS_UNIT_STATUS="$(curl -s -o /tmp/makereadyos-ops-unit-update.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
       -X PATCH \
-      -d '{"floorPlan":"QA A1 Updated","squareFeet":745}' \
+      -d '{"floorPlan":"QA A1 Updated","squareFeet":745,"building":"2","occupancyStatus":"VACANT_READY"}' \
       "http://localhost:${API_PORT:-4000}/api/operations/units/$OPS_UNIT_ID")"
+    IMPORT_UNITS_STATUS="$(curl -s -o /tmp/makereadyos-unit-import.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$OPS_PROPERTY_ID\",\"units\":[{\"number\":\"102\",\"building\":\"2\",\"floorPlan\":\"QA A1\",\"squareFeet\":740,\"occupancyStatus\":\"OCCUPIED\"},{\"number\":\"103\",\"building\":\"2\",\"floorPlan\":\"QA A1\",\"occupancyStatus\":\"NTV_LEASED\"}],\"updateExisting\":true}" \
+      "http://localhost:${API_PORT:-4000}/api/operations/units/import")"
+    IMPORT_SPARSE_UNITS_STATUS="$(curl -s -o /tmp/makereadyos-unit-import-sparse.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$OPS_PROPERTY_ID\",\"units\":[{\"number\":\"103\",\"floorPlan\":\"QA Sparse\",\"squareFeet\":755}],\"updateExisting\":true}" \
+      "http://localhost:${API_PORT:-4000}/api/operations/units/import")"
+    OPS_UNITS_AFTER_IMPORT_JSON="$(mktemp)"
+    OPS_UNITS_AFTER_IMPORT_STATUS="$(curl -s -o "$OPS_UNITS_AFTER_IMPORT_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/operations/units?propertyId=$OPS_PROPERTY_ID&includeArchived=true")"
     ARCHIVE_OPS_UNIT_STATUS="$(curl -s -o /tmp/makereadyos-ops-unit-archive.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X POST \
       "http://localhost:${API_PORT:-4000}/api/operations/units/$OPS_UNIT_ID/archive")"
@@ -443,12 +703,15 @@ mkdir -p "$LOG_DIR"
     RESTORE_PROPERTY_STATUS="$(curl -s -o /tmp/makereadyos-ops-property-restore.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X POST \
       "http://localhost:${API_PORT:-4000}/api/operations/properties/$OPS_PROPERTY_ID/restore")"
-    echo "Operations property/unit/floor-plan statuses: list=$OPS_PROPERTIES_STATUS property=$CREATE_PROPERTY_STATUS/$UPDATE_PROPERTY_STATUS/$ARCHIVE_PROPERTY_STATUS/$RESTORE_PROPERTY_STATUS delete=$UNSAFE_PROPERTY_DELETE_STATUS floorplan=$CREATE_FLOOR_PLAN_STATUS/$UPDATE_FLOOR_PLAN_STATUS/$ARCHIVE_FLOOR_PLAN_STATUS unit=$CREATE_OPS_UNIT_STATUS/$UPDATE_OPS_UNIT_STATUS/$ARCHIVE_OPS_UNIT_STATUS/$RESTORE_OPS_UNIT_STATUS"
-    if [ "$OPS_PROPERTIES_STATUS" != "200" ] || [ "$CREATE_PROPERTY_STATUS" != "201" ] || [ "$UPDATE_PROPERTY_STATUS" != "200" ] || [ "$ARCHIVE_PROPERTY_STATUS" != "200" ] || [ "$RESTORE_PROPERTY_STATUS" != "200" ] || [ "$UNSAFE_PROPERTY_DELETE_STATUS" != "409" ] || [ "$CREATE_FLOOR_PLAN_STATUS" != "201" ] || [ "$UPDATE_FLOOR_PLAN_STATUS" != "200" ] || [ "$ARCHIVE_FLOOR_PLAN_STATUS" != "200" ] || [ "$CREATE_OPS_UNIT_STATUS" != "201" ] || [ "$UPDATE_OPS_UNIT_STATUS" != "200" ] || [ "$ARCHIVE_OPS_UNIT_STATUS" != "200" ] || [ "$RESTORE_OPS_UNIT_STATUS" != "200" ]; then
-      cat /tmp/makereadyos-ops-properties.json "$OPS_PROPERTY_JSON" /tmp/makereadyos-ops-property-update.json /tmp/makereadyos-ops-property-delete.json "$OPS_UNIT_JSON"
+    echo "Operations property/unit/floor-plan statuses: list=$OPS_PROPERTIES_STATUS property=$CREATE_PROPERTY_STATUS/$UPDATE_PROPERTY_STATUS/$ARCHIVE_PROPERTY_STATUS/$RESTORE_PROPERTY_STATUS delete=$UNSAFE_PROPERTY_DELETE_STATUS calendar=$OPERATING_CALENDAR_LIST_STATUS/$OPERATING_CALENDAR_UPDATE_STATUS floorplan=$CREATE_FLOOR_PLAN_STATUS/$UPDATE_FLOOR_PLAN_STATUS/$ARCHIVE_FLOOR_PLAN_STATUS unit=$CREATE_OPS_UNIT_STATUS/$UPDATE_OPS_UNIT_STATUS/$IMPORT_UNITS_STATUS/$IMPORT_SPARSE_UNITS_STATUS/$OPS_UNITS_AFTER_IMPORT_STATUS/$ARCHIVE_OPS_UNIT_STATUS/$RESTORE_OPS_UNIT_STATUS"
+    if [ "$OPS_PROPERTIES_STATUS" != "200" ] || [ "$CREATE_PROPERTY_STATUS" != "201" ] || [ "$UPDATE_PROPERTY_STATUS" != "200" ] || [ "$OPERATING_CALENDAR_LIST_STATUS" != "200" ] || [ "$OPERATING_CALENDAR_UPDATE_STATUS" != "200" ] || [ "$ARCHIVE_PROPERTY_STATUS" != "200" ] || [ "$RESTORE_PROPERTY_STATUS" != "200" ] || [ "$UNSAFE_PROPERTY_DELETE_STATUS" != "409" ] || [ "$CREATE_FLOOR_PLAN_STATUS" != "201" ] || [ "$UPDATE_FLOOR_PLAN_STATUS" != "200" ] || [ "$ARCHIVE_FLOOR_PLAN_STATUS" != "200" ] || [ "$CREATE_OPS_UNIT_STATUS" != "201" ] || [ "$UPDATE_OPS_UNIT_STATUS" != "200" ] || [ "$IMPORT_UNITS_STATUS" != "200" ] || [ "$IMPORT_SPARSE_UNITS_STATUS" != "200" ] || [ "$OPS_UNITS_AFTER_IMPORT_STATUS" != "200" ] || [ "$ARCHIVE_OPS_UNIT_STATUS" != "200" ] || [ "$RESTORE_OPS_UNIT_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-ops-properties.json "$OPS_PROPERTY_JSON" /tmp/makereadyos-ops-property-update.json /tmp/makereadyos-operating-calendars.json /tmp/makereadyos-operating-calendar-update.json /tmp/makereadyos-ops-property-delete.json "$OPS_UNIT_JSON" /tmp/makereadyos-unit-import.json /tmp/makereadyos-unit-import-sparse.json "$OPS_UNITS_AFTER_IMPORT_JSON"
       exit 1
     fi
+    node -e 'const fs=require("fs"); const calendar=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).calendar; if (!calendar.noWeekendScheduling || !calendar.avoidMondayScheduling || !calendar.avoidFridayScheduling || calendar.vendorLeadDays !== 4 || calendar.dailyScheduledUnitLimit !== 2 || calendar.scopeDay !== 1 || calendar.workStartDay !== 2) process.exit(1);' /tmp/makereadyos-operating-calendar-update.json
     node -e 'const fs=require("fs"); const unit=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).unit; if (!unit.floorPlanId || unit.floorPlan !== "QA A1 Managed" || unit.bedrooms !== 1 || unit.bathrooms !== 1 || unit.squareFeet !== 740) process.exit(1);' "$OPS_UNIT_JSON"
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (body.summary.created !== 2 || body.summary.updated !== 0) process.exit(1);' /tmp/makereadyos-unit-import.json
+    node -e 'const fs=require("fs"); const units=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).units; const unit=units.find((candidate)=>candidate.number==="103"); if (!unit || unit.floorPlan !== "QA Sparse" || unit.squareFeet !== 755 || unit.occupancyStatus !== "NTV_LEASED" || unit.building !== "2") process.exit(1);' "$OPS_UNITS_AFTER_IMPORT_JSON"
 
     echo "Checking managed built-in board option lifecycle"
     TEST_OPTION_JSON="$(mktemp)"
@@ -534,6 +797,12 @@ mkdir -p "$LOG_DIR"
     node -e 'const fs=require("fs"); const summary=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const run=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const snapshots=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); if (typeof summary.metrics?.averageDaysVacant !== "number" || !Array.isArray(summary.trends) || run.count !== 1 || !Array.isArray(snapshots.snapshots) || snapshots.snapshots.length < 1) process.exit(1);' /tmp/makereadyos-analytics-summary.json /tmp/makereadyos-analytics-snapshot.json /tmp/makereadyos-analytics-snapshots.json
 
     echo "Checking SLA/risk evaluation summary and scoped risk items"
+    RISK_POLICIES_STATUS="$(curl -s -o /tmp/makereadyos-risk-policies.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/risk/policies?propertyId=$TEST_PROPERTY_ID")"
+    RISK_POLICY_UPDATE_STATUS="$(curl -s -o /tmp/makereadyos-risk-policy-update.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PUT \
+      -d '{"moveInCriticalDays":1,"moveInHighDays":3,"moveInMediumDays":7,"unassignedHighDays":7,"staleActivityDays":4,"agingMediumDays":14,"agingHighDays":21,"vendorNearMoveInDays":3,"checklistNearMoveInDays":7,"planningNearMoveInDays":7}' \
+      "http://localhost:${API_PORT:-4000}/api/risk/policies/$TEST_PROPERTY_ID")"
     RISK_EVALUATE_STATUS="$(curl -s -o /tmp/makereadyos-risk-evaluate.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X POST \
       -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"notify\":true}" \
@@ -542,12 +811,22 @@ mkdir -p "$LOG_DIR"
       "http://localhost:${API_PORT:-4000}/api/risk/summary?propertyId=$TEST_PROPERTY_ID")"
     RISK_ITEMS_STATUS="$(curl -s -o /tmp/makereadyos-risk-items.json -b "$COOKIE_JAR" -w "%{http_code}" \
       "http://localhost:${API_PORT:-4000}/api/risk/items?propertyId=$TEST_PROPERTY_ID&level=HIGH&limit=10")"
-    echo "Risk statuses: evaluate=$RISK_EVALUATE_STATUS summary=$RISK_SUMMARY_STATUS items=$RISK_ITEMS_STATUS"
-    if [ "$RISK_EVALUATE_STATUS" != "200" ] || [ "$RISK_SUMMARY_STATUS" != "200" ] || [ "$RISK_ITEMS_STATUS" != "200" ]; then
-      cat /tmp/makereadyos-risk-evaluate.json /tmp/makereadyos-risk-summary.json /tmp/makereadyos-risk-items.json
+    echo "Risk statuses: policies=$RISK_POLICIES_STATUS update=$RISK_POLICY_UPDATE_STATUS evaluate=$RISK_EVALUATE_STATUS summary=$RISK_SUMMARY_STATUS items=$RISK_ITEMS_STATUS"
+    if [ "$RISK_POLICIES_STATUS" != "200" ] || [ "$RISK_POLICY_UPDATE_STATUS" != "200" ] || [ "$RISK_EVALUATE_STATUS" != "200" ] || [ "$RISK_SUMMARY_STATUS" != "200" ] || [ "$RISK_ITEMS_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-risk-policies.json /tmp/makereadyos-risk-policy-update.json /tmp/makereadyos-risk-evaluate.json /tmp/makereadyos-risk-summary.json /tmp/makereadyos-risk-items.json
       exit 1
     fi
-    node -e 'const fs=require("fs"); const evalBody=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const summary=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const items=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); if (typeof evalBody.evaluated !== "number" || !summary.byLevel || !summary.byCategory || !Array.isArray(summary.topRiskItems) || !Array.isArray(items.items) || items.items.some((item) => item.riskLevel !== "HIGH")) process.exit(1);' /tmp/makereadyos-risk-evaluate.json /tmp/makereadyos-risk-summary.json /tmp/makereadyos-risk-items.json
+    node -e 'const fs=require("fs"); const policies=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const update=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const evalBody=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); const summary=JSON.parse(fs.readFileSync(process.argv[4],"utf8")); const items=JSON.parse(fs.readFileSync(process.argv[5],"utf8")); if (!Array.isArray(policies.policies) || update.policy?.staleActivityDays !== 4 || typeof evalBody.evaluated !== "number" || !summary.byLevel || !summary.byCategory || !Array.isArray(summary.topRiskItems) || !Array.isArray(items.items) || items.items.some((item) => item.riskLevel !== "HIGH")) process.exit(1);' /tmp/makereadyos-risk-policies.json /tmp/makereadyos-risk-policy-update.json /tmp/makereadyos-risk-evaluate.json /tmp/makereadyos-risk-summary.json /tmp/makereadyos-risk-items.json
+    RISK_QUERY_CATEGORY="$(node -e 'const fs=require("fs"); const summary=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const entry=Object.entries(summary.byCategory || {}).find(([, count]) => Number(count) > 0); process.stdout.write(entry ? entry[0] : "");' /tmp/makereadyos-risk-summary.json)"
+    RISK_CATEGORY_QUERY_STATUS="$(curl -s -o /tmp/makereadyos-risk-category-items.json -b "$COOKIE_JAR" -w "%{http_code}" --get \
+      --data-urlencode "propertyId=$TEST_PROPERTY_ID" --data-urlencode "riskCategory=$RISK_QUERY_CATEGORY" \
+      --data-urlencode "limit=5" --data-urlencode "offset=0" \
+      "http://localhost:${API_PORT:-4000}/api/make-ready-items")"
+    if [ -z "$RISK_QUERY_CATEGORY" ] || [ "$RISK_CATEGORY_QUERY_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-risk-summary.json /tmp/makereadyos-risk-category-items.json
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const items=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const category=process.argv[2]; if (!Array.isArray(items) || items.length < 1 || items.length > 5 || items.some((item) => !Array.isArray(item.riskReasons) || !item.riskReasons.some((reason) => reason.category === category))) process.exit(1);' /tmp/makereadyos-risk-category-items.json "$RISK_QUERY_CATEGORY"
 
     TURN_UNIT_NUMBER="QA${TIMESTAMP//-/}"
     TURN_UNIT_JSON="$(mktemp)"
@@ -620,6 +899,74 @@ mkdir -p "$LOG_DIR"
       exit 1
     fi
     node -e 'const fs=require("fs"); const items=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!Array.isArray(items) || items.length > 1 || items.some((item) => item.propertyId !== process.argv[2] || item.boardGroup !== process.argv[3])) process.exit(1);' /tmp/makereadyos-item-query.json "$TEST_PROPERTY_ID" "$TEST_DOWN_GROUP"
+    STRUCTURED_ITEM_HEADERS="$(mktemp)"
+    STRUCTURED_ITEM_QUERY_STATUS="$(curl -s -D "$STRUCTURED_ITEM_HEADERS" -o /tmp/makereadyos-structured-item-query.json -b "$COOKIE_JAR" -w "%{http_code}" --get \
+      --data-urlencode "propertyId=$TEST_PROPERTY_ID" --data-urlencode "boardSection=type:DOWN" \
+      --data-urlencode "assignedTech=$ADMIN_STAFF_NAME" --data-urlencode "includeArchived=true" \
+      --data-urlencode "limit=5" --data-urlencode "offset=0" \
+      "http://localhost:${API_PORT:-4000}/api/make-ready-items")"
+    if [ "$STRUCTURED_ITEM_QUERY_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-structured-item-query.json
+      exit 1
+    fi
+    for header_name in x-total-count x-limit x-offset x-has-more; do
+      if ! grep -qi "^$header_name:" "$STRUCTURED_ITEM_HEADERS"; then
+        cat "$STRUCTURED_ITEM_HEADERS"
+        echo "ERROR: structured make-ready item query pagination header is missing: $header_name"
+        exit 1
+      fi
+    done
+    node -e 'const fs=require("fs"); const items=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!Array.isArray(items) || items.length > 5 || !items.some((item) => item.id === process.argv[2]) || items.some((item) => item.propertyId !== process.argv[3] || item.assignedTech !== process.argv[4] || item.boardGroup !== process.argv[5])) process.exit(1);' /tmp/makereadyos-structured-item-query.json "$TURN_ITEM_ID" "$TEST_PROPERTY_ID" "$ADMIN_STAFF_NAME" "$TEST_DOWN_GROUP"
+
+    echo "Checking real item update webhook event queueing"
+    APP_WEBHOOK_JSON="$(mktemp)"
+    APP_WEBHOOK_STATUS="$(curl -s -o "$APP_WEBHOOK_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"name\":\"Smoke app event webhook $TIMESTAMP\",\"url\":\"http://127.0.0.1:9/makereadyos\",\"eventTypes\":[\"item.updated\",\"comment.created\",\"checklist.completed\",\"vendor.assignment.updated\"],\"propertyIds\":[\"$TEST_PROPERTY_ID\"]}" \
+      "http://localhost:${API_PORT:-4000}/api/admin/integrations/webhooks")"
+    APP_WEBHOOK_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).webhook?.id || "");' "$APP_WEBHOOK_JSON")"
+    if [ "$APP_WEBHOOK_STATUS" != "201" ] || [ -z "$APP_WEBHOOK_ID" ]; then
+      cat "$APP_WEBHOOK_JSON"
+      echo "ERROR: application event webhook registration failed"
+      exit 1
+    fi
+    APP_WEBHOOK_PATCH_STATUS="$(curl -s -o /tmp/makereadyos-app-webhook-item-patch.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -X PATCH \
+      -d '{"notes":"QA webhook event queue smoke"}' \
+      "http://localhost:${API_PORT:-4000}/api/make-ready-items/$TURN_ITEM_ID")"
+    if [ "$APP_WEBHOOK_PATCH_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-app-webhook-item-patch.json
+      echo "ERROR: item patch for webhook queue smoke failed"
+      exit 1
+    fi
+    APP_WEBHOOK_DELIVERIES_STATUS="$(curl -s -o /tmp/makereadyos-app-webhook-deliveries.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/admin/integrations/webhooks/$APP_WEBHOOK_ID/deliveries?limit=10")"
+    if [ "$APP_WEBHOOK_DELIVERIES_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-app-webhook-deliveries.json
+      echo "ERROR: application event webhook delivery history failed"
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const delivery=body.deliveries?.find((entry)=>entry.eventType==="item.updated" && entry.status==="PENDING"); if (!delivery || delivery.payload?.test || !delivery.payload?.data?.changedKeys?.includes("notes")) process.exit(1);' /tmp/makereadyos-app-webhook-deliveries.json
+    WEBHOOK_DELIVERY_TIMEOUT_MS=750 WEBHOOK_DELIVERY_MAX_ATTEMPTS=1 ./run-webhooks.sh >/tmp/makereadyos-app-webhook-run.txt
+    APP_WEBHOOK_AFTER_RUN_STATUS="$(curl -s -o /tmp/makereadyos-app-webhook-deliveries-post-run.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/admin/integrations/webhooks/$APP_WEBHOOK_ID/deliveries?limit=10")"
+    if [ "$APP_WEBHOOK_AFTER_RUN_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-app-webhook-deliveries-post-run.json
+      echo "ERROR: application event webhook delivery history failed"
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const delivery=body.deliveries?.find((entry)=>entry.eventType==="item.updated" && ["FAILED","GAVE_UP"].includes(entry.status)); if (!delivery || !delivery.errorMessage) process.exit(1);' /tmp/makereadyos-app-webhook-deliveries-post-run.json
+    APP_WEBHOOK_REVOKE_STATUS="$(curl -s -o /tmp/makereadyos-app-webhook-revoke.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -X POST "http://localhost:${API_PORT:-4000}/api/admin/integrations/webhooks/$APP_WEBHOOK_ID/revoke")"
+    if [ "$APP_WEBHOOK_REVOKE_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-app-webhook-revoke.json
+      echo "ERROR: application event webhook revoke failed"
+      exit 1
+    fi
 
     echo "Checking collaboration comments, local attachments, checklists, preferences, and My Work"
     COMMENT_JSON="$(mktemp)"
@@ -632,8 +979,8 @@ mkdir -p "$LOG_DIR"
       -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PATCH \
       -d '{"body":"QA field update: paint completed; final photos attached."}' \
       "http://localhost:${API_PORT:-4000}/api/make-ready-items/$TURN_ITEM_ID/comments/$COMMENT_ID")"
-    ATTACHMENT_FILE="$(mktemp --suffix=.txt)"
-    printf 'MakeReadyOS QA attachment\n' >"$ATTACHMENT_FILE"
+    ATTACHMENT_FILE="$(mktemp --suffix=.png)"
+    printf 'MakeReadyOS QA png attachment\n' >"$ATTACHMENT_FILE"
     INVALID_ATTACHMENT_FILE="$(mktemp --suffix=.html)"
     printf '<script>unsafe attachment type</script>\n' >"$INVALID_ATTACHMENT_FILE"
     INVALID_ATTACHMENT_STATUS="$(curl -s -o /tmp/makereadyos-attachment-invalid.json -b "$COOKIE_JAR" -w "%{http_code}" \
@@ -641,10 +988,26 @@ mkdir -p "$LOG_DIR"
       "http://localhost:${API_PORT:-4000}/api/make-ready-items/$TURN_ITEM_ID/attachments")"
     ATTACHMENT_JSON="$(mktemp)"
     ATTACHMENT_CREATE_STATUS="$(curl -s -o "$ATTACHMENT_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
-      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -F "file=@$ATTACHMENT_FILE;type=text/plain" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -F "file=@$ATTACHMENT_FILE;type=image/png" \
       "http://localhost:${API_PORT:-4000}/api/make-ready-items/$TURN_ITEM_ID/attachments")"
     ATTACHMENT_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).attachment?.id || "");' "$ATTACHMENT_JSON")"
+    CHARGE_PRICE_JSON="$(mktemp)"
+    CHARGE_PRICE_STATUS="$(curl -s -o "$CHARGE_PRICE_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"name\":\"QA Blind Replacement $TIMESTAMP\",\"category\":\"Damage\",\"unitLabel\":\"each\",\"defaultCents\":4500}" \
+      "http://localhost:${API_PORT:-4000}/api/charge-price-sheet-items")"
+    CHARGE_PRICE_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).item?.id || "");' "$CHARGE_PRICE_JSON")"
+    ATTACHMENT_METADATA_STATUS="$(curl -s -o /tmp/makereadyos-attachment-metadata.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PATCH \
+      -d "{\"note\":\"Initial walk damage photo\",\"inspectionStage\":\"INITIAL_WALK\",\"category\":\"Damage\",\"chargeCandidate\":true,\"chargeNote\":\"Review for resident chargeback\",\"chargePriceSheetItemId\":\"$CHARGE_PRICE_ID\",\"chargeQuantity\":1,\"chargeEstimatedCents\":4500}" \
+      "http://localhost:${API_PORT:-4000}/api/attachments/$ATTACHMENT_ID")"
+    ATTACHMENT_MARKUP_STATUS="$(curl -s -o /tmp/makereadyos-attachment-markup.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PATCH \
+      -d '{"markupAnnotations":[{"id":"pin-qa-1","x":42.5,"y":58.25,"label":"Wall damage","category":"Damage","chargeCandidate":true}]}' \
+      "http://localhost:${API_PORT:-4000}/api/attachments/$ATTACHMENT_ID")"
     ATTACHMENT_DOWNLOAD_STATUS="$(curl -s -o /tmp/makereadyos-attachment-download.txt -b "$COOKIE_JAR" -w "%{http_code}" "http://localhost:${API_PORT:-4000}/api/attachments/$ATTACHMENT_ID/download")"
+    ATTACHMENT_ARCHIVE_STATUS="$(curl -s -o /tmp/makereadyos-attachment-archive.zip -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/make-ready-items/$TURN_ITEM_ID/attachments/archive?stage=INITIAL_WALK")"
     TEMPLATE_JSON="$(mktemp)"
     TEMPLATE_STATUS="$(curl -s -o "$TEMPLATE_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
@@ -668,12 +1031,12 @@ mkdir -p "$LOG_DIR"
     ATTACHMENT_DELETE_STATUS="$(curl -s -o /tmp/makereadyos-attachment-delete.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X DELETE "http://localhost:${API_PORT:-4000}/api/attachments/$ATTACHMENT_ID")"
     rm -f "$ATTACHMENT_FILE" "$INVALID_ATTACHMENT_FILE"
-    echo "Collaboration statuses: comment=$COMMENT_CREATE_STATUS/$COMMENT_EDIT_STATUS attachment=$INVALID_ATTACHMENT_STATUS/$ATTACHMENT_CREATE_STATUS/$ATTACHMENT_DOWNLOAD_STATUS/$ATTACHMENT_DELETE_STATUS template=$TEMPLATE_STATUS instance=$INSTANCE_STATUS complete=$CHECKLIST_COMPLETE_STATUS collaboration=$COLLAB_STATUS preference=$PREF_STATUS work=$MY_WORK_STATUS"
-    if [ "$COMMENT_CREATE_STATUS" != "201" ] || [ "$COMMENT_EDIT_STATUS" != "200" ] || [ "$INVALID_ATTACHMENT_STATUS" != "415" ] || [ "$ATTACHMENT_CREATE_STATUS" != "201" ] || [ "$ATTACHMENT_DOWNLOAD_STATUS" != "200" ] || [ "$ATTACHMENT_DELETE_STATUS" != "200" ] || [ "$TEMPLATE_STATUS" != "201" ] || [ "$INSTANCE_STATUS" != "201" ] || [ "$CHECKLIST_COMPLETE_STATUS" != "200" ] || [ "$COLLAB_STATUS" != "200" ] || [ "$PREF_STATUS" != "200" ] || [ "$MY_WORK_STATUS" != "200" ]; then
-      cat "$COMMENT_JSON" "$ATTACHMENT_JSON" "$TEMPLATE_JSON" "$INSTANCE_JSON" /tmp/makereadyos-collaboration.json
+    echo "Collaboration statuses: comment=$COMMENT_CREATE_STATUS/$COMMENT_EDIT_STATUS attachment=$INVALID_ATTACHMENT_STATUS/$ATTACHMENT_CREATE_STATUS price=$CHARGE_PRICE_STATUS metadata=$ATTACHMENT_METADATA_STATUS markup=$ATTACHMENT_MARKUP_STATUS download=$ATTACHMENT_DOWNLOAD_STATUS archive=$ATTACHMENT_ARCHIVE_STATUS delete=$ATTACHMENT_DELETE_STATUS template=$TEMPLATE_STATUS instance=$INSTANCE_STATUS complete=$CHECKLIST_COMPLETE_STATUS collaboration=$COLLAB_STATUS preference=$PREF_STATUS work=$MY_WORK_STATUS"
+    if [ "$COMMENT_CREATE_STATUS" != "201" ] || [ "$COMMENT_EDIT_STATUS" != "200" ] || [ "$INVALID_ATTACHMENT_STATUS" != "415" ] || [ "$ATTACHMENT_CREATE_STATUS" != "201" ] || [ "$CHARGE_PRICE_STATUS" != "201" ] || [ "$ATTACHMENT_METADATA_STATUS" != "200" ] || [ "$ATTACHMENT_MARKUP_STATUS" != "200" ] || [ "$ATTACHMENT_DOWNLOAD_STATUS" != "200" ] || [ "$ATTACHMENT_ARCHIVE_STATUS" != "200" ] || [ ! -s /tmp/makereadyos-attachment-archive.zip ] || [ "$ATTACHMENT_DELETE_STATUS" != "200" ] || [ "$TEMPLATE_STATUS" != "201" ] || [ "$INSTANCE_STATUS" != "201" ] || [ "$CHECKLIST_COMPLETE_STATUS" != "200" ] || [ "$COLLAB_STATUS" != "200" ] || [ "$PREF_STATUS" != "200" ] || [ "$MY_WORK_STATUS" != "200" ]; then
+      cat "$COMMENT_JSON" "$ATTACHMENT_JSON" "$CHARGE_PRICE_JSON" /tmp/makereadyos-attachment-metadata.json /tmp/makereadyos-attachment-markup.json "$TEMPLATE_JSON" "$INSTANCE_JSON" /tmp/makereadyos-collaboration.json
       exit 1
     fi
-    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!body.comments.some((comment) => comment.body.includes("final photos")) || !body.checklistInstances.some((instance) => instance.items.some((item) => item.completed)) || body.pagination?.comments?.limit !== 1 || body.pagination?.attachments?.limit !== 1) process.exit(1);' /tmp/makereadyos-collaboration.json
+    node -e 'const fs=require("fs"); const created=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).attachment; const body=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); if (!created?.storedName?.startsWith("qa-property-uploads/") || !body.comments.some((comment) => comment.body.includes("final photos")) || !body.attachments.some((attachment) => attachment.inspectionStage === "INITIAL_WALK" && attachment.category === "Damage" && attachment.chargeCandidate === true && attachment.chargeEstimatedCents === 4500 && attachment.chargePriceSheetItem?.name?.includes("QA Blind Replacement") && Array.isArray(attachment.markupAnnotations) && attachment.markupAnnotations.some((pin) => pin.label === "Wall damage" && pin.chargeCandidate === true)) || !body.checklistInstances.some((instance) => instance.items.some((item) => item.completed)) || body.pagination?.comments?.limit !== 1 || body.pagination?.attachments?.limit !== 1) process.exit(1);' "$ATTACHMENT_JSON" /tmp/makereadyos-collaboration.json
 
     echo "Checking workload planning assignment and coverage foundation"
     PLANNING_BEFORE_STATUS="$(curl -s -o /tmp/makereadyos-planning-before.json -b "$COOKIE_JAR" -w "%{http_code}" \
@@ -685,7 +1048,7 @@ mkdir -p "$LOG_DIR"
     WORK_BLOCK_JSON="$(mktemp)"
     WORK_BLOCK_STATUS="$(curl -s -o "$WORK_BLOCK_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
-      -d "{\"assignedUserId\":\"$ADMIN_USER_ID\",\"itemId\":\"$TURN_ITEM_ID\",\"category\":\"Make Ready\",\"plannedDate\":\"2026-05-26\",\"estimatedHours\":2,\"notes\":\"QA planned work\"}" \
+      -d "{\"assignedUserId\":\"$ADMIN_USER_ID\",\"itemId\":\"$TURN_ITEM_ID\",\"category\":\"Make Ready\",\"plannedDate\":\"$PLANNING_TEST_DATE\",\"estimatedHours\":2,\"notes\":\"QA planned work\"}" \
       "http://localhost:${API_PORT:-4000}/api/planning/blocks")"
     WORK_BLOCK_ID="$(node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(body.block?.id || "");' "$WORK_BLOCK_JSON")"
     WORK_BLOCK_UPDATE_STATUS="$(curl -s -o /tmp/makereadyos-work-block-update.json -b "$COOKIE_JAR" -w "%{http_code}" \
@@ -769,15 +1132,28 @@ mkdir -p "$LOG_DIR"
       -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"mapId\":\"$PROPERTY_MAP_ID\",\"unitId\":\"$TURN_UNIT_ID\",\"xPercent\":42.5,\"yPercent\":56.25,\"building\":\"B1\",\"area\":\"North\",\"floor\":\"2\"}" \
       -X PUT "http://localhost:${API_PORT:-4000}/api/unit-map-locations")"
     UNIT_LOCATION_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).location?.id || "");' "$UNIT_LOCATION_JSON")"
+    MAP_AREA_JSON="$(mktemp)"
+    MAP_AREA_STATUS="$(curl -s -o "$MAP_AREA_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"mapId\":\"$PROPERTY_MAP_ID\",\"name\":\"North Building $TIMESTAMP\",\"areaType\":\"BUILDING\",\"xPercent\":35,\"yPercent\":45,\"expectedUnitCount\":12,\"color\":\"#1f8fdb\",\"notes\":\"QA building marker\"}" \
+      "http://localhost:${API_PORT:-4000}/api/property-map-areas")"
+    MAP_AREA_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).area?.id || "");' "$MAP_AREA_JSON")"
+    MAP_AREA_PATCH_STATUS="$(curl -s -o /tmp/makereadyos-map-area-patch.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PATCH \
+      -d '{"xPercent":36,"yPercent":46}' \
+      "http://localhost:${API_PORT:-4000}/api/property-map-areas/$MAP_AREA_ID")"
+    MAP_AREA_LIST_STATUS="$(curl -s -o /tmp/makereadyos-map-area-list.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/property-map-areas?propertyId=$TEST_PROPERTY_ID&mapId=$PROPERTY_MAP_ID")"
     LOCATION_LIST_STATUS="$(curl -s -o /tmp/makereadyos-location-list.json -b "$COOKIE_JAR" -w "%{http_code}" \
       "http://localhost:${API_PORT:-4000}/api/unit-map-locations?propertyId=$TEST_PROPERTY_ID&mapId=$PROPERTY_MAP_ID")"
     DASHBOARD_MAP_STATUS="$(curl -s -o /tmp/makereadyos-dashboard-maps.json -b "$COOKIE_JAR" -w "%{http_code}" \
       "http://localhost:${API_PORT:-4000}/api/dashboard?propertyId=$TEST_PROPERTY_ID")"
-    echo "Property map statuses: create=$MAP_CREATE_STATUS upload=$MAP_UPLOAD_STATUS file=$MAP_FILE_STATUS list=$MAP_LIST_STATUS location=$LOCATION_SAVE_STATUS/$LOCATION_LIST_STATUS dashboard=$DASHBOARD_MAP_STATUS"
-    if [ "$MAP_CREATE_STATUS" != "201" ] || [ "$MAP_UPLOAD_STATUS" != "200" ] || [ "$MAP_FILE_STATUS" != "200" ] || [ "$MAP_LIST_STATUS" != "200" ] || [ "$LOCATION_SAVE_STATUS" != "200" ] || [ "$LOCATION_LIST_STATUS" != "200" ] || [ "$DASHBOARD_MAP_STATUS" != "200" ]; then
-      cat "$PROPERTY_MAP_JSON" /tmp/makereadyos-map-upload.json "$UNIT_LOCATION_JSON" /tmp/makereadyos-dashboard-maps.json
+    echo "Property map statuses: create=$MAP_CREATE_STATUS upload=$MAP_UPLOAD_STATUS file=$MAP_FILE_STATUS list=$MAP_LIST_STATUS area=$MAP_AREA_STATUS/$MAP_AREA_PATCH_STATUS/$MAP_AREA_LIST_STATUS location=$LOCATION_SAVE_STATUS/$LOCATION_LIST_STATUS dashboard=$DASHBOARD_MAP_STATUS"
+    if [ "$MAP_CREATE_STATUS" != "201" ] || [ "$MAP_UPLOAD_STATUS" != "200" ] || [ "$MAP_FILE_STATUS" != "200" ] || [ "$MAP_LIST_STATUS" != "200" ] || [ "$MAP_AREA_STATUS" != "201" ] || [ "$MAP_AREA_PATCH_STATUS" != "200" ] || [ "$MAP_AREA_LIST_STATUS" != "200" ] || [ "$LOCATION_SAVE_STATUS" != "200" ] || [ "$LOCATION_LIST_STATUS" != "200" ] || [ "$DASHBOARD_MAP_STATUS" != "200" ]; then
+      cat "$PROPERTY_MAP_JSON" /tmp/makereadyos-map-upload.json "$MAP_AREA_JSON" /tmp/makereadyos-map-area-patch.json "$UNIT_LOCATION_JSON" /tmp/makereadyos-dashboard-maps.json
       exit 1
     fi
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!body.areas?.some((area) => area.name.includes("North Building") && area.expectedUnitCount === 12 && area.xPercent === 36)) process.exit(1);' /tmp/makereadyos-map-area-list.json
     node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!body.locations?.some((location) => location.area === "North" && location.xPercent === 42.5)) process.exit(1);' /tmp/makereadyos-location-list.json
     node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (typeof body.kpis?.mappedUnits !== "number" || typeof body.kpis?.unmappedUnits !== "number" || !body.downUnitsByArea) process.exit(1);' /tmp/makereadyos-dashboard-maps.json
 
@@ -817,7 +1193,7 @@ mkdir -p "$LOG_DIR"
       cat "$ADMIN_EXPORT_JSON"
       exit 1
     fi
-    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const data=body.data; if (body.format !== "makereadyos.backup" || body.version !== 1 || !data || !Array.isArray(data.properties) || !Array.isArray(data.floorPlans) || !data.floorPlans.some((plan) => plan.name === "QA A1 Managed") || !Array.isArray(data.boardOptions) || !data.boardOptions.some((option) => option.value === "QA PAINT TOUCH UP" && option.isArchived) || !Array.isArray(data.boardSections) || !data.boardSections.some((section) => section.sectionType === "ARCHIVE") || !data.boardColumns?.some((column) => column.fieldKey === "vacatedDate" && column.label === "QA Vacated") || !data.scheduleTracks?.some((track) => track.sourceField === "moveOutDate" && "overdueEnabled" in track) || !data.makeReadyItems?.some((item) => typeof item.riskScore === "number" && item.riskLevel) || !Array.isArray(data.comments) || !data.comments.some((comment) => comment.body.includes("final photos")) || !Array.isArray(data.vendors) || !data.vendors.some((vendor) => vendor.name.includes("QA Vendor")) || !Array.isArray(data.vendorAssignments) || !data.vendorAssignments.some((assignment) => assignment.vendorName.includes("QA Vendor")) || !Array.isArray(data.propertyMaps) || !data.propertyMaps.some((map) => map.name.includes("QA Site Map") && !("storedName" in map)) || !Array.isArray(data.unitMapLocations) || !data.unitMapLocations.some((location) => location.area === "North") || !Array.isArray(data.checklistInstances) || !data.checklistInstances.some((instance) => instance.name.includes("QA Final Walk")) || !Array.isArray(data.propertyTemplates) || !data.propertyTemplates.some((template) => template.name.includes("QA Property Template")) || "notifications" in data || "users" in data || "attachments" in data) process.exit(1);' "$ADMIN_EXPORT_JSON"
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const data=body.data; if (body.format !== "makereadyos.backup" || body.version !== 1 || !data || !Array.isArray(data.properties) || !Array.isArray(data.floorPlans) || !data.floorPlans.some((plan) => plan.name === "QA A1 Managed") || !Array.isArray(data.boardOptions) || !data.boardOptions.some((option) => option.value === "QA PAINT TOUCH UP" && option.isArchived) || !Array.isArray(data.boardSections) || !data.boardSections.some((section) => section.sectionType === "ARCHIVE") || !data.boardColumns?.some((column) => column.fieldKey === "vacatedDate" && column.label === "QA Vacated") || !data.scheduleTracks?.some((track) => track.sourceField === "moveOutDate" && "overdueEnabled" in track) || !Array.isArray(data.riskPolicies) || !data.riskPolicies.some((policy) => policy.propertyCode && policy.staleActivityDays === 4) || !data.makeReadyItems?.some((item) => typeof item.riskScore === "number" && item.riskLevel) || !Array.isArray(data.chargePriceSheetItems) || !data.chargePriceSheetItems.some((entry) => entry.name.includes("QA Blind Replacement")) || !Array.isArray(data.comments) || !data.comments.some((comment) => comment.body.includes("final photos")) || !Array.isArray(data.vendors) || !data.vendors.some((vendor) => vendor.name.includes("QA Vendor")) || !Array.isArray(data.vendorAssignments) || !data.vendorAssignments.some((assignment) => assignment.vendorName.includes("QA Vendor")) || !Array.isArray(data.propertyMaps) || !data.propertyMaps.some((map) => map.name.includes("QA Site Map") && !("storedName" in map)) || !Array.isArray(data.propertyMapAreas) || !data.propertyMapAreas.some((area) => area.name.includes("North Building") && area.expectedUnitCount === 12) || !Array.isArray(data.unitMapLocations) || !data.unitMapLocations.some((location) => location.area === "North") || !Array.isArray(data.checklistInstances) || !data.checklistInstances.some((instance) => instance.name.includes("QA Final Walk")) || !Array.isArray(data.propertyTemplates) || !data.propertyTemplates.some((template) => template.name.includes("QA Property Template")) || "notifications" in data || "users" in data || "attachments" in data) process.exit(1);' "$ADMIN_EXPORT_JSON"
     LOCATION_REMOVE_STATUS="$(curl -s -o /tmp/makereadyos-location-remove.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X DELETE \
       "http://localhost:${API_PORT:-4000}/api/unit-map-locations/$UNIT_LOCATION_ID")"
@@ -874,7 +1250,7 @@ mkdir -p "$LOG_DIR"
       cat "$ADMIN_TEMPLATES_JSON" /tmp/makereadyos-template-missing-setup.json "$INSTALLED_TEMPLATE_JSON"
       exit 1
     fi
-    node -e 'const fs=require("fs"); const catalog=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const missing=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const installed=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); const rules=JSON.parse(fs.readFileSync(process.argv[4],"utf8")).rules; const pest=catalog.templates.find((template) => template.id === "pest-follow-up-needed"); if (catalog.templates.length !== 7 || !pest || pest.readyToInstall !== false || pest.setupRequirements.length < 1 || missing.setupRequirements.length < 1 || installed.rule.templateId !== "overdue-make-ready" || installed.rule.enabled !== false || !rules.some((rule) => rule.id === installed.rule.id && rule.templateId === "overdue-make-ready")) process.exit(1);' "$ADMIN_TEMPLATES_JSON" /tmp/makereadyos-template-missing-setup.json "$INSTALLED_TEMPLATE_JSON" /tmp/makereadyos-automations-after-template.json
+    node -e 'const fs=require("fs"); const catalog=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const missing=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const installed=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); const rules=JSON.parse(fs.readFileSync(process.argv[4],"utf8")).rules; const pest=catalog.templates.find((template) => template.id === "pest-follow-up-needed"); const weekend=catalog.templates.find((template) => template.id === "no-weekend-make-ready"); const edge=catalog.templates.find((template) => template.id === "no-monday-friday-make-ready"); const sequence=catalog.templates.find((template) => template.id === "turn-date-sequence-review"); const load=catalog.templates.find((template) => template.id === "daily-schedule-load-review"); const routing=catalog.templates.find((template) => template.id === "in-house-or-vendor-work-routing"); const hasWeekend=weekend?.defaultConditions?.all?.some((condition) => condition.operator === "dateOnWeekend"); const hasEdge=edge?.defaultConditions?.all?.some((condition) => condition.operator === "dateOnMondayOrFriday"); if (catalog.templates.length < 16 || !pest || pest.readyToInstall !== false || pest.setupRequirements.length < 1 || !hasWeekend || !hasEdge || !sequence || !load || !routing || missing.setupRequirements.length < 1 || installed.rule.templateId !== "overdue-make-ready" || installed.rule.enabled !== false || !rules.some((rule) => rule.id === installed.rule.id && rule.templateId === "overdue-make-ready")) process.exit(1);' "$ADMIN_TEMPLATES_JSON" /tmp/makereadyos-template-missing-setup.json "$INSTALLED_TEMPLATE_JSON" /tmp/makereadyos-automations-after-template.json
     TEST_AUTOMATION_JSON="$(mktemp)"
     CREATE_AUTOMATION_STATUS="$(curl -s -o "$TEST_AUTOMATION_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
@@ -942,11 +1318,64 @@ mkdir -p "$LOG_DIR"
     node -e 'const fs=require("fs"); const runs=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).runs; const activity=JSON.parse(fs.readFileSync(process.argv[2],"utf8")).activity; const run=runs[0]; const notes=activity.filter((entry) => entry.description === "QA scheduled cooldown note").length; if (!run || run.runType !== "SCHEDULED" || run.checkedCount < 1 || run.matchedCount < 1 || run.actionCount < 1 || notes < 1) process.exit(1); process.stdout.write(String(notes));' /tmp/makereadyos-scheduled-runs-first.json /tmp/makereadyos-scheduled-activity-first.json >/tmp/makereadyos-scheduled-note-count.txt
     ./run-automations.sh >/tmp/makereadyos-scheduled-run-second.txt
     curl -fsS -o /tmp/makereadyos-scheduled-runs-second.json -b "$COOKIE_JAR" \
-      "http://localhost:${API_PORT:-4000}/api/automations/runs?ruleId=$TEST_SCHEDULED_AUTOMATION_ID&limit=1"
+      "http://localhost:${API_PORT:-4000}/api/automations/runs?ruleId=$TEST_SCHEDULED_AUTOMATION_ID&limit=5"
     curl -fsS -o /tmp/makereadyos-scheduled-activity-second.json -b "$COOKIE_JAR" \
       "http://localhost:${API_PORT:-4000}/api/activity?action=AUTOMATION_SCHEDULED_ACTIVITY_NOTE&propertyId=$TEST_PROPERTY_ID&limit=100"
-    node -e 'const fs=require("fs"); const initial=Number(fs.readFileSync(process.argv[1],"utf8")); const run=JSON.parse(fs.readFileSync(process.argv[2],"utf8")).runs[0]; const activity=JSON.parse(fs.readFileSync(process.argv[3],"utf8")).activity; const notes=activity.filter((entry) => entry.description === "QA scheduled cooldown note").length; if (notes !== initial || !run || run.runType !== "SCHEDULED" || run.matchedCount < 1 || run.actionCount !== 0 || !Array.isArray(run.warnings) || run.warnings.length < 1) process.exit(1);' /tmp/makereadyos-scheduled-note-count.txt /tmp/makereadyos-scheduled-runs-second.json /tmp/makereadyos-scheduled-activity-second.json
+    node -e 'const fs=require("fs"); const initial=Number(fs.readFileSync(process.argv[1],"utf8")); const runs=JSON.parse(fs.readFileSync(process.argv[2],"utf8")).runs; const activity=JSON.parse(fs.readFileSync(process.argv[3],"utf8")).activity; const run=[...runs].sort((a,b) => new Date(b.ranAt || b.completedAt || b.startedAt) - new Date(a.ranAt || a.completedAt || a.startedAt))[0]; const notes=activity.filter((entry) => entry.description === "QA scheduled cooldown note").length; if (notes !== initial || !run || run.runType !== "SCHEDULED" || run.matchedCount < 1 || run.actionCount !== 0 || !Array.isArray(run.warnings) || run.warnings.length < 1) process.exit(1);' /tmp/makereadyos-scheduled-note-count.txt /tmp/makereadyos-scheduled-runs-second.json /tmp/makereadyos-scheduled-activity-second.json
     echo "Scheduled automation runner and cooldown validation passed"
+
+    echo "Checking operating-calendar business-day date offsets"
+    curl -fsS -o /tmp/makereadyos-offset-sections.json -b "$COOKIE_JAR" \
+      "http://localhost:${API_PORT:-4000}/api/operations/board-sections?propertyId=$OPS_PROPERTY_ID"
+    OFFSET_MAKE_READY_GROUP="$(node -e 'const fs=require("fs"); const section=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).sections.find((entry) => entry.sectionType === "MAKE_READY"); process.stdout.write(section?.key || "");' /tmp/makereadyos-offset-sections.json)"
+    OFFSET_UNIT_NUMBER="QAOFFSET${TIMESTAMP//-/}"
+    OFFSET_UNIT_JSON="$(mktemp)"
+    CREATE_OFFSET_UNIT_STATUS="$(curl -s -o "$OFFSET_UNIT_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$OPS_PROPERTY_ID\",\"number\":\"$OFFSET_UNIT_NUMBER\",\"floorPlan\":\"QA OFFSET\",\"squareFeet\":801}" \
+      "http://localhost:${API_PORT:-4000}/api/operations/units")"
+    OFFSET_UNIT_ID="$(node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(body.unit?.id || "");' "$OFFSET_UNIT_JSON")"
+    OFFSET_ITEM_JSON="$(mktemp)"
+    CREATE_OFFSET_ITEM_STATUS="$(curl -s -o "$OFFSET_ITEM_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$OPS_PROPERTY_ID\",\"unitId\":\"$OFFSET_UNIT_ID\",\"boardGroup\":\"$OFFSET_MAKE_READY_GROUP\",\"itemName\":\"$OFFSET_UNIT_NUMBER\",\"unitNumber\":\"$OFFSET_UNIT_NUMBER\",\"floorPlan\":\"QA OFFSET\",\"vacancyStatus\":\"TO WALK\",\"makeReadyStatus\":\"LITE\",\"completionStatus\":\"NO\",\"makeReadyDate\":\"2026-05-29\"}" \
+      "http://localhost:${API_PORT:-4000}/api/make-ready-items")"
+    OFFSET_ITEM_ID="$(node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(body.id || "");' "$OFFSET_ITEM_JSON")"
+    if [ "$CREATE_OFFSET_UNIT_STATUS" != "201" ] || [ "$CREATE_OFFSET_ITEM_STATUS" != "201" ] || [ -z "$OFFSET_MAKE_READY_GROUP" ] || [ -z "$OFFSET_ITEM_ID" ]; then
+      cat /tmp/makereadyos-offset-sections.json "$OFFSET_UNIT_JSON" "$OFFSET_ITEM_JSON"
+      exit 1
+    fi
+    curl -fsS -o /tmp/makereadyos-test-property-operating-calendar.json -b "$COOKIE_JAR" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -X PUT \
+      -d '{"name":"QA Test Property Calendar","timezone":"America/Chicago","noWeekendScheduling":true,"avoidMondayScheduling":true,"avoidFridayScheduling":false,"maintenanceStartMinute":480,"maintenanceEndMinute":1020,"vendorLeadDays":3,"dailyScheduledUnitLimit":2,"scopeDay":1,"workStartDay":2,"autoPopulateEnabled":true,"notes":"QA offset calendar"}' \
+      "http://localhost:${API_PORT:-4000}/api/operations/properties/$OPS_PROPERTY_ID/operating-calendar" >/dev/null
+    OFFSET_AUTOMATION_JSON="$(mktemp)"
+    CREATE_OFFSET_STATUS="$(curl -s -o "$OFFSET_AUTOMATION_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"name\":\"QA Operating Offset $(date +%s)\",\"description\":\"Business-day date offset smoke test\",\"enabled\":true,\"triggerType\":\"SCHEDULED_CHECK\",\"propertyId\":\"$OPS_PROPERTY_ID\",\"conditions\":{\"all\":[{\"field\":\"unitNumber\",\"operator\":\"equals\",\"value\":\"$OFFSET_UNIT_NUMBER\"},{\"field\":\"makeReadyDate\",\"operator\":\"notEmpty\"},{\"field\":\"flooringDate\",\"operator\":\"dateMissing\"}]},\"actions\":[{\"type\":\"setDateFromField\",\"sourceField\":\"makeReadyDate\",\"targetField\":\"flooringDate\",\"offsetDays\":1,\"respectOperatingCalendar\":true}]}" \
+      "http://localhost:${API_PORT:-4000}/api/automations")"
+    OFFSET_AUTOMATION_ID="$(node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(body.rule?.id || "");' "$OFFSET_AUTOMATION_JSON")"
+    OFFSET_PREVIEW_STATUS="$(curl -s -o /tmp/makereadyos-offset-preview.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"ruleId\":\"$OFFSET_AUTOMATION_ID\",\"propertyId\":\"$OPS_PROPERTY_ID\",\"limit\":5}" \
+      "http://localhost:${API_PORT:-4000}/api/automations/preview")"
+    OFFSET_RUN_STATUS="$(curl -s -o /tmp/makereadyos-offset-run.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -X POST "http://localhost:${API_PORT:-4000}/api/automations/$OFFSET_AUTOMATION_ID/run")"
+    curl -fsS -o /tmp/makereadyos-offset-items-after.json -b "$COOKIE_JAR" \
+      "http://localhost:${API_PORT:-4000}/api/make-ready-items?propertyId=$OPS_PROPERTY_ID&includeArchived=true&limit=200"
+    if [ "$CREATE_OFFSET_STATUS" != "201" ] || [ "$OFFSET_PREVIEW_STATUS" != "200" ] || [ "$OFFSET_RUN_STATUS" != "200" ]; then
+      cat "$OFFSET_AUTOMATION_JSON" /tmp/makereadyos-offset-preview.json /tmp/makereadyos-offset-run.json
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const preview=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const run=JSON.parse(fs.readFileSync(process.argv[2],"utf8")).execution; const items=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); const item=items.find((entry) => entry.id === process.argv[4]); if (!preview.preview || preview.matchingItemCount < 1 || !preview.affectedItems[0].proposedActions.some((action) => action.type === "setDateFromField") || run.actionCount < 1 || !item || !String(item.flooringDate || "").startsWith("2026-06-02")) process.exit(1);' /tmp/makereadyos-offset-preview.json /tmp/makereadyos-offset-run.json /tmp/makereadyos-offset-items-after.json "$OFFSET_ITEM_ID"
+    echo "Operating-calendar business-day date offset validation passed"
 
     TOGGLE_AUTOMATION_STATUS="$(curl -s -o /tmp/makereadyos-toggle-automation.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
@@ -1242,6 +1671,16 @@ NODE
       cat /tmp/makereadyos-update-field.json /tmp/makereadyos-value-field.json /tmp/makereadyos-reorder-field.json
       exit 1
     fi
+    CUSTOM_ITEM_QUERY_STATUS="$(curl -s -o /tmp/makereadyos-custom-item-query.json -b "$COOKIE_JAR" -w "%{http_code}" --get \
+      --data-urlencode "propertyId=$TEST_PROPERTY_ID" \
+      --data-urlencode "customFieldFilters=[{\"fieldId\":\"$TEST_FIELD_ID\",\"operator\":\"equals\",\"value\":\"PASSED\"}]" \
+      --data-urlencode "limit=10" \
+      "http://localhost:${API_PORT:-4000}/api/make-ready-items")"
+    if [ "$CUSTOM_ITEM_QUERY_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-custom-item-query.json
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const items=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const target=process.argv[2]; const field=process.argv[3]; if (!Array.isArray(items) || !items.some((item)=>item.id===target) || items.some((item)=>!item.customFieldValues.some((value)=>value.customFieldId===field && value.value==="PASSED"))) process.exit(1);' /tmp/makereadyos-custom-item-query.json "$TEST_ITEM_ID" "$TEST_FIELD_ID"
 
     echo "Checking saved view stores custom-field structured filters"
     CUSTOM_FILTER_VIEW_STATUS="$(curl -s -o /tmp/makereadyos-custom-filter-view.json -b "$COOKIE_JAR" -w "%{http_code}" \
@@ -1358,6 +1797,35 @@ NODE
       cat /tmp/makereadyos-archive-field.json
       exit 1
     fi
+    ACTIVE_FIELDS_AFTER_ARCHIVE_STATUS="$(curl -s -o /tmp/makereadyos-active-fields-after-archive.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/custom-fields")"
+    RESTORE_FIELD_STATUS="$(curl -s -o /tmp/makereadyos-restore-field.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -X POST \
+      "http://localhost:${API_PORT:-4000}/api/custom-fields/$TEST_FIELD_ID/restore")"
+    REARCHIVE_FIELD_STATUS="$(curl -s -o /tmp/makereadyos-rearchive-field.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -X DELETE \
+      "http://localhost:${API_PORT:-4000}/api/custom-fields/$TEST_FIELD_ID")"
+    TRASH_FIELD_STATUS="$(curl -s -o /tmp/makereadyos-trash-field.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -X POST \
+      "http://localhost:${API_PORT:-4000}/api/custom-fields/$TEST_FIELD_ID/trash")"
+    DELETED_FIELDS_STATUS="$(curl -s -o /tmp/makereadyos-deleted-fields.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/custom-fields?includeArchived=true&includeDeleted=true")"
+    META_AFTER_TRASH_STATUS="$(curl -s -o /tmp/makereadyos-meta-after-trash.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/meta")"
+    EARLY_PERMANENT_DELETE_STATUS="$(curl -s -o /tmp/makereadyos-permanent-field-early.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -X DELETE \
+      "http://localhost:${API_PORT:-4000}/api/custom-fields/$TEST_FIELD_ID/permanent")"
+    echo "Custom field lifecycle statuses: activeAfterArchive=$ACTIVE_FIELDS_AFTER_ARCHIVE_STATUS restore=$RESTORE_FIELD_STATUS rearchive=$REARCHIVE_FIELD_STATUS trash=$TRASH_FIELD_STATUS deletedList=$DELETED_FIELDS_STATUS metaAfterTrash=$META_AFTER_TRASH_STATUS earlyPermanentDelete=$EARLY_PERMANENT_DELETE_STATUS"
+    if [ "$ACTIVE_FIELDS_AFTER_ARCHIVE_STATUS" != "200" ] || [ "$RESTORE_FIELD_STATUS" != "200" ] || [ "$REARCHIVE_FIELD_STATUS" != "200" ] || [ "$TRASH_FIELD_STATUS" != "200" ] || [ "$DELETED_FIELDS_STATUS" != "200" ] || [ "$META_AFTER_TRASH_STATUS" != "200" ] || [ "$EARLY_PERMANENT_DELETE_STATUS" != "409" ]; then
+      cat /tmp/makereadyos-active-fields-after-archive.json /tmp/makereadyos-restore-field.json /tmp/makereadyos-rearchive-field.json /tmp/makereadyos-trash-field.json /tmp/makereadyos-deleted-fields.json /tmp/makereadyos-meta-after-trash.json /tmp/makereadyos-permanent-field-early.json
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const active=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const deleted=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const meta=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); const fieldId=process.argv[4]; if (active.fields.some((field) => field.id === fieldId)) process.exit(1); const trashed=deleted.fields.find((field) => field.id === fieldId); if (!trashed || !trashed.deletedAt || !trashed.deleteAfter) process.exit(1); if (meta.customFields.some((field) => field.id === fieldId)) process.exit(1);' /tmp/makereadyos-active-fields-after-archive.json /tmp/makereadyos-deleted-fields.json /tmp/makereadyos-meta-after-trash.json "$TEST_FIELD_ID"
+    echo "Custom field archive, restore, trash, and retention validation passed"
     echo "Checking optional synthetic large-data seed tooling"
     LARGE_SEED_COUNT=3 LARGE_SEED_PREFIX="QA-LARGE-${TIMESTAMP//-/}" ./seed-large.sh
     LARGE_ITEMS_STATUS="$(curl -s -o /tmp/makereadyos-large-items.json -b "$COOKIE_JAR" -w "%{http_code}" --get \
@@ -1677,11 +2145,12 @@ NODE
       /tmp/makereadyos-update-user.json /tmp/makereadyos-property-access.json /tmp/makereadyos-last-admin.json \
       /tmp/makereadyos-logout.json /tmp/makereadyos-non-admin.json /tmp/makereadyos-logout-all.json \
       "$TEST_FIELD_JSON" "$TEST_DATE_FIELD_JSON" "$CUSTOM_STATUS_RULE_JSON" "$CUSTOM_DATE_RULE_JSON" "$TEST_ITEM_JSON" /tmp/makereadyos-custom-fields.json /tmp/makereadyos-update-field.json \
-      /tmp/makereadyos-value-field.json /tmp/makereadyos-reorder-field.json /tmp/makereadyos-archive-field.json /tmp/makereadyos-tech-custom-fields.json \
+      /tmp/makereadyos-value-field.json /tmp/makereadyos-reorder-field.json /tmp/makereadyos-custom-item-query.json /tmp/makereadyos-archive-field.json /tmp/makereadyos-tech-custom-fields.json \
+      /tmp/makereadyos-active-fields-after-archive.json /tmp/makereadyos-restore-field.json /tmp/makereadyos-rearchive-field.json /tmp/makereadyos-trash-field.json /tmp/makereadyos-deleted-fields.json /tmp/makereadyos-meta-after-trash.json /tmp/makereadyos-permanent-field-early.json \
       /tmp/makereadyos-date-value-field.json /tmp/makereadyos-custom-status-preview.json /tmp/makereadyos-custom-status-manual.json /tmp/makereadyos-custom-date-preview.json /tmp/makereadyos-invalid-custom-rule.json /tmp/makereadyos-custom-date-scheduled-run.txt /tmp/makereadyos-custom-date-runs.json \
       /tmp/makereadyos-tech-custom-value.json /tmp/makereadyos-tech-activity.json /tmp/makereadyos-admin-automations.json \
       /tmp/makereadyos-risk-evaluate.json /tmp/makereadyos-risk-summary.json /tmp/makereadyos-risk-items.json /tmp/makereadyos-tech-risk-evaluate.json \
-      /tmp/makereadyos-item-query.json /tmp/makereadyos-attachment-invalid.json /tmp/makereadyos-large-items.json /tmp/makereadyos-large-dashboard.json /tmp/makereadyos-manager-items-denied.json \
+      /tmp/makereadyos-item-query.json /tmp/makereadyos-structured-item-query.json /tmp/makereadyos-attachment-invalid.json /tmp/makereadyos-attachment-metadata.json /tmp/makereadyos-attachment-markup.json /tmp/makereadyos-attachment-download.txt /tmp/makereadyos-attachment-archive.zip /tmp/makereadyos-attachment-delete.json /tmp/makereadyos-large-items.json /tmp/makereadyos-large-dashboard.json /tmp/makereadyos-manager-items-denied.json \
       /tmp/makereadyos-template-missing-setup.json /tmp/makereadyos-automations-after-template.json /tmp/makereadyos-toggle-automation.json /tmp/makereadyos-automation-runs.json /tmp/makereadyos-manager-automations.json /tmp/makereadyos-manager-run.json /tmp/makereadyos-manager-template-install.json \
       /tmp/makereadyos-tech-automations.json /tmp/makereadyos-viewer-automations.json /tmp/makereadyos-viewer-run.json /tmp/makereadyos-viewer-template-install.json /tmp/makereadyos-viewer-operations.json /tmp/makereadyos-tech-run.json /tmp/makereadyos-tech-template-install.json /tmp/makereadyos-tech-operations.json /tmp/makereadyos-manager-units.json /tmp/makereadyos-manager-unit-denied.json \
       /tmp/makereadyos-scheduled-run-first.txt /tmp/makereadyos-scheduled-run-second.txt /tmp/makereadyos-scheduled-runs-first.json /tmp/makereadyos-scheduled-runs-second.json \

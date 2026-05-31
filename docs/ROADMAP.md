@@ -18,7 +18,7 @@ MakeReadyOS is currently a feature-rich self-hosted operations platform. The nex
 - Move more structured filters and pagination to the API for larger portfolios.
 - Continue route/component code splitting as workspaces grow.
 - Add API timing and frontend render diagnostics behind debug flags.
-- Expand upload-volume backup examples for host-level snapshots and off-device storage.
+- Add an in-app read-only storage settings panel that shows current upload path, max upload size, and backup status without editing server environment variables.
 - Rehearse restore flows on disposable databases before releases.
 
 ## Operational Depth
@@ -29,11 +29,11 @@ MakeReadyOS is currently a feature-rich self-hosted operations platform. The nex
 - Add resident/lease awareness carefully without becoming a leasing/accounting system.
 - Build operational/property templates for onboarding new properties.
 - Deepen the Planning workspace into a richer week/whiteboard mode for upcoming move-outs, vendor planning, and workload balancing.
-- Add unit-directory import/copy-paste workflows for RealPage/Yardi-style exports so properties can track total units, occupancy percentage, and target/budgeted occupancy goals.
+- Add unit-directory import/copy-paste workflows for property-management availability exports so properties can track total units, occupancy percentage, and target/budgeted occupancy goals.
 
 ## Integrations And API Ecosystem
 
-- Generate OpenAPI docs from route schemas or a central contract.
+- Expand the current `/api/openapi.json` baseline with generated schemas from route validation.
 - Add API token usage analytics and stronger shared rate limiting for public deployments.
 - Implement signed webhook delivery with queue, retry, timeout, and delivery attempt logs.
 - Publish JSON schemas for operational library packs and native backup files.
@@ -50,8 +50,8 @@ MakeReadyOS is currently a feature-rich self-hosted operations platform. The nex
 
 ## Mobile And Offline
 
-- Improve field workflow for photo upload, checklist completion, comments, and quick status changes.
-- Add weak-connection UX states and retry messaging.
+- Continue improving field workflow for photo upload, checklist completion, comments, and quick status changes.
+- Expand weak-connection UX beyond the current offline/API retry banner into operation-specific retry states.
 - Design offline queue/sync for comments, checklist changes, photos, and limited status updates.
 - Consider PWA install prompts after offline strategy is defined.
 

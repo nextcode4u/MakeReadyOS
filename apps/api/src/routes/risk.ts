@@ -3,10 +3,10 @@ import type { RiskLevel, RiskReason } from "../lib/risk.js";
 import { z } from "zod";
 import { allowedPropertyIds } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
-import { evaluateAndPersistItemRisk, evaluateItemRisk, riskLevels } from "../lib/risk.js";
+import { defaultRiskPolicy, evaluateAndPersistItemRisk, evaluateItemRisk, normalizeRiskPolicy, riskLevels } from "../lib/risk.js";
 import { prisma } from "../lib/prisma.js";
 
-const querySchema = z.object({
+export const riskQuerySchema = z.object({
   propertyId: z.string().optional(),
   level: z.enum(riskLevels).optional(),
   category: z.string().optional(),
@@ -14,11 +14,29 @@ const querySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-const evaluateSchema = z.object({
+export const riskEvaluateSchema = z.object({
   propertyId: z.string().optional(),
   itemIds: z.array(z.string()).max(200).optional(),
   notify: z.boolean().optional().default(true),
 });
+
+export const riskPolicyPayloadSchema = z.object({
+  moveInCriticalDays: z.number().int().min(0).max(30).optional(),
+  moveInHighDays: z.number().int().min(0).max(60).optional(),
+  moveInMediumDays: z.number().int().min(0).max(90).optional(),
+  unassignedHighDays: z.number().int().min(0).max(90).optional(),
+  staleActivityDays: z.number().int().min(1).max(90).optional(),
+  agingMediumDays: z.number().int().min(1).max(365).optional(),
+  agingHighDays: z.number().int().min(1).max(365).optional(),
+  vendorNearMoveInDays: z.number().int().min(0).max(90).optional(),
+  checklistNearMoveInDays: z.number().int().min(0).max(90).optional(),
+  planningNearMoveInDays: z.number().int().min(0).max(90).optional(),
+}).refine((value) => {
+  const merged = normalizeRiskPolicy(value);
+  return merged.moveInCriticalDays <= merged.moveInHighDays
+    && merged.moveInHighDays <= merged.moveInMediumDays
+    && merged.agingMediumDays <= merged.agingHighDays;
+}, { message: "Risk thresholds must increase from critical to medium and medium aging to high aging." });
 
 function assertPropertyScope(user: NonNullable<Parameters<typeof allowedPropertyIds>[0]>, propertyId?: string) {
   const accessible = allowedPropertyIds(user);
@@ -27,8 +45,60 @@ function assertPropertyScope(user: NonNullable<Parameters<typeof allowedProperty
 }
 
 export async function riskRoutes(app: FastifyInstance) {
+  app.get("/risk/policies", async (request, reply) => {
+    const query = z.object({ propertyId: z.string().optional() }).parse(request.query);
+    const scope = assertPropertyScope(request.currentUser!, query.propertyId);
+    if (scope.denied) {
+      reply.code(403);
+      return { message: "Property access denied" };
+    }
+    const properties = await prisma.property.findMany({
+      where: { id: scope.propertyId, isActive: true },
+      include: { riskPolicy: true },
+      orderBy: { code: "asc" },
+    });
+    return {
+      defaults: defaultRiskPolicy,
+      policies: properties.map((property) => ({
+        property,
+        policy: normalizeRiskPolicy(property.riskPolicy),
+        customized: Boolean(property.riskPolicy),
+      })),
+    };
+  });
+
+  app.put("/risk/policies/:propertyId", async (request, reply) => {
+    if (request.currentUser!.role !== "ADMIN" && request.currentUser!.role !== "MANAGER") {
+      reply.code(403);
+      return { message: "Manager or admin access required" };
+    }
+    const params = z.object({ propertyId: z.string() }).parse(request.params);
+    const scope = assertPropertyScope(request.currentUser!, params.propertyId);
+    if (scope.denied) {
+      reply.code(403);
+      return { message: "Property access denied" };
+    }
+    const payload = riskPolicyPayloadSchema.parse(request.body ?? {});
+    const policy = await prisma.propertyRiskPolicy.upsert({
+      where: { propertyId: params.propertyId },
+      create: { propertyId: params.propertyId, ...normalizeRiskPolicy(payload) },
+      update: payload,
+    });
+    await writeAuditLog({
+      request,
+      actorUserId: request.currentUser!.id,
+      propertyId: params.propertyId,
+      entityType: "RISK_POLICY",
+      entityId: policy.id,
+      action: "RISK_POLICY_UPDATED",
+      message: "Updated property risk policy thresholds",
+      metadata: { policy: normalizeRiskPolicy(policy) },
+    });
+    return { policy: normalizeRiskPolicy(policy) };
+  });
+
   app.get("/risk/summary", async (request, reply) => {
-    const query = querySchema.parse(request.query);
+    const query = riskQuerySchema.parse(request.query);
     const scope = assertPropertyScope(request.currentUser!, query.propertyId);
     if (scope.denied) {
       reply.code(403);
@@ -43,7 +113,9 @@ export async function riskRoutes(app: FastifyInstance) {
         checklistInstances: { include: { items: true } },
       },
     });
-    const evaluated = items.map((item) => ({ item, risk: evaluateItemRisk(item) }));
+    const policies = await prisma.propertyRiskPolicy.findMany({ where: { propertyId: scope.propertyId } });
+    const policyByProperty = new Map(policies.map((policy) => [policy.propertyId, policy]));
+    const evaluated = items.map((item) => ({ item, risk: evaluateItemRisk(item, new Date(), policyByProperty.get(item.propertyId)) }));
     const byLevel = Object.fromEntries(riskLevels.map((level) => [level, evaluated.filter((entry) => entry.risk.riskLevel === level).length]));
     const byCategory = evaluated.reduce<Record<string, number>>((acc, entry) => {
       for (const reason of entry.risk.riskReasons) acc[reason.category] = (acc[reason.category] ?? 0) + 1;
@@ -94,7 +166,7 @@ export async function riskRoutes(app: FastifyInstance) {
   });
 
   app.get("/risk/items", async (request, reply) => {
-    const query = querySchema.parse(request.query);
+    const query = riskQuerySchema.parse(request.query);
     const scope = assertPropertyScope(request.currentUser!, query.propertyId);
     if (scope.denied) {
       reply.code(403);
@@ -118,7 +190,9 @@ export async function riskRoutes(app: FastifyInstance) {
       skip: query.offset,
       take: query.limit,
     });
-    const evaluated = items.map((item) => ({ ...item, ...evaluateItemRisk(item) }))
+    const policies = await prisma.propertyRiskPolicy.findMany({ where: { propertyId: { in: [...new Set(items.map((item) => item.propertyId))] } } });
+    const policyByProperty = new Map(policies.map((policy) => [policy.propertyId, policy]));
+    const evaluated = items.map((item) => ({ ...item, ...evaluateItemRisk(item, new Date(), policyByProperty.get(item.propertyId)) }))
       .filter((item) => !query.category || item.riskReasons.some((reason) => reason.category === query.category));
     return { items: evaluated, pagination: { limit: query.limit, offset: query.offset, hasMore: items.length === query.limit } };
   });
@@ -128,7 +202,7 @@ export async function riskRoutes(app: FastifyInstance) {
       reply.code(403);
       return { message: "Manager or admin access required" };
     }
-    const payload = evaluateSchema.parse(request.body ?? {});
+    const payload = riskEvaluateSchema.parse(request.body ?? {});
     const scope = assertPropertyScope(request.currentUser!, payload.propertyId);
     if (scope.denied) {
       reply.code(403);

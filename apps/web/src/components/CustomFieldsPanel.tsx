@@ -24,6 +24,9 @@ type Props = {
   onCreate: (input: { label: string; fieldType: CustomFieldType; description: string | null; options?: EditableOption[] }) => Promise<void>;
   onUpdate: (id: string, input: { label: string; fieldType: CustomFieldType; description: string | null; options?: EditableOption[] }) => Promise<void>;
   onArchive: (id: string) => Promise<void>;
+  onRestore: (id: string) => Promise<void>;
+  onTrash: (id: string) => Promise<void>;
+  onPermanentDelete: (id: string) => Promise<void>;
   onReorder: (fieldIds: string[]) => Promise<void>;
 };
 
@@ -35,12 +38,15 @@ function startingOption(): EditableOption {
   return { label: "", color: "#58a6de", sortOrder: 0, isArchived: false };
 }
 
-export function CustomFieldsPanel({ fields, loading, message, error, onCreate, onUpdate, onArchive, onReorder }: Props) {
-  const activeFields = useMemo(() => fields.filter((field) => !field.isArchived), [fields]);
-  const archivedFields = useMemo(() => fields.filter((field) => field.isArchived), [fields]);
+export function CustomFieldsPanel({ fields, loading, message, error, onCreate, onUpdate, onArchive, onRestore, onTrash, onPermanentDelete, onReorder }: Props) {
+  const activeFields = useMemo(() => fields.filter((field) => !field.isArchived && !field.deletedAt), [fields]);
+  const archivedFields = useMemo(() => fields.filter((field) => field.isArchived && !field.deletedAt), [fields]);
+  const trashedFields = useMemo(() => fields.filter((field) => field.deletedAt), [fields]);
   const [selectedId, setSelectedId] = useState("");
   const [creating, setCreating] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<CustomField | null>(null);
+  const [trashTarget, setTrashTarget] = useState<CustomField | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<CustomField | null>(null);
   const [draft, setDraft] = useState<{
     label: string;
     fieldType: CustomFieldType;
@@ -52,7 +58,7 @@ export function CustomFieldsPanel({ fields, loading, message, error, onCreate, o
 
   useEffect(() => {
     if (creating) return;
-    const field = selectedField ?? activeFields[0];
+    const field = selectedField ?? activeFields[0] ?? archivedFields[0] ?? trashedFields[0];
     if (!field) return;
     if (!selectedField) setSelectedId(field.id);
     setDraft({
@@ -61,7 +67,7 @@ export function CustomFieldsPanel({ fields, loading, message, error, onCreate, o
       description: field.description ?? "",
       options: field.options.map((option) => ({ ...option })),
     });
-  }, [activeFields, creating, selectedField]);
+  }, [activeFields, archivedFields, creating, selectedField, trashedFields]);
 
   const beginCreate = () => {
     setCreating(true);
@@ -125,21 +131,91 @@ export function CustomFieldsPanel({ fields, loading, message, error, onCreate, o
             ))}
           </div>
         )}
-        {archivedFields.length > 0 ? <p className="subtitle">{archivedFields.length} archived field{archivedFields.length === 1 ? "" : "s"} retained for historical values.</p> : null}
+        {archivedFields.length > 0 ? (
+          <div className="field-archive-section" data-testid="archived-custom-fields">
+            <h3>Archived Fields</h3>
+            <p className="subtitle">Hidden from active board setup, retained for historical values.</p>
+            <div className="field-definition-list">
+              {archivedFields.map((field) => (
+                <div className={selectedId === field.id && !creating ? "field-definition active" : "field-definition"} key={field.id}>
+                  <button type="button" data-testid={`archived-custom-field-item-${field.fieldKey}`} onClick={() => {
+                    setCreating(false);
+                    setSelectedId(field.id);
+                  }}>
+                    <strong>{field.label}</strong>
+                    <small>{fieldTypes.find((type) => type.value === field.fieldType)?.label ?? field.fieldType}</small>
+                  </button>
+                  <div className="field-order-controls">
+                    <button type="button" disabled={loading} onClick={() => void onRestore(field.id)}>Restore</button>
+                    <button type="button" disabled={loading} onClick={() => setTrashTarget(field)}>Trash</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        <div className="field-archive-section" data-testid="custom-field-trash">
+          <h3>Trash Can</h3>
+          <p className="subtitle">Trashed fields are retained for 7 days before permanent deletion is allowed.</p>
+          {trashedFields.length === 0 ? (
+            <p className="subtitle">Trash is empty.</p>
+          ) : (
+            <div className="field-definition-list">
+              {trashedFields.map((field) => {
+                const deleteAfter = field.deleteAfter ? new Date(field.deleteAfter) : null;
+                const canDelete = Boolean(deleteAfter && deleteAfter <= new Date());
+                return (
+                  <div className={selectedId === field.id && !creating ? "field-definition active" : "field-definition"} key={field.id}>
+                    <button type="button" data-testid={`trashed-custom-field-item-${field.fieldKey}`} onClick={() => {
+                      setCreating(false);
+                      setSelectedId(field.id);
+                    }}>
+                      <strong>{field.label}</strong>
+                      <small>{deleteAfter ? `Delete after ${deleteAfter.toLocaleDateString()}` : "Retention pending"}</small>
+                    </button>
+                    <div className="field-order-controls">
+                      <button type="button" disabled={loading} onClick={() => void onRestore(field.id)}>Restore</button>
+                      <button type="button" disabled={loading || !canDelete} onClick={() => setDeleteTarget(field)}>Delete</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </section>
 
       <section className="custom-field-editor">
         <header className="admin-section-head">
           <h3>{creating ? "Create Field" : selectedField ? "Edit Field" : "Field Setup"}</h3>
-          {!creating && selectedField ? (
-            <button type="button" className="button button-danger" data-testid="custom-field-archive" onClick={() => setArchiveTarget(selectedField)}>
-              Archive Field
-            </button>
+          {!creating && selectedField && !selectedField.deletedAt ? (
+            <div className="admin-actions">
+              {selectedField.isArchived ? (
+                <button type="button" className="button button-secondary" data-testid="custom-field-restore" onClick={() => void onRestore(selectedField.id)}>
+                  Restore Field
+                </button>
+              ) : (
+                <button type="button" className="button button-danger" data-testid="custom-field-archive" onClick={() => setArchiveTarget(selectedField)}>
+                  Archive Field
+                </button>
+              )}
+              {selectedField.isArchived ? (
+                <button type="button" className="button button-danger" data-testid="custom-field-trash-button" onClick={() => setTrashTarget(selectedField)}>
+                  Move to Trash
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </header>
         {message ? <div className="admin-message success">{message}</div> : null}
         {error ? <div className="admin-message error">{error}</div> : null}
-        {!creating && !selectedField ? (
+        {!creating && selectedField?.deletedAt ? (
+          <StatusState
+            title="Field is in trash"
+            description="Restore this field to edit it. Permanent deletion is only available after the 7-day retention window."
+            tone="subtle"
+          />
+        ) : !creating && !selectedField ? (
           <StatusState title="Choose a field" description="Select an existing column or create a new configurable field." tone="subtle" />
         ) : (
           <div className="custom-field-form">
@@ -209,6 +285,34 @@ export function CustomFieldsPanel({ fields, loading, message, error, onCreate, o
           if (!archiveTarget) return;
           await onArchive(archiveTarget.id);
           setArchiveTarget(null);
+          setSelectedId("");
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(trashTarget)}
+        title="Move custom field to trash"
+        description={`Move ${trashTarget?.label ?? "this field"} to trash? It will stay recoverable for 7 days before permanent deletion is available.`}
+        confirmLabel="Move to Trash"
+        tone="danger"
+        onClose={() => setTrashTarget(null)}
+        onConfirm={async () => {
+          if (!trashTarget) return;
+          await onTrash(trashTarget.id);
+          setTrashTarget(null);
+          setSelectedId("");
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="Permanently delete custom field"
+        description={`Permanently delete ${deleteTarget?.label ?? "this field"}? This cannot be undone after the retention window.`}
+        confirmLabel="Delete Permanently"
+        tone="danger"
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          await onPermanentDelete(deleteTarget.id);
+          setDeleteTarget(null);
           setSelectedId("");
         }}
       />

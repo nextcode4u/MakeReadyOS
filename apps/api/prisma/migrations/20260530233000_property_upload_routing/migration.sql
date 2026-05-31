@@ -1,0 +1,2 @@
+ALTER TABLE "Property" ADD COLUMN "uploadStorageMode" TEXT NOT NULL DEFAULT 'DEFAULT';
+ALTER TABLE "Property" ADD COLUMN "uploadSubdir" TEXT;

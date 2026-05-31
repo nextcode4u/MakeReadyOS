@@ -6,28 +6,29 @@ import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
 
 const moduleName = "make-ready";
-const fieldTypeSchema = z.nativeEnum(CustomFieldType);
-const optionSchema = z.object({
+export const customFieldTypeSchema = z.nativeEnum(CustomFieldType);
+export const customFieldOptionInputSchema = z.object({
   id: z.string().optional(),
   label: z.string().trim().min(1).max(80),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#58a6de"),
   sortOrder: z.number().int().min(0).optional(),
   isArchived: z.boolean().default(false),
 });
-const createFieldSchema = z.object({
+export const customFieldCreateSchema = z.object({
   label: z.string().trim().min(2).max(120),
   fieldKey: z.string().regex(/^[a-z][a-zA-Z0-9]*$/).optional(),
-  fieldType: fieldTypeSchema,
+  fieldType: customFieldTypeSchema,
   description: z.string().trim().max(280).nullable().optional(),
-  options: z.array(optionSchema).optional(),
+  options: z.array(customFieldOptionInputSchema).optional(),
 });
-const updateFieldSchema = createFieldSchema.partial();
-const reorderSchema = z.object({
+export const customFieldUpdateSchema = customFieldCreateSchema.partial();
+export const customFieldReorderSchema = z.object({
   fieldIds: z.array(z.string()).min(1),
 });
-const valueSchema = z.object({
+export const customFieldValueSchema = z.object({
   value: z.unknown().nullable(),
 });
+const trashRetentionDays = 7;
 
 function serializeField(field: {
   id: string;
@@ -38,6 +39,8 @@ function serializeField(field: {
   description: string | null;
   sortOrder: number;
   isArchived: boolean;
+  deletedAt?: Date | string | null;
+  deleteAfter?: Date | string | null;
   options: Array<{
     id: string;
     label: string;
@@ -46,7 +49,11 @@ function serializeField(field: {
     isArchived: boolean;
   }>;
 }) {
-  return field;
+  return {
+    ...field,
+    deletedAt: field.deletedAt ? new Date(field.deletedAt).toISOString() : null,
+    deleteAfter: field.deleteAfter ? new Date(field.deleteAfter).toISOString() : null,
+  };
 }
 
 function slugFieldKey(label: string) {
@@ -80,7 +87,7 @@ async function requireFieldManager(request: FastifyRequest, reply: FastifyReply)
 async function syncOptions(
   tx: Prisma.TransactionClient,
   fieldId: string,
-  options: Array<z.infer<typeof optionSchema>>,
+  options: Array<z.infer<typeof customFieldOptionInputSchema>>,
 ) {
   const existing = await tx.customFieldOption.findMany({ where: { customFieldId: fieldId } });
   const knownIds = new Set(existing.map((option) => option.id));
@@ -184,11 +191,15 @@ async function validatedValue(field: {
 export async function customFieldRoutes(app: FastifyInstance) {
   app.get("/custom-fields", async (request, reply) => {
     if (!(await requireFieldManager(request, reply))) return;
-    const query = z.object({ includeArchived: z.coerce.boolean().default(false) }).parse(request.query);
+    const query = z.object({
+      includeArchived: z.coerce.boolean().default(false),
+      includeDeleted: z.coerce.boolean().default(false),
+    }).parse(request.query);
     const fields = await prisma.customField.findMany({
       where: {
         module: moduleName,
         isArchived: query.includeArchived ? undefined : false,
+        deletedAt: query.includeDeleted ? undefined : null,
       },
       include: { options: { orderBy: { sortOrder: "asc" } } },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -199,7 +210,7 @@ export async function customFieldRoutes(app: FastifyInstance) {
   app.post("/custom-fields", async (request, reply) => {
     if (!(await requireFieldManager(request, reply))) return;
     const user = request.currentUser!;
-    const payload = createFieldSchema.parse(request.body);
+    const payload = customFieldCreateSchema.parse(request.body);
     if (usesOptions(payload.fieldType) && (!payload.options || payload.options.length === 0)) {
       reply.code(400);
       return { message: "Select fields require at least one option" };
@@ -240,9 +251,9 @@ export async function customFieldRoutes(app: FastifyInstance) {
     if (!(await requireFieldManager(request, reply))) return;
     const user = request.currentUser!;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const payload = updateFieldSchema.parse(request.body);
-    const existing = await prisma.customField.findUnique({
-      where: { id },
+    const payload = customFieldUpdateSchema.parse(request.body);
+    const existing = await prisma.customField.findFirst({
+      where: { id, deletedAt: null },
       include: { options: true, _count: { select: { values: true } } },
     });
     if (!existing || existing.module !== moduleName) {
@@ -289,7 +300,7 @@ export async function customFieldRoutes(app: FastifyInstance) {
     if (!(await requireFieldManager(request, reply))) return;
     const user = request.currentUser!;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const existing = await prisma.customField.findFirst({ where: { id, module: moduleName } });
+    const existing = await prisma.customField.findFirst({ where: { id, module: moduleName, deletedAt: null } });
     if (!existing) {
       reply.code(404);
       return { message: "Custom field not found" };
@@ -306,11 +317,89 @@ export async function customFieldRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  app.post("/custom-fields/:id/restore", async (request, reply) => {
+    if (!(await requireFieldManager(request, reply))) return;
+    const user = request.currentUser!;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.customField.findFirst({ where: { id, module: moduleName } });
+    if (!existing) {
+      reply.code(404);
+      return { message: "Custom field not found" };
+    }
+    const restored = await prisma.customField.update({
+      where: { id },
+      data: { isArchived: false, deletedAt: null, deleteAfter: null },
+    });
+    await writeAuditLog({
+      request,
+      actorUserId: user.id,
+      entityType: "CUSTOM_FIELD",
+      entityId: restored.id,
+      action: "CUSTOM_FIELD_RESTORED",
+      message: `Restored custom field ${restored.label}`,
+    });
+    return { ok: true };
+  });
+
+  app.post("/custom-fields/:id/trash", async (request, reply) => {
+    if (!(await requireFieldManager(request, reply))) return;
+    const user = request.currentUser!;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.customField.findFirst({ where: { id, module: moduleName, deletedAt: null } });
+    if (!existing) {
+      reply.code(404);
+      return { message: "Custom field not found" };
+    }
+    const deletedAt = new Date();
+    const deleteAfter = new Date(deletedAt.getTime() + trashRetentionDays * 24 * 60 * 60 * 1000);
+    const trashed = await prisma.customField.update({
+      where: { id },
+      data: { isArchived: true, deletedAt, deleteAfter },
+    });
+    await writeAuditLog({
+      request,
+      actorUserId: user.id,
+      entityType: "CUSTOM_FIELD",
+      entityId: trashed.id,
+      action: "CUSTOM_FIELD_MOVED_TO_TRASH",
+      message: `Moved custom field ${trashed.label} to trash`,
+      metadata: { deleteAfter: deleteAfter.toISOString() },
+    });
+    return { ok: true, deleteAfter: deleteAfter.toISOString() };
+  });
+
+  app.delete("/custom-fields/:id/permanent", async (request, reply) => {
+    if (!(await requireFieldManager(request, reply))) return;
+    const user = request.currentUser!;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.customField.findFirst({
+      where: { id, module: moduleName, deletedAt: { not: null } },
+    });
+    if (!existing) {
+      reply.code(404);
+      return { message: "Custom field is not in trash" };
+    }
+    if (!existing.deleteAfter || existing.deleteAfter > new Date()) {
+      reply.code(409);
+      return { message: "Custom fields are retained in trash for 7 days before permanent deletion" };
+    }
+    await prisma.customField.delete({ where: { id } });
+    await writeAuditLog({
+      request,
+      actorUserId: user.id,
+      entityType: "CUSTOM_FIELD",
+      entityId: id,
+      action: "CUSTOM_FIELD_PERMANENTLY_DELETED",
+      message: `Permanently deleted custom field ${existing.label}`,
+    });
+    return { ok: true };
+  });
+
   app.put("/custom-fields/reorder", async (request, reply) => {
     if (!(await requireFieldManager(request, reply))) return;
     const user = request.currentUser!;
-    const { fieldIds } = reorderSchema.parse(request.body);
-    const count = await prisma.customField.count({ where: { id: { in: fieldIds }, module: moduleName, isArchived: false } });
+    const { fieldIds } = customFieldReorderSchema.parse(request.body);
+    const count = await prisma.customField.count({ where: { id: { in: fieldIds }, module: moduleName, isArchived: false, deletedAt: null } });
     if (count !== fieldIds.length) {
       reply.code(400);
       return { message: "One or more fields cannot be reordered" };
@@ -331,7 +420,7 @@ export async function customFieldRoutes(app: FastifyInstance) {
     if (!(await requireFieldManager(request, reply))) return;
     const user = request.currentUser!;
     const { itemId, fieldId } = z.object({ itemId: z.string(), fieldId: z.string() }).parse(request.params);
-    const payload = valueSchema.parse(request.body);
+    const payload = customFieldValueSchema.parse(request.body);
     const propertyIds = allowedPropertyIds(user);
     const [item, field] = await Promise.all([
       prisma.makeReadyItem.findUnique({ where: { id: itemId } }),

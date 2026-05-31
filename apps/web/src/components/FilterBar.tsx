@@ -1,6 +1,8 @@
 import type { CurrentUser, Property } from "../lib/api";
+import type { ClockMode } from "../lib/dateTime";
 
 export type ThemeMode = "default" | "dark" | "light";
+export type ArchiveMode = "active" | "archived" | "all";
 
 type Props = {
   properties: Property[];
@@ -21,12 +23,14 @@ type Props = {
   onCompactModeChange: (value: boolean) => void;
   themeMode: ThemeMode;
   onThemeModeChange: (value: ThemeMode) => void;
+  clockMode: ClockMode;
+  onClockModeChange: (value: ClockMode) => void;
   eyeStrainMode: boolean;
   onEyeStrainModeChange: (value: boolean) => void;
   dyslexiaMode: boolean;
   onDyslexiaModeChange: (value: boolean) => void;
-  showArchivedItems: boolean;
-  onShowArchivedItemsChange: (value: boolean) => void;
+  archiveMode: ArchiveMode;
+  onArchiveModeChange: (value: ArchiveMode) => void;
   notificationUnreadCount: number;
   onOpenNotifications: () => void;
   onOpenCommandPalette: () => void;
@@ -53,12 +57,14 @@ export function FilterBar({
   onCompactModeChange,
   themeMode,
   onThemeModeChange,
+  clockMode,
+  onClockModeChange,
   eyeStrainMode,
   onEyeStrainModeChange,
   dyslexiaMode,
   onDyslexiaModeChange,
-  showArchivedItems,
-  onShowArchivedItemsChange,
+  archiveMode,
+  onArchiveModeChange,
   notificationUnreadCount,
   onOpenNotifications,
   onOpenCommandPalette,
@@ -196,6 +202,13 @@ export function FilterBar({
             <option value="light">Light theme</option>
           </select>
         </label>
+        <label className="toolbar-select compact-clock-select" title="Choose timestamp display">
+          <span className="sr-only">Clock</span>
+          <select data-testid="clock-mode-select" aria-label="Clock mode" value={clockMode} onChange={(event) => onClockModeChange(event.target.value as ClockMode)}>
+            <option value="12h">12 hr</option>
+            <option value="24h">24 hr</option>
+          </select>
+        </label>
         <label className="compact-toggle" title="Soften high-contrast surfaces for extended viewing">
           <input
             data-testid="eye-strain-mode-toggle"
@@ -217,14 +230,13 @@ export function FilterBar({
           Dyslexia
         </label>
         {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
-          <label className="compact-toggle" title="Include archived turnover records in board views">
-            <input
-              data-testid="show-archived-items-toggle"
-              type="checkbox"
-              checked={showArchivedItems}
-              onChange={(event) => onShowArchivedItemsChange(event.target.checked)}
-            />
-            Archived
+          <label className="toolbar-select archive-mode-select" title="Choose active turns, archive history, or both">
+            <span className="sr-only">Archive mode</span>
+            <select data-testid="top-archive-mode" aria-label="Archive mode" value={archiveMode} onChange={(event) => onArchiveModeChange(event.target.value as ArchiveMode)}>
+              <option value="active">Active items</option>
+              <option value="archived">Archive only</option>
+              <option value="all">Active + archive</option>
+            </select>
           </label>
         ) : null}
         <a data-testid="export-csv" className="button button-secondary export-button" href="/api/export/make-ready.csv">

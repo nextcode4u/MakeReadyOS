@@ -23,11 +23,34 @@ function parseOrigins(value: string) {
     .filter(Boolean);
 }
 
+function parseList(value?: string) {
+  return (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+const booleanEnv = z.preprocess((value) => {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+  }
+  return value;
+}, z.boolean());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   ADMIN_EMAIL: z.string().email("ADMIN_EMAIL must be a valid email address"),
   ADMIN_PASSWORD: z.string().min(1, "ADMIN_PASSWORD is required"),
   SESSION_COOKIE_SECRET: z.string().min(32, "SESSION_COOKIE_SECRET must be at least 32 characters"),
+  WEBHOOK_SECRET_ENCRYPTION_KEY: z.string().min(32, "WEBHOOK_SECRET_ENCRYPTION_KEY must be at least 32 characters").optional().or(z.literal("")),
+  WEBHOOK_DELIVERY_BATCH_SIZE: z.coerce.number().int().min(1).max(250).default(25),
+  WEBHOOK_DELIVERY_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).default(5000),
+  WEBHOOK_DELIVERY_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(5),
+  WEBHOOK_AUTO_DISABLE_FAILURES: z.coerce.number().int().min(0).max(1000).default(0),
+  WEBHOOK_ALLOW_PRIVATE_URLS: booleanEnv.default(true),
+  WEBHOOK_ALLOWED_HOSTS: z.string().optional().or(z.literal("")),
   SESSION_COOKIE_NAME: z
     .string()
     .min(1, "SESSION_COOKIE_NAME is required")
@@ -90,6 +113,13 @@ export const authConfig = {
   demoCleanerEmail: parsed.DEMO_CLEANER_EMAIL?.trim().toLowerCase() || null,
   demoCleanerPassword: parsed.DEMO_CLEANER_PASSWORD || null,
   sessionCookieSecret: parsed.SESSION_COOKIE_SECRET,
+  webhookSecretEncryptionKey: parsed.WEBHOOK_SECRET_ENCRYPTION_KEY || parsed.SESSION_COOKIE_SECRET,
+  webhookDeliveryBatchSize: parsed.WEBHOOK_DELIVERY_BATCH_SIZE,
+  webhookDeliveryTimeoutMs: parsed.WEBHOOK_DELIVERY_TIMEOUT_MS,
+  webhookDeliveryMaxAttempts: parsed.WEBHOOK_DELIVERY_MAX_ATTEMPTS,
+  webhookAutoDisableFailures: parsed.WEBHOOK_AUTO_DISABLE_FAILURES,
+  webhookAllowPrivateUrls: parsed.WEBHOOK_ALLOW_PRIVATE_URLS,
+  webhookAllowedHosts: parseList(parsed.WEBHOOK_ALLOWED_HOSTS),
   sessionCookieName: parsed.SESSION_COOKIE_NAME,
   sessionCookieSameSite: parsed.SESSION_COOKIE_SAME_SITE,
   sessionTtlDays: parsed.SESSION_TTL_DAYS,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AutomationAction, AutomationCondition, AutomationPreviewResponse, AutomationRule, AutomationRun, AutomationTemplate, AutomationTriggerType, CustomField, OperationalLibraryPack, Property, PropertyTemplate, PropertyTemplateInclude, UserRole } from "../lib/api";
+import { formatDateTime } from "../lib/dateTime";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusState } from "./StatusState";
 
@@ -11,12 +12,13 @@ const triggers: Array<{ value: AutomationTriggerType; label: string }> = [
   { value: "SCHEDULED_CHECK", label: "Scheduled check" },
 ];
 const conditionFields = ["moveInDate", "makeReadyDate", "vacatedDate", "vacancyStatus", "completionStatus", "scopeLevel", "pestStatus", "floorsStatus", "makeReadyStatus", "cleaningStatus", "overdue", "moveInSoon"];
-const builtInOperators: AutomationCondition["operator"][] = ["equals", "notEquals", "in", "isEmpty", "notEmpty", "dateBefore", "dateAfter", "dateBeforeToday", "dateAfterToday", "dateWithinNextDays", "dateMissing"];
-const noValueOperators: AutomationCondition["operator"][] = ["isEmpty", "notEmpty", "dateBeforeToday", "dateAfterToday", "dateMissing"];
+const builtInOperators: AutomationCondition["operator"][] = ["equals", "notEquals", "in", "isEmpty", "notEmpty", "dateBefore", "dateAfter", "dateBeforeToday", "dateAfterToday", "dateWithinNextDays", "dateMissing", "dateOnWeekend", "dateOnMondayOrFriday"];
+const noValueOperators: AutomationCondition["operator"][] = ["isEmpty", "notEmpty", "dateBeforeToday", "dateAfterToday", "dateMissing", "dateOnWeekend", "dateOnMondayOrFriday"];
 const settableFields = ["vacancyStatus", "completionStatus", "scopeLevel", "pestTreated", "makeReadyStatus", "cleaningStatus", "paintStatus", "doorsStatus", "notes"];
+const dateActionFields = ["moveOutDate", "vacatedDate", "makeReadyDate", "flooringDate", "moveInDate"];
 
 type DraftCondition = { field: string; operator: AutomationCondition["operator"]; value: string };
-type DraftAction = { type: AutomationAction["type"]; field: string; fieldId: string; value: string };
+type DraftAction = { type: AutomationAction["type"]; field: string; fieldId: string; value: string; sourceField: string; targetField: string; offsetDays: string };
 type Draft = {
   name: string;
   description: string;
@@ -68,7 +70,7 @@ function emptyDraft(role: UserRole, properties: Property[]): Draft {
     triggerType: "ITEM_UPDATED",
     enabled: true,
     conditions: [{ field: "completionStatus", operator: "notEquals", value: "DONE" }],
-    actions: [{ type: "addAuditNote", field: "vacancyStatus", fieldId: "", value: "Automation attention required." }],
+    actions: [{ type: "addAuditNote", field: "vacancyStatus", fieldId: "", value: "Automation attention required.", sourceField: "makeReadyDate", targetField: "flooringDate", offsetDays: "1" }],
   };
 }
 
@@ -82,7 +84,10 @@ function toDraft(rule: AutomationRule): Draft {
     type: action.type,
     field: "field" in action ? action.field : "vacancyStatus",
     fieldId: "fieldId" in action ? action.fieldId : "",
-    value: Array.isArray(action.value) ? action.value.join(", ") : String(action.value ?? ""),
+    value: "value" in action ? (Array.isArray(action.value) ? action.value.join(", ") : String(action.value ?? "")) : "",
+    sourceField: "sourceField" in action ? action.sourceField : "makeReadyDate",
+    targetField: "targetField" in action ? action.targetField : "flooringDate",
+    offsetDays: "offsetDays" in action ? String(action.offsetDays) : "1",
   }));
   return {
     name: rule.name,
@@ -104,7 +109,7 @@ function operatorsForTarget(target: string, customFields: CustomField[]): Automa
   if (!field) return builtInOperators;
   switch (field.fieldType) {
     case "DATE":
-      return ["dateBeforeToday", "dateAfterToday", "dateWithinNextDays", "equals", "notEquals", "isEmpty", "notEmpty", "dateMissing"];
+      return ["dateBeforeToday", "dateAfterToday", "dateWithinNextDays", "dateOnWeekend", "dateOnMondayOrFriday", "equals", "notEquals", "isEmpty", "notEmpty", "dateMissing"];
     case "MULTI_SELECT":
       return ["contains", "isEmpty", "notEmpty"];
     default:
@@ -142,6 +147,7 @@ function draftPayload(draft: Draft, customFields: CustomField[]) {
   const actions: AutomationAction[] = draft.actions.map((action) => {
     if (action.type === "setField") return { type: "setField", field: action.field, value: action.value || null };
     if (action.type === "setCustomField") return { type: "setCustomField", fieldId: action.fieldId, value: action.value || null };
+    if (action.type === "setDateFromField") return { type: "setDateFromField", sourceField: action.sourceField, targetField: action.targetField, offsetDays: Number(action.offsetDays || 0), respectOperatingCalendar: true };
     if (action.type === "setPriority") return { type: "setPriority", value: Number(action.value || 0) };
     return { type: action.type, value: action.value };
   });
@@ -154,6 +160,15 @@ function draftPayload(draft: Draft, customFields: CustomField[]) {
     conditions: { all: conditions },
     actions,
   };
+}
+
+function isActionIncomplete(action: DraftAction) {
+  if (action.type === "setCustomField") return !action.fieldId || !action.value.trim();
+  if (action.type === "setDateFromField") {
+    const offset = Number(action.offsetDays);
+    return !action.sourceField || !action.targetField || action.sourceField === action.targetField || !Number.isInteger(offset) || offset < -60 || offset > 60;
+  }
+  return !action.value.trim();
 }
 
 function humanize(value: string) {
@@ -657,20 +672,43 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
             <section className="automation-builder span-full">
               <div className="admin-section-head">
                 <strong>Actions</strong>
-                <button className="button button-secondary" type="button" disabled={!creating && !canEditSelected} onClick={() => setDraft((current) => ({ ...current, actions: [...current.actions, { type: "addAuditNote", field: "vacancyStatus", fieldId: "", value: "" }] }))}>Add Action</button>
+                <button className="button button-secondary" type="button" disabled={!creating && !canEditSelected} onClick={() => setDraft((current) => ({ ...current, actions: [...current.actions, { type: "addAuditNote", field: "vacancyStatus", fieldId: "", value: "", sourceField: "makeReadyDate", targetField: "flooringDate", offsetDays: "1" }] }))}>Add Action</button>
               </div>
               {draft.actions.map((action, index) => (
                 <div className="automation-builder-row" key={`action-${index}`}>
                   <select data-testid={`automation-action-type-${index}`} disabled={!creating && !canEditSelected} value={action.type} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, type: event.target.value as AutomationAction["type"] } : entry) }))}>
                     <option value="setField">Set field value</option>
+                    <option value="setDateFromField">Set date from operating offset</option>
                     <option value="setCustomField">Set custom field value</option>
                     <option value="addAuditNote">Add activity note</option>
                     {draft.triggerType !== "SCHEDULED_CHECK" ? <option value="setPriority">Set priority (existing)</option> : null}
                     {draft.triggerType !== "SCHEDULED_CHECK" ? <option value="appendNote">Append item note (existing)</option> : null}
                   </select>
                   {action.type === "setField" ? <select disabled={!creating && !canEditSelected} value={action.field} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, field: event.target.value } : entry) }))}>{settableFields.map((field) => <option key={field} value={field}>{humanize(field)}</option>)}</select> : null}
+                  {action.type === "setDateFromField" ? (
+                    <>
+                      <select data-testid={`automation-action-source-field-${index}`} disabled={!creating && !canEditSelected} value={action.sourceField} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, sourceField: event.target.value } : entry) }))}>
+                        {dateActionFields.map((field) => <option key={field} value={field}>From {humanize(field)}</option>)}
+                      </select>
+                      <select data-testid={`automation-action-target-field-${index}`} disabled={!creating && !canEditSelected} value={action.targetField} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, targetField: event.target.value } : entry) }))}>
+                        {dateActionFields.map((field) => <option key={field} value={field}>Set {humanize(field)}</option>)}
+                      </select>
+                      <input
+                        type="number"
+                        data-testid={`automation-action-offset-days-${index}`}
+                        disabled={!creating && !canEditSelected}
+                        value={action.offsetDays}
+                        min={-60}
+                        max={60}
+                        placeholder="Operating days"
+                        onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, offsetDays: event.target.value } : entry) }))}
+                      />
+                    </>
+                  ) : null}
                   {action.type === "setCustomField" ? <select disabled={!creating && !canEditSelected} value={action.fieldId} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, fieldId: event.target.value } : entry) }))}><option value="">Choose field</option>{customFields.map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}</select> : null}
-                  <input data-testid={`automation-action-value-${index}`} disabled={!creating && !canEditSelected} value={action.value} placeholder={action.type === "addAuditNote" ? "Activity note" : "Value"} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, value: event.target.value } : entry) }))} />
+                  {action.type !== "setDateFromField" ? (
+                    <input data-testid={`automation-action-value-${index}`} disabled={!creating && !canEditSelected} value={action.value} placeholder={action.type === "addAuditNote" ? "Activity note" : "Value"} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, value: event.target.value } : entry) }))} />
+                  ) : <span className="subtitle">Uses property operating calendar rules</span>}
                   <button className="icon-button" type="button" aria-label="Remove action" disabled={draft.actions.length === 1 || (!creating && !canEditSelected)} onClick={() => setDraft((current) => ({ ...current, actions: current.actions.filter((_, entryIndex) => entryIndex !== index) }))}>x</button>
                 </div>
               ))}
@@ -683,7 +721,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                     className="button button-secondary"
                     data-testid="automation-preview-draft"
                     type="button"
-                    disabled={loading || !draft.name.trim() || incompleteCondition || draft.actions.some((action) => !action.value.trim() || (action.type === "setCustomField" && !action.fieldId))}
+                    disabled={loading || !draft.name.trim() || incompleteCondition || draft.actions.some(isActionIncomplete)}
                     onClick={() => void onPreviewDraft(draftPayload(draft, customFields))}
                   >Preview Draft</button>
                 ) : null}
@@ -691,7 +729,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                   className="button button-primary"
                   data-testid="automation-save"
                   type="button"
-                  disabled={loading || !draft.name.trim() || incompleteCondition || draft.actions.some((action) => !action.value.trim() || (action.type === "setCustomField" && !action.fieldId))}
+                  disabled={loading || !draft.name.trim() || incompleteCondition || draft.actions.some(isActionIncomplete)}
                   onClick={async () => {
                     const input = draftPayload(draft, customFields);
                     if (creating) {
@@ -751,7 +789,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                 <strong><span className={`automation-run-type ${run.runType.toLowerCase()}`}>{run.runType}</span>{run.rule.name}</strong>
                 <span>{run.message}</span>
                 <span>{run.item ? `${run.item.property.code} / ${run.item.unitNumber}` : run.checkedCount === null ? "No linked item" : `${run.checkedCount} checked / ${run.matchedCount ?? 0} matched / ${run.actionCount ?? 0} actions`}</span>
-                <time>{new Date(run.ranAt).toLocaleString()}</time>
+                <time>{formatDateTime(run.ranAt)}</time>
               </div>
             ))}
           </div>

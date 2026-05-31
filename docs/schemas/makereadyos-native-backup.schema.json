@@ -1,0 +1,286 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://makereadyos.local/schemas/makereadyos-native-backup.schema.json",
+  "title": "MakeReadyOS Native Backup",
+  "description": "Versioned JSON envelope for MakeReadyOS-to-MakeReadyOS operational transfer. It intentionally excludes credentials, sessions, audit logs, and uploaded file bytes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "exportedAt", "source", "data"],
+  "properties": {
+    "format": { "const": "makereadyos.backup" },
+    "version": { "const": 1 },
+    "exportedAt": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["app"],
+      "properties": {
+        "app": { "const": "MakeReadyOS" },
+        "schemaVersion": { "type": "string" }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "properties",
+        "units",
+        "makeReadyItems",
+        "customFields",
+        "customFieldOptions",
+        "customFieldValues",
+        "savedViews",
+        "automationRules",
+        "checklistTemplates",
+        "notes"
+      ],
+      "properties": {
+        "properties": { "type": "array", "items": { "$ref": "#/$defs/property" } },
+        "floorPlans": { "type": "array", "items": { "$ref": "#/$defs/floorPlan" }, "default": [] },
+        "boardOptions": { "type": "array", "items": { "$ref": "#/$defs/boardOption" }, "default": [] },
+        "boardColumns": { "type": "array", "items": { "$ref": "#/$defs/fieldLabel" }, "default": [] },
+        "boardSections": { "type": "array", "items": { "$ref": "#/$defs/boardSection" }, "default": [] },
+        "scheduleTracks": { "type": "array", "items": { "$ref": "#/$defs/scheduleTrack" }, "default": [] },
+        "operatingCalendars": { "type": "array", "items": { "$ref": "#/$defs/operatingCalendar" }, "default": [] },
+        "riskPolicies": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "default": [] },
+        "units": { "type": "array", "items": { "$ref": "#/$defs/unit" } },
+        "makeReadyItems": { "type": "array", "items": { "$ref": "#/$defs/makeReadyItem" } },
+        "customFields": { "type": "array", "items": { "$ref": "#/$defs/customField" } },
+        "customFieldOptions": { "type": "array", "items": { "$ref": "#/$defs/customFieldOption" } },
+        "customFieldValues": { "type": "array", "items": { "$ref": "#/$defs/customFieldValue" } },
+        "savedViews": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "automationRules": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "checklistTemplates": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "chargePriceSheetItems": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "default": [] },
+        "comments": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "default": [] },
+        "vendors": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "default": [] },
+        "vendorAssignments": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "default": [] },
+        "propertyMaps": { "type": "array", "items": { "$ref": "#/$defs/propertyMap" }, "default": [] },
+        "propertyMapAreas": { "type": "array", "items": { "$ref": "#/$defs/propertyMapArea" }, "default": [] },
+        "unitMapLocations": { "type": "array", "items": { "$ref": "#/$defs/unitMapLocation" }, "default": [] },
+        "checklistInstances": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "default": [] },
+        "notes": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "propertyTemplates": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "default": [] }
+      }
+    }
+  },
+  "$defs": {
+    "hexColor": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+    "nullableString": { "type": ["string", "null"] },
+    "property": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["code", "name"],
+      "properties": {
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "occupancyGoalPercent": { "type": ["number", "null"] },
+        "uploadStorageMode": { "enum": ["DEFAULT", "PROPERTY_SUBDIR"] },
+        "uploadSubdir": { "$ref": "#/$defs/nullableString" },
+        "isActive": { "type": "boolean" }
+      }
+    },
+    "floorPlan": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["propertyCode", "name"],
+      "properties": {
+        "propertyCode": { "type": "string" },
+        "name": { "type": "string" },
+        "bedrooms": { "type": ["number", "null"] },
+        "bathrooms": { "type": ["number", "null"] },
+        "squareFeet": { "type": ["integer", "null"] },
+        "description": { "$ref": "#/$defs/nullableString" },
+        "isActive": { "type": "boolean" }
+      }
+    },
+    "boardOption": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["fieldKey", "value", "color"],
+      "properties": {
+        "fieldKey": { "type": "string" },
+        "value": { "type": "string" },
+        "color": { "$ref": "#/$defs/hexColor" },
+        "textColor": { "$ref": "#/$defs/hexColor" },
+        "sortOrder": { "type": "integer" },
+        "isArchived": { "type": "boolean" }
+      }
+    },
+    "fieldLabel": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["fieldKey", "label"],
+      "properties": {
+        "fieldKey": { "type": "string" },
+        "label": { "type": "string" }
+      }
+    },
+    "boardSection": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["propertyCode", "key", "sectionType", "displayName"],
+      "properties": {
+        "propertyCode": { "type": "string" },
+        "key": { "type": "string" },
+        "sectionType": { "enum": ["READY", "MAKE_READY", "DOWN", "ARCHIVE"] },
+        "displayName": { "type": "string" },
+        "sortOrder": { "type": "integer" },
+        "isActive": { "type": "boolean" }
+      }
+    },
+    "scheduleTrack": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["sourceField", "displayName"],
+      "properties": {
+        "sourceField": { "type": "string" },
+        "displayName": { "type": "string" },
+        "colorBasis": { "type": "string" },
+        "colorSourceField": { "$ref": "#/$defs/nullableString" },
+        "fixedColor": { "anyOf": [{ "$ref": "#/$defs/hexColor" }, { "type": "null" }] },
+        "groupingMode": { "type": "string" },
+        "visibilityFilter": true,
+        "overdueEnabled": { "type": "boolean" },
+        "moveInSoonEnabled": { "type": "boolean" },
+        "isEnabled": { "type": "boolean" },
+        "isArchived": { "type": "boolean" },
+        "sortOrder": { "type": "integer" }
+      }
+    },
+    "operatingCalendar": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["propertyCode"],
+      "properties": {
+        "propertyCode": { "type": "string" },
+        "name": { "type": "string" },
+        "timezone": { "type": "string" },
+        "noWeekendScheduling": { "type": "boolean" },
+        "avoidMondayScheduling": { "type": "boolean" },
+        "avoidFridayScheduling": { "type": "boolean" },
+        "maintenanceStartMinute": { "type": "integer" },
+        "maintenanceEndMinute": { "type": "integer" },
+        "vendorLeadDays": { "type": "integer" },
+        "dailyScheduledUnitLimit": { "type": "integer" },
+        "scopeDay": { "type": ["integer", "null"] },
+        "workStartDay": { "type": ["integer", "null"] },
+        "autoPopulateEnabled": { "type": "boolean" },
+        "notes": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "unit": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["propertyCode", "number"],
+      "properties": {
+        "propertyCode": { "type": "string" },
+        "number": { "type": "string" },
+        "floorPlan": { "$ref": "#/$defs/nullableString" },
+        "building": { "$ref": "#/$defs/nullableString" },
+        "area": { "$ref": "#/$defs/nullableString" },
+        "floor": { "$ref": "#/$defs/nullableString" },
+        "availabilityStatus": { "$ref": "#/$defs/nullableString" },
+        "budgeted": { "type": "boolean" },
+        "isActive": { "type": "boolean" }
+      }
+    },
+    "makeReadyItem": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["portableKey", "propertyCode", "unitNumber", "boardGroup"],
+      "properties": {
+        "portableKey": { "type": "string" },
+        "propertyCode": { "type": "string" },
+        "unitNumber": { "type": "string" },
+        "boardGroup": { "type": "string" },
+        "floorPlan": { "$ref": "#/$defs/nullableString" },
+        "applicant": { "$ref": "#/$defs/nullableString" },
+        "assignedTech": { "$ref": "#/$defs/nullableString" },
+        "vacancyStatus": { "$ref": "#/$defs/nullableString" },
+        "makeReadyStatus": { "$ref": "#/$defs/nullableString" },
+        "moveOutDate": { "$ref": "#/$defs/nullableString" },
+        "moveInDate": { "$ref": "#/$defs/nullableString" },
+        "isArchived": { "type": "boolean" }
+      }
+    },
+    "customField": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["fieldKey", "label", "fieldType"],
+      "properties": {
+        "fieldKey": { "type": "string" },
+        "label": { "type": "string" },
+        "fieldType": { "type": "string" },
+        "description": { "$ref": "#/$defs/nullableString" },
+        "sortOrder": { "type": "integer" },
+        "isArchived": { "type": "boolean" }
+      }
+    },
+    "customFieldOption": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["fieldKey", "label", "color"],
+      "properties": {
+        "fieldKey": { "type": "string" },
+        "label": { "type": "string" },
+        "color": { "$ref": "#/$defs/hexColor" },
+        "sortOrder": { "type": "integer" },
+        "isArchived": { "type": "boolean" }
+      }
+    },
+    "customFieldValue": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["itemKey", "fieldKey"],
+      "properties": {
+        "itemKey": { "type": "string" },
+        "fieldKey": { "type": "string" },
+        "value": true
+      }
+    },
+    "propertyMap": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["propertyCode", "name"],
+      "properties": {
+        "propertyCode": { "type": "string" },
+        "name": { "type": "string" },
+        "fileName": { "$ref": "#/$defs/nullableString" },
+        "notes": { "$ref": "#/$defs/nullableString" },
+        "isActive": { "type": "boolean" }
+      }
+    },
+    "propertyMapArea": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["propertyCode", "mapName", "name"],
+      "properties": {
+        "propertyCode": { "type": "string" },
+        "mapName": { "type": "string" },
+        "name": { "type": "string" },
+        "xPercent": { "type": "number" },
+        "yPercent": { "type": "number" },
+        "expectedUnitCount": { "type": ["integer", "null"] }
+      }
+    },
+    "unitMapLocation": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["propertyCode", "mapName", "unitNumber", "xPercent", "yPercent"],
+      "properties": {
+        "propertyCode": { "type": "string" },
+        "mapName": { "type": "string" },
+        "unitNumber": { "type": "string" },
+        "xPercent": { "type": "number" },
+        "yPercent": { "type": "number" },
+        "labelXPercent": { "type": ["number", "null"] },
+        "labelYPercent": { "type": ["number", "null"] },
+        "building": { "$ref": "#/$defs/nullableString" },
+        "area": { "$ref": "#/$defs/nullableString" },
+        "floor": { "$ref": "#/$defs/nullableString" },
+        "isActive": { "type": "boolean" }
+      }
+    }
+  }
+}

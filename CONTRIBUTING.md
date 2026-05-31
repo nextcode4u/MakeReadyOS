@@ -87,6 +87,8 @@ Include:
 - how it was tested
 - any follow-up work still needed
 
+Use `.github/PULL_REQUEST_TEMPLATE.md` as the checklist for normal changes. Release candidates should also follow `docs/RELEASE_PROCESS.md` and `docs/RELEASE_CHECKLIST.md`.
+
 ## Documentation
 
 If you add a user-facing feature, update the relevant file in `docs/`.

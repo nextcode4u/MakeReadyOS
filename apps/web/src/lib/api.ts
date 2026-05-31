@@ -1,6 +1,15 @@
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api";
 let csrfToken: string | null = null;
 
+function notifyApiUnreachable(path: string, method: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.dispatchEvent(new CustomEvent("makereadyos:api-unreachable", {
+    detail: { path, method, at: new Date().toISOString() },
+  }));
+}
+
 export class ApiError extends Error {
   status: number;
 
@@ -50,6 +59,27 @@ export type ScheduleTrack = {
   isEnabled: boolean;
   isArchived: boolean;
   sortOrder: number;
+};
+
+export type OperatingCalendar = {
+  id: string;
+  propertyId: string;
+  name: string;
+  timezone: string;
+  noWeekendScheduling: boolean;
+  avoidMondayScheduling: boolean;
+  avoidFridayScheduling: boolean;
+  maintenanceStartMinute: number;
+  maintenanceEndMinute: number;
+  vendorLeadDays: number;
+  dailyScheduledUnitLimit: number | null;
+  scopeDay: number | null;
+  workStartDay: number | null;
+  autoPopulateEnabled: boolean;
+  notes: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  property: Property;
 };
 
 export type ManagedUser = {
@@ -103,6 +133,7 @@ export type Property = {
   id: string;
   name: string;
   code: string;
+  occupancyGoalPercent: number | null;
   isActive: boolean;
   _count?: { units: number; makeReadyItems: number };
 };
@@ -138,8 +169,12 @@ export type WebhookEventType =
   | "item.created"
   | "item.updated"
   | "item.assigned"
+  | "item.archived"
+  | "item.restored"
   | "item.risk.changed"
   | "comment.created"
+  | "attachment.created"
+  | "attachment.deleted"
   | "vendor.assignment.updated"
   | "checklist.completed";
 
@@ -152,10 +187,44 @@ export type WebhookEndpointRecord = {
   isEnabled: boolean;
   lastDeliveryAt: string | null;
   failureCount: number;
+  deliveryAttemptCount?: number;
   createdAt: string;
   updatedAt: string;
   createdBy: { id: string; fullName: string; email: string };
   properties: Array<Pick<Property, "id" | "name" | "code">>;
+};
+
+export type WebhookDeliveryAttempt = {
+  id: string;
+  webhookId: string;
+  eventType: WebhookEventType;
+  status: "PENDING" | "DELIVERED" | "FAILED" | "GAVE_UP" | "DRY_RUN";
+  deliveryId: string;
+  payload: unknown;
+  headers: unknown;
+  attemptNumber: number;
+  responseStatus: number | null;
+  responseBody: string | null;
+  errorMessage: string | null;
+  nextAttemptAt: string | null;
+  deliveredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WebhookHealthResponse = {
+  webhook: WebhookEndpointRecord;
+  health: {
+    state: "READY" | "PENDING" | "FAILING" | "DISABLED";
+    total: number;
+    pendingCount: number;
+    statusCounts: Record<string, number>;
+    eventCounts: Record<string, number>;
+    failureCount: number;
+    lastDeliveryAt: string | null;
+    oldestPendingAt: string | null;
+    latestFailure: WebhookDeliveryAttempt | null;
+  };
 };
 
 export type IntegrationsResponse = {
@@ -165,6 +234,50 @@ export type IntegrationsResponse = {
   webhooks: WebhookEndpointRecord[];
   properties: Array<Pick<Property, "id" | "name" | "code">>;
   webhookDelivery: "scaffolded" | "enabled";
+};
+
+export type StorageSettingsResponse = {
+  storage: {
+    mode: "HOST_PATH" | "DOCKER_VOLUME";
+    uploadDir: string;
+    hostPath: string;
+    maxUploadMb: number;
+    uploadLimitDisabled: boolean;
+    uploadLimitLabel: string;
+    bundledProxyLimit: string;
+    activationRequiresRestart: boolean;
+    current: {
+      uploadDir: string;
+      writable: boolean;
+      freeBytes: number | null;
+      totalBytes: number | null;
+      error: string | null;
+    };
+    notes: string[];
+    propertyRouting: Array<{
+      id: string;
+      code: string;
+      name: string;
+      uploadStorageMode: "DEFAULT" | "PROPERTY_SUBDIR";
+      uploadSubdir: string | null;
+      effectiveSubdir: string | null;
+      suggestedSubdir: string;
+    }>;
+  };
+};
+
+export type StorageValidationResponse = {
+  normalizedPath: string;
+  safe: boolean;
+  errors: string[];
+  warnings: string[];
+  commands: null | {
+    dryRun: string;
+    move: string;
+    env: string;
+    restart: string;
+    backup: string;
+  };
 };
 
 export type BoardSection = {
@@ -205,7 +318,12 @@ export type AnalyticsSummaryResponse = {
     completedThisMonth: number;
     overdue: number;
     highRisk: number;
+    criticalRisk: number;
+    slaMisses: number;
+    staleRiskItems: number;
   };
+  riskByLevel: Record<string, number>;
+  riskByCategory: Record<string, number>;
   propertyComparison: Record<string, { active: number; overdue: number; highRisk: number; averageDaysVacant: number }>;
   trends: Array<{ date: string; property: Property; activeTurns: number; overdue: number; highRisk: number; averageDaysVacant: number; completedTurnsCount: number }>;
   recurringProblemUnits: Array<{ unitId: string | null; unitNumber: string; property: Property; turnCount: number; score: number; signals: Record<string, number> }>;
@@ -234,6 +352,19 @@ export type RiskSummaryResponse = {
   byAssignedTech: Record<string, { total: number; highOrCritical: number }>;
   topRiskItems: Array<{ itemId: string; unitNumber: string; property: Property; riskScore: number; riskLevel: string; riskReasons: RiskReason[] }>;
   trend: { available: boolean; message: string };
+};
+
+export type RiskPolicy = {
+  moveInCriticalDays: number;
+  moveInHighDays: number;
+  moveInMediumDays: number;
+  unassignedHighDays: number;
+  staleActivityDays: number;
+  agingMediumDays: number;
+  agingHighDays: number;
+  vendorNearMoveInDays: number;
+  checklistNearMoveInDays: number;
+  planningNearMoveInDays: number;
 };
 
 export type NotificationRecord = {
@@ -355,7 +486,37 @@ export type ItemAttachment = {
   mimeType: string;
   sizeBytes: number;
   note: string | null;
+  inspectionStage: string;
+  category: string | null;
+  chargeCandidate: boolean;
+  chargeNote: string | null;
+  chargePriceSheetItemId: string | null;
+  chargePriceSheetItem: ChargePriceSheetItem | null;
+  chargeQuantity: number | null;
+  chargeEstimatedCents: number | null;
+  markupAnnotations: Array<{
+    id: string;
+    x: number;
+    y: number;
+    label: string;
+    note?: string | null;
+    category?: string | null;
+    chargeCandidate?: boolean;
+  }> | null;
   createdAt: string;
+};
+
+export type ChargePriceSheetItem = {
+  id: string;
+  propertyId: string;
+  name: string;
+  category: string | null;
+  unitLabel: string | null;
+  defaultCents: number | null;
+  description: string | null;
+  isActive: boolean;
+  isArchived: boolean;
+  sortOrder: number;
 };
 
 export type ChecklistTemplate = {
@@ -425,7 +586,7 @@ export type ActivityResponse = {
 };
 
 export type AutomationTriggerType = "ITEM_CREATED" | "ITEM_UPDATED" | "DATE_FIELD_CHANGED" | "STATUS_FIELD_CHANGED" | "SCHEDULED_CHECK";
-export type AutomationConditionOperator = "equals" | "notEquals" | "in" | "contains" | "isEmpty" | "notEmpty" | "dateBefore" | "dateAfter" | "dateBeforeToday" | "dateAfterToday" | "dateWithinNextDays" | "dateMissing";
+export type AutomationConditionOperator = "equals" | "notEquals" | "in" | "contains" | "isEmpty" | "notEmpty" | "dateBefore" | "dateAfter" | "dateBeforeToday" | "dateAfterToday" | "dateWithinNextDays" | "dateMissing" | "dateOnWeekend" | "dateOnMondayOrFriday";
 export type AutomationCondition = {
   field?: string;
   customFieldId?: string;
@@ -436,6 +597,7 @@ export type AutomationAction =
   | { type: "setField"; field: string; value: string | null }
   | { type: "setCustomField"; fieldId: string; value: string | number | boolean | string[] | null }
   | { type: "addAuditNote"; value: string }
+  | { type: "setDateFromField"; sourceField: string; targetField: string; offsetDays: number; respectOperatingCalendar?: boolean }
   | { type: "setPriority"; value: number }
   | { type: "appendNote"; value: string };
 export type AutomationRule = {
@@ -642,6 +804,8 @@ export type CustomField = {
   description: string | null;
   sortOrder: number;
   isArchived: boolean;
+  deletedAt: string | null;
+  deleteAfter: string | null;
   options: CustomFieldOption[];
 };
 
@@ -656,6 +820,11 @@ export type Unit = {
   squareFeet: number | null;
   bedrooms?: number | null;
   bathrooms?: number | null;
+  occupancyStatus: "OCCUPIED" | "VACANT_READY" | "VACANT_LEASED" | "VACANT_NOT_LEASED" | "NTV" | "NTV_LEASED" | "DOWN" | "MODEL" | "UNKNOWN";
+  building: string | null;
+  area: string | null;
+  floor: string | null;
+  isBudgeted: boolean;
   isActive: boolean;
   _count?: { makeReadyItems: number };
 };
@@ -691,6 +860,25 @@ export type UnitMapLocation = {
   isActive: boolean;
   isArchived: boolean;
   unit: Unit;
+  property: Property;
+  map: PropertyMap;
+};
+
+export type PropertyMapArea = {
+  id: string;
+  propertyId: string;
+  mapId: string;
+  name: string;
+  areaType: string;
+  xPercent: number;
+  yPercent: number;
+  widthPercent: number | null;
+  heightPercent: number | null;
+  color: string | null;
+  expectedUnitCount: number | null;
+  notes: string | null;
+  isActive: boolean;
+  isArchived: boolean;
   property: Property;
   map: PropertyMap;
 };
@@ -769,15 +957,21 @@ export type MetaResponse = {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method || "GET").toUpperCase();
   const hasJsonBody = init?.body !== undefined && init?.body !== null && !(init.body instanceof FormData);
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    credentials: "include",
-    headers: {
-      ...(hasJsonBody ? { "Content-Type": "application/json" } : {}),
-      ...(csrfToken && !["GET", "HEAD", "OPTIONS"].includes(method) ? { "X-CSRF-Token": csrfToken } : {}),
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      credentials: "include",
+      headers: {
+        ...(hasJsonBody ? { "Content-Type": "application/json" } : {}),
+        ...(csrfToken && !["GET", "HEAD", "OPTIONS"].includes(method) ? { "X-CSRF-Token": csrfToken } : {}),
+        ...(init?.headers ?? {}),
+      },
+      ...init,
+    });
+  } catch {
+    notifyApiUnreachable(path, method);
+    throw new ApiError(0, "Could not reach the MakeReadyOS API. If this happened during photo upload, confirm the app is running and that any external reverse proxy allows large request bodies.");
+  }
 
   if (!response.ok) {
     let message = `Request failed: ${response.status}`;
@@ -838,6 +1032,18 @@ export function getUnitHistory(unitId: string) {
 export function getRiskSummary(propertyId?: string) {
   const params = propertyId ? `?propertyId=${encodeURIComponent(propertyId)}` : "";
   return request<RiskSummaryResponse>(`/risk/summary${params}`);
+}
+
+export function getRiskPolicies(propertyId?: string) {
+  const params = propertyId ? `?propertyId=${encodeURIComponent(propertyId)}` : "";
+  return request<{ defaults: RiskPolicy; policies: Array<{ property: Property; policy: RiskPolicy; customized: boolean }> }>(`/risk/policies${params}`);
+}
+
+export function updateRiskPolicy(propertyId: string, policy: Partial<RiskPolicy>) {
+  return request<{ policy: RiskPolicy }>(`/risk/policies/${propertyId}`, {
+    method: "PUT",
+    body: JSON.stringify(policy),
+  });
 }
 
 export function evaluateRisk(input: { propertyId?: string; itemIds?: string[]; notify?: boolean }) {
@@ -901,12 +1107,49 @@ export function attachmentDownloadUrl(id: string) {
   return `${apiBaseUrl}/attachments/${encodeURIComponent(id)}/download`;
 }
 
+export function attachmentArchiveUrl(itemId: string, filter?: { stage?: string; category?: string | null }) {
+  const params = new URLSearchParams();
+  if (filter?.stage) params.set("stage", filter.stage);
+  if (filter?.category) params.set("category", filter.category);
+  const query = params.toString();
+  return `${apiBaseUrl}/make-ready-items/${encodeURIComponent(itemId)}/attachments/archive${query ? `?${query}` : ""}`;
+}
+
 export function deleteItemAttachment(id: string) {
   return request<{ ok: true }>(`/attachments/${id}`, { method: "DELETE" });
 }
 
-export function updateItemAttachment(id: string, note: string | null) {
-  return request<{ attachment: ItemAttachment }>(`/attachments/${id}`, { method: "PATCH", body: JSON.stringify({ note }) });
+export function updateItemAttachment(id: string, input: {
+  note?: string | null;
+  inspectionStage?: string;
+  category?: string | null;
+  chargeCandidate?: boolean;
+  chargeNote?: string | null;
+  chargePriceSheetItemId?: string | null;
+  chargeQuantity?: number | null;
+  chargeEstimatedCents?: number | null;
+  markupAnnotations?: ItemAttachment["markupAnnotations"];
+}) {
+  return request<{ attachment: ItemAttachment }>(`/attachments/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function getChargePriceSheetItems(propertyId?: string, includeArchived = false) {
+  const params = new URLSearchParams();
+  if (propertyId) params.set("propertyId", propertyId);
+  if (includeArchived) params.set("includeArchived", "true");
+  const query = params.toString();
+  return request<{ items: ChargePriceSheetItem[] }>(`/charge-price-sheet-items${query ? `?${query}` : ""}`);
+}
+
+export function createChargePriceSheetItem(input: {
+  propertyId: string;
+  name: string;
+  category?: string | null;
+  unitLabel?: string | null;
+  defaultCents?: number | null;
+  description?: string | null;
+}) {
+  return request<{ item: ChargePriceSheetItem }>("/charge-price-sheet-items", { method: "POST", body: JSON.stringify(input) });
 }
 
 export function createChecklistTemplate(input: {
@@ -959,6 +1202,28 @@ export function getAdminUsers() {
 
 export function getAdminProperties() {
   return request<{ properties: Property[] }>("/admin/properties");
+}
+
+export function getStorageSettings() {
+  return request<StorageSettingsResponse>("/admin/storage");
+}
+
+export function validateStoragePath(hostPath: string) {
+  return request<StorageValidationResponse>("/admin/storage/validate", {
+    method: "POST",
+    body: JSON.stringify({ hostPath }),
+  });
+}
+
+export function updatePropertyStorageRouting(input: {
+  propertyId: string;
+  uploadStorageMode: "DEFAULT" | "PROPERTY_SUBDIR";
+  uploadSubdir?: string | null;
+}) {
+  return request<{ property: StorageSettingsResponse["storage"]["propertyRouting"][number] }>("/admin/storage/property-routing", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 export function createAdminUser(input: {
@@ -1184,8 +1449,8 @@ export function runAutomationNow(id: string) {
   });
 }
 
-export function getCustomFields(includeArchived = false) {
-  return request<{ fields: CustomField[] }>(`/custom-fields?includeArchived=${includeArchived}`);
+export function getCustomFields(includeArchived = false, includeDeleted = false) {
+  return request<{ fields: CustomField[] }>(`/custom-fields?includeArchived=${includeArchived}&includeDeleted=${includeDeleted}`);
 }
 
 export function createCustomField(input: {
@@ -1214,6 +1479,24 @@ export function updateCustomField(id: string, input: Partial<{
 
 export function archiveCustomField(id: string) {
   return request<{ ok: true }>(`/custom-fields/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function restoreCustomField(id: string) {
+  return request<{ ok: true }>(`/custom-fields/${id}/restore`, {
+    method: "POST",
+  });
+}
+
+export function trashCustomField(id: string) {
+  return request<{ ok: true; deleteAfter: string }>(`/custom-fields/${id}/trash`, {
+    method: "POST",
+  });
+}
+
+export function permanentlyDeleteCustomField(id: string) {
+  return request<{ ok: true }>(`/custom-fields/${id}/permanent`, {
     method: "DELETE",
   });
 }
@@ -1286,6 +1569,28 @@ export function getMakeReadyItems(filters: {
   includeArchived?: boolean;
   boardGroup?: string;
   section?: string;
+  boardSection?: string;
+  vacancyStatus?: string;
+  assignedTech?: string;
+  scopeLevel?: string;
+  makeReadyStatus?: string;
+  riskLevel?: string;
+  riskCategory?: string;
+  moveInWindow?: "week" | "7" | "14" | "";
+  overdueOnly?: boolean;
+  missingDatesOnly?: boolean;
+  pestIssuesOnly?: boolean;
+  flooringNeededOnly?: boolean;
+  paintNeededOnly?: boolean;
+  moveInRiskOnly?: boolean;
+  customFieldFilters?: Array<{
+    fieldId: string;
+    operator: string;
+    value?: string | number | boolean | null;
+    valueTo?: string | null;
+  }>;
+  sortBy?: "boardGroup" | "unitNumber" | "moveInDate" | "makeReadyDate" | "vacatedDate" | "flooringDate" | "daysVacant" | "riskScore" | "riskLevel" | "assignedTech" | "updatedAt" | "createdAt";
+  sortDirection?: "asc" | "desc";
   updatedSince?: string;
   limit?: number;
   offset?: number;
@@ -1296,10 +1601,103 @@ export function getMakeReadyItems(filters: {
   if (filters.includeArchived) params.set("includeArchived", "true");
   if (filters.boardGroup) params.set("boardGroup", filters.boardGroup);
   if (filters.section) params.set("section", filters.section);
+  if (filters.boardSection) params.set("boardSection", filters.boardSection);
+  if (filters.vacancyStatus) params.set("vacancyStatus", filters.vacancyStatus);
+  if (filters.assignedTech) params.set("assignedTech", filters.assignedTech);
+  if (filters.scopeLevel) params.set("scopeLevel", filters.scopeLevel);
+  if (filters.makeReadyStatus) params.set("makeReadyStatus", filters.makeReadyStatus);
+  if (filters.riskLevel) params.set("riskLevel", filters.riskLevel);
+  if (filters.riskCategory) params.set("riskCategory", filters.riskCategory);
+  if (filters.moveInWindow) params.set("moveInWindow", filters.moveInWindow);
+  if (filters.overdueOnly) params.set("overdueOnly", "true");
+  if (filters.missingDatesOnly) params.set("missingDatesOnly", "true");
+  if (filters.pestIssuesOnly) params.set("pestIssuesOnly", "true");
+  if (filters.flooringNeededOnly) params.set("flooringNeededOnly", "true");
+  if (filters.paintNeededOnly) params.set("paintNeededOnly", "true");
+  if (filters.moveInRiskOnly) params.set("moveInRiskOnly", "true");
+  if (filters.customFieldFilters?.length) params.set("customFieldFilters", JSON.stringify(filters.customFieldFilters));
+  if (filters.sortBy) params.set("sortBy", filters.sortBy);
+  if (filters.sortDirection) params.set("sortDirection", filters.sortDirection);
   if (filters.updatedSince) params.set("updatedSince", filters.updatedSince);
   if (filters.limit) params.set("limit", String(filters.limit));
   if (filters.offset) params.set("offset", String(filters.offset));
   return request<MakeReadyItem[]>(`/make-ready-items?${params.toString()}`);
+}
+
+export type MakeReadyItemsPage = {
+  items: MakeReadyItem[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+    nextOffset: number | null;
+  };
+};
+
+export async function getMakeReadyItemPage(filters: Parameters<typeof getMakeReadyItems>[0]): Promise<MakeReadyItemsPage> {
+  const params = new URLSearchParams();
+  if (filters.propertyId) params.set("propertyId", filters.propertyId);
+  if (filters.q) params.set("q", filters.q);
+  if (filters.includeArchived) params.set("includeArchived", "true");
+  if (filters.boardGroup) params.set("boardGroup", filters.boardGroup);
+  if (filters.section) params.set("section", filters.section);
+  if (filters.boardSection) params.set("boardSection", filters.boardSection);
+  if (filters.vacancyStatus) params.set("vacancyStatus", filters.vacancyStatus);
+  if (filters.assignedTech) params.set("assignedTech", filters.assignedTech);
+  if (filters.scopeLevel) params.set("scopeLevel", filters.scopeLevel);
+  if (filters.makeReadyStatus) params.set("makeReadyStatus", filters.makeReadyStatus);
+  if (filters.riskLevel) params.set("riskLevel", filters.riskLevel);
+  if (filters.riskCategory) params.set("riskCategory", filters.riskCategory);
+  if (filters.moveInWindow) params.set("moveInWindow", filters.moveInWindow);
+  if (filters.overdueOnly) params.set("overdueOnly", "true");
+  if (filters.missingDatesOnly) params.set("missingDatesOnly", "true");
+  if (filters.pestIssuesOnly) params.set("pestIssuesOnly", "true");
+  if (filters.flooringNeededOnly) params.set("flooringNeededOnly", "true");
+  if (filters.paintNeededOnly) params.set("paintNeededOnly", "true");
+  if (filters.moveInRiskOnly) params.set("moveInRiskOnly", "true");
+  if (filters.customFieldFilters?.length) params.set("customFieldFilters", JSON.stringify(filters.customFieldFilters));
+  if (filters.sortBy) params.set("sortBy", filters.sortBy);
+  if (filters.sortDirection) params.set("sortDirection", filters.sortDirection);
+  if (filters.updatedSince) params.set("updatedSince", filters.updatedSince);
+  if (filters.limit) params.set("limit", String(filters.limit));
+  if (filters.offset) params.set("offset", String(filters.offset));
+
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}/make-ready-items?${params.toString()}`, {
+      credentials: "include",
+    });
+  } catch {
+    notifyApiUnreachable("/make-ready-items", "GET");
+    throw new ApiError(0, "Could not reach the MakeReadyOS API. Check the connection and retry.");
+  }
+  if (!response.ok) {
+    let message = `Request failed: ${response.status}`;
+    try {
+      const body = (await response.json()) as { message?: string };
+      if (body.message) message = body.message;
+    } catch {
+      // Ignore non-JSON failures.
+    }
+    if (response.status === 401) csrfToken = null;
+    throw new ApiError(response.status, message);
+  }
+  const items = (await response.json()) as MakeReadyItem[];
+  const total = Number(response.headers.get("x-total-count") ?? items.length);
+  const limit = Number(response.headers.get("x-limit") ?? filters.limit ?? items.length);
+  const offset = Number(response.headers.get("x-offset") ?? filters.offset ?? 0);
+  const nextOffsetRaw = response.headers.get("x-next-offset");
+  return {
+    items,
+    pagination: {
+      total,
+      limit,
+      offset,
+      hasMore: response.headers.get("x-has-more") === "true",
+      nextOffset: nextOffsetRaw ? Number(nextOffsetRaw) : null,
+    },
+  };
 }
 
 export function createMakeReadyItem(input: {
@@ -1337,14 +1735,14 @@ export function getOperationsProperties(includeArchived = true) {
   return request<{ properties: Property[] }>(`/operations/properties?includeArchived=${includeArchived}`);
 }
 
-export function createProperty(input: { name: string; code: string }) {
+export function createProperty(input: { name: string; code: string; occupancyGoalPercent?: number | null }) {
   return request<{ property: Property }>("/operations/properties", {
     method: "POST",
     body: JSON.stringify(input),
   });
 }
 
-export function updateProperty(id: string, input: { name?: string; code?: string }) {
+export function updateProperty(id: string, input: { name?: string; code?: string; occupancyGoalPercent?: number | null }) {
   return request<{ property: Property }>(`/operations/properties/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
@@ -1369,16 +1767,51 @@ export function getOperationsUnits(propertyId?: string, includeArchived = true) 
   return request<{ units: Unit[] }>(`/operations/units?${params.toString()}`);
 }
 
-export function createUnit(input: { propertyId: string; number: string; floorPlanId?: string | null; floorPlan: string | null; squareFeet: number | null }) {
+export type UnitWriteInput = {
+  propertyId: string;
+  number: string;
+  floorPlanId?: string | null;
+  floorPlan: string | null;
+  squareFeet: number | null;
+  bedrooms?: number | null;
+  bathrooms?: number | null;
+  occupancyStatus?: Unit["occupancyStatus"];
+  building?: string | null;
+  area?: string | null;
+  floor?: string | null;
+  isBudgeted?: boolean;
+};
+
+export type UnitImportInput = {
+  number: string;
+  floorPlan?: string | null;
+  squareFeet?: number | null;
+  bedrooms?: number | null;
+  bathrooms?: number | null;
+  occupancyStatus?: Unit["occupancyStatus"];
+  building?: string | null;
+  area?: string | null;
+  floor?: string | null;
+  isBudgeted?: boolean;
+};
+
+export function createUnit(input: UnitWriteInput) {
   return request<{ unit: Unit }>("/operations/units", {
     method: "POST",
     body: JSON.stringify(input),
   });
 }
 
-export function updateUnit(id: string, input: { propertyId?: string; number?: string; floorPlanId?: string | null; floorPlan?: string | null; squareFeet?: number | null }) {
+export function updateUnit(id: string, input: Partial<UnitWriteInput>) {
   return request<{ unit: Unit }>(`/operations/units/${id}`, {
     method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function importUnits(input: { propertyId: string; units: UnitImportInput[]; updateExisting?: boolean }) {
+  return request<{ summary: { created: number; updated: number; skipped: number; errors: string[] } }>("/operations/units/import", {
+    method: "POST",
     body: JSON.stringify(input),
   });
 }
@@ -1450,6 +1883,21 @@ export function archiveScheduleTrack(id: string, restore = false) {
 
 export function reorderScheduleTracks(ids: string[]) {
   return request<{ ok: true }>("/operations/schedule-tracks/reorder", { method: "PUT", body: JSON.stringify({ ids }) });
+}
+
+export type OperatingCalendarInput = Omit<OperatingCalendar, "id" | "propertyId" | "createdAt" | "updatedAt" | "property">;
+
+export function getOperatingCalendars(propertyId?: string, includeArchived = false) {
+  const params = new URLSearchParams({ includeArchived: String(includeArchived) });
+  if (propertyId) params.set("propertyId", propertyId);
+  return request<{ calendars: OperatingCalendar[] }>(`/operations/operating-calendars?${params.toString()}`);
+}
+
+export function updateOperatingCalendar(propertyId: string, input: OperatingCalendarInput) {
+  return request<{ calendar: OperatingCalendar }>(`/operations/properties/${propertyId}/operating-calendar`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
 }
 
 export function createFloorPlan(input: Omit<FloorPlan, "id" | "isActive" | "property" | "_count">) {
@@ -1628,6 +2076,38 @@ export function getUnitMapLocations(filters: { propertyId?: string; mapId?: stri
   return request<{ locations: UnitMapLocation[] }>(`/unit-map-locations${params.toString() ? `?${params.toString()}` : ""}`);
 }
 
+export function getPropertyMapAreas(filters: { propertyId?: string; mapId?: string; includeArchived?: boolean } = {}) {
+  const params = new URLSearchParams();
+  if (filters.propertyId) params.set("propertyId", filters.propertyId);
+  if (filters.mapId) params.set("mapId", filters.mapId);
+  if (filters.includeArchived !== undefined) params.set("includeArchived", String(filters.includeArchived));
+  return request<{ areas: PropertyMapArea[] }>(`/property-map-areas${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createPropertyMapArea(input: {
+  propertyId: string;
+  mapId: string;
+  name: string;
+  areaType?: string;
+  xPercent: number;
+  yPercent: number;
+  widthPercent?: number | null;
+  heightPercent?: number | null;
+  color?: string | null;
+  expectedUnitCount?: number | null;
+  notes?: string | null;
+}) {
+  return request<{ area: PropertyMapArea }>("/property-map-areas", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updatePropertyMapArea(id: string, input: Partial<Omit<Parameters<typeof createPropertyMapArea>[0], "propertyId" | "mapId">> & { isActive?: boolean; isArchived?: boolean }) {
+  return request<{ area: PropertyMapArea }>(`/property-map-areas/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function removePropertyMapArea(id: string) {
+  return request<{ area: PropertyMapArea }>(`/property-map-areas/${id}`, { method: "DELETE" });
+}
+
 export function saveUnitMapLocation(input: {
   propertyId: string;
   unitId: string;
@@ -1682,4 +2162,29 @@ export function updateWebhook(id: string, input: Partial<{ name: string; url: st
 
 export function revokeWebhook(id: string) {
   return request<{ webhook: WebhookEndpointRecord }>(`/admin/integrations/webhooks/${id}/revoke`, { method: "POST" });
+}
+
+export function getWebhookDeliveries(id: string, input: { limit?: number; offset?: number } = {}) {
+  const params = new URLSearchParams({
+    limit: String(input.limit ?? 10),
+    offset: String(input.offset ?? 0),
+  });
+  return request<{
+    deliveries: WebhookDeliveryAttempt[];
+    pagination: { total: number; limit: number; offset: number; hasMore: boolean };
+  }>(`/admin/integrations/webhooks/${id}/deliveries?${params.toString()}`);
+}
+
+export function getWebhookHealth(id: string) {
+  return request<WebhookHealthResponse>(`/admin/integrations/webhooks/${id}/health`);
+}
+
+export function createWebhookTestPayload(id: string, input: { eventType?: WebhookEventType; enqueue?: boolean }) {
+  return request<{ webhook: WebhookEndpointRecord; delivery: WebhookDeliveryAttempt; notice: string }>(
+    `/admin/integrations/webhooks/${id}/test-payload`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
 }

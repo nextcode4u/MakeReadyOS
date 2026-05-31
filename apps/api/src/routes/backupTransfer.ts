@@ -12,6 +12,9 @@ const supportedScheduleColorBases = ["STATUS", "SCOPE", "FIELD", "FIXED", "NEUTR
 const propertySchema = z.object({
   code: z.string().trim().min(1).max(40),
   name: z.string().trim().min(1).max(120),
+  occupancyGoalPercent: z.number().nullable().optional().default(null),
+  uploadStorageMode: z.enum(["DEFAULT", "PROPERTY_SUBDIR"]).optional().default("DEFAULT"),
+  uploadSubdir: z.string().nullable().optional().default(null),
   isActive: z.boolean().default(true),
 });
 
@@ -63,6 +66,23 @@ const scheduleTrackSchema = z.object({
   isEnabled: z.boolean(),
   isArchived: z.boolean().optional().default(false),
   sortOrder: z.number().int(),
+});
+
+const operatingCalendarSchema = z.object({
+  propertyCode: z.string().min(1),
+  name: z.string().min(1),
+  timezone: z.string().min(1),
+  noWeekendScheduling: z.boolean(),
+  avoidMondayScheduling: z.boolean(),
+  avoidFridayScheduling: z.boolean(),
+  maintenanceStartMinute: z.number().int(),
+  maintenanceEndMinute: z.number().int(),
+  vendorLeadDays: z.number().int(),
+  dailyScheduledUnitLimit: z.number().int().nullable(),
+  scopeDay: z.number().int().nullable(),
+  workStartDay: z.number().int().nullable(),
+  autoPopulateEnabled: z.boolean(),
+  notes: z.string().nullable(),
 });
 
 const unitSchema = z.object({
@@ -185,6 +205,18 @@ const checklistTemplateSchema = z.object({
   })),
 });
 
+const chargePriceSheetItemSchema = z.object({
+  propertyCode: z.string().min(1),
+  name: z.string().min(1),
+  category: z.string().nullable().optional().default(null),
+  unitLabel: z.string().nullable().optional().default(null),
+  defaultCents: z.number().int().nullable().optional().default(null),
+  description: z.string().nullable().optional().default(null),
+  isActive: z.boolean().optional().default(true),
+  isArchived: z.boolean().optional().default(false),
+  sortOrder: z.number().int().optional().default(0),
+});
+
 const itemCommentSchema = z.object({
   itemKey: z.string().min(1),
   authorName: z.string().min(1),
@@ -235,6 +267,22 @@ const propertyMapSchema = z.object({
   isArchived: z.boolean().optional().default(false),
 });
 
+const propertyMapAreaSchema = z.object({
+  propertyCode: z.string().min(1),
+  mapName: z.string().min(1),
+  name: z.string().min(1),
+  areaType: z.string().min(1).default("BUILDING"),
+  xPercent: z.number().min(0).max(100),
+  yPercent: z.number().min(0).max(100),
+  widthPercent: z.number().min(0).max(100).nullable().optional().default(null),
+  heightPercent: z.number().min(0).max(100).nullable().optional().default(null),
+  color: z.string().nullable().optional().default(null),
+  expectedUnitCount: z.number().int().nullable().optional().default(null),
+  notes: z.string().nullable().optional().default(null),
+  isActive: z.boolean(),
+  isArchived: z.boolean().optional().default(false),
+});
+
 const unitMapLocationSchema = z.object({
   propertyCode: z.string().min(1),
   mapName: z.string().min(1),
@@ -273,6 +321,20 @@ const propertyNoteSchema = z.object({
   noteType: z.string(),
 });
 
+const propertyRiskPolicySchema = z.object({
+  propertyCode: z.string().min(1),
+  moveInCriticalDays: z.number().int(),
+  moveInHighDays: z.number().int(),
+  moveInMediumDays: z.number().int(),
+  unassignedHighDays: z.number().int(),
+  staleActivityDays: z.number().int(),
+  agingMediumDays: z.number().int(),
+  agingHighDays: z.number().int(),
+  vendorNearMoveInDays: z.number().int(),
+  checklistNearMoveInDays: z.number().int(),
+  planningNearMoveInDays: z.number().int(),
+});
+
 const propertyTemplateSchema = z.object({
   name: z.string().min(1),
   description: z.string().nullable(),
@@ -300,6 +362,8 @@ const backupSchema = z.object({
     boardColumns: z.array(boardColumnSchema).optional().default([]),
     boardSections: z.array(boardSectionSchema).optional().default([]),
     scheduleTracks: z.array(scheduleTrackSchema).optional().default([]),
+    operatingCalendars: z.array(operatingCalendarSchema).optional().default([]),
+    riskPolicies: z.array(propertyRiskPolicySchema).optional().default([]),
     units: z.array(unitSchema),
     makeReadyItems: z.array(makeReadyItemSchema),
     customFields: z.array(customFieldSchema),
@@ -308,10 +372,12 @@ const backupSchema = z.object({
     savedViews: z.array(savedViewSchema),
     automationRules: z.array(automationRuleSchema),
     checklistTemplates: z.array(checklistTemplateSchema),
+    chargePriceSheetItems: z.array(chargePriceSheetItemSchema).optional().default([]),
     comments: z.array(itemCommentSchema).optional().default([]),
     vendors: z.array(vendorSchema).optional().default([]),
     vendorAssignments: z.array(vendorAssignmentSchema).optional().default([]),
     propertyMaps: z.array(propertyMapSchema).optional().default([]),
+    propertyMapAreas: z.array(propertyMapAreaSchema).optional().default([]),
     unitMapLocations: z.array(unitMapLocationSchema).optional().default([]),
     checklistInstances: z.array(checklistInstanceSchema).optional().default([]),
     notes: z.array(propertyNoteSchema),
@@ -348,6 +414,8 @@ function emptySummary(): ImportSummary {
     boardColumns: bucket(),
     boardSections: bucket(),
     scheduleTracks: bucket(),
+    operatingCalendars: bucket(),
+    riskPolicies: bucket(),
     units: bucket(),
     makeReadyItems: bucket(),
     customFields: bucket(),
@@ -356,10 +424,12 @@ function emptySummary(): ImportSummary {
     savedViews: bucket(),
     automationRules: bucket(),
     checklistTemplates: bucket(),
+    chargePriceSheetItems: bucket(),
     comments: bucket(),
     vendors: bucket(),
     vendorAssignments: bucket(),
     propertyMaps: bucket(),
+    propertyMapAreas: bucket(),
     unitMapLocations: bucket(),
     checklistInstances: bucket(),
     notes: bucket(),
@@ -402,23 +472,27 @@ async function ensureAdmin(request: FastifyRequest, reply: FastifyReply) {
 }
 
 async function buildExport(): Promise<NativeBackup> {
-  const [properties, floorPlans, boardOptions, boardColumns, boardSections, scheduleTracks, units, items, fields, savedViews, rules, templates, comments, vendors, vendorAssignments, propertyMaps, unitMapLocations, checklistInstances, notes, propertyTemplates] = await Promise.all([
+  const [properties, floorPlans, boardOptions, boardColumns, boardSections, scheduleTracks, operatingCalendars, riskPolicies, units, items, fields, savedViews, rules, templates, chargePriceSheetItems, comments, vendors, vendorAssignments, propertyMaps, propertyMapAreas, unitMapLocations, checklistInstances, notes, propertyTemplates] = await Promise.all([
     prisma.property.findMany({ orderBy: { code: "asc" } }),
     prisma.floorPlan.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { name: "asc" }] }),
     prisma.labelDefinition.findMany({ orderBy: [{ fieldKey: "asc" }, { sortOrder: "asc" }] }),
     prisma.boardColumnDefinition.findMany({ orderBy: { fieldKey: "asc" } }),
     prisma.boardSection.findMany({ include: { property: true }, orderBy: [{ propertyId: "asc" }, { sortOrder: "asc" }] }),
     prisma.scheduleTrack.findMany({ orderBy: [{ sortOrder: "asc" }, { displayName: "asc" }] }),
+    prisma.operatingCalendar.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }] }),
+    prisma.propertyRiskPolicy.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }] }),
     prisma.unit.findMany({ include: { property: true, floorPlanRecord: true }, orderBy: [{ property: { code: "asc" } }, { number: "asc" }] }),
     prisma.makeReadyItem.findMany({ include: { property: true, customFieldValues: true }, orderBy: { createdAt: "asc" } }),
-    prisma.customField.findMany({ include: { options: true }, orderBy: [{ module: "asc" }, { sortOrder: "asc" }] }),
+    prisma.customField.findMany({ where: { deletedAt: null }, include: { options: true }, orderBy: [{ module: "asc" }, { sortOrder: "asc" }] }),
     prisma.savedView.findMany({ where: { isShared: true }, orderBy: { name: "asc" } }),
     prisma.automationRule.findMany({ include: { property: true }, orderBy: { name: "asc" } }),
     prisma.checklistTemplate.findMany({ include: { property: true, items: { orderBy: { sortOrder: "asc" } } }, orderBy: { name: "asc" } }),
+    prisma.chargePriceSheetItem.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { sortOrder: "asc" }, { name: "asc" }] }),
     prisma.itemComment.findMany({ where: { isDeleted: false }, orderBy: { createdAt: "asc" } }),
     prisma.vendor.findMany({ include: { serviceAreas: { include: { property: true } } }, orderBy: [{ trade: "asc" }, { name: "asc" }] }),
     prisma.vendorAssignment.findMany({ include: { vendor: true, property: true, item: { include: { property: true } } }, orderBy: { createdAt: "asc" } }),
     prisma.propertyMap.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { name: "asc" }] }),
+    prisma.propertyMapArea.findMany({ include: { property: true, map: true }, orderBy: [{ property: { code: "asc" } }, { areaType: "asc" }, { name: "asc" }] }),
     prisma.unitMapLocation.findMany({ include: { property: true, map: true, unit: true }, orderBy: [{ property: { code: "asc" } }, { area: "asc" }, { floor: "asc" }] }),
     prisma.checklistInstance.findMany({ include: { template: true, items: { orderBy: { sortOrder: "asc" } } }, orderBy: { createdAt: "asc" } }),
     prisma.propertyNote.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { title: "asc" }] }),
@@ -438,7 +512,14 @@ async function buildExport(): Promise<NativeBackup> {
     exportedAt: new Date().toISOString(),
     source: { app: "MakeReadyOS", schemaVersion: "prisma-v1" },
     data: {
-      properties: properties.map((property) => ({ code: property.code, name: property.name, isActive: property.isActive })),
+      properties: properties.map((property) => ({
+        code: property.code,
+        name: property.name,
+        occupancyGoalPercent: property.occupancyGoalPercent,
+        uploadStorageMode: property.uploadStorageMode === "PROPERTY_SUBDIR" ? "PROPERTY_SUBDIR" : "DEFAULT",
+        uploadSubdir: property.uploadSubdir,
+        isActive: property.isActive,
+      })),
       floorPlans: floorPlans.map((floorPlan) => ({
         propertyCode: floorPlan.property.code,
         name: floorPlan.name,
@@ -484,6 +565,35 @@ async function buildExport(): Promise<NativeBackup> {
         isEnabled: track.isEnabled,
         isArchived: track.isArchived,
         sortOrder: track.sortOrder,
+      })),
+      operatingCalendars: operatingCalendars.map((calendar) => ({
+        propertyCode: calendar.property.code,
+        name: calendar.name,
+        timezone: calendar.timezone,
+        noWeekendScheduling: calendar.noWeekendScheduling,
+        avoidMondayScheduling: calendar.avoidMondayScheduling,
+        avoidFridayScheduling: calendar.avoidFridayScheduling,
+        maintenanceStartMinute: calendar.maintenanceStartMinute,
+        maintenanceEndMinute: calendar.maintenanceEndMinute,
+        vendorLeadDays: calendar.vendorLeadDays,
+        dailyScheduledUnitLimit: calendar.dailyScheduledUnitLimit,
+        scopeDay: calendar.scopeDay,
+        workStartDay: calendar.workStartDay,
+        autoPopulateEnabled: calendar.autoPopulateEnabled,
+        notes: calendar.notes,
+      })),
+      riskPolicies: riskPolicies.map((policy) => ({
+        propertyCode: policy.property.code,
+        moveInCriticalDays: policy.moveInCriticalDays,
+        moveInHighDays: policy.moveInHighDays,
+        moveInMediumDays: policy.moveInMediumDays,
+        unassignedHighDays: policy.unassignedHighDays,
+        staleActivityDays: policy.staleActivityDays,
+        agingMediumDays: policy.agingMediumDays,
+        agingHighDays: policy.agingHighDays,
+        vendorNearMoveInDays: policy.vendorNearMoveInDays,
+        checklistNearMoveInDays: policy.checklistNearMoveInDays,
+        planningNearMoveInDays: policy.planningNearMoveInDays,
       })),
       units: units.map((unit) => ({
         propertyCode: unit.property.code,
@@ -589,6 +699,17 @@ async function buildExport(): Promise<NativeBackup> {
         scope: template.scope,
         items: template.items.map((item) => ({ label: item.label, notes: item.notes, sortOrder: item.sortOrder, required: item.required, dueOffsetDays: item.dueOffsetDays, tradeCategory: item.tradeCategory })),
       })),
+      chargePriceSheetItems: chargePriceSheetItems.map((entry) => ({
+        propertyCode: entry.property.code,
+        name: entry.name,
+        category: entry.category,
+        unitLabel: entry.unitLabel,
+        defaultCents: entry.defaultCents,
+        description: entry.description,
+        isActive: entry.isActive,
+        isArchived: entry.isArchived,
+        sortOrder: entry.sortOrder,
+      })),
       comments: comments.flatMap((comment) => {
         const itemKey = itemKeysById.get(comment.itemId);
         return itemKey ? [{
@@ -640,6 +761,21 @@ async function buildExport(): Promise<NativeBackup> {
         notes: map.notes,
         isActive: map.isActive,
         isArchived: map.isArchived,
+      })),
+      propertyMapAreas: propertyMapAreas.map((area) => ({
+        propertyCode: area.property.code,
+        mapName: area.map.name,
+        name: area.name,
+        areaType: area.areaType,
+        xPercent: area.xPercent,
+        yPercent: area.yPercent,
+        widthPercent: area.widthPercent,
+        heightPercent: area.heightPercent,
+        color: area.color,
+        expectedUnitCount: area.expectedUnitCount,
+        notes: area.notes,
+        isActive: area.isActive,
+        isArchived: area.isArchived,
       })),
       unitMapLocations: unitMapLocations.map((location) => ({
         propertyCode: location.property.code,
@@ -723,6 +859,8 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
   rejectDuplicates("boardColumns", backup.data.boardColumns.map((column) => column.fieldKey));
   rejectDuplicates("boardSections", boardSections.map((section) => `${section.propertyCode}|${section.sectionType}`));
   rejectDuplicates("scheduleTracks", backup.data.scheduleTracks.map((track) => track.sourceField));
+  rejectDuplicates("operatingCalendars", backup.data.operatingCalendars.map((calendar) => calendar.propertyCode));
+  rejectDuplicates("riskPolicies", backup.data.riskPolicies.map((policy) => policy.propertyCode));
   rejectDuplicates("units", backup.data.units.map((unit) => `${unit.propertyCode}|${unit.number}`));
   rejectDuplicates("makeReadyItems", backup.data.makeReadyItems.map((item) => item.portableKey));
   rejectDuplicates("customFields", backup.data.customFields.map((field) => field.fieldKey));
@@ -731,10 +869,12 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
   rejectDuplicates("savedViews", backup.data.savedViews.map((view) => `${view.module}|${view.name}`));
   rejectDuplicates("automationRules", backup.data.automationRules.map((rule) => `${rule.triggerType}|${rule.name}`));
   rejectDuplicates("checklistTemplates", backup.data.checklistTemplates.map((template) => `${template.propertyCode ?? "global"}|${template.scope ?? ""}|${template.name}`));
+  rejectDuplicates("chargePriceSheetItems", backup.data.chargePriceSheetItems.map((entry) => `${entry.propertyCode}|${entry.name}`));
   rejectDuplicates("comments", backup.data.comments.map((comment) => `${comment.itemKey}|${comment.authorName}|${comment.createdAt}`));
   rejectDuplicates("vendors", backup.data.vendors.map((vendor) => `${vendor.trade}|${vendor.name}`));
   rejectDuplicates("vendorAssignments", backup.data.vendorAssignments.map((assignment) => `${assignment.vendorTrade}|${assignment.vendorName}|${assignment.itemKey}|${assignment.trade}|${assignment.scheduledDate ?? ""}|${assignment.dueDate ?? ""}`));
   rejectDuplicates("propertyMaps", backup.data.propertyMaps.map((map) => `${map.propertyCode}|${map.name}`));
+  rejectDuplicates("propertyMapAreas", backup.data.propertyMapAreas.map((area) => `${area.propertyCode}|${area.mapName}|${area.name}`));
   rejectDuplicates("unitMapLocations", backup.data.unitMapLocations.map((location) => `${location.propertyCode}|${location.mapName}|${location.unitNumber}`));
   rejectDuplicates("checklistInstances", backup.data.checklistInstances.map((instance) => `${instance.itemKey}|${instance.name}`));
   rejectDuplicates("notes", backup.data.notes.map((note) => `${note.propertyCode}|${note.noteType}|${note.title}`));
@@ -755,6 +895,11 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
   for (const floorPlan of backup.data.floorPlans) {
     if (!propertyCodes.has(floorPlan.propertyCode) && !(await prisma.property.findUnique({ where: { code: floorPlan.propertyCode } }))) {
       summary.floorPlans.errors.push(`Property ${floorPlan.propertyCode} is missing for floor plan ${floorPlan.name}`);
+    }
+  }
+  for (const entry of backup.data.chargePriceSheetItems) {
+    if (!propertyCodes.has(entry.propertyCode) && !(await prisma.property.findUnique({ where: { code: entry.propertyCode } }))) {
+      summary.chargePriceSheetItems.errors.push(`Property ${entry.propertyCode} is missing for charge price-sheet item ${entry.name}`);
     }
   }
   for (const item of backup.data.makeReadyItems) {
@@ -789,6 +934,17 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
   for (const map of backup.data.propertyMaps) {
     if (!propertyCodes.has(map.propertyCode) && !(await prisma.property.findUnique({ where: { code: map.propertyCode } }))) {
       summary.propertyMaps.errors.push(`Property ${map.propertyCode} is missing for map ${map.name}`);
+    }
+  }
+  for (const area of backup.data.propertyMapAreas) {
+    if (!propertyCodes.has(area.propertyCode) && !(await prisma.property.findUnique({ where: { code: area.propertyCode } }))) {
+      summary.propertyMapAreas.errors.push(`Property ${area.propertyCode} is missing for map area ${area.name}`);
+    }
+    const mapInBackup = backup.data.propertyMaps.some((map) => map.propertyCode === area.propertyCode && map.name === area.mapName);
+    if (!mapInBackup) {
+      const property = await prisma.property.findUnique({ where: { code: area.propertyCode } });
+      const existingMap = property ? await prisma.propertyMap.findFirst({ where: { propertyId: property.id, name: area.mapName } }) : null;
+      if (!existingMap) summary.propertyMapAreas.errors.push(`Property map ${area.mapName} is missing for area ${area.name}`);
     }
   }
   for (const location of backup.data.unitMapLocations) {
@@ -1007,6 +1163,32 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
       }
     }
 
+    for (const calendar of backup.data.operatingCalendars) {
+      const propertyId = propertyMap.get(calendar.propertyCode);
+      const existing = propertyId ? await tx.operatingCalendar.findUnique({ where: { propertyId } }) : null;
+      if (existing) summary.operatingCalendars.skipped += 1;
+      else {
+        summary.operatingCalendars.created += 1;
+        if (!dryRun && propertyId) {
+          const { propertyCode: _propertyCode, ...calendarData } = calendar;
+          await tx.operatingCalendar.create({ data: { ...calendarData, propertyId } });
+        }
+      }
+    }
+
+    for (const policy of backup.data.riskPolicies) {
+      const propertyId = propertyMap.get(policy.propertyCode);
+      const existing = propertyId ? await tx.propertyRiskPolicy.findUnique({ where: { propertyId } }) : null;
+      if (existing) summary.riskPolicies.skipped += 1;
+      else {
+        summary.riskPolicies.created += 1;
+        if (!dryRun && propertyId) {
+          const { propertyCode: _propertyCode, ...policyData } = policy;
+          await tx.propertyRiskPolicy.create({ data: { ...policyData, propertyId } });
+        }
+      }
+    }
+
     for (const option of backup.data.customFieldOptions) {
       const customFieldId = fieldMap.get(option.fieldKey);
       const existing = customFieldId ? await tx.customFieldOption.findUnique({ where: { customFieldId_label: { customFieldId, label: option.label } } }) : null;
@@ -1097,6 +1279,19 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
       }
     }
 
+    for (const entry of backup.data.chargePriceSheetItems) {
+      const propertyId = propertyMap.get(entry.propertyCode);
+      const existing = propertyId ? await tx.chargePriceSheetItem.findUnique({ where: { propertyId_name: { propertyId, name: entry.name } } }) : null;
+      if (existing) summary.chargePriceSheetItems.skipped += 1;
+      else {
+        summary.chargePriceSheetItems.created += 1;
+        if (!dryRun && propertyId) {
+          const { propertyCode: _propertyCode, ...data } = entry;
+          await tx.chargePriceSheetItem.create({ data: { ...data, propertyId } });
+        }
+      }
+    }
+
     for (const comment of backup.data.comments) {
       const itemId = itemMap.get(comment.itemKey);
       const existing = itemId ? await tx.itemComment.findFirst({ where: { itemId, authorName: comment.authorName, createdAt: new Date(comment.createdAt) } }) : null;
@@ -1171,6 +1366,20 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
       const existingProperties = await tx.property.findMany({ where: { id: { in: existingMaps.map((map) => map.propertyId) } } });
       const codeById = new Map(existingProperties.map((property) => [property.id, property.code]));
       existingMaps.forEach((map) => propertyMapMap.set(`${codeById.get(map.propertyId)}|${map.name}`, map.id));
+    }
+
+    for (const area of backup.data.propertyMapAreas) {
+      const propertyId = propertyMap.get(area.propertyCode);
+      const mapId = propertyMapMap.get(`${area.propertyCode}|${area.mapName}`);
+      const existing = mapId ? await tx.propertyMapArea.findUnique({ where: { mapId_name: { mapId, name: area.name } } }) : null;
+      if (existing) summary.propertyMapAreas.skipped += 1;
+      else {
+        summary.propertyMapAreas.created += 1;
+        if (!dryRun && propertyId && mapId) {
+          const { propertyCode: _propertyCode, mapName: _mapName, ...areaData } = area;
+          await tx.propertyMapArea.create({ data: { ...areaData, propertyId, mapId } });
+        }
+      }
     }
 
     for (const location of backup.data.unitMapLocations) {

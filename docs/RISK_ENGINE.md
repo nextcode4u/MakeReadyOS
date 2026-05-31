@@ -79,6 +79,7 @@ When evaluation detects an item newly reaching `HIGH` or `CRITICAL`, MakeReadyOS
 
 ## Current Limits
 
-- Historical risk trend storage is a placeholder; current views show live/current risk only.
+- Property-scoped risk policies now expose safe threshold configuration for move-in windows, stale activity, aging turns, vendor timing, checklist timing, and planning coverage. The category names and internal field keys remain stable for filters, dashboards, automations, exports, and history.
+- Historical risk trend depth is still foundational. Daily snapshots track high-risk counts, while category-level trend and SLA-miss history need additional snapshot fields later.
 - Property workload risk is item-level in this foundation; portfolio-level coverage modeling is future work.
-- Risk thresholds are code-defined for safety; a later UI can expose approved template settings without arbitrary code execution.
+- Risk logic remains structured TypeScript only. Property policies change thresholds, not executable rules.

@@ -1,11 +1,12 @@
 import { CustomFieldType } from "@prisma/client";
 import { z } from "zod";
 import { automationTriggerTypes, editableFields, ruleConditionFields } from "./board.js";
+import { dateOffsetFields } from "./operatingCalendar.js";
 import { prisma } from "./prisma.js";
 
 export const triggerSchema = z.enum(automationTriggerTypes);
 export const ruleValueSchema = z.union([z.string().max(1000), z.number().finite(), z.boolean(), z.array(z.string().max(200)).max(20)]);
-const relativeDateOperators = ["dateBeforeToday", "dateAfterToday", "dateWithinNextDays", "dateMissing"] as const;
+const relativeDateOperators = ["dateBeforeToday", "dateAfterToday", "dateWithinNextDays", "dateMissing", "dateOnWeekend", "dateOnMondayOrFriday"] as const;
 
 const builtInConditionSchema = z.object({
   field: z.enum(ruleConditionFields),
@@ -63,6 +64,13 @@ export const actionSchema = z.discriminatedUnion("type", [
     type: z.literal("addAuditNote"),
     value: z.string().trim().min(1).max(500),
   }),
+  z.object({
+    type: z.literal("setDateFromField"),
+    sourceField: z.enum(dateOffsetFields),
+    targetField: z.enum(dateOffsetFields),
+    offsetDays: z.number().int().min(-60).max(60),
+    respectOperatingCalendar: z.boolean().default(true),
+  }),
   // Event-rule compatibility only. Scheduled checks cannot use these legacy actions.
   z.object({
     type: z.literal("setPriority"),
@@ -72,7 +80,15 @@ export const actionSchema = z.discriminatedUnion("type", [
     type: z.literal("appendNote"),
     value: z.string().trim().min(1).max(500),
   }),
-]);
+]).superRefine((action, context) => {
+  if (action.type === "setDateFromField" && action.sourceField === action.targetField) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Source and target date fields must be different",
+      path: ["targetField"],
+    });
+  }
+});
 
 export const automationRuleBaseSchema = z.object({
   name: z.string().trim().min(2).max(120),
@@ -90,7 +106,7 @@ export const automationRuleInputSchema = automationRuleBaseSchema.superRefine((r
       if (action.type === "setPriority" || action.type === "appendNote") {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Scheduled checks support setField, setCustomField, and addAuditNote actions only",
+          message: "Scheduled checks support setField, setDateFromField, setCustomField, and addAuditNote actions only",
           path: ["actions", index, "type"],
         });
       }
@@ -114,7 +130,7 @@ function validateCustomCondition(
     TEXT: ["equals", "notEquals", "isEmpty", "notEmpty"],
     LONG_TEXT: ["equals", "notEquals", "isEmpty", "notEmpty"],
     NUMBER: ["equals", "notEquals", "isEmpty", "notEmpty"],
-    DATE: ["equals", "notEquals", "isEmpty", "notEmpty", "dateBeforeToday", "dateAfterToday", "dateWithinNextDays", "dateMissing"],
+    DATE: ["equals", "notEquals", "isEmpty", "notEmpty", "dateBeforeToday", "dateAfterToday", "dateWithinNextDays", "dateMissing", "dateOnWeekend", "dateOnMondayOrFriday"],
     SINGLE_SELECT: ["equals", "notEquals", "isEmpty", "notEmpty"],
     MULTI_SELECT: ["contains", "isEmpty", "notEmpty"],
     BOOLEAN: ["equals", "notEquals", "isEmpty", "notEmpty"],

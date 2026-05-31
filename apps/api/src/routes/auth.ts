@@ -7,7 +7,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { verifyPassword } from "../lib/password.js";
 import { prisma } from "../lib/prisma.js";
 
-const loginSchema = z.object({
+export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
 });

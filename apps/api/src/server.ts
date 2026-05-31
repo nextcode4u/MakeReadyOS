@@ -5,6 +5,7 @@ import Fastify from "fastify";
 import type { FastifyRequest } from "fastify";
 import { authConfig } from "./lib/config.js";
 import { loadSessionUser, requireApiTokenRateLimit, requireApiTokenScope, requireAuthenticated, requireCsrf } from "./lib/auth.js";
+import { openApiDocument } from "./lib/openapi.js";
 import { prisma } from "./lib/prisma.js";
 import { authRoutes } from "./routes/auth.js";
 import { activityRoutes } from "./routes/activity.js";
@@ -33,6 +34,10 @@ const app = Fastify({
 });
 const diagnosticsEnabled = process.env.NODE_ENV !== "production" && process.env.ENABLE_API_TIMING_LOGS === "true";
 const requestStartedAt = Symbol("requestStartedAt");
+const configuredMaxUploadMb = Number(process.env.MAX_UPLOAD_MB ?? 0);
+const multipartLimits = configuredMaxUploadMb > 0
+  ? { files: 1, fileSize: configuredMaxUploadMb * 1024 * 1024 }
+  : { files: 1, fileSize: Number.MAX_SAFE_INTEGER };
 
 if (diagnosticsEnabled) {
   app.addHook("onRequest", async (request) => {
@@ -62,10 +67,7 @@ await app.register(cookie, {
 });
 
 await app.register(multipart, {
-  limits: {
-    files: 1,
-    fileSize: Number(process.env.MAX_UPLOAD_MB || 15) * 1024 * 1024,
-  },
+  limits: multipartLimits,
 });
 
 app.addHook("onRequest", async (request) => {
@@ -77,12 +79,24 @@ app.setErrorHandler((error, _request, reply) => {
     ? (error as { statusCode: number }).statusCode
     : undefined;
   const statusCode = reply.statusCode >= 400 ? reply.statusCode : errorStatusCode ?? 500;
+  const code = typeof (error as { code?: unknown }).code === "string" ? (error as { code: string }).code : "";
+  if (statusCode === 413 || code === "FST_REQ_FILE_TOO_LARGE") {
+    const limitText = configuredMaxUploadMb > 0
+      ? `${configuredMaxUploadMb} MB`
+      : "the active reverse proxy or browser limit";
+    reply.code(413).send({
+      message: `Upload is too large for ${limitText}. If this is a high-resolution photo batch, upload fewer files at once or increase the reverse-proxy/body-size limit.`,
+    });
+    return;
+  }
   reply.code(statusCode).send({
     message: error instanceof Error ? error.message : "Internal server error",
   });
 });
 
 app.get("/health", async () => ({ ok: true }));
+app.get("/openapi.json", async () => openApiDocument);
+app.get("/api/openapi.json", async () => openApiDocument);
 
 app.register(async (api) => {
   await authRoutes(api);

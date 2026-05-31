@@ -4,7 +4,7 @@ import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { evaluateItemRisk } from "../lib/risk.js";
 
-const querySchema = z.object({ propertyId: z.string().optional() });
+export const dashboardQuerySchema = z.object({ propertyId: z.string().optional() });
 
 function daysBetween(left: Date, right: Date) {
   return Math.ceil((right.getTime() - left.getTime()) / (24 * 60 * 60 * 1000));
@@ -24,14 +24,14 @@ function daysFromNow(days: number) {
 
 export async function dashboardRoutes(app: FastifyInstance) {
   app.get("/dashboard", async (request, reply) => {
-    const query = querySchema.parse(request.query);
+    const query = dashboardQuerySchema.parse(request.query);
     const accessible = scopedAllowedPropertyIds(request);
     if (query.propertyId && accessible !== null && !accessible.includes(query.propertyId)) {
       reply.code(403);
       return { message: "Property access denied" };
     }
     const propertyId = query.propertyId ?? (accessible === null ? undefined : { in: accessible });
-    const [items, archivedCount, sections, vendorAssignments, unitsCount, mapLocations, workBlocks] = await Promise.all([
+    const [items, archivedCount, sections, vendorAssignments, unitsCount, mapLocations, workBlocks, directoryUnits] = await Promise.all([
       prisma.makeReadyItem.findMany({
         where: { propertyId, isArchived: false, property: { isActive: true } },
         include: {
@@ -56,6 +56,10 @@ export async function dashboardRoutes(app: FastifyInstance) {
       prisma.workAssignmentBlock.findMany({
         where: { propertyId, status: { in: ["PLANNED", "IN_PROGRESS"] }, plannedDate: { gte: nowStart(), lt: daysFromNow(7) } },
         include: { assignedUser: { select: { id: true, fullName: true, role: true, capacity: true } } },
+      }),
+      prisma.unit.findMany({
+        where: { propertyId, isActive: true, isBudgeted: true, property: { isActive: true } },
+        select: { occupancyStatus: true, property: { select: { id: true, occupancyGoalPercent: true } } },
       }),
     ]);
     const now = new Date();
@@ -100,6 +104,24 @@ export async function dashboardRoutes(app: FastifyInstance) {
       for (const reason of entry.risk.riskReasons) acc[reason.category] = (acc[reason.category] ?? 0) + 1;
       return acc;
     }, {});
+    const occupiedUnits = directoryUnits.filter((unit) => unit.occupancyStatus === "OCCUPIED").length;
+    const directoryVacantReady = directoryUnits.filter((unit) => unit.occupancyStatus === "VACANT_READY").length;
+    const directoryVacantLeased = directoryUnits.filter((unit) => unit.occupancyStatus === "VACANT_LEASED").length;
+    const directoryNtv = directoryUnits.filter((unit) => unit.occupancyStatus === "NTV").length;
+    const directoryNtvLeased = directoryUnits.filter((unit) => unit.occupancyStatus === "NTV_LEASED").length;
+    const occupancyPercent = directoryUnits.length ? Math.round((occupiedUnits / directoryUnits.length) * 1000) / 10 : 0;
+    const goalContributors = new Map<string, { goal: number; count: number }>();
+    for (const unit of directoryUnits) {
+      const goal = unit.property.occupancyGoalPercent;
+      if (goal === null) continue;
+      const current = goalContributors.get(unit.property.id) ?? { goal, count: 0 };
+      current.count += 1;
+      goalContributors.set(unit.property.id, current);
+    }
+    const goalUnits = [...goalContributors.values()];
+    const occupancyGoalPercent = goalUnits.length
+      ? Math.round((goalUnits.reduce((sum, entry) => sum + entry.goal * entry.count, 0) / goalUnits.reduce((sum, entry) => sum + entry.count, 0)) * 10) / 10
+      : 0;
 
     return {
       kpis: {
@@ -133,6 +155,15 @@ export async function dashboardRoutes(app: FastifyInstance) {
         highRiskMappedUnits: evaluated.filter((entry) => entry.item.unitId && mappedUnitIds.has(entry.item.unitId) && ["HIGH", "CRITICAL"].includes(entry.risk.riskLevel)).length,
         plannedWorkBlocks: workBlocks.length,
         unplannedMoveIns: evaluated.filter((entry) => entry.item.moveInDate && inDays(entry.item.moveInDate, 7) && entry.item.workAssignmentBlocks?.length === 0).length,
+        totalUnits: directoryUnits.length,
+        occupiedUnits,
+        occupancyPercent,
+        occupancyGoalPercent,
+        vacantReadyUnits: directoryVacantReady,
+        directoryVacantLeased,
+        directoryNtv,
+        directoryNtvLeased,
+        readyStock: items.filter((item) => sectionType.get(`${item.propertyId}:${item.boardGroup}`) === "READY" && !item.isArchived).length,
       },
       vacancyBreakdown: breakdown(items.map((item) => item.vacancyStatus ?? "Unset")),
       scopeBreakdown: breakdown(items.map((item) => item.scopeLevel ?? "Unset")),

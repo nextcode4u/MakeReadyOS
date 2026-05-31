@@ -5,11 +5,11 @@ import { canManageSharedViews } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
 
-const moduleSchema = z.object({
+export const savedViewModuleQuerySchema = z.object({
   module: z.string().default("make-ready"),
 });
 
-const viewSchema = z.object({
+export const savedViewSchema = z.object({
   name: z.string().trim().min(2).max(120),
   module: z.string().default("make-ready"),
   viewType: z.enum(["table", "kanban", "calendar", "dashboard"]),
@@ -23,7 +23,7 @@ const viewSchema = z.object({
   isShared: z.boolean().default(false),
 });
 
-const updateViewSchema = viewSchema.partial().extend({
+export const savedViewUpdateSchema = savedViewSchema.partial().extend({
   name: z.string().trim().min(2).max(120).optional(),
   viewType: z.enum(["table", "kanban", "calendar", "dashboard"]).optional(),
 });
@@ -87,7 +87,7 @@ async function findAuthorizedView(viewId: string, userId: string, isAdmin: boole
 export async function savedViewRoutes(app: FastifyInstance) {
   app.get("/saved-views", async (request) => {
     const user = request.currentUser!;
-    const query = moduleSchema.parse(request.query);
+    const query = savedViewModuleQuerySchema.parse(request.query);
 
     const views = await prisma.savedView.findMany({
       where: {
@@ -116,7 +116,7 @@ export async function savedViewRoutes(app: FastifyInstance) {
       return { message: "Viewer role cannot create saved views" };
     }
 
-    const payload = viewSchema.parse(request.body);
+    const payload = savedViewSchema.parse(request.body);
     if (payload.isShared && !canManageSharedViews(user)) {
       reply.code(403);
       return { message: "Only MANAGER or ADMIN can create shared views" };
@@ -163,7 +163,7 @@ export async function savedViewRoutes(app: FastifyInstance) {
     }
 
     const params = z.object({ id: z.string() }).parse(request.params);
-    const payload = updateViewSchema.parse(request.body);
+    const payload = savedViewUpdateSchema.parse(request.body);
     const existing = await findAuthorizedView(params.id, user.id, user.role === "ADMIN");
 
     if (!existing) {

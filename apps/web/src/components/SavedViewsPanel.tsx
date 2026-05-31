@@ -306,7 +306,7 @@ export function SavedViewsPanel({
               </select>
             </label>
           </div>
-          <section className="custom-filter-section" data-testid="custom-field-filters">
+          <section className="custom-filter-section" data-testid="saved-view-custom-field-filters">
             <header>
               <strong>Custom fields</strong>
               <span>{config.customFieldFilters.length} applied</span>
@@ -316,46 +316,46 @@ export function SavedViewsPanel({
               if (!field) return null;
               const needsValue = !["empty", "notEmpty", "isTrue", "isFalse", "overdue"].includes(filter.operator);
               return (
-                <div className="custom-filter-row" data-testid={`custom-filter-row-${field.fieldKey}`} key={field.id}>
+                <div className="custom-filter-row" data-testid={`saved-view-custom-filter-row-${field.fieldKey}`} key={field.id}>
                   <strong title={field.label}>{field.label}</strong>
-                  <select data-testid={`custom-filter-operator-${field.fieldKey}`} value={filter.operator} onChange={(event) => updateCustomFilter(field.id, { ...defaultCustomFilterFor(field), operator: event.target.value as CustomFieldFilter["operator"] })} aria-label={`Operator for ${field.label}`}>
+                  <select data-testid={`saved-view-custom-filter-operator-${field.fieldKey}`} value={filter.operator} onChange={(event) => updateCustomFilter(field.id, { ...defaultCustomFilterFor(field), operator: event.target.value as CustomFieldFilter["operator"] })} aria-label={`Operator for ${field.label}`}>
                     {customOperatorsByType[field.fieldType].map((operator) => <option key={operator.value} value={operator.value}>{operator.label}</option>)}
                   </select>
                   {needsValue && (field.fieldType === "SINGLE_SELECT" || field.fieldType === "MULTI_SELECT") ? (
-                    <select data-testid={`custom-filter-value-${field.fieldKey}`} value={String(filter.value ?? "")} onChange={(event) => updateCustomFilter(field.id, { value: event.target.value })} aria-label={`Value for ${field.label}`}>
+                    <select data-testid={`saved-view-custom-filter-value-${field.fieldKey}`} value={String(filter.value ?? "")} onChange={(event) => updateCustomFilter(field.id, { value: event.target.value })} aria-label={`Value for ${field.label}`}>
                       <option value="">Select option</option>
                       {field.options.filter((option) => !option.isArchived).map((option) => <option key={option.id} value={option.label}>{option.label}</option>)}
                     </select>
                   ) : needsValue && field.fieldType === "USER" ? (
-                    <select data-testid={`custom-filter-value-${field.fieldKey}`} value={String(filter.value ?? "")} onChange={(event) => updateCustomFilter(field.id, { value: event.target.value })} aria-label={`Value for ${field.label}`}>
+                    <select data-testid={`saved-view-custom-filter-value-${field.fieldKey}`} value={String(filter.value ?? "")} onChange={(event) => updateCustomFilter(field.id, { value: event.target.value })} aria-label={`Value for ${field.label}`}>
                       <option value="">Select staff</option>
                       {staff.map((member) => <option key={member.id} value={member.id}>{member.fullName}</option>)}
                     </select>
                   ) : needsValue ? (
                     <div className="custom-filter-operands">
                       <input
-                        data-testid={`custom-filter-value-${field.fieldKey}`}
+                        data-testid={`saved-view-custom-filter-value-${field.fieldKey}`}
                         type={field.fieldType === "DATE" && filter.operator !== "withinNextDays" ? "date" : field.fieldType === "NUMBER" || filter.operator === "withinNextDays" ? "number" : "text"}
                         value={String(filter.value ?? "")}
                         onChange={(event) => updateCustomFilter(field.id, { value: field.fieldType === "NUMBER" || filter.operator === "withinNextDays" ? Number(event.target.value) : event.target.value })}
                         aria-label={`Value for ${field.label}`}
                       />
                       {filter.operator === "between" ? (
-                        <input data-testid={`custom-filter-value-to-${field.fieldKey}`} type="date" value={filter.valueTo ?? ""} onChange={(event) => updateCustomFilter(field.id, { valueTo: event.target.value })} aria-label={`End value for ${field.label}`} />
+                        <input data-testid={`saved-view-custom-filter-value-to-${field.fieldKey}`} type="date" value={filter.valueTo ?? ""} onChange={(event) => updateCustomFilter(field.id, { valueTo: event.target.value })} aria-label={`End value for ${field.label}`} />
                       ) : null}
                     </div>
                   ) : <span className="custom-filter-no-value">No value needed</span>}
-                  <button type="button" className="icon-button custom-filter-remove" data-testid={`custom-filter-remove-${field.fieldKey}`} aria-label={`Remove ${field.label} filter`} onClick={() => onConfigChange({ customFieldFilters: config.customFieldFilters.filter((entry) => entry.fieldId !== field.id) })}>&times;</button>
+                  <button type="button" className="icon-button custom-filter-remove" data-testid={`saved-view-custom-filter-remove-${field.fieldKey}`} aria-label={`Remove ${field.label} filter`} onClick={() => onConfigChange({ customFieldFilters: config.customFieldFilters.filter((entry) => entry.fieldId !== field.id) })}>&times;</button>
                 </div>
               );
             })}
             {activeCustomFields.length === 0 ? <p className="empty-copy">No active custom fields are available for filtering.</p> : (
               <div className="custom-filter-add">
-                <select data-testid="custom-filter-field-add" value={customFieldToAdd} onChange={(event) => setCustomFieldToAdd(event.target.value)} aria-label="Choose custom field to filter">
+                <select data-testid="saved-view-custom-filter-field-add" value={customFieldToAdd} onChange={(event) => setCustomFieldToAdd(event.target.value)} aria-label="Choose custom field to filter">
                   <option value="">Add custom-field filter</option>
                   {availableCustomFields.map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}
                 </select>
-                <button type="button" className="button button-secondary" data-testid="custom-filter-add" disabled={!customFieldToAdd} onClick={() => {
+                <button type="button" className="button button-secondary" data-testid="saved-view-custom-filter-add" disabled={!customFieldToAdd} onClick={() => {
                   const field = activeCustomFields.find((entry) => entry.id === customFieldToAdd);
                   if (field) onConfigChange({ customFieldFilters: [...config.customFieldFilters, defaultCustomFilterFor(field)] });
                   setCustomFieldToAdd("");
