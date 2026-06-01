@@ -319,6 +319,83 @@
   min-width: 0;
 }
 
+.charge-report-panel {
+  display: grid;
+  gap: .75rem;
+}
+
+.charge-report-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+  align-items: center;
+}
+
+.charge-report-summary span {
+  padding: .35rem .55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--text-soft);
+  font-size: .78rem;
+}
+
+.charge-report-summary .warning {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.charge-report-table {
+  display: grid;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: .75rem;
+}
+
+.charge-report-row {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(13rem, 1.4fr) minmax(10rem, 1fr) 4rem 6rem minmax(12rem, 1fr);
+  gap: .6rem;
+  align-items: center;
+  min-width: 58rem;
+  padding: .55rem .65rem;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: .78rem;
+}
+
+.charge-report-row:first-child {
+  border-top: 0;
+}
+
+.charge-report-row.header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-strong);
+  color: var(--muted);
+  font-size: .7rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.charge-report-row span {
+  min-width: 0;
+}
+
+.charge-report-row strong,
+.charge-report-row small {
+  display: block;
+}
+
+.charge-report-row small {
+  margin-top: .15rem;
+  color: var(--muted);
+  font-size: .7rem;
+}
+
 @media (max-width: 900px) {
   .inspection-price-sheet-form {
     grid-template-columns: 1fr 1fr;
@@ -590,11 +667,40 @@
   color: var(--text);
 }
 
-.attachment-image-markup {
+.attachment-preview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  padding: .45rem .55rem;
+  border: 1px solid var(--border);
+  border-radius: .65rem;
+  background: var(--panel);
+  color: var(--text-soft);
+  font-size: .78rem;
+}
+
+.attachment-zoom-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .35rem;
+  margin-left: auto;
+}
+
+.attachment-image-scroll {
   position: relative;
   overflow: auto;
+  max-height: min(72vh, 48rem);
   border: 1px solid var(--border);
   border-radius: .75rem;
+  background: var(--panel-strong);
+}
+
+.attachment-image-markup {
+  position: relative;
+  min-width: 100%;
+  margin: 0 auto;
   background: var(--panel-strong);
 }
 
@@ -607,6 +713,37 @@
 .attachment-image-markup img {
   border: 0;
   border-radius: 0;
+  max-height: none;
+}
+
+.attachment-cycle {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  width: 2.35rem;
+  height: 2.35rem;
+  transform: translateY(-50%);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-strong) 88%, transparent);
+  color: var(--text);
+  font-size: 1.9rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 .35rem 1rem rgba(0, 0, 0, .28);
+}
+
+.attachment-cycle.previous {
+  left: .7rem;
+}
+
+.attachment-cycle.next {
+  right: .7rem;
+}
+
+.attachment-cycle:disabled {
+  cursor: not-allowed;
+  opacity: .35;
 }
 
 .attachment-pin {
@@ -636,13 +773,44 @@
 
 .attachment-pin-row {
   display: grid;
-  grid-template-columns: minmax(8rem, 1fr) minmax(8rem, 1fr) auto;
+  grid-template-columns: minmax(8rem, .8fr) minmax(16rem, 1.5fr) auto;
   align-items: center;
   gap: .55rem;
   padding: .45rem .55rem;
   border: 1px solid var(--border);
   border-radius: .6rem;
   background: var(--panel);
+}
+
+.attachment-pin-row > div:first-child {
+  display: grid;
+  gap: .15rem;
+}
+
+.attachment-pin-charge-fields {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) minmax(4.5rem, .35fr) minmax(6rem, .5fr) minmax(8rem, .8fr);
+  align-items: end;
+  gap: .45rem;
+}
+
+.attachment-pin-charge-fields label {
+  display: grid;
+  gap: .15rem;
+  color: var(--muted);
+  font-size: .7rem;
+}
+
+.attachment-pin-charge-fields span {
+  color: var(--text-soft);
+  font-size: .74rem;
+}
+
+@media (max-width: 760px) {
+  .attachment-pin-row,
+  .attachment-pin-charge-fields {
+    grid-template-columns: 1fr;
+  }
 }
 
 .attachment-lightbox-file {
@@ -4997,7 +5165,11 @@ textarea {
 
 .modal-panel {
   width: min(100%, 30rem);
+  max-height: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
   padding: 1.1rem;
+  overflow: hidden;
 }
 
 .modal-panel[data-testid="attachment-gallery-modal"] {
@@ -5013,6 +5185,17 @@ textarea {
 
 .modal-panel[data-testid="attachment-preview-modal"] {
   width: min(calc(100vw - 2rem), 72rem);
+}
+
+.modal-panel[data-testid="charge-report-modal"] {
+  width: min(calc(100vw - 2rem), 76rem);
+}
+
+.modal-panel[data-testid="attachment-preview-modal"] .modal-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: .25rem;
 }
 
 .modal-panel[data-testid="inline-floor-plan-modal"] {
@@ -5042,8 +5225,19 @@ textarea {
 }
 
 .modal-actions {
+  flex: 0 0 auto;
   justify-content: flex-end;
   margin-top: 1rem;
+}
+
+.modal-header {
+  flex: 0 0 auto;
+}
+
+.modal-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .toast-viewport {

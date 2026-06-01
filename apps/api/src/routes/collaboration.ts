@@ -49,6 +49,10 @@ export const attachmentPatchSchema = z.object({
     note: z.string().trim().max(500).nullable().optional(),
     category: z.string().trim().max(80).nullable().optional(),
     chargeCandidate: z.boolean().optional().default(false),
+    chargePriceSheetItemId: z.string().nullable().optional(),
+    chargePriceSheetItemName: z.string().trim().max(160).nullable().optional(),
+    chargeQuantity: z.number().min(0).max(10000).nullable().optional(),
+    chargeEstimatedCents: z.number().int().min(0).max(100000000).nullable().optional(),
   })).max(100).nullable().optional(),
 });
 export const attachmentArchiveQuerySchema = z.object({
@@ -127,6 +131,10 @@ function uniqueZipPath(path: string, used: Set<string>) {
   return next;
 }
 
+function annotationEstimate(annotation: { chargeEstimatedCents?: number | null; chargeQuantity?: number | null }) {
+  return annotation.chargeEstimatedCents ?? 0;
+}
+
 export async function collaborationRoutes(app: FastifyInstance) {
   app.get("/make-ready-items/:id/collaboration", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
@@ -169,6 +177,82 @@ export async function collaborationRoutes(app: FastifyInstance) {
         comments: { total: commentsTotal, limit: query.commentLimit, hasMore: comments.length < commentsTotal },
         attachments: { total: attachmentsTotal, limit: query.attachmentLimit, hasMore: attachments.length < attachmentsTotal },
       },
+    };
+  });
+
+  app.get("/make-ready-items/:id/charge-report", async (request, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const item = await getScopedItem(request, reply, id);
+    if (!item) return;
+    const attachments = await prisma.itemAttachment.findMany({
+      where: { itemId: id, commentId: null },
+      include: { chargePriceSheetItem: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const fileLines = attachments
+      .filter((attachment) => attachment.chargeCandidate)
+      .map((attachment) => ({
+        type: "FILE" as const,
+        attachmentId: attachment.id,
+        attachmentName: attachment.originalName,
+        label: attachment.category || attachment.originalName,
+        category: attachment.category,
+        inspectionStage: attachment.inspectionStage,
+        note: attachment.note,
+        chargeNote: attachment.chargeNote,
+        priceSheetItemId: attachment.chargePriceSheetItemId,
+        priceSheetItemName: attachment.chargePriceSheetItem?.name ?? null,
+        quantity: attachment.chargeQuantity,
+        estimatedCents: attachment.chargeEstimatedCents ?? 0,
+      }));
+    const pinLines = attachments.flatMap((attachment) => {
+      const annotations = Array.isArray(attachment.markupAnnotations) ? attachment.markupAnnotations : [];
+      return annotations
+        .filter((annotation): annotation is {
+          id: string;
+          label: string;
+          note?: string | null;
+          category?: string | null;
+          chargeCandidate?: boolean;
+          chargePriceSheetItemId?: string | null;
+          chargePriceSheetItemName?: string | null;
+          chargeQuantity?: number | null;
+          chargeEstimatedCents?: number | null;
+        } => Boolean(annotation && typeof annotation === "object" && "chargeCandidate" in annotation && annotation.chargeCandidate))
+        .map((annotation) => ({
+          type: "PIN" as const,
+          attachmentId: attachment.id,
+          attachmentName: attachment.originalName,
+          pinId: annotation.id,
+          label: annotation.label,
+          category: annotation.category ?? null,
+          inspectionStage: attachment.inspectionStage,
+          note: annotation.note ?? attachment.note,
+          chargeNote: attachment.chargeNote,
+          priceSheetItemId: annotation.chargePriceSheetItemId ?? null,
+          priceSheetItemName: annotation.chargePriceSheetItemName ?? null,
+          quantity: annotation.chargeQuantity ?? null,
+          estimatedCents: annotationEstimate(annotation),
+        }));
+    });
+    const lines = [...fileLines, ...pinLines];
+    const missingContext = lines.filter((line) => !line.priceSheetItemId && !line.estimatedCents && !line.note && !line.chargeNote).length;
+    return {
+      item: {
+        id: item.id,
+        propertyId: item.propertyId,
+        propertyCode: item.property.code,
+        unitNumber: item.unitNumber,
+        boardGroup: item.boardGroup,
+      },
+      summary: {
+        fileCount: fileLines.length,
+        pinCount: pinLines.length,
+        lineCount: lines.length,
+        missingContext,
+        totalEstimatedCents: lines.reduce((total, line) => total + line.estimatedCents, 0),
+      },
+      lines,
     };
   });
 
@@ -419,6 +503,16 @@ export async function collaborationRoutes(app: FastifyInstance) {
       const priceSheetItem = await prisma.chargePriceSheetItem.findUnique({ where: { id: input.chargePriceSheetItemId } });
       if (!priceSheetItem || priceSheetItem.propertyId !== attachment.propertyId || priceSheetItem.isArchived) {
         return reply.code(400).send({ message: "Price-sheet item is not available for this attachment property" });
+      }
+    }
+    const annotationPriceSheetIds = Array.from(new Set((input.markupAnnotations ?? [])
+      .map((annotation) => annotation.chargePriceSheetItemId)
+      .filter((entry): entry is string => Boolean(entry))));
+    if (annotationPriceSheetIds.length) {
+      const priceSheetItems = await prisma.chargePriceSheetItem.findMany({ where: { id: { in: annotationPriceSheetIds } } });
+      const availableIds = new Set(priceSheetItems.filter((entry) => entry.propertyId === attachment.propertyId && !entry.isArchived).map((entry) => entry.id));
+      if (annotationPriceSheetIds.some((entry) => !availableIds.has(entry))) {
+        return reply.code(400).send({ message: "One or more markup pin price-sheet items are not available for this attachment property" });
       }
     }
     const updated = await prisma.itemAttachment.update({

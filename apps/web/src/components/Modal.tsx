@@ -15,6 +15,9 @@ export function Modal({ open, title, children, actions, onClose, testId }: Props
       return undefined;
     }
 
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
@@ -22,7 +25,10 @@ export function Modal({ open, title, children, actions, onClose, testId }: Props
     };
 
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
   }, [onClose, open]);
 
   if (!open) {

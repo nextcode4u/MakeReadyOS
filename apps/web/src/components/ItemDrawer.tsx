@@ -1,7 +1,7 @@
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BoardColumnDefinition, BoardSection, ChargePriceSheetItem, CurrentUser, CustomField, FloorPlan, ItemCollaboration, LabelDefinition, MakeReadyItem, StaffOption, UnitHistoryResponse, Vendor, VendorAssignment, WorkAssignmentBlock } from "../lib/api";
-import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getItemCollaboration, getUnitHistory, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
+import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getUnitHistory, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
 import { boardGroupLabel, configuredBoardColumns } from "../lib/board";
 import { formatDateTime } from "../lib/dateTime";
 import { LabelPill } from "./LabelPill";
@@ -139,11 +139,16 @@ export function ItemDrawer({
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [attachmentStageFilter, setAttachmentStageFilter] = useState("ALL");
   const [attachmentGalleryOpen, setAttachmentGalleryOpen] = useState(false);
+  const [chargeReportOpen, setChargeReportOpen] = useState(false);
   const [previewAttachmentId, setPreviewAttachmentId] = useState<string | null>(null);
+  const [attachmentZoom, setAttachmentZoom] = useState(1);
   const [pinModeAttachmentId, setPinModeAttachmentId] = useState<string | null>(null);
   const [newPinLabel, setNewPinLabel] = useState("Damage");
   const [newPinCategory, setNewPinCategory] = useState("Damage");
   const [newPinChargeCandidate, setNewPinChargeCandidate] = useState(true);
+  const [newPinPriceSheetItemId, setNewPinPriceSheetItemId] = useState("");
+  const [newPinChargeQuantity, setNewPinChargeQuantity] = useState("1");
+  const [newPinChargeEstimate, setNewPinChargeEstimate] = useState("");
   const [newChargeItem, setNewChargeItem] = useState({ name: "", category: "", amount: "", unitLabel: "" });
   const [templateId, setTemplateId] = useState("");
   const [vendorDraft, setVendorDraft] = useState({ vendorId: "", trade: "", scheduledDate: "", dueDate: "", notes: "" });
@@ -173,14 +178,27 @@ export function ItemDrawer({
     queryFn: () => getUnitHistory(item.unitId as string),
     enabled: Boolean(item.unitId),
   });
+  const chargeReportQuery = useQuery({
+    queryKey: ["charge-report", item.id],
+    queryFn: () => getChargeReport(item.id),
+    enabled: chargeReportOpen,
+  });
   const canCollaborate = currentUser.role !== "VIEWER";
   const itemVendorAssignments = vendorAssignments.filter((assignment) => assignment.itemId === item.id);
   const itemWorkBlocks = workBlocks.filter((block) => block.itemId === item.id && block.status !== "CANCELED");
   const attachments = collaborationQuery.data?.attachments ?? [];
+  const activeChargePriceSheetItems = (chargePriceSheetQuery.data?.items ?? []).filter((entry) => entry.isActive && !entry.isArchived);
   const needsClassification = attachments.filter((attachment) => (attachment.inspectionStage || "GENERAL") === "GENERAL" && !attachment.category && !attachment.note && !attachment.chargeCandidate);
   const chargeCandidates = attachments.filter((attachment) => attachment.chargeCandidate);
-  const chargeCandidatesMissingContext = chargeCandidates.filter((attachment) => !attachment.chargeNote && !attachment.note);
-  const chargeEstimateTotal = chargeCandidates.reduce((total, attachment) => total + (attachment.chargeEstimatedCents ?? 0), 0);
+  const chargePinAnnotations = attachments.flatMap((attachment) => (attachment.markupAnnotations ?? [])
+    .filter((annotation) => annotation.chargeCandidate)
+    .map((annotation) => ({ attachment, annotation })));
+  const chargeCandidatesMissingContext = [
+    ...chargeCandidates.filter((attachment) => !attachment.chargeNote && !attachment.note),
+    ...chargePinAnnotations.filter(({ annotation }) => !annotation.note && !annotation.chargePriceSheetItemId && !annotation.chargeEstimatedCents),
+  ];
+  const chargeEstimateTotal = chargeCandidates.reduce((total, attachment) => total + (attachment.chargeEstimatedCents ?? 0), 0)
+    + chargePinAnnotations.reduce((total, { annotation }) => total + (annotation.chargeEstimatedCents ?? 0), 0);
   const filteredAttachments = attachments.filter((attachment) => {
     if (attachmentStageFilter === "ALL") return true;
     if (attachmentStageFilter === "NEEDS_CLASSIFICATION") return needsClassification.some((entry) => entry.id === attachment.id);
@@ -189,11 +207,16 @@ export function ItemDrawer({
   });
   const imageCount = attachments.filter((attachment) => attachment.mimeType.startsWith("image/")).length;
   const chargeCount = chargeCandidates.length;
+  const chargePinCount = chargePinAnnotations.length;
   const recentAttachments = filteredAttachments.slice(0, 6);
   const previewAttachment = previewAttachmentId ? attachments.find((attachment) => attachment.id === previewAttachmentId) ?? null : null;
+  const previewImageAttachments = (filteredAttachments.some((attachment) => attachment.id === previewAttachmentId) ? filteredAttachments : attachments).filter((attachment) => attachment.mimeType.startsWith("image/"));
+  const previewImageIndex = previewAttachmentId ? previewImageAttachments.findIndex((attachment) => attachment.id === previewAttachmentId) : -1;
+  const canCyclePreviewImages = previewImageAttachments.length > 1 && previewImageIndex >= 0;
   const canUpdatePreviewAttachment = Boolean(previewAttachment && canCollaborate && (previewAttachment.uploadedById === currentUser.id || canManageItems));
   const activeStageLabel = attachmentStageOptions.find((stage) => stage.value === attachmentStageFilter)?.label ?? "current filter";
   const attachmentCategories = Array.from(new Set(attachments.map((attachment) => attachment.category?.trim()).filter((category): category is string => Boolean(category)))).sort((a, b) => a.localeCompare(b));
+  const markupCategoryOptions = Array.from(new Set([...attachmentCategoryOptions, ...attachmentCategories, newPinCategory.trim()].filter(Boolean))).sort((a, b) => a.localeCompare(b));
   const canManageVendorWork = currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
   const canManageChargePriceSheet = currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
   const canUpdateVendorWork = canManageVendorWork || currentUser.role === "TECH";
@@ -221,14 +244,20 @@ export function ItemDrawer({
       });
       setNewChargeItem({ name: "", category: "", amount: "", unitLabel: "" });
       await queryClient.invalidateQueries({ queryKey: ["charge-price-sheet-items", item.propertyId] });
+      await queryClient.invalidateQueries({ queryKey: ["charge-report", item.id] });
       return created;
     });
   };
   const saveAttachmentAnnotations = (attachment: DrawerAttachment, annotations: AttachmentAnnotation[]) => {
     patchAttachmentMetadata(attachment.id, { markupAnnotations: annotations });
+    void queryClient.invalidateQueries({ queryKey: ["charge-report", item.id] });
+  };
+  const updateAttachmentAnnotation = (attachment: DrawerAttachment, annotationId: string, patch: Partial<AttachmentAnnotation>) => {
+    saveAttachmentAnnotations(attachment, (attachment.markupAnnotations ?? []).map((annotation) => annotation.id === annotationId ? { ...annotation, ...patch } : annotation));
   };
   const addAttachmentAnnotation = (attachment: DrawerAttachment, event: MouseEvent<HTMLDivElement>) => {
     if (pinModeAttachmentId !== attachment.id || !newPinLabel.trim()) return;
+    const selectedPriceSheetItem = activeChargePriceSheetItems.find((entry) => entry.id === newPinPriceSheetItemId) ?? null;
     const rect = event.currentTarget.getBoundingClientRect();
     const x = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
     const y = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
@@ -241,6 +270,10 @@ export function ItemDrawer({
         label: newPinLabel.trim(),
         category: newPinCategory.trim() || null,
         chargeCandidate: newPinChargeCandidate,
+        chargePriceSheetItemId: selectedPriceSheetItem?.id ?? null,
+        chargePriceSheetItemName: selectedPriceSheetItem?.name ?? null,
+        chargeQuantity: newPinChargeCandidate && selectedPriceSheetItem ? Number(newPinChargeQuantity) || 1 : null,
+        chargeEstimatedCents: newPinChargeCandidate ? dollarsToCents(newPinChargeEstimate) ?? selectedPriceSheetItem?.defaultCents ?? null : null,
       },
     ];
     saveAttachmentAnnotations(attachment, nextAnnotations);
@@ -248,6 +281,12 @@ export function ItemDrawer({
   };
   const removeAttachmentAnnotation = (attachment: DrawerAttachment, annotationId: string) => {
     saveAttachmentAnnotations(attachment, (attachment.markupAnnotations ?? []).filter((annotation) => annotation.id !== annotationId));
+  };
+  const openPreviewImageAt = (direction: -1 | 1) => {
+    if (!canCyclePreviewImages) return;
+    const nextIndex = (previewImageIndex + direction + previewImageAttachments.length) % previewImageAttachments.length;
+    setPinModeAttachmentId(null);
+    setPreviewAttachmentId(previewImageAttachments[nextIndex].id);
   };
   const uploadFiles = (files: FileList | null) => {
     const selected = Array.from(files ?? []);
@@ -264,6 +303,7 @@ export function ItemDrawer({
     try {
       await action();
       await refreshCollaboration();
+      await queryClient.invalidateQueries({ queryKey: ["charge-report", item.id] });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Operation failed");
       await refreshCollaboration();
@@ -298,6 +338,10 @@ export function ItemDrawer({
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [attachmentGalleryOpen, onClose, previewAttachmentId]);
+
+  useEffect(() => {
+    setAttachmentZoom(1);
+  }, [previewAttachmentId]);
 
   const commit = async (key: string, value: unknown) => {
     setSaving(key);
@@ -930,9 +974,16 @@ export function ItemDrawer({
         <div className={chargeCandidatesMissingContext.length ? "inspection-evidence-panel warning" : "inspection-evidence-panel"} data-testid="inspection-evidence-panel">
           <div>
             <strong>Evidence package</strong>
-            <span>{chargeCount ? `${chargeCount} charge candidate file${chargeCount === 1 ? "" : "s"}` : "No charge candidates marked yet"}{chargeCandidatesMissingContext.length ? ` / ${chargeCandidatesMissingContext.length} need notes` : ""} / Estimate total {formatCents(chargeEstimateTotal)}</span>
+            <span>
+              {chargeCount || chargePinCount ? `${chargeCount} file${chargeCount === 1 ? "" : "s"} / ${chargePinCount} pin${chargePinCount === 1 ? "" : "s"}` : "No charge candidates marked yet"}
+              {chargeCandidatesMissingContext.length ? ` / ${chargeCandidatesMissingContext.length} need pricing or notes` : ""}
+              {" / "}Estimate total {formatCents(chargeEstimateTotal)}
+            </span>
           </div>
           <div className="inspection-evidence-actions">
+            <button type="button" className="button button-secondary" data-testid="charge-report-open" onClick={() => setChargeReportOpen(true)}>
+              Open charge report
+            </button>
             <button type="button" className="button button-ghost" onClick={() => setAttachmentStageFilter("CHARGE_CANDIDATES")}>Review charge candidates</button>
             {chargeCount ? (
               <a className="button button-secondary" data-testid="attachment-gallery-charge-zip" href={attachmentArchiveUrl(item.id, { stage: "CHARGE_CANDIDATES" })} download={`${item.unitNumber}-charge-candidates.zip`}>
@@ -996,6 +1047,63 @@ export function ItemDrawer({
         )}
       </Modal>
       <Modal
+        open={chargeReportOpen}
+        title={`${item.unitNumber} Charge / Evidence Report`}
+        onClose={() => setChargeReportOpen(false)}
+        testId="charge-report-modal"
+        actions={chargeReportQuery.data?.summary.lineCount ? (
+          <a className="button button-secondary" href={attachmentArchiveUrl(item.id, { stage: "CHARGE_CANDIDATES" })} download={`${item.unitNumber}-charge-candidates.zip`}>
+            Download Charge ZIP
+          </a>
+        ) : null}
+      >
+        <div className="charge-report-panel" data-testid="charge-report-panel">
+          {chargeReportQuery.isLoading ? (
+            <p className="drawer-empty">Loading charge evidence report...</p>
+          ) : chargeReportQuery.isError ? (
+            <p className="drawer-error">Unable to load charge report.</p>
+          ) : chargeReportQuery.data ? (
+            <>
+              <div className="charge-report-summary">
+                <span><strong>{chargeReportQuery.data.summary.lineCount}</strong> lines</span>
+                <span><strong>{chargeReportQuery.data.summary.fileCount}</strong> files</span>
+                <span><strong>{chargeReportQuery.data.summary.pinCount}</strong> pins</span>
+                <span><strong>{formatCents(chargeReportQuery.data.summary.totalEstimatedCents)}</strong> total estimate</span>
+                {chargeReportQuery.data.summary.missingContext ? <span className="warning"><strong>{chargeReportQuery.data.summary.missingContext}</strong> need pricing or notes</span> : null}
+              </div>
+              {chargeReportQuery.data.lines.length ? (
+                <div className="charge-report-table" role="table" aria-label="Charge evidence line items">
+                  <div className="charge-report-row header" role="row">
+                    <span>Type</span>
+                    <span>Evidence</span>
+                    <span>Price sheet</span>
+                    <span>Qty</span>
+                    <span>Estimate</span>
+                    <span>Notes</span>
+                  </div>
+                  {chargeReportQuery.data.lines.map((line, index) => (
+                    <div key={`${line.type}-${line.attachmentId}-${line.pinId ?? index}`} className="charge-report-row" role="row">
+                      <span>{line.type === "PIN" ? "Pin" : "File"}</span>
+                      <span>
+                        <strong>{line.label}</strong>
+                        <small>{line.attachmentName}{line.category ? ` / ${line.category}` : ""} / {line.inspectionStage}</small>
+                      </span>
+                      <span>{line.priceSheetItemName ?? "No price-sheet item"}</span>
+                      <span>{line.quantity ?? "-"}</span>
+                      <span>{formatCents(line.estimatedCents)}</span>
+                      <span>{line.chargeNote || line.note || "No note"}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="drawer-empty">No charge-candidate photos or pins are marked yet.</p>
+              )}
+              <p className="modal-copy">This report is for review and evidence collection. It does not create resident ledger charges, invoices, or accounting entries.</p>
+            </>
+          ) : null}
+        </div>
+      </Modal>
+      <Modal
         open={Boolean(previewAttachment)}
         title={previewAttachment?.originalName ?? "Attachment preview"}
         onClose={() => setPreviewAttachmentId(null)}
@@ -1021,12 +1129,15 @@ export function ItemDrawer({
                       />
                     </label>
                     <label>Category
-                      <input
+                      <select
                         data-testid="attachment-pin-category"
                         value={newPinCategory}
-                        maxLength={80}
                         onChange={(event) => setNewPinCategory(event.target.value)}
-                      />
+                      >
+                        {markupCategoryOptions.map((category) => (
+                          <option key={category} value={category}>{category}</option>
+                        ))}
+                      </select>
                     </label>
                     <label className="inline-checkbox">
                       <input
@@ -1036,6 +1147,44 @@ export function ItemDrawer({
                       />
                       Charge pin
                     </label>
+                    {newPinChargeCandidate ? (
+                      <>
+                        <label>Price sheet
+                          <select
+                            data-testid="attachment-pin-price-sheet"
+                            value={newPinPriceSheetItemId}
+                            onChange={(event) => {
+                              const selected = activeChargePriceSheetItems.find((entry) => entry.id === event.target.value) ?? null;
+                              setNewPinPriceSheetItemId(selected?.id ?? "");
+                              setNewPinChargeEstimate(centsToDollars(selected?.defaultCents));
+                            }}
+                          >
+                            <option value="">No price-sheet item</option>
+                            {activeChargePriceSheetItems.map((entry) => (
+                              <option key={entry.id} value={entry.id}>{entry.name}{entry.defaultCents !== null ? ` (${formatCents(entry.defaultCents)})` : ""}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>Qty
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.25"
+                            value={newPinChargeQuantity}
+                            onChange={(event) => setNewPinChargeQuantity(event.target.value)}
+                          />
+                        </label>
+                        <label>Estimate
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={newPinChargeEstimate}
+                            onChange={(event) => setNewPinChargeEstimate(event.target.value)}
+                          />
+                        </label>
+                      </>
+                    ) : null}
                     <button
                       type="button"
                       className={pinModeAttachmentId === previewAttachment.id ? "button button-primary" : "button button-secondary"}
@@ -1046,31 +1195,110 @@ export function ItemDrawer({
                     </button>
                   </div>
                 ) : null}
-                <div
-                  className={pinModeAttachmentId === previewAttachment.id ? "attachment-image-markup placing" : "attachment-image-markup"}
-                  data-testid="attachment-image-markup"
-                  onClick={(event) => addAttachmentAnnotation(previewAttachment, event)}
-                >
-                  <img src={attachmentDownloadUrl(previewAttachment.id)} alt={previewAttachment.note || previewAttachment.originalName} />
-                  {(previewAttachment.markupAnnotations ?? []).map((annotation, index) => (
-                    <button
-                      key={annotation.id}
-                      type="button"
-                      className={annotation.chargeCandidate ? "attachment-pin charge" : "attachment-pin"}
-                      style={{ left: `${annotation.x}%`, top: `${annotation.y}%` }}
-                      title={`${annotation.label}${annotation.category ? ` / ${annotation.category}` : ""}`}
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      {index + 1}
+                <div className="attachment-preview-controls" aria-label="Photo preview controls">
+                  <button type="button" className="button button-secondary" onClick={() => openPreviewImageAt(-1)} disabled={!canCyclePreviewImages} aria-label="Previous photo">
+                    Previous
+                  </button>
+                  <span>{previewImageIndex >= 0 ? `${previewImageIndex + 1} of ${previewImageAttachments.length}` : "1 of 1"}</span>
+                  <button type="button" className="button button-secondary" onClick={() => openPreviewImageAt(1)} disabled={!canCyclePreviewImages} aria-label="Next photo">
+                    Next
+                  </button>
+                  <div className="attachment-zoom-controls" aria-label="Zoom controls">
+                    <button type="button" className="button button-secondary" onClick={() => setAttachmentZoom((value) => Math.max(1, Number((value - 0.25).toFixed(2))))} disabled={attachmentZoom <= 1}>
+                      Zoom -
                     </button>
-                  ))}
+                    <span>{Math.round(attachmentZoom * 100)}%</span>
+                    <button type="button" className="button button-secondary" onClick={() => setAttachmentZoom((value) => Math.min(3, Number((value + 0.25).toFixed(2))))}>
+                      Zoom +
+                    </button>
+                    <button type="button" className="button button-ghost" onClick={() => setAttachmentZoom(1)}>
+                      Reset
+                    </button>
+                  </div>
+                </div>
+                <div className="attachment-image-scroll">
+                  <button type="button" className="attachment-cycle previous" onClick={() => openPreviewImageAt(-1)} disabled={!canCyclePreviewImages} aria-label="Previous photo">
+                    ‹
+                  </button>
+                  <div
+                    className={pinModeAttachmentId === previewAttachment.id ? "attachment-image-markup placing" : "attachment-image-markup"}
+                    data-testid="attachment-image-markup"
+                    onClick={(event) => addAttachmentAnnotation(previewAttachment, event)}
+                    style={{ width: `${attachmentZoom * 100}%` }}
+                  >
+                    <img src={attachmentDownloadUrl(previewAttachment.id)} alt={previewAttachment.note || previewAttachment.originalName} />
+                    {(previewAttachment.markupAnnotations ?? []).map((annotation, index) => (
+                      <button
+                        key={annotation.id}
+                        type="button"
+                        className={annotation.chargeCandidate ? "attachment-pin charge" : "attachment-pin"}
+                        style={{ left: `${annotation.x}%`, top: `${annotation.y}%` }}
+                        title={`${annotation.label}${annotation.category ? ` / ${annotation.category}` : ""}`}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {index + 1}
+                      </button>
+                    ))}
+                  </div>
+                  <button type="button" className="attachment-cycle next" onClick={() => openPreviewImageAt(1)} disabled={!canCyclePreviewImages} aria-label="Next photo">
+                    ›
+                  </button>
                 </div>
                 {(previewAttachment.markupAnnotations?.length ?? 0) > 0 ? (
                   <div className="attachment-pin-list" data-testid="attachment-pin-list">
                     {previewAttachment.markupAnnotations?.map((annotation, index) => (
                       <div key={annotation.id} className="attachment-pin-row">
-                        <strong>{index + 1}. {annotation.label}</strong>
-                        <span>{annotation.category || "Uncategorized"}{annotation.chargeCandidate ? " / charge candidate" : ""}</span>
+                        <div>
+                          <strong>{index + 1}. {annotation.label}</strong>
+                          <span>{annotation.category || "Uncategorized"}{annotation.chargeCandidate ? " / charge candidate" : ""}</span>
+                        </div>
+                        {annotation.chargeCandidate ? (
+                          <div className="attachment-pin-charge-fields">
+                            <label>Price sheet
+                              <select
+                                value={annotation.chargePriceSheetItemId ?? ""}
+                                disabled={!canUpdatePreviewAttachment}
+                                onChange={(event) => {
+                                  const selected = activeChargePriceSheetItems.find((entry) => entry.id === event.target.value) ?? null;
+                                  updateAttachmentAnnotation(previewAttachment, annotation.id, {
+                                    chargePriceSheetItemId: selected?.id ?? null,
+                                    chargePriceSheetItemName: selected?.name ?? null,
+                                    chargeEstimatedCents: selected?.defaultCents ?? annotation.chargeEstimatedCents ?? null,
+                                    chargeQuantity: selected ? annotation.chargeQuantity ?? 1 : annotation.chargeQuantity ?? null,
+                                  });
+                                }}
+                              >
+                                <option value="">No price-sheet item</option>
+                                {activeChargePriceSheetItems.map((entry) => (
+                                  <option key={entry.id} value={entry.id}>{entry.name}{entry.defaultCents !== null ? ` (${formatCents(entry.defaultCents)})` : ""}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>Qty
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.25"
+                                defaultValue={annotation.chargeQuantity ?? ""}
+                                disabled={!canUpdatePreviewAttachment}
+                                onBlur={(event) => updateAttachmentAnnotation(previewAttachment, annotation.id, { chargeQuantity: event.target.value ? Number(event.target.value) : null })}
+                              />
+                            </label>
+                            <label>Estimate
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                defaultValue={centsToDollars(annotation.chargeEstimatedCents)}
+                                disabled={!canUpdatePreviewAttachment}
+                                onBlur={(event) => updateAttachmentAnnotation(previewAttachment, annotation.id, { chargeEstimatedCents: event.target.value ? dollarsToCents(event.target.value) : null })}
+                              />
+                            </label>
+                            <span>{annotation.chargePriceSheetItemName || "Unassigned"} / {formatCents(annotation.chargeEstimatedCents)}</span>
+                          </div>
+                        ) : (
+                          <span>{annotation.category || "Uncategorized"}</span>
+                        )}
                         {canUpdatePreviewAttachment ? <button type="button" className="button button-ghost danger" onClick={() => removeAttachmentAnnotation(previewAttachment, annotation.id)}>Remove pin</button> : null}
                       </div>
                     ))}

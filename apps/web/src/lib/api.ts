@@ -502,6 +502,10 @@ export type ItemAttachment = {
     note?: string | null;
     category?: string | null;
     chargeCandidate?: boolean;
+    chargePriceSheetItemId?: string | null;
+    chargePriceSheetItemName?: string | null;
+    chargeQuantity?: number | null;
+    chargeEstimatedCents?: number | null;
   }> | null;
   createdAt: string;
 };
@@ -517,6 +521,38 @@ export type ChargePriceSheetItem = {
   isActive: boolean;
   isArchived: boolean;
   sortOrder: number;
+};
+
+export type ChargeReport = {
+  item: {
+    id: string;
+    propertyId: string;
+    propertyCode: string;
+    unitNumber: string;
+    boardGroup: string;
+  };
+  summary: {
+    fileCount: number;
+    pinCount: number;
+    lineCount: number;
+    missingContext: number;
+    totalEstimatedCents: number;
+  };
+  lines: Array<{
+    type: "FILE" | "PIN";
+    attachmentId: string;
+    attachmentName: string;
+    pinId?: string | null;
+    label: string;
+    category: string | null;
+    inspectionStage: string;
+    note: string | null;
+    chargeNote: string | null;
+    priceSheetItemId: string | null;
+    priceSheetItemName: string | null;
+    quantity: number | null;
+    estimatedCents: number;
+  }>;
 };
 
 export type ChecklistTemplate = {
@@ -1083,6 +1119,10 @@ export function getItemCollaboration(itemId: string, limits?: { commentLimit?: n
   if (limits?.checklistLimit) params.set("checklistLimit", String(limits.checklistLimit));
   const query = params.toString();
   return request<ItemCollaboration>(`/make-ready-items/${itemId}/collaboration${query ? `?${query}` : ""}`);
+}
+
+export function getChargeReport(itemId: string) {
+  return request<ChargeReport>(`/make-ready-items/${itemId}/charge-report`);
 }
 
 export function createItemComment(itemId: string, body: string) {

@@ -32,7 +32,7 @@ Each attachment supports:
 - charge-candidate flag
 - charge/recovery note
 - optional property price-sheet item, quantity, and estimated amount
-- image markup pins with percent-based coordinates, label, category, and optional charge-candidate flag
+- image markup pins with percent-based coordinates, label, category, optional charge-candidate flag, optional price-sheet item, quantity, and estimated amount
 
 This is documentation and estimating only. MakeReadyOS can store property-specific price-sheet items and attach an estimated amount to charge-candidate evidence, but it does not create resident ledgers, invoices, vendor bills, or accounting entries.
 
@@ -55,13 +55,15 @@ The gallery pattern is intended for initial walks where 30-50 photos are common.
 
 Filtered ZIP downloads are generated from authenticated item attachment access. ZIP contents are organized by inspection stage and category. These ZIPs are convenience exports for unit evidence review; they are not a replacement for full upload-volume disaster recovery.
 
-The evidence package panel highlights charge-candidate files and flags charge candidates that still need a photo note or charge/recovery note. Use `Download Charge ZIP` when you need a focused damage/charge packet without exporting every walk photo.
+The evidence package panel highlights charge-candidate files and charge-candidate pins, flags candidates that still need pricing or notes, and totals estimates from both whole-photo charges and pin-level charges. Use `Download Charge ZIP` when you need a focused damage/charge packet without exporting every walk photo.
 
 ## Price-Sheet Estimates
 
-Managers and administrators can add property-scoped price-sheet items from the Inspection Gallery. Each item can carry a name, category, unit label, and default estimate. Operators can then mark a photo/file as a charge candidate, select a price-sheet item, set quantity, and override the estimated amount when the field walk requires it.
+Managers and administrators can add property-scoped price-sheet items from the Inspection Gallery. Each item can carry a name, category, unit label, and default estimate. Operators can then mark a photo/file or an individual image markup pin as a charge candidate, select a price-sheet item, set quantity, and override the estimated amount when the field walk requires it.
 
-The estimate total shown in the gallery is a review aid for damage, cleaning, trash-out, and similar evidence packets. It is intentionally separate from accounting. Exported ZIPs contain the files; the database stores the structured estimate metadata.
+The estimate total shown in the gallery is a review aid for damage, cleaning, trash-out, and similar evidence packets. It is intentionally separate from accounting. Exported ZIPs contain the files; the database stores the structured estimate metadata, including pin-level price-sheet references.
+
+`GET /api/make-ready-items/:id/charge-report` returns a scoped, read-only line-item summary of charge-candidate photos and charge-candidate markup pins. It includes file/pin labels, categories, notes, selected price-sheet items, quantities, per-line estimates, missing-context count, and total estimate. The Inspection Gallery exposes the same data through the “Open charge report” action. Use this report for internal review/export tooling; it is still evidence metadata rather than an accounting charge.
 
 ## Storage And Backups
 
