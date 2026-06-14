@@ -105,7 +105,7 @@ The PostgreSQL dump restores database-backed authentication records. Existing br
 
 Linux scheduling and local retention examples are provided in [SCHEDULED_BACKUPS.md](SCHEDULED_BACKUPS.md). Local pruning protects disk capacity; it does not provide off-device disaster recovery.
 
-Attachments uploaded through the item drawer are stored in the Docker `uploads_data` volume. A complete deployment backup must preserve both the PostgreSQL dump and that volume's files; restoring the database alone restores attachment metadata but not the actual downloadable photos/documents.
+Attachments uploaded through the item drawer, Pool Log photos/PDFs, and property map files are stored in the Docker `uploads_data` volume or configured host upload path. A complete deployment backup must preserve both the PostgreSQL dump and that volume's files; restoring the database alone restores file metadata but not the actual downloadable photos/documents.
 
 Inspection-gallery ZIP downloads are useful for exporting a unit walk or charge-candidate packet, but they are not disaster-recovery backups. Use `backup-uploads.sh` for the complete upload volume, especially if property maps and large photo walks matter.
 

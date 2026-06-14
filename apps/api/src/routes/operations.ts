@@ -3,7 +3,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { allowedPropertyIds } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
+import { computeDerivedFields } from "../lib/board.js";
 import { prisma } from "../lib/prisma.js";
+import { evaluateAndPersistItemRisk } from "../lib/risk.js";
 
 export const operationsQuerySchema = z.object({
   includeArchived: z.enum(["true", "false"]).optional().transform((value) => value === "true"),
@@ -20,6 +22,47 @@ export const propertyPatchSchema = propertyCreateSchema.partial().refine((value)
   message: "Provide a property name or code to update",
 });
 
+const occupancyStatusValues = [
+  "OCCUPIED",
+  "VACANT_READY",
+  "VACANT_LEASED",
+  "VACANT_NOT_LEASED",
+  "NTV",
+  "NTV_LEASED",
+  "VACANT NOT LEASED READY",
+  "VACANT NOT LEASED NOT READY",
+  "NTV NOT LEASED",
+  "NTV LEASED",
+  "VACANT LEASED READY",
+  "VACANT LEASED NOT READY",
+  "DOWN",
+  "TO PRE-WALK",
+  "TO SCOPE",
+  "TO FINAL WALK",
+  "MODEL",
+  "UNKNOWN",
+] as const;
+
+const availabilityStatusValues = [
+  "VACANT_READY",
+  "VACANT_LEASED",
+  "VACANT_NOT_LEASED",
+  "NTV",
+  "NTV_LEASED",
+  "VACANT NOT LEASED READY",
+  "VACANT NOT LEASED NOT READY",
+  "NTV NOT LEASED",
+  "NTV LEASED",
+  "VACANT LEASED READY",
+  "VACANT LEASED NOT READY",
+  "DOWN",
+  "TO PRE-WALK",
+  "TO SCOPE",
+  "TO FINAL WALK",
+  "MODEL",
+  "UNKNOWN",
+] as const;
+
 export const unitCreateSchema = z.object({
   propertyId: z.string(),
   number: z.string().trim().min(1).max(30),
@@ -28,7 +71,7 @@ export const unitCreateSchema = z.object({
   squareFeet: z.number().int().positive().max(10000).optional().nullable(),
   bedrooms: z.number().int().min(0).max(20).optional().nullable(),
   bathrooms: z.number().min(0).max(20).optional().nullable(),
-  occupancyStatus: z.enum(["OCCUPIED", "VACANT_READY", "VACANT_LEASED", "VACANT_NOT_LEASED", "NTV", "NTV_LEASED", "DOWN", "MODEL", "UNKNOWN"]).optional(),
+  occupancyStatus: z.enum(occupancyStatusValues).optional(),
   building: z.string().trim().max(40).optional().nullable(),
   area: z.string().trim().max(80).optional().nullable(),
   floor: z.string().trim().max(20).optional().nullable(),
@@ -45,7 +88,7 @@ export const unitImportRowSchema = z.object({
   squareFeet: z.number().int().positive().max(10000).optional().nullable(),
   bedrooms: z.number().int().min(0).max(20).optional().nullable(),
   bathrooms: z.number().min(0).max(20).optional().nullable(),
-  occupancyStatus: z.enum(["OCCUPIED", "VACANT_READY", "VACANT_LEASED", "VACANT_NOT_LEASED", "NTV", "NTV_LEASED", "DOWN", "MODEL", "UNKNOWN"]).optional(),
+  occupancyStatus: z.enum(occupancyStatusValues).optional(),
   building: z.string().trim().max(40).optional().nullable(),
   area: z.string().trim().max(80).optional().nullable(),
   floor: z.string().trim().max(20).optional().nullable(),
@@ -56,6 +99,42 @@ export const unitImportSchema = z.object({
   propertyId: z.string(),
   units: z.array(unitImportRowSchema).min(1).max(1500),
   updateExisting: z.boolean().default(true),
+});
+
+export const availabilityImportRowSchema = unitImportRowSchema.extend({
+  vacancyStatus: z.enum(availabilityStatusValues).optional(),
+  availabilityStatus: z.string().trim().max(120).optional().nullable(),
+  applicant: z.string().trim().max(120).optional().nullable(),
+  moveOutDate: z.string().trim().max(30).optional().nullable(),
+  vacatedDate: z.string().trim().max(30).optional().nullable(),
+  daysVacant: z.preprocess((value) => {
+    if (value === null || value === undefined || value === "") return undefined;
+    if (typeof value === "number") return value;
+    if (typeof value === "string") {
+      const parsed = Number(value.replace(/,/g, "").replace(/[^\d.-]/g, ""));
+      return Number.isFinite(parsed) ? parsed : undefined;
+    }
+    return undefined;
+  }, z.number().int().min(0).max(10000).optional()),
+  makeReadyDate: z.string().trim().max(30).optional().nullable(),
+  moveInDate: z.string().trim().max(30).optional().nullable(),
+  reportDate: z.string().trim().max(30).optional().nullable(),
+  dateApplied: z.string().trim().max(30).optional().nullable(),
+  makeReadyStatus: z.string().trim().max(80).optional().nullable(),
+  scopeLevel: z.string().trim().max(80).optional().nullable(),
+  notes: z.string().trim().max(1000).optional().nullable(),
+});
+
+export const availabilityImportSchema = z.object({
+  propertyId: z.string(),
+  rows: z.array(availabilityImportRowSchema).min(1).max(1500),
+  updateExisting: z.boolean().default(true),
+  createTurns: z.boolean().default(true),
+});
+
+export const unitImportRevertSchema = z.object({
+  propertyId: z.string(),
+  createdUnitIds: z.array(z.string()).min(1).max(1500),
 });
 
 const managedOptionFields = new Set([
@@ -78,7 +157,7 @@ const defaultColumnLabels: Record<string, string> = {
   scopeLevel: "Scope", makeReadyDate: "Make Ready", moveInDate: "Move-In", paintStatus: "Paint",
   doorsStatus: "Doors", completionStatus: "Completed", sheetrockStatus: "Sheetrock", pestStatus: "Pest",
   pestTreated: "Pest Treated", trashOutStatus: "Trash Out", floorsStatus: "Floors", flooringDate: "Flooring Date",
-  makeReadyStatus: "Make Ready Scope", cleaningStatus: "Cleaning", keysMadeStatus: "Keys Made",
+  makeReadyStatus: "Make Ready Status", cleaningStatus: "Cleaning", keysMadeStatus: "Keys Made",
   cabinetsStatus: "Cabinets", countertopsStatus: "Countertops", appliancesStatus: "Appliances", notes: "Notes",
 };
 export const columnLabelSchema = z.object({
@@ -141,6 +220,7 @@ export const reorderOptionsSchema = z.object({ ids: z.array(z.string()).min(1) }
 
 export const floorPlanCreateSchema = z.object({
   propertyId: z.string(),
+  code: z.string().trim().min(1).max(40).optional(),
   name: z.string().trim().min(1).max(100),
   bedrooms: z.number().int().min(0).max(20).optional().nullable(),
   bathrooms: z.number().min(0).max(20).optional().nullable(),
@@ -173,6 +253,69 @@ function defaultSections(propertyCode: string) {
     [`${code}_DOWN_UNITS`, "DOWN", "Down Units"],
     [`${code}_ARCHIVE`, "ARCHIVE", "Archive"],
   ] as const;
+}
+
+function parseOptionalDate(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "-" || trimmed === "—") return null;
+  const match = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (match) {
+    const [, mm, dd, yyyy] = match;
+    const year = yyyy.length === 2 ? Number(`20${yyyy}`) : Number(yyyy);
+    const date = new Date(year, Number(mm) - 1, Number(dd));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const date = new Date(trimmed);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function stripAvailabilityImportNotes(notes: string | null | undefined) {
+  if (!notes) return null;
+  const cleaned = notes
+    .split(/\s+\/\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .filter((part) => !/^Report date:/i.test(part))
+    .filter((part) => !/^Source status:/i.test(part))
+    .filter((part) => !/^Date applied:/i.test(part))
+    .join(" / ")
+    .trim();
+  return cleaned || null;
+}
+
+function normalizeAvailabilityStatus(row: z.infer<typeof availabilityImportRowSchema>) {
+  if (row.vacancyStatus) return row.vacancyStatus;
+  if (row.occupancyStatus && row.occupancyStatus !== "OCCUPIED") return row.occupancyStatus;
+  const raw = `${row.availabilityStatus ?? ""}`.toLowerCase();
+  if (raw.includes("down")) return "DOWN";
+  if (raw.includes("model")) return "MODEL";
+  const notice = raw.includes("ntv") || raw.includes("notice");
+  const notLeased = raw.includes("not leased") || raw.includes("not-leased") || raw.includes("unleased");
+  const leased = !notLeased && (raw.includes("leased") || raw.includes("preleased") || raw.includes("pre-leased"));
+  const notReady = raw.includes("not ready") || raw.includes("not-ready") || raw.includes("nr");
+  const ready = raw.includes("ready") && !notReady;
+  if (notice && leased) return "NTV LEASED";
+  if (notice) return "NTV NOT LEASED";
+  if (raw.includes("vacant") && leased && ready) return "VACANT LEASED READY";
+  if (raw.includes("vacant") && leased) return "VACANT LEASED NOT READY";
+  if (raw.includes("vacant") && (notLeased || ready) && ready) return "VACANT NOT LEASED READY";
+  if (raw.includes("vacant")) return "VACANT NOT LEASED NOT READY";
+  return row.occupancyStatus ?? "UNKNOWN";
+}
+
+async function preferredSectionKey(tx: Prisma.TransactionClient, propertyId: string, status: string) {
+  const readyStatus = (status.includes("READY") && !status.includes("NOT READY")) || status === "VACANT_READY" || status === "VACANT_LEASED";
+  const sectionType = readyStatus
+    ? "READY"
+    : status === "DOWN" || status === "MODEL"
+      ? "DOWN"
+      : "MAKE_READY";
+  const section = await tx.boardSection.findFirst({
+    where: { propertyId, sectionType, isActive: true },
+    orderBy: { sortOrder: "asc" },
+  });
+  return section?.key ?? (await tx.boardSection.findFirst({ where: { propertyId, isActive: true }, orderBy: { sortOrder: "asc" } }))?.key ?? "MAKE_READY";
 }
 
 function mayManage(userRole: UserRole) {
@@ -237,7 +380,7 @@ async function normalizeUnitFloorPlan(request: FastifyRequest, reply: FastifyRep
   }
   return {
     ...data,
-    floorPlan: plan.name,
+    floorPlan: plan.code,
     squareFeet: plan.squareFeet,
     bedrooms: plan.bedrooms,
     bathrooms: plan.bathrooms,
@@ -776,7 +919,9 @@ export async function operationsRoutes(app: FastifyInstance) {
     const property = await requireAccessibleProperty(request, reply, payload.propertyId);
     if (!property) return;
 
-    const summary = { created: 0, updated: 0, skipped: 0, errors: [] as string[] };
+    const summary = { created: 0, updated: 0, skipped: 0, floorPlansCreated: 0, floorPlansUpdated: 0, errors: [] as string[] };
+    const createdUnitIds: string[] = [];
+    const updatedUnitIds: string[] = [];
     const seen = new Set<string>();
     const sanitizedRows = payload.units.flatMap((row, index) => {
       const number = row.number.trim();
@@ -791,15 +936,60 @@ export async function operationsRoutes(app: FastifyInstance) {
     });
 
     await prisma.$transaction(async (tx) => {
+      const floorPlanCache = new Map<string, { id: string; code: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null }>();
+      const existingPlans = await tx.floorPlan.findMany({
+        where: { propertyId: payload.propertyId },
+        select: { id: true, code: true, name: true, bedrooms: true, bathrooms: true, squareFeet: true, isActive: true },
+      });
+      for (const plan of existingPlans) floorPlanCache.set(plan.code.trim().toUpperCase(), plan);
+
+      const resolveImportedFloorPlan = async (row: (typeof sanitizedRows)[number]) => {
+        const code = row.floorPlan?.trim();
+        if (!code) return null;
+        const key = code.toUpperCase();
+        const cached = floorPlanCache.get(key);
+        const metadata = {
+          bedrooms: row.bedrooms ?? null,
+          bathrooms: row.bathrooms ?? null,
+          squareFeet: row.squareFeet ?? null,
+        };
+        if (cached) {
+          const updateData: Prisma.FloorPlanUncheckedUpdateInput = {};
+          if (cached.bedrooms === null && metadata.bedrooms !== null) updateData.bedrooms = metadata.bedrooms;
+          if (cached.bathrooms === null && metadata.bathrooms !== null) updateData.bathrooms = metadata.bathrooms;
+          if (cached.squareFeet === null && metadata.squareFeet !== null) updateData.squareFeet = metadata.squareFeet;
+          if (Object.keys(updateData).length > 0) {
+            const updated = await tx.floorPlan.update({
+              where: { id: cached.id },
+              data: updateData,
+              select: { id: true, code: true, name: true, bedrooms: true, bathrooms: true, squareFeet: true },
+            });
+            floorPlanCache.set(key, updated);
+            summary.floorPlansUpdated += 1;
+            return updated;
+          }
+          return cached;
+        }
+        const created = await tx.floorPlan.create({
+          data: { propertyId: payload.propertyId, code, name: code, ...metadata },
+          select: { id: true, code: true, name: true, bedrooms: true, bathrooms: true, squareFeet: true },
+        });
+        floorPlanCache.set(key, created);
+        summary.floorPlansCreated += 1;
+        return created;
+      };
+
       for (const row of sanitizedRows) {
         const existing = await tx.unit.findUnique({
           where: { propertyId_number: { propertyId: payload.propertyId, number: row.number } },
         });
+        const importedPlan = await resolveImportedFloorPlan(row);
         const createData = {
-          floorPlan: row.floorPlan || null,
-          squareFeet: row.squareFeet ?? null,
-          bedrooms: row.bedrooms ?? null,
-          bathrooms: row.bathrooms ?? null,
+          floorPlanId: importedPlan?.id ?? null,
+          floorPlan: importedPlan?.code ?? row.floorPlan ?? null,
+          squareFeet: importedPlan?.squareFeet ?? row.squareFeet ?? null,
+          bedrooms: importedPlan?.bedrooms ?? row.bedrooms ?? null,
+          bathrooms: importedPlan?.bathrooms ?? row.bathrooms ?? null,
           occupancyStatus: row.occupancyStatus ?? "OCCUPIED",
           building: row.building || null,
           area: row.area || null,
@@ -812,10 +1002,18 @@ export async function operationsRoutes(app: FastifyInstance) {
             continue;
           }
           const updateData: Prisma.UnitUncheckedUpdateInput = {};
-          if (Object.prototype.hasOwnProperty.call(row, "floorPlan") && row.floorPlan) updateData.floorPlan = row.floorPlan;
-          if (Object.prototype.hasOwnProperty.call(row, "squareFeet") && row.squareFeet !== null && row.squareFeet !== undefined) updateData.squareFeet = row.squareFeet;
-          if (Object.prototype.hasOwnProperty.call(row, "bedrooms") && row.bedrooms !== null && row.bedrooms !== undefined) updateData.bedrooms = row.bedrooms;
-          if (Object.prototype.hasOwnProperty.call(row, "bathrooms") && row.bathrooms !== null && row.bathrooms !== undefined) updateData.bathrooms = row.bathrooms;
+          if (importedPlan) {
+            updateData.floorPlanId = importedPlan.id;
+            updateData.floorPlan = importedPlan.code;
+            if (importedPlan.squareFeet !== null) updateData.squareFeet = importedPlan.squareFeet;
+            if (importedPlan.bedrooms !== null) updateData.bedrooms = importedPlan.bedrooms;
+            if (importedPlan.bathrooms !== null) updateData.bathrooms = importedPlan.bathrooms;
+          } else if (Object.prototype.hasOwnProperty.call(row, "floorPlan") && row.floorPlan) {
+            updateData.floorPlan = row.floorPlan;
+          }
+          if (!importedPlan && Object.prototype.hasOwnProperty.call(row, "squareFeet") && row.squareFeet !== null && row.squareFeet !== undefined) updateData.squareFeet = row.squareFeet;
+          if (!importedPlan && Object.prototype.hasOwnProperty.call(row, "bedrooms") && row.bedrooms !== null && row.bedrooms !== undefined) updateData.bedrooms = row.bedrooms;
+          if (!importedPlan && Object.prototype.hasOwnProperty.call(row, "bathrooms") && row.bathrooms !== null && row.bathrooms !== undefined) updateData.bathrooms = row.bathrooms;
           if (Object.prototype.hasOwnProperty.call(row, "occupancyStatus") && row.occupancyStatus) updateData.occupancyStatus = row.occupancyStatus;
           if (Object.prototype.hasOwnProperty.call(row, "building") && row.building) updateData.building = row.building;
           if (Object.prototype.hasOwnProperty.call(row, "area") && row.area) updateData.area = row.area;
@@ -825,8 +1023,10 @@ export async function operationsRoutes(app: FastifyInstance) {
             await tx.unit.update({ where: { id: existing.id }, data: updateData });
           }
           summary.updated += 1;
+          updatedUnitIds.push(existing.id);
         } else {
-          await tx.unit.create({ data: { ...createData, propertyId: payload.propertyId, number: row.number } });
+          const created = await tx.unit.create({ data: { ...createData, propertyId: payload.propertyId, number: row.number } });
+          createdUnitIds.push(created.id);
           summary.created += 1;
         }
       }
@@ -839,6 +1039,301 @@ export async function operationsRoutes(app: FastifyInstance) {
       entityType: "UNIT_DIRECTORY",
       action: "UNIT_DIRECTORY_IMPORTED",
       message: `Imported unit directory rows for ${property.code}: ${summary.created} created, ${summary.updated} updated, ${summary.skipped} skipped`,
+      metadata: summary,
+    });
+    return {
+      property: { id: property.id, code: property.code, name: property.name },
+      summary,
+      createdUnitIds,
+      updatedUnitIds,
+    };
+  });
+
+  app.post("/operations/availability/import", async (request, reply) => {
+    if (!(await ensureManagerOrAdmin(request, reply))) return;
+    const payload = availabilityImportSchema.parse(request.body);
+    const property = await requireAccessibleProperty(request, reply, payload.propertyId);
+    if (!property) return;
+
+    const summary = {
+      unitsCreated: 0,
+      unitsUpdated: 0,
+      turnsCreated: 0,
+      turnsUpdated: 0,
+      skipped: 0,
+      floorPlansCreated: 0,
+      floorPlansUpdated: 0,
+      errors: [] as string[],
+    };
+    const createdItemIds: string[] = [];
+    const updatedItemIds: string[] = [];
+    const availabilityActivity: Array<{
+      itemId: string;
+      unitNumber: string;
+      reportDate: string | null;
+      sourceStatus: string | null;
+      dateApplied: string | null;
+      importNote: string | null;
+      vacancyStatus: string;
+    }> = [];
+    const seen = new Set<string>();
+    const sanitizedRows = payload.rows.flatMap((row, index) => {
+      const number = row.number.trim();
+      const key = number.toUpperCase();
+      if (seen.has(key)) {
+        summary.skipped += 1;
+        summary.errors.push(`Row ${index + 1}: duplicate unit ${number} in availability import`);
+        return [];
+      }
+      seen.add(key);
+      return [{ ...row, number }];
+    });
+
+    await prisma.$transaction(async (tx) => {
+      const floorPlanCache = new Map<string, { id: string; code: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null }>();
+      const existingPlans = await tx.floorPlan.findMany({
+        where: { propertyId: payload.propertyId },
+        select: { id: true, code: true, name: true, bedrooms: true, bathrooms: true, squareFeet: true },
+      });
+      for (const plan of existingPlans) floorPlanCache.set(plan.code.trim().toUpperCase(), plan);
+
+      const resolveImportedFloorPlan = async (row: (typeof sanitizedRows)[number]) => {
+        const code = row.floorPlan?.trim();
+        if (!code) return null;
+        const key = code.toUpperCase();
+        const cached = floorPlanCache.get(key);
+        const metadata = {
+          bedrooms: row.bedrooms ?? null,
+          bathrooms: row.bathrooms ?? null,
+          squareFeet: row.squareFeet ?? null,
+        };
+        if (cached) {
+          const updateData: Prisma.FloorPlanUncheckedUpdateInput = {};
+          if (cached.bedrooms === null && metadata.bedrooms !== null) updateData.bedrooms = metadata.bedrooms;
+          if (cached.bathrooms === null && metadata.bathrooms !== null) updateData.bathrooms = metadata.bathrooms;
+          if (cached.squareFeet === null && metadata.squareFeet !== null) updateData.squareFeet = metadata.squareFeet;
+          if (Object.keys(updateData).length > 0) {
+            const updated = await tx.floorPlan.update({
+              where: { id: cached.id },
+              data: updateData,
+              select: { id: true, code: true, name: true, bedrooms: true, bathrooms: true, squareFeet: true },
+            });
+            floorPlanCache.set(key, updated);
+            summary.floorPlansUpdated += 1;
+            return updated;
+          }
+          return cached;
+        }
+        const created = await tx.floorPlan.create({
+          data: { propertyId: payload.propertyId, code, name: code, ...metadata },
+          select: { id: true, code: true, name: true, bedrooms: true, bathrooms: true, squareFeet: true },
+        });
+        floorPlanCache.set(key, created);
+        summary.floorPlansCreated += 1;
+        return created;
+      };
+
+      for (const row of sanitizedRows) {
+        const status = normalizeAvailabilityStatus(row);
+        const floorPlan = await resolveImportedFloorPlan(row);
+        const existingUnit = await tx.unit.findUnique({
+          where: { propertyId_number: { propertyId: payload.propertyId, number: row.number } },
+        });
+        const unitData = {
+          floorPlanId: floorPlan?.id ?? null,
+          floorPlan: floorPlan?.code ?? row.floorPlan ?? null,
+          squareFeet: floorPlan?.squareFeet ?? row.squareFeet ?? null,
+          bedrooms: floorPlan?.bedrooms ?? row.bedrooms ?? null,
+          bathrooms: floorPlan?.bathrooms ?? row.bathrooms ?? null,
+          occupancyStatus: status,
+          building: row.building || null,
+          area: row.area || null,
+          floor: row.floor || null,
+          isBudgeted: row.isBudgeted ?? true,
+        };
+        const unit = existingUnit
+          ? await tx.unit.update({
+              where: { id: existingUnit.id },
+              data: {
+                ...(floorPlan ? { floorPlanId: floorPlan.id, floorPlan: floorPlan.code } : row.floorPlan ? { floorPlan: row.floorPlan } : {}),
+                ...(unitData.squareFeet !== null ? { squareFeet: unitData.squareFeet } : {}),
+                ...(unitData.bedrooms !== null ? { bedrooms: unitData.bedrooms } : {}),
+                ...(unitData.bathrooms !== null ? { bathrooms: unitData.bathrooms } : {}),
+                occupancyStatus: status,
+                ...(row.building ? { building: row.building } : {}),
+                ...(row.area ? { area: row.area } : {}),
+                ...(row.floor ? { floor: row.floor } : {}),
+                ...(row.isBudgeted !== undefined ? { isBudgeted: row.isBudgeted } : {}),
+              },
+            })
+          : await tx.unit.create({ data: { propertyId: payload.propertyId, number: row.number, ...unitData } });
+        if (existingUnit) summary.unitsUpdated += 1;
+        else summary.unitsCreated += 1;
+
+        if (!payload.createTurns || status === "OCCUPIED" || status === "UNKNOWN") continue;
+
+        const boardGroup = await preferredSectionKey(tx, payload.propertyId, status);
+        const existingTurn = await tx.makeReadyItem.findFirst({
+          where: {
+            propertyId: payload.propertyId,
+            isArchived: false,
+            OR: [{ unitId: unit.id }, { unitNumber: row.number }],
+          },
+          orderBy: { updatedAt: "desc" },
+        });
+        const parsedMoveOutDate = parseOptionalDate(row.moveOutDate);
+        const parsedVacatedDate = parseOptionalDate(row.vacatedDate);
+        const noticeStatus = status === "NTV" || status === "NTV_LEASED" || status === "NTV NOT LEASED" || status === "NTV LEASED";
+        const sourceDetails = {
+          reportDate: row.reportDate ?? null,
+          sourceStatus: row.availabilityStatus ?? null,
+          dateApplied: row.dateApplied ?? null,
+          importNote: row.notes ?? null,
+          vacancyStatus: status,
+        };
+        const createTurnData = {
+          unitId: unit.id,
+          boardGroup,
+          itemName: row.number,
+          unitNumber: row.number,
+          floorPlan: floorPlan?.code ?? row.floorPlan ?? unit.floorPlan,
+          vacancyStatus: status === "MODEL" ? "VACANT NOT LEASED NOT READY" : status,
+          applicant: row.applicant ?? null,
+          moveOutDate: noticeStatus ? parsedMoveOutDate : null,
+          vacatedDate: parsedVacatedDate ?? (!noticeStatus ? parsedMoveOutDate : null),
+          makeReadyDate: parseOptionalDate(row.makeReadyDate),
+          moveInDate: parseOptionalDate(row.moveInDate),
+          makeReadyStatus: row.makeReadyStatus ?? (status === "VACANT_READY" || status === "VACANT NOT LEASED READY" || status === "VACANT LEASED READY" ? "DONE" : null),
+          scopeLevel: row.scopeLevel ?? null,
+          notes: null,
+        };
+        const createDerived = {
+          ...computeDerivedFields(createTurnData),
+          ...(row.daysVacant !== undefined ? { daysVacant: row.daysVacant } : {}),
+        };
+        if (existingTurn) {
+          if (!payload.updateExisting) {
+            summary.skipped += 1;
+            continue;
+          }
+          const cleanedNotes = stripAvailabilityImportNotes(existingTurn.notes);
+          const updateTurnData = {
+            unitId: unit.id,
+            boardGroup,
+            itemName: row.number,
+            unitNumber: row.number,
+            floorPlan: floorPlan?.code ?? row.floorPlan ?? existingTurn.floorPlan ?? unit.floorPlan,
+            vacancyStatus: status === "MODEL" ? "VACANT NOT LEASED NOT READY" : status,
+            applicant: row.applicant !== undefined ? row.applicant ?? null : existingTurn.applicant,
+            moveOutDate: row.moveOutDate !== undefined ? (noticeStatus ? parsedMoveOutDate : null) : existingTurn.moveOutDate,
+            vacatedDate: row.vacatedDate !== undefined || row.moveOutDate !== undefined
+              ? parsedVacatedDate ?? (!noticeStatus ? parsedMoveOutDate : null)
+              : existingTurn.vacatedDate,
+            makeReadyDate: row.makeReadyDate !== undefined ? parseOptionalDate(row.makeReadyDate) : existingTurn.makeReadyDate,
+            moveInDate: row.moveInDate !== undefined ? parseOptionalDate(row.moveInDate) : existingTurn.moveInDate,
+            makeReadyStatus: row.makeReadyStatus !== undefined
+              ? row.makeReadyStatus
+              : existingTurn.makeReadyStatus ?? (status === "VACANT_READY" || status === "VACANT NOT LEASED READY" || status === "VACANT LEASED READY" ? "DONE" : null),
+            scopeLevel: row.scopeLevel !== undefined ? row.scopeLevel : existingTurn.scopeLevel,
+            notes: cleanedNotes,
+          };
+          const updateDerived = {
+            ...computeDerivedFields(updateTurnData),
+            ...(row.daysVacant !== undefined ? { daysVacant: row.daysVacant } : {}),
+          };
+          const updated = await tx.makeReadyItem.update({
+            where: { id: existingTurn.id },
+            data: { ...updateTurnData, ...updateDerived },
+          });
+          updatedItemIds.push(updated.id);
+          availabilityActivity.push({ itemId: updated.id, unitNumber: row.number, ...sourceDetails });
+          summary.turnsUpdated += 1;
+        } else {
+          const created = await tx.makeReadyItem.create({
+            data: { propertyId: payload.propertyId, ...createTurnData, ...createDerived },
+          });
+          createdItemIds.push(created.id);
+          availabilityActivity.push({ itemId: created.id, unitNumber: row.number, ...sourceDetails });
+          summary.turnsCreated += 1;
+        }
+      }
+    });
+
+    for (const itemId of [...createdItemIds, ...updatedItemIds]) {
+      await evaluateAndPersistItemRisk(itemId, { notify: true });
+    }
+
+    for (const entry of availabilityActivity) {
+      const detail = [
+        entry.reportDate ? `report ${entry.reportDate}` : null,
+        entry.sourceStatus ? `source ${entry.sourceStatus}` : null,
+      ].filter(Boolean).join(" / ");
+      await writeAuditLog({
+        request,
+        actorUserId: request.currentUser!.id,
+        propertyId: property.id,
+        entityType: "MAKE_READY_ITEM",
+        entityId: entry.itemId,
+        action: "AVAILABILITY_SYNCED",
+        message: `Availability import updated ${entry.unitNumber}${detail ? ` (${detail})` : ""}`,
+        metadata: entry,
+      });
+    }
+
+    await writeAuditLog({
+      request,
+      actorUserId: request.currentUser!.id,
+      propertyId: property.id,
+      entityType: "AVAILABILITY_IMPORT",
+      action: "AVAILABILITY_IMPORTED",
+      message: `Imported availability rows for ${property.code}: ${summary.turnsCreated} turns created, ${summary.turnsUpdated} turns updated`,
+      metadata: summary,
+    });
+    return {
+      property: { id: property.id, code: property.code, name: property.name },
+      summary,
+      createdItemIds,
+      updatedItemIds,
+    };
+  });
+
+  app.post("/operations/units/import/revert", async (request, reply) => {
+    if (!(await ensureManagerOrAdmin(request, reply))) return;
+    const payload = unitImportRevertSchema.parse(request.body);
+    const property = await requireAccessibleProperty(request, reply, payload.propertyId);
+    if (!property) return;
+
+    const candidateUnits = await prisma.unit.findMany({
+      where: { id: { in: payload.createdUnitIds }, propertyId: payload.propertyId },
+      select: {
+        id: true,
+        number: true,
+        _count: { select: { makeReadyItems: true, mapLocations: true } },
+      },
+    });
+    const safeIds = candidateUnits
+      .filter((unit) => unit._count.makeReadyItems === 0 && unit._count.mapLocations === 0)
+      .map((unit) => unit.id);
+    const blocked = candidateUnits
+      .filter((unit) => unit._count.makeReadyItems > 0 || unit._count.mapLocations > 0)
+      .map((unit) => unit.number);
+
+    const deleted = safeIds.length
+      ? await prisma.unit.deleteMany({ where: { id: { in: safeIds }, propertyId: payload.propertyId } })
+      : { count: 0 };
+
+    const summary = {
+      deleted: deleted.count,
+      skipped: payload.createdUnitIds.length - deleted.count,
+      blocked,
+    };
+    await writeAuditLog({
+      request,
+      actorUserId: request.currentUser!.id,
+      propertyId: property.id,
+      entityType: "UNIT_DIRECTORY",
+      action: "UNIT_DIRECTORY_IMPORT_REVERTED",
+      message: `Reverted unit directory import for ${property.code}: ${summary.deleted} deleted, ${summary.skipped} skipped`,
       metadata: summary,
     });
     return { summary };
@@ -1128,7 +1623,7 @@ export async function operationsRoutes(app: FastifyInstance) {
         isActive: query.includeArchived ? undefined : true,
       },
       include: { property: true, _count: { select: { units: true } } },
-      orderBy: [{ propertyId: "asc" }, { isActive: "desc" }, { name: "asc" }],
+      orderBy: [{ propertyId: "asc" }, { isActive: "desc" }, { code: "asc" }],
     });
     return { floorPlans };
   });
@@ -1138,12 +1633,13 @@ export async function operationsRoutes(app: FastifyInstance) {
     const payload = floorPlanCreateSchema.parse(request.body);
     const property = await requireAccessibleProperty(request, reply, payload.propertyId);
     if (!property) return;
-    const existing = await prisma.floorPlan.findUnique({ where: { propertyId_name: { propertyId: payload.propertyId, name: payload.name } } });
+    const code = payload.code?.trim() || payload.name.trim();
+    const existing = await prisma.floorPlan.findUnique({ where: { propertyId_code: { propertyId: payload.propertyId, code } } });
     if (existing) {
       reply.code(409);
-      return { message: "That floor plan already exists at the selected property" };
+      return { message: "That floor plan code already exists at the selected property" };
     }
-    const floorPlan = await prisma.floorPlan.create({ data: payload, include: { property: true } });
+    const floorPlan = await prisma.floorPlan.create({ data: { ...payload, code }, include: { property: true } });
     await writeAuditLog({
       request,
       actorUserId: request.currentUser!.id,
@@ -1168,11 +1664,12 @@ export async function operationsRoutes(app: FastifyInstance) {
     }
     const propertyId = payload.propertyId ?? existing.propertyId;
     if (!(await requireAccessibleProperty(request, reply, propertyId))) return;
-    if (payload.name || payload.propertyId) {
-      const duplicate = await prisma.floorPlan.findUnique({ where: { propertyId_name: { propertyId, name: payload.name ?? existing.name } } });
+    const nextCode = payload.code?.trim() || existing.code;
+    if (payload.code || payload.propertyId) {
+      const duplicate = await prisma.floorPlan.findUnique({ where: { propertyId_code: { propertyId, code: nextCode } } });
       if (duplicate && duplicate.id !== existing.id) {
         reply.code(409);
-        return { message: "That floor plan already exists at the selected property" };
+        return { message: "That floor plan code already exists at the selected property" };
       }
     }
     const floorPlan = await prisma.$transaction(async (tx) => {
@@ -1180,7 +1677,7 @@ export async function operationsRoutes(app: FastifyInstance) {
       await tx.unit.updateMany({
         where: { floorPlanId: id },
         data: {
-          floorPlan: updated.name,
+          floorPlan: updated.code,
           bedrooms: updated.bedrooms,
           bathrooms: updated.bathrooms,
           squareFeet: updated.squareFeet,
@@ -1188,7 +1685,7 @@ export async function operationsRoutes(app: FastifyInstance) {
       });
       await tx.makeReadyItem.updateMany({
         where: { unit: { floorPlanId: id } },
-        data: { floorPlan: updated.name },
+        data: { floorPlan: updated.code },
       });
       return updated;
     });

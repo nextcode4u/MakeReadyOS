@@ -1,12 +1,17 @@
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BoardColumnDefinition, BoardSection, ChargePriceSheetItem, CurrentUser, CustomField, FloorPlan, ItemCollaboration, LabelDefinition, MakeReadyItem, StaffOption, UnitHistoryResponse, Vendor, VendorAssignment, WorkAssignmentBlock } from "../lib/api";
-import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getUnitHistory, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
+import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, chargeReportCsvUrl, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getUnitHistory, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
 import { boardGroupLabel, configuredBoardColumns } from "../lib/board";
 import { formatDateTime } from "../lib/dateTime";
+import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { LabelPill } from "./LabelPill";
 import { Modal } from "./Modal";
 import { StatusState } from "./StatusState";
+
+function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
+  return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
+}
 
 type Props = {
   item: MakeReadyItem;
@@ -31,6 +36,7 @@ type Props = {
   onAssignFloorPlan: (item: MakeReadyItem, floorPlanId: string) => Promise<void>;
   onCreateVendorAssignment: (input: { vendorId: string; itemId: string; trade: string; status?: VendorAssignment["status"]; scheduledDate?: string | null; dueDate?: string | null; notes?: string | null }) => Promise<void>;
   onUpdateVendorAssignment: (id: string, input: { status?: VendorAssignment["status"]; notes?: string | null; scheduledDate?: string | null; dueDate?: string | null }) => Promise<void>;
+  onMarkReady: (id: string) => Promise<void>;
   onBatch: (input:
     | { action: "ARCHIVE" | "RESTORE"; ids: string[] }
     | { action: "ASSIGN_TECH"; ids: string[]; value: string | null }
@@ -44,6 +50,34 @@ function dateValue(value: unknown) {
 
 function customValue(item: MakeReadyItem, id: string) {
   return item.customFieldValues.find((value) => value.customFieldId === id)?.value ?? null;
+}
+
+function normalized(value: string | null | undefined) {
+  return (value ?? "").trim().toUpperCase();
+}
+
+function completionBlockers(item: MakeReadyItem) {
+  const blockers: string[] = [];
+  const requireValue = (value: string | null | undefined, label: string) => {
+    if (!normalized(value) || normalized(value) === "-") blockers.push(`${label} is not set.`);
+  };
+  const requireExact = (value: string | null | undefined, expected: string, label: string) => {
+    if (normalized(value) !== expected) blockers.push(`${label} should be ${expected}.`);
+  };
+  requireValue(item.trashOutStatus, "Trash Out");
+  requireExact(item.pestStatus, "NONE", "Pest");
+  requireExact(item.cabinetsStatus, "GOOD", "Cabinets");
+  requireExact(item.countertopsStatus, "GOOD", "Countertops");
+  requireExact(item.appliancesStatus, "GOOD", "Appliances");
+  requireExact(item.doorsStatus, "GOOD", "Doors");
+  requireExact(item.sheetrockStatus, "GOOD", "Sheetrock");
+  requireExact(item.floorsStatus, "GOOD", "Floors");
+  requireExact(item.cleaningStatus, "DONE", "Cleaning");
+  requireExact(item.keysMadeStatus, "MADE", "Keys Made");
+  if (!["GOOD", "MAJOR TOUCH UP", "MED TOUCH UP", "LITE TOUCH UP", "TOUCH UP"].includes(normalized(item.paintStatus))) {
+    blockers.push("Paint is not marked ready or touch-up scoped.");
+  }
+  return blockers;
 }
 
 const attachmentStageOptions = [
@@ -130,6 +164,7 @@ export function ItemDrawer({
   onAssignFloorPlan,
   onCreateVendorAssignment,
   onUpdateVendorAssignment,
+  onMarkReady,
   onBatch,
 }: Props) {
   const queryClient = useQueryClient();
@@ -155,6 +190,9 @@ export function ItemDrawer({
   const [newTemplateName, setNewTemplateName] = useState("");
   const [newTemplateItems, setNewTemplateItems] = useState("");
   const columns = useMemo(() => configuredBoardColumns(columnDefinitions), [columnDefinitions]);
+  const drawerColumns = useMemo(() => columns.filter((column) => column.key !== "unitNumber" && column.key !== "notes" && column.key !== "completionStatus"), [columns]);
+  const readinessBlockers = useMemo(() => completionBlockers(item), [item]);
+  const completionOptions = useMemo(() => Object.values(labelsByField.completionStatus ?? {}).filter((option) => !option.isArchived || option.value === item.completionStatus), [item.completionStatus, labelsByField.completionStatus]);
   const activityQuery = useQuery({
     queryKey: ["activity", "item", item.id],
     queryFn: () => getActivity({ entityType: "MAKE_READY_ITEM", entityId: item.id, limit: 12 }),
@@ -518,7 +556,7 @@ export function ItemDrawer({
         <section className="drawer-section">
           <h3>Turn Details</h3>
           <div className="drawer-fields">
-            {columns.filter((column) => column.key !== "unitNumber" && column.key !== "notes").map((column) => {
+            {drawerColumns.map((column) => {
               const value = item[column.key as keyof MakeReadyItem];
               const editable = column.type !== "readonly" && canEditField(item, column.key);
               const busy = saving === column.key;
@@ -544,7 +582,7 @@ export function ItemDrawer({
                       }}
                     >
                       <option value="">{legacy ? `LEGACY: ${item.floorPlan}` : "Select managed floor plan"}</option>
-                      {options.map((plan) => <option key={plan.id} value={plan.id}>{plan.name} / {plan.bedrooms ?? "-"} bd / {plan.bathrooms ?? "-"} ba / {plan.squareFeet ?? "-"} sqft</option>)}
+                      {options.map((plan) => <option key={plan.id} value={plan.id}>{floorPlanLabel(plan)} / {plan.bedrooms ?? "-"} bd / {plan.bathrooms ?? "-"} ba / {plan.squareFeet ?? "-"} sqft</option>)}
                     </select>
                     {currentPlan?.description ? <small>{currentPlan.description}</small> : null}
                   </label>
@@ -645,6 +683,58 @@ export function ItemDrawer({
           )}
         </section>
 
+        <section className="drawer-section completion-section" data-testid="drawer-completion-section">
+          <h3>Completion & Final Walk</h3>
+          <p className="drawer-empty">
+            Tech completion moves this turn to Final Walk and notifies managers/admins. A manager/admin final walk is required before the unit moves to Ready Units.
+          </p>
+          {readinessBlockers.length > 0 ? (
+            <div className="completion-warning" role="status">
+              <strong>Readiness warnings</strong>
+              <ul>
+                {readinessBlockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+              </ul>
+            </div>
+          ) : (
+            <div className="completion-ready" role="status">No common readiness blockers detected.</div>
+          )}
+          <div className="drawer-fields">
+            <label className="drawer-field">
+              <span>Completed{saving === "completionStatus" ? " / Saving" : ""}</span>
+              <select
+                data-testid="drawer-field-completionStatus"
+                value={item.completionStatus ?? ""}
+                disabled={!canEditField(item, "completionStatus") || saving === "completionStatus"}
+                onChange={(event) => void commit("completionStatus", event.target.value || null)}
+              >
+                <option value="">Unset</option>
+                {completionOptions.map((option) => <option key={option.id} value={option.value}>{option.value}{option.isArchived ? " (archived)" : ""}</option>)}
+              </select>
+            </label>
+          </div>
+          {canManageItems ? (
+            <button
+              className="button button-primary"
+              data-testid="drawer-mark-ready"
+              type="button"
+              disabled={saving === "markReady"}
+              onClick={async () => {
+                setSaving("markReady");
+                setError("");
+                try {
+                  await onMarkReady(item.id);
+                } catch (nextError) {
+                  setError(nextError instanceof Error ? nextError.message : "Could not mark unit ready");
+                } finally {
+                  setSaving(null);
+                }
+              }}
+            >
+              {saving === "markReady" ? "Marking ready..." : "Manager Signoff: Mark Ready"}
+            </button>
+          ) : null}
+        </section>
+
         <section className="drawer-section" data-testid="drawer-planning-summary">
           <div className="drawer-section-title"><h3>In-House Planning</h3><span className="muted">{itemWorkBlocks.length} block{itemWorkBlocks.length === 1 ? "" : "s"}</span></div>
           {itemWorkBlocks.length === 0 ? <p className="drawer-empty">No in-house work is planned yet. Use the Planning tab to schedule staff coverage.</p> : (
@@ -658,6 +748,22 @@ export function ItemDrawer({
               ))}
             </div>
           )}
+        </section>
+
+        <section className="drawer-section" data-testid="drawer-wiki-context">
+          <PropertyWikiWorkflowPanel
+            title="Wiki References, Standards, and Known Issues"
+            module="MAKE_READY"
+            propertyId={item.propertyId}
+            recordType="MAKE_READY_ITEM"
+            recordId={item.id}
+            floorPlan={item.unit?.floorPlan ?? item.floorPlan}
+            unitNumber={item.unit?.number ?? item.unitNumber}
+            building={item.unit?.building}
+            equipmentQuery={item.itemName}
+            query={item.notes}
+            canEdit={currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "TECH"}
+          />
         </section>
 
         <section className="drawer-section" data-testid="drawer-vendor-assignments">
@@ -1052,9 +1158,14 @@ export function ItemDrawer({
         onClose={() => setChargeReportOpen(false)}
         testId="charge-report-modal"
         actions={chargeReportQuery.data?.summary.lineCount ? (
-          <a className="button button-secondary" href={attachmentArchiveUrl(item.id, { stage: "CHARGE_CANDIDATES" })} download={`${item.unitNumber}-charge-candidates.zip`}>
-            Download Charge ZIP
-          </a>
+          <>
+            <a className="button button-secondary" data-testid="charge-report-csv-download" href={chargeReportCsvUrl(item.id)} download={`${item.unitNumber}-charge-report.csv`}>
+              Download CSV
+            </a>
+            <a className="button button-secondary" href={attachmentArchiveUrl(item.id, { stage: "CHARGE_CANDIDATES" })} download={`${item.unitNumber}-charge-candidates.zip`}>
+              Download Charge ZIP
+            </a>
+          </>
         ) : null}
       >
         <div className="charge-report-panel" data-testid="charge-report-panel">

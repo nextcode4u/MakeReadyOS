@@ -1,7 +1,7 @@
 import type { BoardSection, CustomField, CustomFieldType, MakeReadyItem, StaffOption } from "./api";
 
 export type MoveInWindowFilter = "" | "week" | "7" | "14";
-export type ArchiveFilter = "active" | "archived" | "all";
+export type ArchiveFilter = "active" | "archived" | "occupied" | "all";
 export type CustomFieldFilterOperator =
   | "contains"
   | "notContains"
@@ -198,8 +198,17 @@ export function itemMatchesStructuredFilters(
 ) {
   if (filters.archiveState === "active" && item.isArchived) return false;
   if (filters.archiveState === "archived" && !item.isArchived) return false;
+  if (filters.archiveState === "occupied") {
+    const unitIsOccupied = item.unit?.occupancyStatus === "OCCUPIED";
+    const itemLooksOccupied = item.vacancyStatus === "OCCUPIED";
+    if (!unitIsOccupied && !itemLooksOccupied) return false;
+  }
   if (filters.vacancyStatus === "__ntv__") {
     if (!item.vacancyStatus?.startsWith("NTV")) return false;
+  } else if (filters.vacancyStatus === "__vacant__") {
+    if (!["VACANT", "VACANT_NOT_LEASED", "VACANT_READY", "VACANT NOT LEASED READY", "VACANT NOT LEASED NOT READY"].includes(item.vacancyStatus ?? "")) return false;
+  } else if (filters.vacancyStatus === "__vacant_leased__") {
+    if (!["VACANT LEASED", "VACANT_LEASED", "VACANT LEASED READY", "VACANT LEASED NOT READY"].includes(item.vacancyStatus ?? "")) return false;
   } else if (filters.vacancyStatus && item.vacancyStatus !== filters.vacancyStatus) {
     return false;
   }

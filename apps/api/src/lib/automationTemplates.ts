@@ -2,7 +2,7 @@ import type { CustomField, Prisma } from "@prisma/client";
 import { automationRuleInputSchema, type AutomationActionInput, type AutomationConditionInput, type AutomationRuleInput } from "./automationDefinition.js";
 import { prisma } from "./prisma.js";
 
-type TemplateCategory = "Schedule Risk" | "Specialty Work" | "Priority" | "Scheduling" | "Vendors" | "Planning" | "Leasing";
+type TemplateCategory = "Schedule Risk" | "Specialty Work" | "Priority" | "Scheduling" | "Vendors" | "Planning" | "Leasing" | "Assignment";
 type RequiredField = {
   source: "BUILT_IN" | "CUSTOM";
   key: string;
@@ -107,7 +107,7 @@ const templates: TemplateDefinition[] = [
     category: "Specialty Work",
     triggerType: "SCHEDULED_CHECK",
     conditions: { all: [
-      { field: "pestStatus", operator: "in", value: ["ROACHES", "BED BUGS", "FLEAS"] },
+      { field: "pestStatus", operator: "in", value: ["ROACHES", "BED BUGS", "FLEAS", "MICE", "RATS", "RODENTS", "WASPS", "TERMITES", "SILVERFISH"] },
       { customFieldKey: "pestFollowUpDate", operator: "dateMissing" },
     ] },
     actions: [{ type: "addAuditNote", value: "Template alert: serious pest issue needs a scheduled follow-up." }],
@@ -315,7 +315,7 @@ const templates: TemplateDefinition[] = [
     category: "Leasing",
     triggerType: "SCHEDULED_CHECK",
     conditions: { all: [
-      { field: "vacancyStatus", operator: "equals", value: "VACANT" },
+      { field: "vacancyStatus", operator: "equals", value: "VACANT NOT LEASED NOT READY" },
       { field: "completionStatus", operator: "notEquals", value: "DONE" },
       { field: "completionStatus", operator: "notEquals", value: "YES" },
     ] },
@@ -325,6 +325,77 @@ const templates: TemplateDefinition[] = [
       { source: "BUILT_IN", key: "completionStatus", label: "Completion Status", purpose: "Finds vacant units not yet ready." },
     ],
     setupNotes: ["Pair with property occupancy goals and availability-report counts to maintain immediate move-in stock."],
+  },
+  {
+    id: "auto-assign-cleaner-review",
+    name: "Auto-Assign Cleaner Review",
+    description: "Flag turns that appear ready for cleaning so a cleaner can be assigned before final walk.",
+    category: "Assignment",
+    triggerType: "SCHEDULED_CHECK",
+    conditions: { all: [
+      { field: "makeReadyStatus", operator: "notEquals", value: "DONE" },
+      { field: "cleaningStatus", operator: "notEquals", value: "DONE" },
+      { field: "completionStatus", operator: "notEquals", value: "DONE" },
+      { field: "completionStatus", operator: "notEquals", value: "YES" },
+    ], any: [
+      { field: "trashOutStatus", operator: "equals", value: "DONE" },
+      { field: "paintStatus", operator: "equals", value: "GOOD" },
+      { field: "doorsStatus", operator: "equals", value: "GOOD" },
+      { field: "floorsStatus", operator: "equals", value: "GOOD" },
+    ] },
+    actions: [{ type: "addAuditNote", value: "Template assignment review: turn appears ready for cleaner assignment before final walk." }],
+    requiredFields: [
+      { source: "BUILT_IN", key: "makeReadyStatus", label: "Make Ready Status", purpose: "Confirms work has not already been completed." },
+      { source: "BUILT_IN", key: "cleaningStatus", label: "Cleaning Status", purpose: "Finds turns that still need cleaning ownership." },
+      { source: "BUILT_IN", key: "trashOutStatus", label: "Trash Out", purpose: "One signal that upstream work is ready for cleaning." },
+    ],
+    setupNotes: [
+      "Install disabled first and adjust the upstream readiness conditions to match the property workflow.",
+      "This starter adds an assignment review note. True automatic cleaner selection needs the future balanced-assignment action so it can pick an active cleaner safely.",
+    ],
+  },
+  {
+    id: "balanced-tech-assignment-review",
+    name: "Balanced Tech Assignment Review",
+    description: "Flag unassigned active turns that should be distributed across available make-ready techs.",
+    category: "Assignment",
+    triggerType: "SCHEDULED_CHECK",
+    conditions: { all: [
+      { field: "assignedTech", operator: "isEmpty" },
+      { field: "makeReadyDate", operator: "dateWithinNextDays", value: 14 },
+      { field: "completionStatus", operator: "notEquals", value: "DONE" },
+      { field: "completionStatus", operator: "notEquals", value: "YES" },
+    ] },
+    actions: [{ type: "addAuditNote", value: "Template assignment review: active upcoming turn is unassigned and should be balanced across available techs." }],
+    requiredFields: [
+      { source: "BUILT_IN", key: "assignedTech", label: "Assigned Tech", purpose: "Finds turns without ownership." },
+      { source: "BUILT_IN", key: "makeReadyDate", label: "Make Ready Date", purpose: "Limits review to upcoming make-ready work." },
+    ],
+    setupNotes: [
+      "Use this to make unassigned upcoming work visible until automatic least-loaded assignment is implemented.",
+      "Future parameters should include eligible roles/users, property scope, look-ahead days, daily assignment cap, and whether cleaners/leasing should be excluded.",
+    ],
+  },
+  {
+    id: "balanced-upcoming-make-ready-review",
+    name: "Balanced Upcoming Make-Ready Assignment Review",
+    description: "Prompt managers to balance new or upcoming make-readies before one tech carries too much of the load.",
+    category: "Assignment",
+    triggerType: "SCHEDULED_CHECK",
+    conditions: { all: [
+      { field: "moveInDate", operator: "dateWithinNextDays", value: 21 },
+      { field: "completionStatus", operator: "notEquals", value: "DONE" },
+      { field: "completionStatus", operator: "notEquals", value: "YES" },
+    ] },
+    actions: [{ type: "addAuditNote", value: "Template workload review: balance this upcoming make-ready against current staff assignments before move-in pressure builds." }],
+    requiredFields: [
+      { source: "BUILT_IN", key: "moveInDate", label: "Move-In Date", purpose: "Identifies upcoming turn demand." },
+      { source: "BUILT_IN", key: "assignedTech", label: "Assigned Tech", purpose: "Used during manager review to compare workload." },
+    ],
+    setupNotes: [
+      "Change the 21-day look-ahead window after install if your property schedules closer to move-in.",
+      "This starter does not assign users automatically. It prepares the workflow for a future balanced assignment action that can account for assigned count, planned work, sections, and property access.",
+    ],
   },
 ];
 

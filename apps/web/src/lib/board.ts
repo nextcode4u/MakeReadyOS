@@ -21,7 +21,7 @@ export const boardColumns = [
   { key: "trashOutStatus", label: "Trash Out", type: "label" },
   { key: "floorsStatus", label: "Floors", type: "label" },
   { key: "flooringDate", label: "Flooring Date", type: "date" },
-  { key: "makeReadyStatus", label: "Make Ready Scope", type: "label" },
+  { key: "makeReadyStatus", label: "Make Ready Status", type: "label" },
   { key: "cleaningStatus", label: "Cleaning", type: "label" },
   { key: "keysMadeStatus", label: "Keys Made", type: "label" },
   { key: "cabinetsStatus", label: "Cabinets", type: "label" },
@@ -31,6 +31,7 @@ export const boardColumns = [
 ] as const;
 
 export const requiredTableColumnKeys = ["unitNumber"] as const;
+export const defaultHiddenTableColumnKeys = ["scopeLevel"] as const;
 
 export type VisibleColumnOption = {
   key: string;
@@ -43,17 +44,17 @@ export const tableColumnPresets: Array<{ key: string; label: string; columns: st
   {
     key: "basic",
     label: "Basic",
-    columns: ["unitNumber", "floorPlan", "vacancyStatus", "assignedTech", "scopeLevel", "makeReadyDate", "moveInDate", "completionStatus"],
+    columns: ["unitNumber", "floorPlan", "vacancyStatus", "assignedTech", "makeReadyStatus", "makeReadyDate", "moveInDate", "completionStatus"],
   },
   {
     key: "maintenance",
     label: "Maintenance",
-    columns: ["unitNumber", "assignedTech", "scopeLevel", "paintStatus", "doorsStatus", "sheetrockStatus", "pestStatus", "trashOutStatus", "floorsStatus", "flooringDate", "makeReadyStatus", "cleaningStatus", "keysMadeStatus", "cabinetsStatus"],
+    columns: ["unitNumber", "assignedTech", "makeReadyStatus", "paintStatus", "doorsStatus", "sheetrockStatus", "pestStatus", "trashOutStatus", "floorsStatus", "flooringDate", "cleaningStatus", "keysMadeStatus", "cabinetsStatus"],
   },
   {
     key: "manager",
     label: "Manager",
-    columns: ["unitNumber", "floorPlan", "applicant", "vacancyStatus", "vacatedDate", "daysVacant", "assignedTech", "scopeLevel", "makeReadyDate", "moveInDate", "completionStatus", "cleaningStatus", "notes"],
+    columns: ["unitNumber", "floorPlan", "applicant", "vacancyStatus", "vacatedDate", "daysVacant", "assignedTech", "makeReadyStatus", "makeReadyDate", "moveInDate", "completionStatus", "cleaningStatus", "notes"],
   },
   {
     key: "move-in-risk",

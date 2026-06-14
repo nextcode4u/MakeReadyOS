@@ -183,6 +183,7 @@ mkdir -p "$LOG_DIR"
     docs/API_SPEC_PLAN.md \
     docs/WEBHOOK_DELIVERY_PLAN.md \
     docs/PROPERTY_TEMPLATES.md \
+    docs/REFRIGERANT.md \
     docs/ONBOARDING.md \
     docs/DEPLOYMENT.md \
     SECURITY.md \
@@ -260,6 +261,7 @@ mkdir -p "$LOG_DIR"
       . ./.env.example
       set +a
     fi
+    export SEED_DEMO_DATA=true
 
     echo "Validating docker compose configuration"
     docker compose config
@@ -315,6 +317,10 @@ mkdir -p "$LOG_DIR"
         "/api/property-map-areas",
         "/api/automations",
         "/api/operational-library/packs",
+        "/api/refrigerant/overview",
+        "/api/refrigerant/history",
+        "/api/pool/overview",
+        "/api/pool/entries",
         "/api/admin/users",
         "/api/admin/storage",
       ]) {
@@ -346,6 +352,10 @@ mkdir -p "$LOG_DIR"
         "OperationalLibraryInstallSummary",
         "ApiToken",
         "WebhookEndpoint",
+        "RefrigerantOverviewResponse",
+        "RefrigerantHistoryResponse",
+        "PoolOverviewResponse",
+        "PoolEntriesResponse",
       ]) {
         if (!body.components?.schemas?.[schemaName]) throw new Error(`missing exact OpenAPI schema: ${schemaName}`);
       }
@@ -1025,6 +1035,7 @@ mkdir -p "$LOG_DIR"
       -d '{"completed":true}' "http://localhost:${API_PORT:-4000}/api/checklist-items/$CHECKLIST_ITEM_ID")"
     COLLAB_STATUS="$(curl -s -o /tmp/makereadyos-collaboration.json -b "$COOKIE_JAR" -w "%{http_code}" "http://localhost:${API_PORT:-4000}/api/make-ready-items/$TURN_ITEM_ID/collaboration?commentLimit=1&attachmentLimit=1&checklistLimit=1")"
     CHARGE_REPORT_STATUS="$(curl -s -o /tmp/makereadyos-charge-report.json -b "$COOKIE_JAR" -w "%{http_code}" "http://localhost:${API_PORT:-4000}/api/make-ready-items/$TURN_ITEM_ID/charge-report")"
+    CHARGE_REPORT_CSV_STATUS="$(curl -s -o /tmp/makereadyos-charge-report.csv -b "$COOKIE_JAR" -w "%{http_code}" "http://localhost:${API_PORT:-4000}/api/make-ready-items/$TURN_ITEM_ID/charge-report.csv")"
     PREF_STATUS="$(curl -s -o /tmp/makereadyos-pref.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PATCH \
       -d '{"enabled":false}' "http://localhost:${API_PORT:-4000}/api/notifications/preferences/COMMENT")"
@@ -1032,13 +1043,14 @@ mkdir -p "$LOG_DIR"
     ATTACHMENT_DELETE_STATUS="$(curl -s -o /tmp/makereadyos-attachment-delete.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X DELETE "http://localhost:${API_PORT:-4000}/api/attachments/$ATTACHMENT_ID")"
     rm -f "$ATTACHMENT_FILE" "$INVALID_ATTACHMENT_FILE"
-    echo "Collaboration statuses: comment=$COMMENT_CREATE_STATUS/$COMMENT_EDIT_STATUS attachment=$INVALID_ATTACHMENT_STATUS/$ATTACHMENT_CREATE_STATUS price=$CHARGE_PRICE_STATUS metadata=$ATTACHMENT_METADATA_STATUS markup=$ATTACHMENT_MARKUP_STATUS download=$ATTACHMENT_DOWNLOAD_STATUS archive=$ATTACHMENT_ARCHIVE_STATUS chargeReport=$CHARGE_REPORT_STATUS delete=$ATTACHMENT_DELETE_STATUS template=$TEMPLATE_STATUS instance=$INSTANCE_STATUS complete=$CHECKLIST_COMPLETE_STATUS collaboration=$COLLAB_STATUS preference=$PREF_STATUS work=$MY_WORK_STATUS"
-    if [ "$COMMENT_CREATE_STATUS" != "201" ] || [ "$COMMENT_EDIT_STATUS" != "200" ] || [ "$INVALID_ATTACHMENT_STATUS" != "415" ] || [ "$ATTACHMENT_CREATE_STATUS" != "201" ] || [ "$CHARGE_PRICE_STATUS" != "201" ] || [ "$ATTACHMENT_METADATA_STATUS" != "200" ] || [ "$ATTACHMENT_MARKUP_STATUS" != "200" ] || [ "$ATTACHMENT_DOWNLOAD_STATUS" != "200" ] || [ "$ATTACHMENT_ARCHIVE_STATUS" != "200" ] || [ "$CHARGE_REPORT_STATUS" != "200" ] || [ ! -s /tmp/makereadyos-attachment-archive.zip ] || [ "$ATTACHMENT_DELETE_STATUS" != "200" ] || [ "$TEMPLATE_STATUS" != "201" ] || [ "$INSTANCE_STATUS" != "201" ] || [ "$CHECKLIST_COMPLETE_STATUS" != "200" ] || [ "$COLLAB_STATUS" != "200" ] || [ "$PREF_STATUS" != "200" ] || [ "$MY_WORK_STATUS" != "200" ]; then
+    echo "Collaboration statuses: comment=$COMMENT_CREATE_STATUS/$COMMENT_EDIT_STATUS attachment=$INVALID_ATTACHMENT_STATUS/$ATTACHMENT_CREATE_STATUS price=$CHARGE_PRICE_STATUS metadata=$ATTACHMENT_METADATA_STATUS markup=$ATTACHMENT_MARKUP_STATUS download=$ATTACHMENT_DOWNLOAD_STATUS archive=$ATTACHMENT_ARCHIVE_STATUS chargeReport=$CHARGE_REPORT_STATUS/$CHARGE_REPORT_CSV_STATUS delete=$ATTACHMENT_DELETE_STATUS template=$TEMPLATE_STATUS instance=$INSTANCE_STATUS complete=$CHECKLIST_COMPLETE_STATUS collaboration=$COLLAB_STATUS preference=$PREF_STATUS work=$MY_WORK_STATUS"
+    if [ "$COMMENT_CREATE_STATUS" != "201" ] || [ "$COMMENT_EDIT_STATUS" != "200" ] || [ "$INVALID_ATTACHMENT_STATUS" != "415" ] || [ "$ATTACHMENT_CREATE_STATUS" != "201" ] || [ "$CHARGE_PRICE_STATUS" != "201" ] || [ "$ATTACHMENT_METADATA_STATUS" != "200" ] || [ "$ATTACHMENT_MARKUP_STATUS" != "200" ] || [ "$ATTACHMENT_DOWNLOAD_STATUS" != "200" ] || [ "$ATTACHMENT_ARCHIVE_STATUS" != "200" ] || [ "$CHARGE_REPORT_STATUS" != "200" ] || [ "$CHARGE_REPORT_CSV_STATUS" != "200" ] || [ ! -s /tmp/makereadyos-attachment-archive.zip ] || [ ! -s /tmp/makereadyos-charge-report.csv ] || [ "$ATTACHMENT_DELETE_STATUS" != "200" ] || [ "$TEMPLATE_STATUS" != "201" ] || [ "$INSTANCE_STATUS" != "201" ] || [ "$CHECKLIST_COMPLETE_STATUS" != "200" ] || [ "$COLLAB_STATUS" != "200" ] || [ "$PREF_STATUS" != "200" ] || [ "$MY_WORK_STATUS" != "200" ]; then
       cat "$COMMENT_JSON" "$ATTACHMENT_JSON" "$CHARGE_PRICE_JSON" /tmp/makereadyos-attachment-metadata.json /tmp/makereadyos-attachment-markup.json /tmp/makereadyos-charge-report.json "$TEMPLATE_JSON" "$INSTANCE_JSON" /tmp/makereadyos-collaboration.json
       exit 1
     fi
     node -e 'const fs=require("fs"); const created=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).attachment; const body=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); if (!created?.storedName?.startsWith("qa-property-uploads/") || !body.comments.some((comment) => comment.body.includes("final photos")) || !body.attachments.some((attachment) => attachment.inspectionStage === "INITIAL_WALK" && attachment.category === "Damage" && attachment.chargeCandidate === true && attachment.chargeEstimatedCents === 4500 && attachment.chargePriceSheetItem?.name?.includes("QA Blind Replacement") && Array.isArray(attachment.markupAnnotations) && attachment.markupAnnotations.some((pin) => pin.label === "Wall damage" && pin.chargeCandidate === true && pin.chargePriceSheetItemId && pin.chargePriceSheetItemName?.includes("QA Blind Replacement") && pin.chargeQuantity === 1 && pin.chargeEstimatedCents === 4500)) || !body.checklistInstances.some((instance) => instance.items.some((item) => item.completed)) || body.pagination?.comments?.limit !== 1 || body.pagination?.attachments?.limit !== 1) process.exit(1);' "$ATTACHMENT_JSON" /tmp/makereadyos-collaboration.json
     node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (report.summary?.fileCount !== 1 || report.summary?.pinCount !== 1 || report.summary?.lineCount !== 2 || report.summary?.totalEstimatedCents !== 9000 || !report.lines?.some((line) => line.type === "PIN" && line.label === "Wall damage" && line.priceSheetItemName?.includes("QA Blind Replacement") && line.estimatedCents === 4500)) process.exit(1);' /tmp/makereadyos-charge-report.json
+    node -e 'const fs=require("fs"); const csv=fs.readFileSync(process.argv[1],"utf8"); if (!csv.includes("Property,Unit,Type") || !csv.includes("Wall damage") || !csv.includes("QA Blind Replacement") || !csv.includes("90.00")) process.exit(1);' /tmp/makereadyos-charge-report.csv
 
     echo "Checking workload planning assignment and coverage foundation"
     PLANNING_BEFORE_STATUS="$(curl -s -o /tmp/makereadyos-planning-before.json -b "$COOKIE_JAR" -w "%{http_code}" \
@@ -1110,6 +1122,195 @@ mkdir -p "$LOG_DIR"
     fi
     node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!body.vendors?.some((vendor) => vendor.name.includes("QA Vendor"))) process.exit(1);' /tmp/makereadyos-vendor-list.json
     node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!body.assignments?.some((assignment) => assignment.vendor.name.includes("QA Vendor"))) process.exit(1);' /tmp/makereadyos-vendor-assignment-list.json
+
+    echo "Checking pool/spa log setup, chemistry evaluation, and CSV export"
+    POOL_FACILITY_JSON="$(mktemp)"
+    POOL_FACILITY_STATUS="$(curl -s -o "$POOL_FACILITY_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"name\":\"QA Pool $TIMESTAMP\",\"type\":\"POOL\",\"capacityGallons\":12000,\"surfaceType\":\"Plaster\",\"notes\":\"QA daily pool log\"}" \
+      "http://localhost:${API_PORT:-4000}/api/pool/facilities")"
+    POOL_FACILITY_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).facility?.id || "");' "$POOL_FACILITY_JSON")"
+    POOL_CHEMICAL_JSON="$(mktemp)"
+    POOL_CHEMICAL_STATUS="$(curl -s -o "$POOL_CHEMICAL_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"name\":\"QA Cal-Hypo $TIMESTAMP\",\"category\":\"CHLORINE\",\"concentrationPercent\":65,\"unit\":\"POUNDS\",\"notes\":\"QA chlorine\"}" \
+      "http://localhost:${API_PORT:-4000}/api/pool/chemicals")"
+    POOL_CHEMICAL_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).chemical?.id || "");' "$POOL_CHEMICAL_JSON")"
+    POOL_ENTRY_JSON="$(mktemp)"
+    POOL_ENTRY_STATUS="$(curl -s -o "$POOL_ENTRY_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"facilityId\":\"$POOL_FACILITY_ID\",\"logDate\":\"$PLANNING_TEST_DATE\",\"logTime\":\"09:30\",\"ph\":8.1,\"freeChlorine\":0.5,\"combinedChlorine\":0.4,\"totalChlorine\":0.9,\"totalAlkalinity\":70,\"cyanuricAcid\":25,\"calciumHardness\":180,\"waterTemperature\":82,\"vacuumed\":true,\"skimmerCleaned\":true,\"pumpRunning\":true,\"filterOperating\":true,\"waterCloudy\":true,\"notes\":\"QA pool check\",\"safetyChecks\":[{\"label\":\"Gate/self-closing latch checked\",\"value\":\"FAIL\",\"notes\":\"QA latch issue\",\"sortOrder\":0}],\"chemicalAdditions\":[{\"chemicalId\":\"$POOL_CHEMICAL_ID\",\"chemicalName\":\"QA Cal-Hypo $TIMESTAMP\",\"amount\":70,\"unit\":\"OUNCES\",\"notes\":\"QA addition\"}]}" \
+      "http://localhost:${API_PORT:-4000}/api/pool/entries")"
+    POOL_ENTRY_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).entry?.id || "");' "$POOL_ENTRY_JSON")"
+    POOL_OVERVIEW_STATUS="$(curl -s -o /tmp/makereadyos-pool-overview.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/pool/overview?propertyId=$TEST_PROPERTY_ID")"
+    POOL_ENTRIES_STATUS="$(curl -s -o /tmp/makereadyos-pool-entries.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/pool/entries?propertyId=$TEST_PROPERTY_ID&limit=5&offset=0")"
+    POOL_EXPORT_STATUS="$(curl -s -o /tmp/makereadyos-pool-log.csv -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/pool/export.csv?propertyId=$TEST_PROPERTY_ID")"
+    POOL_REPORT_STATUS="$(curl -s -o /tmp/makereadyos-pool-report.html -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/pool/report.html?propertyId=$TEST_PROPERTY_ID")"
+    POOL_ATTACHMENT_FILE="$(mktemp --suffix=.png)"
+    printf 'MakeReadyOS QA pool photo\n' >"$POOL_ATTACHMENT_FILE"
+    POOL_ATTACHMENT_JSON="$(mktemp)"
+    POOL_ATTACHMENT_STATUS="$(curl -s -o "$POOL_ATTACHMENT_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -F "file=@$POOL_ATTACHMENT_FILE;type=image/png" \
+      "http://localhost:${API_PORT:-4000}/api/pool/entries/$POOL_ENTRY_ID/attachments")"
+    POOL_ATTACHMENT_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).attachment?.id || "");' "$POOL_ATTACHMENT_JSON")"
+    POOL_ATTACHMENT_DOWNLOAD_STATUS="$(curl -s -o /tmp/makereadyos-pool-attachment-download.png -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/pool/attachments/$POOL_ATTACHMENT_ID/download")"
+    POOL_ATTACHMENT_DELETE_STATUS="$(curl -s -o /tmp/makereadyos-pool-attachment-delete.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X DELETE \
+      "http://localhost:${API_PORT:-4000}/api/pool/attachments/$POOL_ATTACHMENT_ID")"
+    POOL_REVIEW_NOTIFICATION_STATUS="$(curl -s -o /tmp/makereadyos-pool-notifications.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/notifications?limit=25&offset=0")"
+    rm -f "$POOL_ATTACHMENT_FILE"
+    echo "Pool Log statuses: facility=$POOL_FACILITY_STATUS chemical=$POOL_CHEMICAL_STATUS entry=$POOL_ENTRY_STATUS overview=$POOL_OVERVIEW_STATUS entries=$POOL_ENTRIES_STATUS export=$POOL_EXPORT_STATUS report=$POOL_REPORT_STATUS attachment=$POOL_ATTACHMENT_STATUS/$POOL_ATTACHMENT_DOWNLOAD_STATUS/$POOL_ATTACHMENT_DELETE_STATUS notifications=$POOL_REVIEW_NOTIFICATION_STATUS"
+    if [ "$POOL_FACILITY_STATUS" != "201" ] || [ "$POOL_CHEMICAL_STATUS" != "201" ] || [ "$POOL_ENTRY_STATUS" != "201" ] || [ "$POOL_OVERVIEW_STATUS" != "200" ] || [ "$POOL_ENTRIES_STATUS" != "200" ] || [ "$POOL_EXPORT_STATUS" != "200" ] || [ "$POOL_REPORT_STATUS" != "200" ] || [ "$POOL_ATTACHMENT_STATUS" != "201" ] || [ "$POOL_ATTACHMENT_DOWNLOAD_STATUS" != "200" ] || [ "$POOL_ATTACHMENT_DELETE_STATUS" != "200" ] || [ "$POOL_REVIEW_NOTIFICATION_STATUS" != "200" ]; then
+      cat "$POOL_FACILITY_JSON" "$POOL_CHEMICAL_JSON" "$POOL_ENTRY_JSON" /tmp/makereadyos-pool-overview.json /tmp/makereadyos-pool-entries.json
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const entry=body.entry; if (!entry?.evaluationJson?.issues?.length || entry.evaluationJson.status !== "REVIEW" || !entry.evaluationJson.dosage?.length) process.exit(1);' "$POOL_ENTRY_JSON"
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const addition=body.entry?.chemicalAdditions?.[0]; if (!addition || addition.amount !== 70 || addition.unit !== "OUNCES") process.exit(1);' "$POOL_ENTRY_JSON"
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-pool-overview.json","utf8")); if (body.summary?.logsToday < 1 || body.summary?.safetyFailures < 1 || body.summary?.chemistryIssues < 1) process.exit(1);'
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-pool-entries.json","utf8")); if (!body.entries?.some((entry) => entry.facility?.name?.includes("QA Pool")) || typeof body.pagination?.total !== "number") process.exit(1);'
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!body.attachment?.storedName?.includes("pool-log/") || body.attachment?.originalName?.length < 1) process.exit(1);' "$POOL_ATTACHMENT_JSON"
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!body.notifications?.some((notification) => notification.title?.includes("Pool review needed"))) process.exit(1);' /tmp/makereadyos-pool-notifications.json
+    if ! grep -q "MakeReadyOS Pool Log Report" /tmp/makereadyos-pool-report.html || ! grep -q "QA Pool" /tmp/makereadyos-pool-report.html; then
+      cat /tmp/makereadyos-pool-report.html
+      echo "ERROR: Pool Log printable report did not include the expected entry"
+      exit 1
+    fi
+    if ! grep -q "QA Pool" /tmp/makereadyos-pool-log.csv; then
+      cat /tmp/makereadyos-pool-log.csv
+      echo "ERROR: Pool Log CSV export did not include the test entry"
+      exit 1
+    fi
+    if ! grep -q "4 lb 6 oz" /tmp/makereadyos-pool-log.csv || ! grep -q "4 lb 6 oz" /tmp/makereadyos-pool-report.html; then
+      cat /tmp/makereadyos-pool-log.csv /tmp/makereadyos-pool-report.html
+      echo "ERROR: Pool Log solid chemical additions did not normalize ounces into pounds/ounces"
+      exit 1
+    fi
+
+    echo "Checking property wiki overview, entries, vendors, uploads, and search"
+    PROPERTY_WIKI_PROFILE_STATUS="$(curl -s -o /tmp/makereadyos-wiki-profile.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PATCH \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"address\":\"123 QA Way\",\"unitCount\":24,\"buildingCount\":4,\"officePhone\":\"555-0100\",\"afterHoursPhone\":\"555-0199\",\"propertyManager\":\"QA Manager\",\"maintenanceSupervisor\":\"QA Supervisor\",\"regionalManager\":\"QA Regional\",\"generalNotes\":\"Main water shutoff in building 1 riser room\"}" \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/profile")"
+    PROPERTY_WIKI_ENTRY_JSON="$(mktemp)"
+    PROPERTY_WIKI_ENTRY_STATUS="$(curl -s -o "$PROPERTY_WIKI_ENTRY_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"section\":\"UTILITIES\",\"title\":\"QA Main Water Shutoff $TIMESTAMP\",\"category\":\"Domestic Water Shutoffs\",\"locationDescription\":\"Behind leasing office panel\",\"notes\":\"Turn clockwise and notify office\",\"tags\":[\"water\",\"critical\"],\"isPinned\":true}" \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/entries")"
+    PROPERTY_WIKI_ENTRY_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).entry?.id || "");' "$PROPERTY_WIKI_ENTRY_JSON")"
+    PROPERTY_WIKI_VENDOR_JSON="$(mktemp)"
+    PROPERTY_WIKI_VENDOR_STATUS="$(curl -s -o "$PROPERTY_WIKI_VENDOR_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"vendorType\":\"Plumbing\",\"companyName\":\"QA Plumbing $TIMESTAMP\",\"contactName\":\"QA Contact\",\"phone\":\"555-0200\",\"email\":\"qa-plumbing@example.com\",\"emergencyPhone\":\"555-0201\",\"notes\":\"24/7 emergency vendor\"}" \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/vendors")"
+    PROPERTY_WIKI_VENDOR_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).vendor?.id || "");' "$PROPERTY_WIKI_VENDOR_JSON")"
+    PROPERTY_WIKI_FILE="$(mktemp --suffix=.txt)"
+    printf 'QA Property Wiki site map note\n' >"$PROPERTY_WIKI_FILE"
+    PROPERTY_WIKI_ASSET_JSON="$(mktemp)"
+    PROPERTY_WIKI_ASSET_STATUS="$(curl -s -o "$PROPERTY_WIKI_ASSET_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -F "propertyId=$TEST_PROPERTY_ID" \
+      -F "kind=DOCUMENT" \
+      -F "title=QA Site Map Doc $TIMESTAMP" \
+      -F "category=Site Maps" \
+      -F "description=Wiki upload smoke" \
+      -F "tags=site map, wiki" \
+      -F "entryId=$PROPERTY_WIKI_ENTRY_ID" \
+      -F "vendorId=$PROPERTY_WIKI_VENDOR_ID" \
+      -F "file=@$PROPERTY_WIKI_FILE;type=text/plain" \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/assets/upload")"
+    PROPERTY_WIKI_ASSET_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).asset?.id || "");' "$PROPERTY_WIKI_ASSET_JSON")"
+    PROPERTY_WIKI_OVERVIEW_STATUS="$(curl -s -o /tmp/makereadyos-wiki-overview.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/overview?propertyId=$TEST_PROPERTY_ID")"
+    PROPERTY_WIKI_ENTRY_LIST_STATUS="$(curl -s -o /tmp/makereadyos-wiki-entries.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/entries?propertyId=$TEST_PROPERTY_ID&section=UTILITIES")"
+    PROPERTY_WIKI_VENDOR_LIST_STATUS="$(curl -s -o /tmp/makereadyos-wiki-vendors.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/vendors?propertyId=$TEST_PROPERTY_ID")"
+    PROPERTY_WIKI_ASSET_LIST_STATUS="$(curl -s -o /tmp/makereadyos-wiki-assets.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/assets?propertyId=$TEST_PROPERTY_ID&kind=DOCUMENT")"
+    PROPERTY_WIKI_SEARCH_STATUS="$(curl -s -o /tmp/makereadyos-wiki-search.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/search?propertyId=$TEST_PROPERTY_ID&q=water")"
+    PROPERTY_WIKI_DOWNLOAD_STATUS="$(curl -s -o /tmp/makereadyos-wiki-download.txt -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/assets/$PROPERTY_WIKI_ASSET_ID/download")"
+    PROPERTY_WIKI_DELETE_STATUS="$(curl -s -o /tmp/makereadyos-wiki-delete.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X DELETE \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/assets/$PROPERTY_WIKI_ASSET_ID")"
+    rm -f "$PROPERTY_WIKI_FILE"
+    echo "Property Wiki statuses: profile=$PROPERTY_WIKI_PROFILE_STATUS entry=$PROPERTY_WIKI_ENTRY_STATUS vendor=$PROPERTY_WIKI_VENDOR_STATUS asset=$PROPERTY_WIKI_ASSET_STATUS overview=$PROPERTY_WIKI_OVERVIEW_STATUS entries=$PROPERTY_WIKI_ENTRY_LIST_STATUS vendors=$PROPERTY_WIKI_VENDOR_LIST_STATUS assets=$PROPERTY_WIKI_ASSET_LIST_STATUS search=$PROPERTY_WIKI_SEARCH_STATUS download=$PROPERTY_WIKI_DOWNLOAD_STATUS delete=$PROPERTY_WIKI_DELETE_STATUS"
+    if [ "$PROPERTY_WIKI_PROFILE_STATUS" != "200" ] || [ "$PROPERTY_WIKI_ENTRY_STATUS" != "201" ] || [ "$PROPERTY_WIKI_VENDOR_STATUS" != "201" ] || [ "$PROPERTY_WIKI_ASSET_STATUS" != "201" ] || [ "$PROPERTY_WIKI_OVERVIEW_STATUS" != "200" ] || [ "$PROPERTY_WIKI_ENTRY_LIST_STATUS" != "200" ] || [ "$PROPERTY_WIKI_VENDOR_LIST_STATUS" != "200" ] || [ "$PROPERTY_WIKI_ASSET_LIST_STATUS" != "200" ] || [ "$PROPERTY_WIKI_SEARCH_STATUS" != "200" ] || [ "$PROPERTY_WIKI_DOWNLOAD_STATUS" != "200" ] || [ "$PROPERTY_WIKI_DELETE_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-wiki-profile.json "$PROPERTY_WIKI_ENTRY_JSON" "$PROPERTY_WIKI_VENDOR_JSON" "$PROPERTY_WIKI_ASSET_JSON" /tmp/makereadyos-wiki-overview.json /tmp/makereadyos-wiki-search.json
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-wiki-overview.json","utf8")); if (!body.profile?.propertyManager?.includes("QA Manager") || !body.pinnedCriticalInformation?.some((entry) => entry.title.includes("QA Main Water Shutoff")) || !body.recentDocuments?.some((asset) => asset.title.includes("QA Site Map Doc"))) process.exit(1);'
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-wiki-entries.json","utf8")); if (!body.entries?.some((entry) => entry.category === "Domestic Water Shutoffs" && entry.tags?.includes("critical"))) process.exit(1);'
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-wiki-vendors.json","utf8")); if (!body.vendors?.some((vendor) => vendor.companyName.includes("QA Plumbing"))) process.exit(1);'
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-wiki-assets.json","utf8")); if (!body.assets?.some((asset) => asset.originalName.endsWith(".txt") && asset.entry?.title?.includes("QA Main Water Shutoff"))) process.exit(1);'
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-wiki-search.json","utf8")); if (!body.results?.some((result) => result.section === "UTILITIES" && result.title.includes("QA Main Water Shutoff"))) process.exit(1);'
+
+    echo "Checking preventive maintenance templates, tasks, completion, reports, and wiki references"
+    PM_TEMPLATE_JSON="$(mktemp)"
+    PM_TEMPLATE_STATUS="$(curl -s -o "$PM_TEMPLATE_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"name\":\"QA Pool Filter Cleaning $TIMESTAMP\",\"category\":\"Pool\",\"description\":\"Monthly pool PM\",\"instructions\":\"Check pressure and clean the filter.\",\"frequency\":\"Monthly\",\"assignedRole\":\"TECH\",\"photosRequired\":true,\"notesRequired\":true,\"passFailRequired\":true,\"priority\":\"High\"}" \
+      "http://localhost:${API_PORT:-4000}/api/pm/templates")"
+    PM_TEMPLATE_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).template?.id || "");' "$PM_TEMPLATE_JSON")"
+    PM_OVERVIEW_STATUS="$(curl -s -o /tmp/makereadyos-pm-overview.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/pm/overview?propertyId=$TEST_PROPERTY_ID")"
+    PM_TASKS_STATUS="$(curl -s -o /tmp/makereadyos-pm-tasks.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/pm/tasks?propertyId=$TEST_PROPERTY_ID")"
+    PM_TASK_ID="$(node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(body.tasks?.[0]?.id || "");' /tmp/makereadyos-pm-tasks.json)"
+    PM_REFERENCE_STATUS="$(curl -s -o /tmp/makereadyos-pm-reference.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"recordType\":\"PM_TEMPLATE\",\"recordId\":\"$PM_TEMPLATE_ID\",\"targetType\":\"ENTRY\",\"targetId\":\"$PROPERTY_WIKI_ENTRY_ID\"}" \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/references")"
+    PM_WIKI_CONTEXT_STATUS="$(curl -s -o /tmp/makereadyos-pm-wiki-context.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/context?module=PREVENTIVE_MAINTENANCE&propertyId=$TEST_PROPERTY_ID&recordType=PM_TEMPLATE&recordId=$PM_TEMPLATE_ID")"
+    PM_FILE="$(mktemp --suffix=.png)"
+    printf 'pm-photo' >"$PM_FILE"
+    PM_ATTACHMENT_JSON="$(mktemp)"
+    PM_ATTACHMENT_STATUS="$(curl -s -o "$PM_ATTACHMENT_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -F "file=@$PM_FILE;type=image/png;filename=pm-photo.png" \
+      "http://localhost:${API_PORT:-4000}/api/pm/tasks/$PM_TASK_ID/attachments")"
+    PM_ATTACHMENT_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).attachment?.id || "");' "$PM_ATTACHMENT_JSON")"
+    PM_ATTACHMENT_DOWNLOAD_STATUS="$(curl -s -o /tmp/makereadyos-pm-download.bin -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/pm/attachments/$PM_ATTACHMENT_ID/download")"
+    PM_COMPLETE_JSON="$(mktemp)"
+    PM_COMPLETE_STATUS="$(curl -s -o "$PM_COMPLETE_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d '{"outcome":"PASS","notes":"QA PM completion note"}' \
+      "http://localhost:${API_PORT:-4000}/api/pm/tasks/$PM_TASK_ID/complete")"
+    PM_HISTORY_STATUS="$(curl -s -o /tmp/makereadyos-pm-history.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/pm/history?propertyId=$TEST_PROPERTY_ID")"
+    PM_CALENDAR_STATUS="$(curl -s -o /tmp/makereadyos-pm-calendar.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/pm/calendar?propertyId=$TEST_PROPERTY_ID")"
+    PM_EXPORT_STATUS="$(curl -s -o /tmp/makereadyos-pm-export.csv -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/pm/export.csv?propertyId=$TEST_PROPERTY_ID")"
+    PM_EXCEL_STATUS="$(curl -s -o /tmp/makereadyos-pm-export.xls -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/pm/export.xls?propertyId=$TEST_PROPERTY_ID")"
+    PM_REPORT_STATUS="$(curl -s -o /tmp/makereadyos-pm-report.html -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/pm/report.html?propertyId=$TEST_PROPERTY_ID")"
+    rm -f "$PM_FILE"
+    echo "Preventive Maintenance statuses: template=$PM_TEMPLATE_STATUS overview=$PM_OVERVIEW_STATUS tasks=$PM_TASKS_STATUS wikiRef=$PM_REFERENCE_STATUS wikiContext=$PM_WIKI_CONTEXT_STATUS attachment=$PM_ATTACHMENT_STATUS/$PM_ATTACHMENT_DOWNLOAD_STATUS complete=$PM_COMPLETE_STATUS history=$PM_HISTORY_STATUS calendar=$PM_CALENDAR_STATUS export=$PM_EXPORT_STATUS excel=$PM_EXCEL_STATUS report=$PM_REPORT_STATUS"
+    if [ "$PM_TEMPLATE_STATUS" != "201" ] || [ "$PM_OVERVIEW_STATUS" != "200" ] || [ "$PM_TASKS_STATUS" != "200" ] || [ "$PM_REFERENCE_STATUS" != "201" ] || [ "$PM_WIKI_CONTEXT_STATUS" != "200" ] || [ "$PM_ATTACHMENT_STATUS" != "201" ] || [ "$PM_ATTACHMENT_DOWNLOAD_STATUS" != "200" ] || [ "$PM_COMPLETE_STATUS" != "200" ] || [ "$PM_HISTORY_STATUS" != "200" ] || [ "$PM_CALENDAR_STATUS" != "200" ] || [ "$PM_EXPORT_STATUS" != "200" ] || [ "$PM_EXCEL_STATUS" != "200" ] || [ "$PM_REPORT_STATUS" != "200" ]; then
+      cat "$PM_TEMPLATE_JSON" /tmp/makereadyos-pm-overview.json /tmp/makereadyos-pm-tasks.json "$PM_ATTACHMENT_JSON" "$PM_COMPLETE_JSON" /tmp/makereadyos-pm-history.json /tmp/makereadyos-pm-calendar.json /tmp/makereadyos-pm-wiki-context.json
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-pm-overview.json","utf8")); if (body.summary?.dueToday < 1 || body.summary?.dueThisWeek < 1) process.exit(1);'
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (body.task?.status !== "COMPLETED" || body.task?.completionOutcome !== "PASS" || !body.task?.completedByName) process.exit(1);' "$PM_COMPLETE_JSON"
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-pm-history.json","utf8")); if (!body.tasks?.some((task) => task.taskName?.includes("QA Pool Filter Cleaning") && task.status === "COMPLETED")) process.exit(1);'
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-pm-calendar.json","utf8")); if (!body.tasks?.length) process.exit(1);'
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-pm-wiki-context.json","utf8")); if (!body.attached?.some((record) => record.title?.includes("QA Main Water Shutoff"))) process.exit(1);'
+    if ! grep -q "QA Pool Filter Cleaning" /tmp/makereadyos-pm-export.csv || ! grep -q "QA Pool Filter Cleaning" /tmp/makereadyos-pm-report.html || ! grep -q "QA Pool Filter Cleaning" /tmp/makereadyos-pm-export.xls; then
+      cat /tmp/makereadyos-pm-export.csv /tmp/makereadyos-pm-report.html /tmp/makereadyos-pm-export.xls
+      echo "ERROR: Preventive Maintenance exports did not include the expected PM task"
+      exit 1
+    fi
 
     echo "Checking property map and unit location lifecycle"
     PROPERTY_MAP_JSON="$(mktemp)"
@@ -1195,7 +1396,41 @@ mkdir -p "$LOG_DIR"
       cat "$ADMIN_EXPORT_JSON"
       exit 1
     fi
-    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const data=body.data; if (body.format !== "makereadyos.backup" || body.version !== 1 || !data || !Array.isArray(data.properties) || !Array.isArray(data.floorPlans) || !data.floorPlans.some((plan) => plan.name === "QA A1 Managed") || !Array.isArray(data.boardOptions) || !data.boardOptions.some((option) => option.value === "QA PAINT TOUCH UP" && option.isArchived) || !Array.isArray(data.boardSections) || !data.boardSections.some((section) => section.sectionType === "ARCHIVE") || !data.boardColumns?.some((column) => column.fieldKey === "vacatedDate" && column.label === "QA Vacated") || !data.scheduleTracks?.some((track) => track.sourceField === "moveOutDate" && "overdueEnabled" in track) || !Array.isArray(data.riskPolicies) || !data.riskPolicies.some((policy) => policy.propertyCode && policy.staleActivityDays === 4) || !data.makeReadyItems?.some((item) => typeof item.riskScore === "number" && item.riskLevel) || !Array.isArray(data.chargePriceSheetItems) || !data.chargePriceSheetItems.some((entry) => entry.name.includes("QA Blind Replacement")) || !Array.isArray(data.comments) || !data.comments.some((comment) => comment.body.includes("final photos")) || !Array.isArray(data.vendors) || !data.vendors.some((vendor) => vendor.name.includes("QA Vendor")) || !Array.isArray(data.vendorAssignments) || !data.vendorAssignments.some((assignment) => assignment.vendorName.includes("QA Vendor")) || !Array.isArray(data.propertyMaps) || !data.propertyMaps.some((map) => map.name.includes("QA Site Map") && !("storedName" in map)) || !Array.isArray(data.propertyMapAreas) || !data.propertyMapAreas.some((area) => area.name.includes("North Building") && area.expectedUnitCount === 12) || !Array.isArray(data.unitMapLocations) || !data.unitMapLocations.some((location) => location.area === "North") || !Array.isArray(data.checklistInstances) || !data.checklistInstances.some((instance) => instance.name.includes("QA Final Walk")) || !Array.isArray(data.propertyTemplates) || !data.propertyTemplates.some((template) => template.name.includes("QA Property Template")) || "notifications" in data || "users" in data || "attachments" in data) process.exit(1);' "$ADMIN_EXPORT_JSON"
+    node - "$ADMIN_EXPORT_JSON" <<'NODE'
+const fs = require("fs");
+const body = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const data = body.data;
+const required = [
+  body.format === "makereadyos.backup",
+  body.version === 1,
+  data && Array.isArray(data.properties),
+  Array.isArray(data.floorPlans) && data.floorPlans.some((plan) => plan.name === "QA A1 Managed"),
+  Array.isArray(data.boardOptions) && data.boardOptions.some((option) => option.value === "QA PAINT TOUCH UP" && option.isArchived),
+  Array.isArray(data.boardSections) && data.boardSections.some((section) => section.sectionType === "ARCHIVE"),
+  data.boardColumns?.some((column) => column.fieldKey === "vacatedDate" && column.label === "QA Vacated"),
+  data.scheduleTracks?.some((track) => track.sourceField === "moveOutDate" && "overdueEnabled" in track),
+  Array.isArray(data.riskPolicies) && data.riskPolicies.some((policy) => policy.propertyCode && policy.staleActivityDays === 4),
+  data.makeReadyItems?.some((item) => typeof item.riskScore === "number" && item.riskLevel),
+  Array.isArray(data.chargePriceSheetItems) && data.chargePriceSheetItems.some((entry) => entry.name.includes("QA Blind Replacement")),
+  Array.isArray(data.comments) && data.comments.some((comment) => comment.body.includes("final photos")),
+  Array.isArray(data.vendors) && data.vendors.some((vendor) => vendor.name.includes("QA Vendor")),
+  Array.isArray(data.vendorAssignments) && data.vendorAssignments.some((assignment) => assignment.vendorName.includes("QA Vendor")),
+  Array.isArray(data.propertyMaps) && data.propertyMaps.some((map) => map.name.includes("QA Site Map") && !("storedName" in map)),
+  Array.isArray(data.propertyMapAreas) && data.propertyMapAreas.some((area) => area.name.includes("North Building") && area.expectedUnitCount === 12),
+  Array.isArray(data.unitMapLocations) && data.unitMapLocations.some((location) => location.area === "North"),
+  Array.isArray(data.checklistInstances) && data.checklistInstances.some((instance) => instance.name.includes("QA Final Walk")),
+  Array.isArray(data.propertyTemplates) && data.propertyTemplates.some((template) => template.name.includes("QA Property Template")),
+  Array.isArray(data.poolFacilities) && data.poolFacilities.some((facility) => facility.name.includes("QA Pool")),
+  Array.isArray(data.poolChemicals) && data.poolChemicals.some((chemical) => chemical.name.includes("QA Cal-Hypo")),
+  Array.isArray(data.poolLogEntries) && data.poolLogEntries.some((entry) => entry.facilityName.includes("QA Pool") && entry.evaluationJson?.status === "REVIEW"),
+  Array.isArray(data.poolSafetyChecks) && data.poolSafetyChecks.some((check) => check.label.includes("Gate") && check.value === "FAIL"),
+  Array.isArray(data.poolChemicalAdditions) && data.poolChemicalAdditions.some((addition) => addition.chemicalName.includes("QA Cal-Hypo")),
+  !("notifications" in data),
+  !("users" in data),
+  !("attachments" in data),
+];
+if (required.some((condition) => !condition)) process.exit(1);
+NODE
     LOCATION_REMOVE_STATUS="$(curl -s -o /tmp/makereadyos-location-remove.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X DELETE \
       "http://localhost:${API_PORT:-4000}/api/unit-map-locations/$UNIT_LOCATION_ID")"
@@ -1222,6 +1457,13 @@ mkdir -p "$LOG_DIR"
       exit 1
     fi
     node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!Array.isArray(body.activity) || !body.activity.some((event) => event.action === "BACKUP_EXPORTED") || body.pagination?.limit !== 10 || !Array.isArray(body.filterOptions?.actions)) process.exit(1);' "$ADMIN_ACTIVITY_JSON"
+    echo "Checking daily manager report endpoints as admin"
+    DAILY_REPORT_DATE="$(date +%F)"
+    curl -fsS -o /tmp/makereadyos-daily-report.json -b "$COOKIE_JAR" \
+      "http://localhost:${API_PORT:-4000}/api/activity/daily-report?date=$DAILY_REPORT_DATE&propertyId=$TEST_PROPERTY_ID"
+    curl -fsS -o /tmp/makereadyos-daily-report.csv -b "$COOKIE_JAR" \
+      "http://localhost:${API_PORT:-4000}/api/activity/daily-report.csv?date=$DAILY_REPORT_DATE&propertyId=$TEST_PROPERTY_ID"
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const csv=fs.readFileSync(process.argv[2],"utf8"); if (body.date !== process.argv[3] || typeof body.summary?.totalChanges !== "number" || !Array.isArray(body.records) || !Array.isArray(body.filterOptions?.properties) || !csv.includes("External update hint")) process.exit(1);' /tmp/makereadyos-daily-report.json /tmp/makereadyos-daily-report.csv "$DAILY_REPORT_DATE"
 
     echo "Checking automation rule management as admin"
     ADMIN_AUTOMATIONS_STATUS="$(curl -s -o /tmp/makereadyos-admin-automations.json -b "$COOKIE_JAR" -w "%{http_code}" \

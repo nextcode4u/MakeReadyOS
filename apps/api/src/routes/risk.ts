@@ -113,9 +113,19 @@ export async function riskRoutes(app: FastifyInstance) {
         checklistInstances: { include: { items: true } },
       },
     });
-    const policies = await prisma.propertyRiskPolicy.findMany({ where: { propertyId: scope.propertyId } });
+    const [policies, sections] = await Promise.all([
+      prisma.propertyRiskPolicy.findMany({ where: { propertyId: scope.propertyId } }),
+      prisma.boardSection.findMany({ where: { propertyId: scope.propertyId, isActive: true }, select: { propertyId: true, key: true, sectionType: true } }),
+    ]);
     const policyByProperty = new Map(policies.map((policy) => [policy.propertyId, policy]));
-    const evaluated = items.map((item) => ({ item, risk: evaluateItemRisk(item, new Date(), policyByProperty.get(item.propertyId)) }));
+    const sectionType = new Map(sections.map((section) => [`${section.propertyId}:${section.key}`, section.sectionType]));
+    const evaluated = items.map((item) => ({
+      item,
+      risk: evaluateItemRisk({
+        ...item,
+        boardSectionType: sectionType.get(`${item.propertyId}:${item.boardGroup}`) ?? null,
+      }, new Date(), policyByProperty.get(item.propertyId)),
+    }));
     const byLevel = Object.fromEntries(riskLevels.map((level) => [level, evaluated.filter((entry) => entry.risk.riskLevel === level).length]));
     const byCategory = evaluated.reduce<Record<string, number>>((acc, entry) => {
       for (const reason of entry.risk.riskReasons) acc[reason.category] = (acc[reason.category] ?? 0) + 1;
@@ -190,9 +200,20 @@ export async function riskRoutes(app: FastifyInstance) {
       skip: query.offset,
       take: query.limit,
     });
-    const policies = await prisma.propertyRiskPolicy.findMany({ where: { propertyId: { in: [...new Set(items.map((item) => item.propertyId))] } } });
+    const propertyIds = [...new Set(items.map((item) => item.propertyId))];
+    const [policies, sections] = await Promise.all([
+      prisma.propertyRiskPolicy.findMany({ where: { propertyId: { in: propertyIds } } }),
+      prisma.boardSection.findMany({ where: { propertyId: { in: propertyIds }, isActive: true }, select: { propertyId: true, key: true, sectionType: true } }),
+    ]);
     const policyByProperty = new Map(policies.map((policy) => [policy.propertyId, policy]));
-    const evaluated = items.map((item) => ({ ...item, ...evaluateItemRisk(item, new Date(), policyByProperty.get(item.propertyId)) }))
+    const sectionType = new Map(sections.map((section) => [`${section.propertyId}:${section.key}`, section.sectionType]));
+    const evaluated = items.map((item) => ({
+      ...item,
+      ...evaluateItemRisk({
+        ...item,
+        boardSectionType: sectionType.get(`${item.propertyId}:${item.boardGroup}`) ?? null,
+      }, new Date(), policyByProperty.get(item.propertyId)),
+    }))
       .filter((item) => !query.category || item.riskReasons.some((reason) => reason.category === query.category));
     return { items: evaluated, pagination: { limit: query.limit, offset: query.offset, hasMore: items.length === query.limit } };
   });

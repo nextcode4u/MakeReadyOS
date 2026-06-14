@@ -86,7 +86,7 @@ Deployment safety lives in root scripts rather than an in-app background service
 
 ## SLA / Risk Engine
 
-Make-ready items store `riskScore`, `riskLevel`, `riskReasons`, and `lastRiskEvaluatedAt`. The evaluator is structured TypeScript logic, not arbitrary JavaScript. It checks move-in timing, overdue make-ready dates, missing critical dates, assigned staff, pest/flooring/paint conditions, checklist completion, stale activity, date conflicts, and long-vacant turns. `PropertyRiskPolicy` stores property-scoped thresholds for move-in windows, stale activity, aging turns, vendor timing, checklist timing, and planning coverage without changing stable risk categories or field keys. `GET /api/risk/policies` and manager/admin `PUT /api/risk/policies/:propertyId` expose safe configuration. `GET /api/risk/summary` and `GET /api/risk/items` are property-scoped; `POST /api/risk/evaluate` is limited to `ADMIN` and `MANAGER` and can create deduped in-app `RISK` notifications when an item reaches `HIGH` or `CRITICAL`.
+Make-ready items store `riskScore`, `riskLevel`, `riskReasons`, and `lastRiskEvaluatedAt`. The evaluator is structured TypeScript logic, not arbitrary JavaScript. It checks move-in timing, overdue make-ready dates, missing critical dates, assigned staff, pest/flooring/paint conditions, checklist completion, stale activity, date conflicts, and long-vacant turns. Items in a property's Ready Units section are forced to `NONE` risk with score `0` because they have passed manager/admin signoff. `PropertyRiskPolicy` stores property-scoped thresholds for move-in windows, stale activity, aging turns, vendor timing, checklist timing, and planning coverage without changing stable risk categories or field keys. `GET /api/risk/policies` and manager/admin `PUT /api/risk/policies/:propertyId` expose safe configuration. `GET /api/risk/summary` and `GET /api/risk/items` are property-scoped; `POST /api/risk/evaluate` is limited to `ADMIN` and `MANAGER` and can create deduped in-app `RISK` notifications when an item reaches `HIGH` or `CRITICAL`.
 
 Vendor assignments also feed risk evaluation. Open follow-up work, overdue vendor due dates, and open vendor work near move-in create `VENDOR_RISK` reasons.
 
@@ -119,7 +119,8 @@ Core operations routes:
 - `POST /api/operations/properties/:id/archive|restore`
 - `DELETE /api/operations/properties/:id`
 - `GET|POST /api/operations/units`
-- `POST /api/operations/units/import` for merge-style unit directory imports
+- `POST /api/operations/units/import` for property-targeted merge-style unit directory imports
+- `POST /api/operations/units/import/revert` for safe removal of units created by the last reviewed import batch
 - `PATCH /api/operations/units/:id`
 - `POST /api/operations/units/:id/archive|restore`
 - `DELETE /api/operations/units/:id`
@@ -323,7 +324,7 @@ Initial conditions support equality, inequality, empty/not-empty checks, date be
 
 The evaluator is deliberately non-executable: rule inputs are schema validated against fixed operators/actions, and no JavaScript source, expression evaluation, or legacy automation script is run. The same validation boundary is used by preview, event evaluation, manual scheduled execution, and the scheduled runner; archived/missing custom fields, unavailable select options, incompatible operators, and unsupported actions are rejected before evaluation. Local legacy reference material informs future structured conversion only.
 
-The bundled template catalog initially includes overdue make-ready, move-in within seven days, missing make-ready date, date fail-safe/schedule warning, pest follow-up, flooring-date requirement, major-scope priority, weekend schedule guards, Monday/Friday schedule guards, vendor lead-time review, scope-day planning, date-sequence review, daily schedule load review, in-house/vendor routing review, ready-unit stock expectation definitions, and a disabled-by-default flooring-date auto-population template. Date-sequence and load-review templates remain safe review scaffolds; daily load caps and multi-step date distribution are still future work.
+The bundled template catalog initially includes overdue make-ready, move-in within seven days, missing make-ready date, date fail-safe/schedule warning, pest follow-up, flooring-date requirement, major-scope priority, weekend schedule guards, Monday/Friday schedule guards, vendor lead-time review, scope-day planning, date-sequence review, daily schedule load review, in-house/vendor routing review, cleaner-assignment review, balanced tech-assignment review, ready-unit stock expectation definitions, and a disabled-by-default flooring-date auto-population template. Date-sequence, load-review, and assignment-balancing templates remain safe review scaffolds; daily load caps, multi-step date distribution, and automatic least-loaded staff selection are still future work.
 
 ## Data Design
 
@@ -339,7 +340,43 @@ The core table is `MakeReadyItem`, linked to:
 
 Configurable board metadata is represented by `CustomField` and `CustomFieldOption`.
 
-Future-ready models already exist for refrigerant logs, pool logs, pest issues, and notes. Operational collaboration now uses `ItemComment`, `ItemAttachment`, `ChecklistTemplate`, `ChecklistInstance`, and `ChecklistInstanceItem`; checklist instances snapshot template tasks so execution history remains stable when templates evolve.
+The active refrigerant module uses `RefrigerantType`, `RefrigerantCylinder`, `RefrigerantTransaction`, and `RefrigerantLeakFlag` for EPA 608-friendly tank and unit history. Pool Log uses `PoolFacility`, `PoolChemical`, `PoolChemistryTarget`, `PoolLogEntry`, `PoolSafetyCheck`, `PoolChemicalAddition`, and `PoolLogAttachment` for daily water-feature checks and scoped pool photos/PDFs. Preventive Maintenance uses `PreventiveMaintenanceTemplate`, `PreventiveMaintenanceTask`, and `PreventiveMaintenanceTaskAttachment` for recurring property routines, generated due work, completion outcomes, and PM evidence uploads. The older `PoolChemicalLog` placeholder remains for compatibility. Pest issues and notes are still lightweight future surfaces. Operational collaboration now uses `ItemComment`, `ItemAttachment`, `ChecklistTemplate`, `ChecklistInstance`, and `ChecklistInstanceItem`; checklist instances snapshot template tasks so execution history remains stable when templates evolve.
+
+## Refrigerant Tracking
+
+The Refrigerant workspace is a first-class operational module, not a generic attachment to the make-ready table. API routes under `/api/refrigerant` are protected by role and property scope. `ADMIN` users can manage refrigerant types; `ADMIN`, `MANAGER`, and `TECH` users can record tank and unit work; `VIEWER` users can read scoped data; `LEASING` and `CLEANER` users are denied.
+
+Virgin-cylinder charge amount is calculated as `startWeight - endWeight`. Recovery amount is calculated as `endWeight - startWeight`. Empty virgin cylinders move to `EMPTY_PENDING_RECOVERY` until a final recovery transaction is logged into a clean or dirty recovery tank. Recovery tanks expose fill warnings at 80, 90, and 95 percent of capacity. Repeated refrigerant additions on the same unit and type create active leak-review flags that managers/admins can dismiss with notes. All mutations write audit records, and leak/compliance events can create in-app notifications through the existing notification infrastructure.
+
+## Pool Log
+
+Pool Log is a first-class side-rail module for daily pool/spa operations. API routes under `/api/pool` are protected by the existing session/API-token, CSRF, role, and property-scope layers. `ADMIN` and `MANAGER` users can configure pools/spas and chemical libraries; `TECH` users can create daily log entries; `VIEWER`, `LEASING`, and `CLEANER` users are read-only at this foundation stage.
+
+The setup/execution split is:
+
+- `PoolFacility`: property-owned pool/spa/water-feature metadata with optional capacity for dosage estimates.
+- `PoolChemical`: property-owned chemical library with category, unit, and optional concentration.
+- `PoolChemistryTarget`: property/type target override scaffold.
+- `PoolLogEntry`: dated daily chemistry, operations, water-condition, and notes record.
+- `PoolSafetyCheck`: per-entry pass/fail/N/A safety checklist rows.
+- `PoolChemicalAddition`: per-entry chemical usage records.
+- `PoolLogAttachment`: per-entry image/PDF metadata stored in PostgreSQL while file bytes live in the local upload volume.
+
+Chemistry evaluation is structured TypeScript logic, not user-provided code. Missing capacity or concentration produces a warning instead of blocking daily logs. CSV export and browser-printable reports are available for review. Out-of-range chemistry, failed safety checks, and missing daily logs create deduped in-app notifications for admin/manager review. Native JSON transfer includes Pool Log facilities, chemicals, targets, entries, safety checks, and additions. Uploaded file bytes still require upload-volume backup.
+
+## Preventive Maintenance
+
+Preventive Maintenance is a first-class side-rail module for recurring operational tasks. API routes under `/api/pm` are protected by the existing session/API-token, CSRF, role, and property-scope layers. `ADMIN` and `MANAGER` users can create/update PM templates and complete PM tasks; `TECH` and `CLEANER` users can complete scoped PM tasks and upload PM attachments; `LEASING` and `VIEWER` users are read-only.
+
+The PM setup/execution split is:
+
+- `PreventiveMaintenanceTemplate`: property-owned recurring task template with category, description, instructions, frequency, optional custom interval, optional annual month/day, assigned role, priority, and required completion evidence flags.
+- `PreventiveMaintenanceTask`: generated property-scoped due work record with due date, task status, copied execution metadata, completion outcome, notes, and auditable completion history.
+- `PreventiveMaintenanceTaskAttachment`: per-task image/file metadata stored in PostgreSQL while file bytes live in the local upload volume.
+
+Recurring generation is intentionally lightweight. Active templates ensure an open task exists when PM views load, and completing or skipping a task immediately creates the next occurrence. This avoids requiring a permanently running background scheduler while still keeping recurring work visible. CSV export, Excel-compatible export, browser-printable reports, audit records, and in-app notifications are built on the same shared infrastructure used by the rest of the application.
+
+PM also reuses the Property Wiki workflow-reference model so templates and tasks can attach SOPs, equipment notes, known issues, emergency context, photos, and documents without duplicating knowledge data. Native JSON transfer does not yet include PM templates, tasks, PM attachments, or PM Wiki references. Uploaded file bytes still require upload-volume backup.
 
 ## Deployment
 
@@ -347,7 +384,7 @@ Primary target is self-hosting through `docker compose up --build`.
 
 Schema changes are now tracked through versioned Prisma migrations under `apps/api/prisma/migrations/`. Development uses `npm --prefix apps/api run db:migrate`; deployed environments use `npm --prefix apps/api run db:deploy`. The API container attempts migration deploy first and falls back to `db push` only for early-development volume compatibility.
 
-Scheduled automation evaluation remains outside the API server lifecycle. A host can invoke `./run-automations.sh` from `deploy/examples/makereadyos-automations.timer` (hourly example) or cron; each invocation produces an operational log under `logs/`. Historical analytics snapshots use the same script-friendly model through `./run-analytics-snapshot.sh`.
+Scheduled automation evaluation remains outside the API server lifecycle. A host can invoke `./run-automations.sh` from `deploy/examples/makereadyos-automations.timer` (hourly example) or cron; each invocation produces an operational log under `logs/`. The same runner also applies fixed safe lifecycle maintenance, including moving `NTV NOT LEASED` or `NTV LEASED` turns to `TO PRE-WALK` once when the `NTV / Expected Vacate` date arrives, then notifying admins plus property-scoped managers and leasing users. Historical analytics snapshots use the same script-friendly model through `./run-analytics-snapshot.sh`.
 
 Intended environments:
 
@@ -380,6 +417,8 @@ Upload intake additionally restricts filenames and accepted extension/MIME combi
 Frog Pond is a frontend visualization surface over the same permission-scoped make-ready item stream. Its configuration and simple presets are browser-local in this foundation stage, so no schema migration or native-backup field is required. The scene limits rendered frogs, clusters overflow counts, derives color legends from active item metadata, respects reduced motion, and opens the shared item drawer for item-backed frogs.
 
 `BoardSection` is additive presentation/lifecycle metadata over stable `MakeReadyItem.boardGroup` values. Standard section types are `READY`, `MAKE_READY`, `DOWN`, and `ARCHIVE`; rename operations are audited. Archive actions transition records into the configured Archive key while retaining `isArchived` and `archivedAt` for compatibility.
+
+Completion is a two-step lifecycle. Authorized field staff may set `completionStatus` to `YES`; the API then moves `makeReadyStatus` to `FINAL WALK`, writes an audit event, and creates deduped in-app notifications for admins and property-scoped managers. A separate manager/admin `mark-ready` endpoint performs final-walk signoff, moves the record into the property's `READY` section, sets the ready vacancy label, audits the signoff, and refreshes risk state. The item drawer presents readiness warnings for common blockers, but final signoff remains the controlling transition.
 
 Kanban and multi-panel schedule choices are serialized in the existing saved-view JSON configuration. Structured filters, including optional `customFieldFilters`, are stored in the existing `SavedView.filters` JSON payload, requiring no schema migration; old filter payloads continue to map to equivalent defaults. Kanban reads built-in/custom metadata while only executing drag updates against existing authorized writable fields. Schedule events open the existing inspector, and legends resolve from the same color-priority logic applied to event pills. This preserves stable field keys and avoids adding hardcoded date columns for presentation layout.
 

@@ -7,12 +7,18 @@ import { evaluateAndPersistItemRisk } from "./lib/risk.js";
 
 const labelSeed = {
   vacancyStatus: [
-    ["VACANT", "#46d39c", "#06291c"],
-    ["VACANT LEASED", "#4bd58e", "#06291c"],
-    ["OCCUPIED", "#e86a7f", "#2d0912"],
-    ["TO WALK", "#2d92c9", "#eaf7ff"],
-    ["NTV", "#ffb357", "#371900"],
+    ["VACANT NOT LEASED READY", "#46d39c", "#06291c"],
+    ["VACANT NOT LEASED NOT READY", "#2d92c9", "#eaf7ff"],
+    ["NTV NOT LEASED", "#ffb357", "#371900"],
     ["NTV LEASED", "#ffcc80", "#371900"],
+    ["VACANT LEASED READY", "#4bd58e", "#06291c"],
+    ["VACANT LEASED NOT READY", "#8d93a8", "#f4f6fa"],
+    ["DOWN", "#e86a7f", "#2d0912"],
+    ["OCCUPIED", "#8d93a8", "#f4f6fa"],
+    ["TO PRE-WALK", "#58a6de", "#041f31"],
+    ["TO SCOPE", "#bf8dff", "#1e0a35"],
+    ["TO FINAL WALK", "#ffc673", "#3a1f00"],
+    ["MODEL", "#bf8dff", "#1e0a35"],
   ],
   completionStatus: [
     ["YES", "#46d39c", "#06291c"],
@@ -31,17 +37,25 @@ const labelSeed = {
     ["ANTS", "#e86a7f", "#2d0912"],
     ["BED BUGS", "#58a6de", "#041f31"],
     ["FLEAS", "#bf8dff", "#1e0a35"],
+    ["MICE", "#c17d3f", "#2b1204"],
+    ["RATS", "#9a6f4f", "#1f1208"],
+    ["RODENTS", "#b47c5a", "#241006"],
+    ["SPIDERS", "#6c7a89", "#f8fafc"],
+    ["WASPS", "#f6c453", "#291800"],
+    ["TERMITES", "#8b5e3c", "#fff5e8"],
+    ["SILVERFISH", "#aab7c4", "#08111d"],
   ],
   pestTreated: [
     ["", "#8d93a8", "#f4f6fa"],
+    ["SCHEDULED", "#ffcc80", "#371900"],
     ["TREATED", "#4fae7f", "#05170f"],
   ],
   trashOutStatus: [
-    ["DONE", "#46d39c", "#06291c"],
-    ["TINY", "#ffc673", "#3a1f00"],
-    ["MEDIUM", "#e86a7f", "#2d0912"],
-    ["MAJOR", "#58a6de", "#041f31"],
-    ["XXXL!!", "#bf8dff", "#1e0a35"],
+    ["EASY", "#46d39c", "#06291c"],
+    ["LITE", "#58a6de", "#041f31"],
+    ["MEDIUM", "#ffc673", "#3a1f00"],
+    ["LARGE", "#bf8dff", "#1e0a35"],
+    ["MAJOR", "#e86a7f", "#2d0912"],
   ],
   floorsStatus: [
     ["GOOD", "#46d39c", "#06291c"],
@@ -53,6 +67,7 @@ const labelSeed = {
   ],
   makeReadyStatus: [
     ["DONE", "#46d39c", "#06291c"],
+    ["FINAL WALK", "#ffcc80", "#371900"],
     ["EASY", "#58a6de", "#041f31"],
     ["LITE", "#bf8dff", "#1e0a35"],
     ["MEDIUM", "#ffc673", "#3a1f00"],
@@ -80,26 +95,25 @@ const labelSeed = {
     ["GOOD", "#46d39c", "#06291c"],
     ["SMALL REPAIRS", "#ffc673", "#3a1f00"],
     ["NEED REPLACEMENT", "#e86a7f", "#2d0912"],
-    ["HAVE", "#58a6de", "#041f31"],
-    ["STOCK", "#bf8dff", "#1e0a35"],
+    ["STAINED", "#8b5e3c", "#fff5e8"],
+    ["RESURFACE", "#58a6de", "#041f31"],
   ],
   appliancesStatus: [
     ["GOOD", "#46d39c", "#06291c"],
-    ["APPLICABLE", "#ffc673", "#3a1f00"],
-    ["NOT APPLICABLE", "#8d93a8", "#f4f6fa"],
+    ["REPAIRS", "#ffc673", "#3a1f00"],
+    ["REPLACE*", "#e86a7f", "#2d0912"],
   ],
   paintStatus: [
     ["GOOD", "#46d39c", "#06291c"],
-    ["MAJOR TU", "#ffc673", "#3a1f00"],
+    ["MAJOR TOUCH UP", "#ffc673", "#3a1f00"],
     ["FULL PAINT", "#e86a7f", "#2d0912"],
-    ["MED TU", "#58a6de", "#041f31"],
-    ["LITE TU", "#bf8dff", "#1e0a35"],
-    ["TOUCH UP", "#4fae7f", "#05170f"],
+    ["MED TOUCH UP", "#58a6de", "#041f31"],
+    ["LITE TOUCH UP", "#bf8dff", "#1e0a35"],
   ],
   doorsStatus: [
     ["GOOD", "#46d39c", "#06291c"],
     ["NEEDS PAINT", "#ffc673", "#3a1f00"],
-    ["NEED REPLACEMENT", "#e86a7f", "#2d0912"],
+    ["NEED REPLACEMENT(S)", "#e86a7f", "#2d0912"],
   ],
   moveInFlag: [
     ["YES", "#46d39c", "#06291c"],
@@ -119,7 +133,7 @@ const columnSeed = [
   ["scopeLevel", "Scope"], ["makeReadyDate", "Make Ready"], ["moveInDate", "Move-In"], ["paintStatus", "Paint"],
   ["doorsStatus", "Doors"], ["completionStatus", "Completed"], ["sheetrockStatus", "Sheetrock"], ["pestStatus", "Pest"],
   ["pestTreated", "Pest Treated"], ["trashOutStatus", "Trash Out"], ["floorsStatus", "Floors"], ["flooringDate", "Flooring Date"],
-  ["makeReadyStatus", "Make Ready Scope"], ["cleaningStatus", "Cleaning"], ["keysMadeStatus", "Keys Made"], ["cabinetsStatus", "Cabinets"],
+  ["makeReadyStatus", "Make Ready Status"], ["cleaningStatus", "Cleaning"], ["keysMadeStatus", "Keys Made"], ["cabinetsStatus", "Cabinets"],
   ["countertopsStatus", "Countertops"], ["appliancesStatus", "Appliances"], ["notes", "Notes"],
 ] as const;
 
@@ -132,6 +146,8 @@ const scheduleTrackSeed = [
   ["vendorScheduledDate", "Vendor Scheduled", "NEUTRAL"],
   ["vendorDueDate", "Vendor Due", "NEUTRAL"],
 ] as const;
+
+const refrigerantTypeSeed = ["R22", "R410A", "R454B", "R32", "R134a"] as const;
 
 type SeedChecklistTemplate = {
   name: string;
@@ -277,7 +293,7 @@ async function main() {
   let demoTechUserId: string | null = null;
   let demoLeasingUserId: string | null = null;
   let demoCleanerUserId: string | null = null;
-  if (authConfig.demoTechEmail && authConfig.demoTechPassword) {
+  if (authConfig.seedDemoData && authConfig.demoTechEmail && authConfig.demoTechPassword) {
     const demoTechPasswordHash = await hashPassword(authConfig.demoTechPassword);
     const existingTech = await prisma.user.findUnique({
       where: { email: authConfig.demoTechEmail },
@@ -312,6 +328,7 @@ async function main() {
     { email: authConfig.demoCleanerEmail, password: authConfig.demoCleanerPassword, fullName: "Demo Cleaner", role: UserRole.CLEANER },
   ];
   for (const demoUser of optionalDemoUsers) {
+    if (!authConfig.seedDemoData) continue;
     if (!demoUser.email || !demoUser.password) continue;
     const passwordHash = await hashPassword(demoUser.password);
     const existing = await prisma.user.findUnique({ where: { email: demoUser.email } });
@@ -348,7 +365,24 @@ async function main() {
     where: { sourceField: "vacatedDate", displayName: "Vacated / Possession" },
     data: { displayName: "Vacated" },
   });
+  await prisma.refrigerantType.createMany({
+    data: refrigerantTypeSeed.map((name) => ({ name })),
+    skipDuplicates: true,
+  });
   await ensureDefaultChecklistTemplates();
+
+  for (const [fieldKey, values] of Object.entries(labelSeed)) {
+    await prisma.labelDefinition.createMany({
+      data: values.map(([value, color, textColor], index) => ({
+        fieldKey,
+        value,
+        color,
+        textColor,
+        sortOrder: index,
+      })),
+      skipDuplicates: true,
+    });
+  }
 
   const existingProperties = await prisma.property.count();
   if (existingProperties > 0) {
@@ -438,16 +472,19 @@ async function main() {
     return;
   }
 
-  for (const [fieldKey, values] of Object.entries(labelSeed)) {
-    await prisma.labelDefinition.createMany({
-      data: values.map(([value, color, textColor], index) => ({
-        fieldKey,
-        value,
-        color,
-        textColor,
-        sortOrder: index,
-      })),
+  if (!authConfig.seedDemoData) {
+    await prisma.notification.upsert({
+      where: { userId_dedupeKey: { userId: adminUserId, dedupeKey: "seed:admin:first-run" } },
+      create: {
+        userId: adminUserId,
+        category: "AUTOMATION_WARNING",
+        title: "First-run setup ready",
+        message: "Baseline board labels, columns, schedule tracks, and checklist templates are ready. Add a property and import units to begin.",
+        dedupeKey: "seed:admin:first-run",
+      },
+      update: {},
     });
+    return;
   }
 
   const [ta, vab] = await Promise.all([
@@ -474,14 +511,14 @@ async function main() {
 
   await prisma.floorPlan.createMany({
     data: [
-      { propertyId: ta.id, name: "TA B1 2|2 1186SQFT", bedrooms: 2, bathrooms: 2, squareFeet: 1186 },
-      { propertyId: ta.id, name: "TA B2 2|2 1246SQFT", bedrooms: 2, bathrooms: 2, squareFeet: 1246 },
-      { propertyId: ta.id, name: "TA B3 2|2 1247SQFT", bedrooms: 2, bathrooms: 2, squareFeet: 1247 },
-      { propertyId: ta.id, name: "TA C1 3|2 1344SQFT", bedrooms: 3, bathrooms: 2, squareFeet: 1344 },
-      { propertyId: vab.id, name: "VAB C1 3|2.5 1535SQFT", bedrooms: 3, bathrooms: 2.5, squareFeet: 1535 },
-      { propertyId: vab.id, name: "VAB C2 3|2.5 1636SQFT", bedrooms: 3, bathrooms: 2.5, squareFeet: 1636 },
-      { propertyId: vab.id, name: "VAB C3 3|2.5B 1647SQFT", bedrooms: 3, bathrooms: 2.5, squareFeet: 1647 },
-      { propertyId: vab.id, name: "VAB D1 4|2.5 1872SQFT", bedrooms: 4, bathrooms: 2.5, squareFeet: 1872 },
+      { propertyId: ta.id, code: "TA B1 2|2 1186SQFT", name: "TA B1 2|2 1186SQFT", bedrooms: 2, bathrooms: 2, squareFeet: 1186 },
+      { propertyId: ta.id, code: "TA B2 2|2 1246SQFT", name: "TA B2 2|2 1246SQFT", bedrooms: 2, bathrooms: 2, squareFeet: 1246 },
+      { propertyId: ta.id, code: "TA B3 2|2 1247SQFT", name: "TA B3 2|2 1247SQFT", bedrooms: 2, bathrooms: 2, squareFeet: 1247 },
+      { propertyId: ta.id, code: "TA C1 3|2 1344SQFT", name: "TA C1 3|2 1344SQFT", bedrooms: 3, bathrooms: 2, squareFeet: 1344 },
+      { propertyId: vab.id, code: "VAB C1 3|2.5 1535SQFT", name: "VAB C1 3|2.5 1535SQFT", bedrooms: 3, bathrooms: 2.5, squareFeet: 1535 },
+      { propertyId: vab.id, code: "VAB C2 3|2.5 1636SQFT", name: "VAB C2 3|2.5 1636SQFT", bedrooms: 3, bathrooms: 2.5, squareFeet: 1636 },
+      { propertyId: vab.id, code: "VAB C3 3|2.5B 1647SQFT", name: "VAB C3 3|2.5B 1647SQFT", bedrooms: 3, bathrooms: 2.5, squareFeet: 1647 },
+      { propertyId: vab.id, code: "VAB D1 4|2.5 1872SQFT", name: "VAB D1 4|2.5 1872SQFT", bedrooms: 4, bathrooms: 2.5, squareFeet: 1872 },
     ],
   });
 
@@ -547,14 +584,14 @@ async function main() {
       unitNumber: "TA 284",
       floorPlan: "TA B3 2|2 1247SQFT",
       applicant: "OVERSTREET",
-      vacancyStatus: "VACANT LEASED",
+      vacancyStatus: "VACANT LEASED READY",
       vacatedDate: d("2025-12-31"),
       makeReadyDate: d("2026-01-01"),
       moveInDate: d("2026-01-06"),
       completionStatus: "YES",
       sheetrockStatus: "GOOD",
       pestStatus: "NONE",
-      trashOutStatus: "DONE",
+      trashOutStatus: "EASY",
       floorsStatus: "GOOD",
       makeReadyStatus: "DONE",
       cleaningStatus: "DONE",
@@ -575,14 +612,14 @@ async function main() {
       unitNumber: "TA 130",
       floorPlan: "TA B2 2|2 1246SQFT",
       applicant: "CECI",
-      vacancyStatus: "VACANT LEASED",
+      vacancyStatus: "VACANT LEASED READY",
       vacatedDate: d("2026-02-15"),
       makeReadyDate: d("2026-02-17"),
       moveInDate: d("2026-02-23"),
       completionStatus: "YES",
       sheetrockStatus: "GOOD",
       pestStatus: "NONE",
-      trashOutStatus: "DONE",
+      trashOutStatus: "EASY",
       floorsStatus: "GOOD",
       makeReadyStatus: "DONE",
       cleaningStatus: "DONE",
@@ -602,16 +639,16 @@ async function main() {
       itemName: "TA 081",
       unitNumber: "TA 081",
       floorPlan: "TA B1 2|2 1186SQFT",
-      vacancyStatus: "TO WALK",
+      vacancyStatus: "VACANT NOT LEASED NOT READY",
       vacatedDate: d("2026-05-04"),
       makeReadyDate: d("2026-05-05"),
       moveInDate: d("2026-05-08"),
-      paintStatus: "LITE TU",
+      paintStatus: "LITE TOUCH UP",
       doorsStatus: "GOOD",
       completionStatus: "NO",
       sheetrockStatus: "GOOD",
       pestStatus: "NONE",
-      trashOutStatus: "DONE",
+      trashOutStatus: "EASY",
       floorsStatus: "GOOD",
       makeReadyStatus: "LITE",
       cleaningStatus: "LITE",
@@ -627,16 +664,16 @@ async function main() {
       unitNumber: "TA 272",
       floorPlan: "TA B3 2|2 1247SQFT",
       applicant: "CHAMBERS",
-      vacancyStatus: "TO WALK",
+      vacancyStatus: "VACANT NOT LEASED NOT READY",
       vacatedDate: d("2026-05-09"),
       makeReadyDate: d("2026-05-12"),
       moveInDate: d("2026-05-15"),
-      paintStatus: "LITE TU",
+      paintStatus: "LITE TOUCH UP",
       doorsStatus: "GOOD",
       completionStatus: "NO",
       sheetrockStatus: "GOOD",
       pestStatus: "NONE",
-      trashOutStatus: "DONE",
+      trashOutStatus: "EASY",
       floorsStatus: "GOOD",
       makeReadyStatus: "EASY",
       cleaningStatus: "LITE",
@@ -650,16 +687,16 @@ async function main() {
       itemName: "TA 161",
       unitNumber: "TA 161",
       floorPlan: "TA B1 2|2 1186SQFT",
-      vacancyStatus: "TO WALK",
+      vacancyStatus: "VACANT NOT LEASED NOT READY",
       vacatedDate: d("2026-05-06"),
       makeReadyDate: d("2026-05-07"),
       moveInDate: d("2026-05-12"),
-      paintStatus: "LITE TU",
+      paintStatus: "LITE TOUCH UP",
       doorsStatus: "GOOD",
       completionStatus: "NO",
       sheetrockStatus: "GOOD",
       pestStatus: "NONE",
-      trashOutStatus: "DONE",
+      trashOutStatus: "EASY",
       floorsStatus: "GOOD",
       makeReadyStatus: "EASY",
       cleaningStatus: "LITE",
@@ -673,14 +710,14 @@ async function main() {
       itemName: "TA 164",
       unitNumber: "TA 164",
       floorPlan: "TA C1 3|2 1344SQFT",
-      vacancyStatus: "TO WALK",
+      vacancyStatus: "VACANT NOT LEASED NOT READY",
       vacatedDate: d("2026-05-19"),
       makeReadyDate: d("2026-05-20"),
       moveInDate: d("2026-05-25"),
       completionStatus: "NO",
       sheetrockStatus: "GOOD",
       pestStatus: "NONE",
-      trashOutStatus: "DONE",
+      trashOutStatus: "EASY",
       floorsStatus: "GOOD",
       makeReadyStatus: "MEDIUM",
       cleaningStatus: "LITE",
@@ -694,14 +731,14 @@ async function main() {
       itemName: "TA 124",
       unitNumber: "TA 124",
       floorPlan: "TA B1 2|2 1186SQFT",
-      vacancyStatus: "TO WALK",
+      vacancyStatus: "VACANT NOT LEASED NOT READY",
       vacatedDate: d("2026-05-20"),
       makeReadyDate: d("2026-05-21"),
       moveInDate: d("2026-05-26"),
       completionStatus: "NO",
       sheetrockStatus: "GOOD",
       pestStatus: "NONE",
-      trashOutStatus: "DONE",
+      trashOutStatus: "EASY",
       floorsStatus: "GOOD",
       makeReadyStatus: "EASY",
       cleaningStatus: "LITE",
@@ -716,7 +753,7 @@ async function main() {
       unitNumber: "TA 222",
       floorPlan: "TA B3 2|2 1247SQFT",
       applicant: "WILSON",
-      vacancyStatus: "NTV",
+      vacancyStatus: "NTV NOT LEASED",
       vacatedDate: d("2026-06-01"),
       makeReadyDate: d("2026-06-03"),
       moveInDate: d("2026-06-08"),
@@ -736,7 +773,7 @@ async function main() {
       unitNumber: "TA 180",
       floorPlan: "TA C1 3|2 1344SQFT",
       applicant: "WILLIAMS",
-      vacancyStatus: "NTV",
+      vacancyStatus: "NTV NOT LEASED",
       vacatedDate: d("2026-05-30"),
       makeReadyDate: d("2026-06-02"),
       moveInDate: d("2026-06-05"),
@@ -754,7 +791,7 @@ async function main() {
       itemName: "VAB 4125F",
       unitNumber: "VAB 4125F",
       floorPlan: "VAB C1 3|2.5 1535SQFT",
-      vacancyStatus: "VACANT",
+      vacancyStatus: "VACANT NOT LEASED READY",
       vacatedDate: d("2026-01-13"),
       makeReadyDate: d("2026-01-28"),
       moveInDate: d("2026-02-04"),
@@ -763,7 +800,7 @@ async function main() {
       doorsStatus: "GOOD",
       sheetrockStatus: "GOOD",
       pestStatus: "NONE",
-      trashOutStatus: "DONE",
+      trashOutStatus: "EASY",
       floorsStatus: "GOOD",
       makeReadyStatus: "DONE",
       cleaningStatus: "DONE",
@@ -782,7 +819,7 @@ async function main() {
       unitNumber: "VAB 4106H",
       floorPlan: "VAB D1 4|2.5 1872SQFT",
       applicant: "EWOVAN",
-      vacancyStatus: "VACANT LEASED",
+      vacancyStatus: "VACANT LEASED READY",
       vacatedDate: d("2026-02-28"),
       makeReadyDate: d("2026-03-11"),
       moveInDate: d("2026-03-16"),
@@ -791,7 +828,7 @@ async function main() {
       doorsStatus: "GOOD",
       sheetrockStatus: "GOOD",
       pestStatus: "NONE",
-      trashOutStatus: "DONE",
+      trashOutStatus: "EASY",
       floorsStatus: "GOOD",
       makeReadyStatus: "DONE",
       cleaningStatus: "DONE",
@@ -809,7 +846,7 @@ async function main() {
       itemName: "VAB 2942E",
       unitNumber: "VAB 2942E",
       floorPlan: "VAB D1 4|2.5 1872SQFT",
-      vacancyStatus: "VACANT",
+      vacancyStatus: "VACANT NOT LEASED READY",
       vacatedDate: d("2026-04-27"),
       makeReadyDate: d("2026-04-28"),
       moveInDate: d("2026-05-03"),
@@ -818,7 +855,7 @@ async function main() {
       doorsStatus: "GOOD",
       sheetrockStatus: "GOOD",
       pestStatus: "NONE",
-      trashOutStatus: "DONE",
+      trashOutStatus: "EASY",
       floorsStatus: "GOOD",
       makeReadyStatus: "DONE",
       cleaningStatus: "DONE",
@@ -837,7 +874,7 @@ async function main() {
       unitNumber: "VAB 4108M",
       floorPlan: "VAB D1 4|2.5 1872SQFT",
       applicant: "ARORA",
-      vacancyStatus: "VACANT",
+      vacancyStatus: "VACANT NOT LEASED READY",
       vacatedDate: d("2026-04-24"),
       makeReadyDate: d("2026-04-28"),
       moveInDate: d("2026-05-01"),
@@ -846,7 +883,7 @@ async function main() {
       doorsStatus: "GOOD",
       sheetrockStatus: "GOOD",
       pestStatus: "NONE",
-      trashOutStatus: "DONE",
+      trashOutStatus: "EASY",
       floorsStatus: "GOOD",
       makeReadyStatus: "DONE",
       cleaningStatus: "DONE",
@@ -865,7 +902,7 @@ async function main() {
       unitNumber: "VAB 4107F",
       floorPlan: "VAB D1 4|2.5 1872SQFT",
       applicant: "SMITH",
-      vacancyStatus: "VACANT",
+      vacancyStatus: "VACANT NOT LEASED READY",
       vacatedDate: d("2026-05-11"),
       makeReadyDate: d("2026-05-13"),
       moveInDate: d("2026-05-18"),
@@ -874,7 +911,7 @@ async function main() {
       doorsStatus: "GOOD",
       sheetrockStatus: "GOOD",
       pestStatus: "NONE",
-      trashOutStatus: "DONE",
+      trashOutStatus: "EASY",
       floorsStatus: "GOOD",
       makeReadyStatus: "DONE",
       cleaningStatus: "DONE",
@@ -893,7 +930,7 @@ async function main() {
       unitNumber: "VAB 2902E",
       floorPlan: "VAB C2 3|2.5 1636SQFT",
       applicant: "OKUO",
-      vacancyStatus: "NTV",
+      vacancyStatus: "NTV LEASED",
       vacatedDate: d("2026-06-21"),
       makeReadyDate: d("2026-06-23"),
       moveInDate: d("2026-06-26"),
@@ -912,7 +949,7 @@ async function main() {
       unitNumber: "VAB 2920E",
       floorPlan: "VAB C1 3|2.5 1535SQFT",
       applicant: "OKU",
-      vacancyStatus: "NTV",
+      vacancyStatus: "NTV LEASED",
       vacatedDate: d("2026-06-11"),
       makeReadyDate: d("2026-06-16"),
       moveInDate: d("2026-06-19"),
@@ -929,7 +966,7 @@ async function main() {
       itemName: "VAB 4123H",
       unitNumber: "VAB 4123H",
       floorPlan: "VAB C3 3|2.5B 1647SQFT",
-      vacancyStatus: "NTV",
+      vacancyStatus: "NTV NOT LEASED",
       vacatedDate: d("2026-06-03"),
       makeReadyDate: d("2026-06-09"),
       moveInDate: d("2026-06-12"),
@@ -947,7 +984,7 @@ async function main() {
       itemName: "VAB 4118R",
       unitNumber: "VAB 4118R",
       floorPlan: "VAB C3 3|2.5B 1647SQFT",
-      vacancyStatus: "NTV",
+      vacancyStatus: "NTV NOT LEASED",
       vacatedDate: d("2026-05-28"),
       makeReadyDate: d("2026-05-28"),
       moveInDate: d("2026-06-02"),
@@ -964,7 +1001,7 @@ async function main() {
       itemName: "VAB 4126H",
       unitNumber: "VAB 4126H",
       floorPlan: "VAB C3 3|2.5B 1647SQFT",
-      vacancyStatus: "NTV",
+      vacancyStatus: "NTV NOT LEASED",
       vacatedDate: d("2026-07-14"),
       makeReadyDate: d("2026-07-15"),
       moveInDate: d("2026-07-20"),
@@ -981,7 +1018,7 @@ async function main() {
       itemName: "TA 103",
       unitNumber: "TA 103",
       floorPlan: "TA B1 2|2 1186SQFT",
-      vacancyStatus: "VACANT",
+      vacancyStatus: "DOWN",
       completionStatus: "NO",
       assignedTech: "Model",
       scopeLevel: "LITE",
@@ -1063,7 +1100,7 @@ async function main() {
     prisma.automationRule.create({
       data: {
         name: "Set NTV leased when move-in exists before vacancy",
-        description: "If move-in is scheduled and vacated date has not happened, set vacancy status to NTV LEASED.",
+        description: "If move-in is scheduled and vacated date has not happened, set vacancy status to NTV leased.",
         triggerType: "ITEM_UPDATED",
         conditions: {
           all: [{ field: "moveInDate", operator: "notEmpty" }, { field: "vacatedDate", operator: "isEmpty" }],
@@ -1085,12 +1122,12 @@ async function main() {
     prisma.automationRule.create({
       data: {
         name: "Flag pest treatment",
-        description: "Pest treatment required for roaches, bed bugs, or fleas.",
+        description: "Pest treatment should be scheduled for active pest findings such as roaches, bed bugs, fleas, mice, rats, rodents, wasps, termites, or silverfish.",
         triggerType: "ITEM_UPDATED",
         conditions: {
-          all: [{ field: "pestStatus", operator: "in", value: ["ROACHES", "BED BUGS", "FLEAS"] }],
+          all: [{ field: "pestStatus", operator: "in", value: ["ROACHES", "BED BUGS", "FLEAS", "MICE", "RATS", "RODENTS", "WASPS", "TERMITES", "SILVERFISH"] }],
         },
-        actions: [{ type: "setField", field: "pestTreated", value: "TREATED" }],
+        actions: [{ type: "setField", field: "pestTreated", value: "SCHEDULED" }],
       },
     }),
     prisma.automationRule.create({

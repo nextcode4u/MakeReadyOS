@@ -6,18 +6,20 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { requireAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
-import { assertStrongPassword } from "../lib/config.js";
+import { assertStrongPassword, minimumPasswordLength } from "../lib/config.js";
 import { hashPassword } from "../lib/password.js";
 import { prisma } from "../lib/prisma.js";
 import { sanitizeUploadSegment } from "../lib/uploadStorage.js";
 
 const editableRoles = z.nativeEnum(UserRole);
+const languageSchema = z.enum(["en", "es"]);
 
 export const adminCreateUserSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   email: z.string().trim().email(),
   role: editableRoles,
-  password: z.string().min(12),
+  language: languageSchema.default("en"),
+  password: z.string().min(minimumPasswordLength, `Password must be at least ${minimumPasswordLength} characters.`),
   isActive: z.boolean().default(true),
   propertyIds: z.array(z.string()).default([]),
 });
@@ -26,11 +28,12 @@ export const adminUpdateUserSchema = z.object({
   fullName: z.string().trim().min(2).max(120).optional(),
   email: z.string().trim().email().optional(),
   role: editableRoles.optional(),
+  language: languageSchema.optional(),
   isActive: z.boolean().optional(),
 });
 
 export const adminResetPasswordSchema = z.object({
-  password: z.string().min(12),
+  password: z.string().min(minimumPasswordLength, `Password must be at least ${minimumPasswordLength} characters.`),
 });
 
 export const adminUpdatePropertyAccessSchema = z.object({
@@ -155,6 +158,7 @@ function serializeUser(user: {
   email: string;
   fullName: string;
   role: UserRole;
+  language: string;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -165,6 +169,7 @@ function serializeUser(user: {
     email: user.email,
     fullName: user.fullName,
     role: user.role,
+    language: user.language,
     isActive: user.isActive,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
@@ -412,6 +417,7 @@ export async function adminRoutes(app: FastifyInstance) {
         email,
         fullName: payload.fullName,
         role: payload.role,
+        language: payload.language,
         isActive: payload.isActive,
         passwordHash,
         propertyAccess: payload.role === UserRole.ADMIN
@@ -435,6 +441,7 @@ export async function adminRoutes(app: FastifyInstance) {
       message: `Created user ${created.email}`,
       metadata: {
         role: created.role,
+        language: created.language,
         isActive: created.isActive,
         propertyIds: payload.propertyIds,
       },
@@ -489,6 +496,7 @@ export async function adminRoutes(app: FastifyInstance) {
         fullName: payload.fullName,
         email: nextEmail,
         role: payload.role,
+        language: payload.language,
         isActive: payload.isActive,
         propertyAccess: payload.role && payload.role !== UserRole.ADMIN
           ? {
@@ -516,6 +524,7 @@ export async function adminRoutes(app: FastifyInstance) {
       metadata: {
         previousRole: existing.role,
         nextRole: updated.role,
+        language: updated.language,
         isActive: updated.isActive,
       },
     });

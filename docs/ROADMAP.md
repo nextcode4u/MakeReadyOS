@@ -53,7 +53,7 @@ MakeReadyOS is currently a feature-rich self-hosted operations platform. The nex
 - Continue improving field workflow for photo upload, checklist completion, comments, and quick status changes.
 - Expand weak-connection UX beyond the current offline/API retry banner into operation-specific retry states.
 - Design offline queue/sync for comments, checklist changes, photos, and limited status updates.
-- Consider PWA install prompts after offline strategy is defined.
+- PWA install prompt is available for app-like launch; future work is true offline edit queues with explicit conflict handling.
 
 ## Plugin Ecosystem
 

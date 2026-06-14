@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import Fastify from "fastify";
 import type { FastifyRequest } from "fastify";
+import { z } from "zod";
 import { authConfig } from "./lib/config.js";
 import { loadSessionUser, requireApiTokenRateLimit, requireApiTokenScope, requireAuthenticated, requireCsrf } from "./lib/auth.js";
 import { openApiDocument } from "./lib/openapi.js";
@@ -23,8 +24,12 @@ import { operationsRoutes } from "./routes/operations.js";
 import { operationalLibraryRoutes } from "./routes/operationalLibrary.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { planningRoutes } from "./routes/planning.js";
+import { preventiveMaintenanceRoutes } from "./routes/preventiveMaintenance.js";
+import { poolLogRoutes } from "./routes/poolLog.js";
+import { propertyWikiRoutes } from "./routes/propertyWiki.js";
 import { propertyMapRoutes } from "./routes/propertyMaps.js";
 import { propertyTemplateRoutes } from "./routes/propertyTemplates.js";
+import { refrigerantRoutes } from "./routes/refrigerant.js";
 import { riskRoutes } from "./routes/risk.js";
 import { savedViewRoutes } from "./routes/savedViews.js";
 import { vendorRoutes } from "./routes/vendors.js";
@@ -89,6 +94,15 @@ app.setErrorHandler((error, _request, reply) => {
     });
     return;
   }
+  if (error instanceof z.ZodError) {
+    const firstIssue = error.issues[0];
+    const fieldName = firstIssue?.path.length ? firstIssue.path.join(".") : "Input";
+    const message = firstIssue?.message
+      ? firstIssue.message
+      : `${fieldName} is invalid.`;
+    reply.code(400).send({ message });
+    return;
+  }
   reply.code(statusCode).send({
     message: error instanceof Error ? error.message : "Internal server error",
   });
@@ -122,8 +136,12 @@ app.register(async (api) => {
   await operationalLibraryRoutes(api);
   await notificationRoutes(api);
   await planningRoutes(api);
+  await preventiveMaintenanceRoutes(api);
+  await poolLogRoutes(api);
+  await propertyWikiRoutes(api);
   await propertyMapRoutes(api);
   await propertyTemplateRoutes(api);
+  await refrigerantRoutes(api);
   await riskRoutes(api);
   await savedViewRoutes(api);
   await vendorRoutes(api);

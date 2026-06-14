@@ -12,6 +12,10 @@ export const loginSchema = z.object({
   password: z.string().min(8),
 });
 
+const languageSchema = z.object({
+  language: z.enum(["en", "es"]),
+});
+
 export async function authRoutes(app: FastifyInstance) {
   const rateLimitWindowMs = authConfig.loginRateLimitWindowMinutes * 60 * 1000;
 
@@ -123,6 +127,7 @@ export async function authRoutes(app: FastifyInstance) {
         email: user.email,
         fullName: user.fullName,
         role: user.role,
+        language: user.language,
         isActive: user.isActive,
         propertyAccess: user.propertyAccess.map((access) => ({
           propertyId: access.propertyId,
@@ -190,6 +195,48 @@ export async function authRoutes(app: FastifyInstance) {
       user: sanitizeUser(request.currentUser),
       csrfToken: request.csrfToken,
       roles: Object.values(UserRole),
+    };
+  });
+
+  app.patch("/me/preferences", async (request, reply) => {
+    if (await requireAuthenticated(request, reply)) {
+      return;
+    }
+    if (await requireCsrf(request, reply)) {
+      return;
+    }
+
+    const payload = languageSchema.parse(request.body);
+    const currentUser = request.currentUser!;
+    const updated = await prisma.user.update({
+      where: { id: currentUser.id },
+      data: { language: payload.language },
+      include: { propertyAccess: true },
+    });
+
+    await writeAuditLog({
+      request,
+      actorUserId: currentUser.id,
+      entityType: "USER",
+      entityId: currentUser.id,
+      action: "USER_LANGUAGE_UPDATED",
+      message: `Updated language preference for ${updated.email}`,
+      metadata: { language: updated.language },
+    });
+
+    return {
+      user: sanitizeUser({
+        id: updated.id,
+        email: updated.email,
+        fullName: updated.fullName,
+        role: updated.role,
+        language: updated.language,
+        isActive: updated.isActive,
+        propertyAccess: updated.propertyAccess.map((access) => ({
+          propertyId: access.propertyId,
+          role: access.role,
+        })),
+      }),
     };
   });
 }

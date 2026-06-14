@@ -25,9 +25,15 @@ The current field-edit boundary is intentionally practical:
 
 Property scoping still applies to every non-admin role through `UserPropertyAccess`.
 
+Each user also has a language preference. The current supported interface languages are English (`en`) and Spanish (`es`). Administrators can set a user's language in User Management, and signed-in users can switch their own language from the top toolbar. The API stores this preference on the user record; role and property permissions do not change by language.
+
 Risk visibility follows existing board/dashboard visibility. `ADMIN` and `MANAGER` can run risk evaluation and generate deduped risk notifications; other roles can see scoped risk indicators on work they can already access but cannot trigger system-wide evaluation.
 
 Vendor management follows the same operational boundary: `ADMIN` and scoped `MANAGER` users manage vendor records and vendor assignments; `TECH` users can view vendor work and update assignment execution status where permitted; `LEASING`, `CLEANER`, and `VIEWER` do not manage vendor records.
+
+Preventive Maintenance follows a role-derived workflow boundary instead of a separate permission matrix. `ADMIN` users have full PM access. Scoped `MANAGER` users can manage PM templates, complete PM tasks, and view PM reports. `TECH` and `CLEANER` users can view and complete scoped PM tasks, including attachments and required notes/pass-fail outcomes. `LEASING` and `VIEWER` users can read scoped PM data but cannot create templates or complete tasks.
+
+Refrigerant tracking has its own operational boundary. `ADMIN` users can view, edit, and administer refrigerant types. `MANAGER` and `TECH` users can view and edit refrigerant cylinders and unit refrigerant transactions. `VIEWER` users can read scoped refrigerant records. `LEASING` and `CLEANER` users do not see or access the Refrigerant workspace. Managers/admins can dismiss repeated-addition leak flags with notes.
 
 Property map management is restricted to `ADMIN` and scoped `MANAGER` users. `TECH`, `LEASING`, `CLEANER`, and `VIEWER` can view property maps and mapped units only within their normal property access.
 

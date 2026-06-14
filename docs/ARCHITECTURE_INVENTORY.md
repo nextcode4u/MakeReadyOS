@@ -69,10 +69,11 @@ This inventory captures the current MakeReadyOS architecture so future work can 
 - Operational library: `OperationalLibraryPack`, `OperationalLibraryPackItem`.
 - Risk and schedule-adjacent data: persisted risk fields on `MakeReadyItem`.
 - Vendors: `Vendor`, `VendorContact`, `VendorServiceArea`, `VendorAssignment`.
+- Refrigerant: `RefrigerantType`, `RefrigerantCylinder`, `RefrigerantTransaction`, `RefrigerantLeakFlag`.
 - Workload planning: `UserCapacity`, `WorkAssignmentBlock`.
 - Property maps: `PropertyMap`, `UnitMapLocation`.
 - Extension scaffold: `WebhookEndpoint`, `WebhookPropertyScope`, `WebhookDeliveryAttempt`.
-- Future/placeholder modules: `RefrigerantLog`, `PoolChemicalLog`, `PestIssue`, `PropertyNote`.
+- Future/placeholder modules: legacy `RefrigerantLog` compatibility plus `PoolChemicalLog`, `PestIssue`, and `PropertyNote`.
 
 ## Background And Root Scripts
 

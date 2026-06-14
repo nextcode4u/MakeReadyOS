@@ -21,6 +21,7 @@ export class ApiError extends Error {
 }
 
 export type UserRole = "ADMIN" | "MANAGER" | "TECH" | "LEASING" | "CLEANER" | "VIEWER";
+export type UserLanguage = "en" | "es";
 export type CustomFieldType = "TEXT" | "LONG_TEXT" | "NUMBER" | "DATE" | "SINGLE_SELECT" | "MULTI_SELECT" | "BOOLEAN" | "USER";
 
 export type CurrentUser = {
@@ -28,6 +29,7 @@ export type CurrentUser = {
   email: string;
   fullName: string;
   role: UserRole;
+  language: UserLanguage;
   propertyAccess: Array<{
     propertyId: string;
     role: UserRole;
@@ -87,6 +89,7 @@ export type ManagedUser = {
   email: string;
   fullName: string;
   role: UserRole;
+  language: UserLanguage;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -412,6 +415,609 @@ export type VendorAssignment = {
   item: Pick<MakeReadyItem, "id" | "unitNumber" | "assignedTech" | "moveInDate">;
 };
 
+export type RefrigerantType = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RefrigerantCylinder = {
+  id: string;
+  identifier: string;
+  refrigerantTypeId: string;
+  refrigerantType: RefrigerantType;
+  category: "VIRGIN" | "CLEAN_RECOVERY" | "DIRTY_RECOVERY";
+  tankSize: number;
+  currentWeight: number;
+  fillPercent?: number;
+  status: "ACTIVE" | "EMPTY_PENDING_RECOVERY" | "ARCHIVED";
+  notes: string | null;
+  dispositionNotes: string | null;
+  finalRecoveryCompleted: boolean;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RefrigerantTransaction = {
+  id: string;
+  transactionType: "VIRGIN_CHARGE" | "CLEAN_RECOVERY" | "DIRTY_RECOVERY" | "FINAL_RECOVERY";
+  propertyId: string | null;
+  unitId: string | null;
+  unitNumber: string | null;
+  refrigerantTypeId: string;
+  refrigerantType: RefrigerantType;
+  sourceCylinder: RefrigerantCylinder | null;
+  recoveryCylinder: RefrigerantCylinder | null;
+  occurredAt: string;
+  startWeight: number;
+  endWeight: number;
+  amount: number;
+  notes: string | null;
+  createdByName: string | null;
+};
+
+export type RefrigerantLeakFlag = {
+  id: string;
+  propertyId: string | null;
+  unitId: string | null;
+  unitNumber: string;
+  refrigerantTypeId: string | null;
+  refrigerantType?: RefrigerantType | null;
+  level: "POTENTIAL_REFRIGERANT_LEAK" | "MANAGER_REVIEW_REQUIRED";
+  status: "ACTIVE" | "DISMISSED";
+  reason: string;
+  firstDetectedAt: string;
+  lastDetectedAt: string;
+  dismissedAt: string | null;
+  dismissalNotes: string | null;
+};
+
+export type RefrigerantComplianceIssue = {
+  severity: "MEDIUM" | "HIGH" | "CRITICAL";
+  type: string;
+  message: string;
+  cylinderId?: string;
+  transactionId?: string;
+  leakFlagId?: string;
+};
+
+export type RefrigerantOverviewResponse = {
+  permissions: { view: boolean; edit: boolean; admin: boolean };
+  types: RefrigerantType[];
+  summary: {
+    activeVirginByType: Record<string, number>;
+    recoveryNearCapacity: number;
+    repeatedAdditionFlags: number;
+    complianceIssues: number;
+    recentActivity: number;
+  };
+  recoveryNearCapacity: RefrigerantCylinder[];
+  leakFlags: RefrigerantLeakFlag[];
+  complianceIssues: RefrigerantComplianceIssue[];
+  recent: RefrigerantTransaction[];
+};
+
+export type RefrigerantHistoryResponse = {
+  transactions: RefrigerantTransaction[];
+  pagination: { total: number; limit: number; offset: number; hasMore: boolean };
+};
+
+export type PoolFacility = {
+  id: string;
+  propertyId: string;
+  property?: Property;
+  name: string;
+  type: "POOL" | "SPA" | "WADING_POOL" | "SPLASH_PAD" | "OTHER";
+  capacityGallons: number | null;
+  surfaceType: string | null;
+  notes: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PoolChemical = {
+  id: string;
+  propertyId: string;
+  property?: Property;
+  name: string;
+  category: "CHLORINE" | "PH_UP" | "PH_DOWN" | "ALKALINITY_UP" | "STABILIZER" | "CALCIUM_HARDNESS" | "OTHER";
+  concentrationPercent: number | null;
+  unit: "POUNDS" | "OUNCES" | "GALLONS" | "QUARTS" | "TABLETS";
+  notes: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PoolSafetyCheck = {
+  id: string;
+  entryId: string;
+  label: string;
+  value: "PASS" | "FAIL" | "NA";
+  notes: string | null;
+  sortOrder: number;
+};
+
+export type PoolChemicalAddition = {
+  id: string;
+  entryId: string;
+  chemicalId: string | null;
+  chemicalName: string;
+  amount: number;
+  unit: PoolChemical["unit"];
+  notes: string | null;
+};
+
+export type PoolLogAttachment = {
+  id: string;
+  entryId: string;
+  propertyId: string;
+  uploadedById: string | null;
+  uploaderName: string;
+  originalName: string;
+  storedName: string;
+  mimeType: string;
+  sizeBytes: number;
+  category: string | null;
+  notes: string | null;
+  createdAt: string;
+};
+
+export type PoolEvaluation = {
+  status: "OK" | "REVIEW";
+  issueCount: number;
+  issues: Array<{ code: string; severity: "LOW" | "MEDIUM" | "HIGH"; message: string }>;
+  recommendations: string[];
+  dosage: Array<{ chemicalCategory: string; chemicalName?: string; amount?: number; unit?: string; message: string; missing?: string[] }>;
+};
+
+export type PoolLogEntry = {
+  id: string;
+  propertyId: string;
+  property?: Property;
+  facilityId: string;
+  facility: PoolFacility;
+  technicianId: string | null;
+  technicianName: string | null;
+  logDate: string;
+  logTime: string | null;
+  ph: number | null;
+  freeChlorine: number | null;
+  combinedChlorine: number | null;
+  totalChlorine: number | null;
+  totalAlkalinity: number | null;
+  cyanuricAcid: number | null;
+  calciumHardness: number | null;
+  waterTemperature: number | null;
+  vacuumed: boolean;
+  backwashed: boolean;
+  skimmerCleaned: boolean;
+  pumpRunning: boolean;
+  filterOperating: boolean;
+  waterClear: boolean;
+  waterCloudy: boolean;
+  algaePresent: boolean;
+  notes: string | null;
+  evaluationJson: PoolEvaluation | null;
+  safetyChecks: PoolSafetyCheck[];
+  chemicalAdditions: PoolChemicalAddition[];
+  attachments: PoolLogAttachment[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PoolOverviewResponse = {
+  permissions: { view: boolean; edit: boolean; manage: boolean };
+  safetyItems: string[];
+  facilities: PoolFacility[];
+  chemicals: PoolChemical[];
+  summary: {
+    activeFacilities: number;
+    logsToday: number;
+    missingLogs: number;
+    safetyFailures: number;
+    chemistryIssues: number;
+    chemicalAdditions: number;
+  };
+  missingFacilities: PoolFacility[];
+  safetyFailures: Array<{ entryId: string; facilityName: string; label: string; notes: string | null }>;
+  chemistryIssues: Array<{ entryId: string; facilityName: string; issue: unknown }>;
+  usageToday: PoolChemicalAddition[];
+  recentEntries: PoolLogEntry[];
+};
+
+export type PoolEntriesResponse = {
+  entries: PoolLogEntry[];
+  pagination: { total: number; limit: number; offset: number; hasMore: boolean };
+};
+
+export type PreventiveMaintenanceCategory =
+  | "Pool"
+  | "Gate"
+  | "HVAC"
+  | "Electrical"
+  | "Fire Safety"
+  | "Irrigation"
+  | "Roof"
+  | "Grounds"
+  | "Building"
+  | "Clubhouse"
+  | "General"
+  | "Other";
+
+export type PreventiveMaintenanceFrequency =
+  | "Daily"
+  | "Weekly"
+  | "Biweekly"
+  | "Monthly"
+  | "Quarterly"
+  | "Semi-Annual"
+  | "Annual"
+  | "Custom";
+
+export type PreventiveMaintenancePriority = "Low" | "Normal" | "High" | "Critical";
+export type PreventiveMaintenanceStatus = "UPCOMING" | "DUE" | "COMPLETED" | "OVERDUE" | "SKIPPED";
+export type PreventiveMaintenanceCompletionOutcome = "PASS" | "FAIL" | "COMPLETE" | "SKIPPED";
+
+export type PreventiveMaintenanceTemplate = {
+  id: string;
+  propertyId: string;
+  property?: Property;
+  name: string;
+  category: PreventiveMaintenanceCategory;
+  description: string | null;
+  instructions: string | null;
+  frequency: PreventiveMaintenanceFrequency;
+  customEveryDays: number | null;
+  annualMonth: number | null;
+  annualDay: number | null;
+  assignedRole: UserRole;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
+  photosRequired: boolean;
+  notesRequired: boolean;
+  passFailRequired: boolean;
+  priority: PreventiveMaintenancePriority;
+  isActive: boolean;
+  isArchived: boolean;
+  createdById: string | null;
+  updatedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  tasks?: Array<{ id: string; dueDate: string; status: PreventiveMaintenanceStatus }>;
+};
+
+export type PreventiveMaintenanceTaskAttachment = {
+  id: string;
+  taskId: string;
+  propertyId: string;
+  uploadedById: string | null;
+  uploaderName: string;
+  originalName: string;
+  storedName: string;
+  mimeType: string;
+  sizeBytes: number;
+  note: string | null;
+  createdAt: string;
+};
+
+export type PreventiveMaintenanceTask = {
+  id: string;
+  propertyId: string;
+  property: Property;
+  templateId: string;
+  template: PreventiveMaintenanceTemplate;
+  taskName: string;
+  category: PreventiveMaintenanceCategory;
+  description: string | null;
+  instructions: string | null;
+  assignedRole: UserRole;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
+  dueDate: string;
+  status: PreventiveMaintenanceStatus;
+  priority: PreventiveMaintenancePriority;
+  photosRequired: boolean;
+  notesRequired: boolean;
+  passFailRequired: boolean;
+  completionOutcome: PreventiveMaintenanceCompletionOutcome | null;
+  completionNotes: string | null;
+  completedById: string | null;
+  completedByName: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  attachments: PreventiveMaintenanceTaskAttachment[];
+};
+
+export type PreventiveMaintenanceOverviewResponse = {
+  permissions: { view: boolean; edit: boolean; admin: boolean };
+  categories: PreventiveMaintenanceCategory[];
+  frequencies: PreventiveMaintenanceFrequency[];
+  priorities: PreventiveMaintenancePriority[];
+  assignedRoles: UserRole[];
+  assignableUsers: Array<{ id: string; fullName: string; role: UserRole }>;
+  summary: {
+    dueToday: number;
+    dueThisWeek: number;
+    overdue: number;
+    completedThisMonth: number;
+    completionRate: number;
+  };
+  upcomingTasks: PreventiveMaintenanceTask[];
+  overdueTasks: PreventiveMaintenanceTask[];
+  recentCompletions: PreventiveMaintenanceTask[];
+  compliance: {
+    green: number;
+    yellow: number;
+    red: number;
+  };
+};
+
+export type PropertyWikiSection =
+  | "UTILITIES"
+  | "ACCESS_CONTROL"
+  | "POOLS"
+  | "EMERGENCY_PROCEDURES"
+  | "CUSTOM_PAGES"
+  | "EQUIPMENT_REGISTRY"
+  | "UNIT_STANDARDS"
+  | "PROPERTY_CONTACTS"
+  | "SOP_LIBRARY"
+  | "KNOWN_ISSUES";
+export type PropertyWikiAssetKind = "DOCUMENT" | "PHOTO";
+export type PropertyWikiTargetType = "ENTRY" | "VENDOR" | "ASSET";
+
+export type PropertyWikiRecordSummary = {
+  targetType: PropertyWikiTargetType;
+  id: string;
+  propertyId: string;
+  property: Property;
+  section: string;
+  title: string;
+  snippet: string;
+  tags: string[];
+  updatedAt: string;
+  building: string | null;
+  isFavorite: boolean;
+  isEmergency: boolean;
+};
+
+export type PropertyWikiProfile = {
+  id: string;
+  propertyId: string;
+  property?: Property;
+  address: string | null;
+  unitCount: number | null;
+  buildingCount: number | null;
+  officePhone: string | null;
+  afterHoursPhone: string | null;
+  propertyManager: string | null;
+  maintenanceSupervisor: string | null;
+  regionalManager: string | null;
+  generalNotes: string | null;
+  createdById: string | null;
+  updatedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PropertyWikiAsset = {
+  id: string;
+  propertyId: string;
+  property?: Property;
+  entryId: string | null;
+  vendorId: string | null;
+  kind: PropertyWikiAssetKind;
+  title: string;
+  category: string | null;
+  building: string | null;
+  description: string | null;
+  tags: string[];
+  isEmergency: boolean;
+  storedName: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdById: string | null;
+  createdAt: string;
+  entry?: { id: string; title: string; section: PropertyWikiSection } | null;
+  vendor?: { id: string; companyName: string; vendorType: string } | null;
+};
+
+export type PropertyWikiEntry = {
+  id: string;
+  propertyId: string;
+  property?: Property;
+  section: PropertyWikiSection;
+  title: string;
+  category: string | null;
+  building: string | null;
+  locationDescription: string | null;
+  equipmentModel: string | null;
+  manufacturer: string | null;
+  serialNumber: string | null;
+  installDate: string | null;
+  warrantyExpiresAt: string | null;
+  floorPlan: string | null;
+  unitType: string | null;
+  blindSizes: string | null;
+  hvacNotes: string | null;
+  waterHeaterNotes: string | null;
+  applianceNotes: string | null;
+  paintStandards: string | null;
+  countertopNotes: string | null;
+  cabinetNotes: string | null;
+  flooringNotes: string | null;
+  contactType: string | null;
+  contactTitle: string | null;
+  phone: string | null;
+  email: string | null;
+  isEmergencyContact: boolean;
+  relatedEntryIds: string[];
+  relatedVendorIds: string[];
+  notes: string | null;
+  content: string | null;
+  issueStatus: "Active" | "Resolved" | "Archived" | null;
+  tags: string[];
+  contacts: string | null;
+  situation: string | null;
+  poolCapacity: string | null;
+  spaCapacity: string | null;
+  pumpModels: string | null;
+  filterModels: string | null;
+  filterSizes: string | null;
+  heaterModels: string | null;
+  controllerNotes: string | null;
+  chemicalTargetNotes: string | null;
+  isPinned: boolean;
+  isEmergency: boolean;
+  isActive: boolean;
+  createdById: string | null;
+  updatedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  assets: PropertyWikiAsset[];
+};
+
+export type PropertyWikiVendor = {
+  id: string;
+  propertyId: string;
+  property?: Property;
+  vendorType: string;
+  companyName: string;
+  contactName: string | null;
+  phone: string | null;
+  email: string | null;
+  emergencyPhone: string | null;
+  notes: string | null;
+  isActive: boolean;
+  createdById: string | null;
+  updatedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  assets: PropertyWikiAsset[];
+};
+
+export type PropertyWikiOverviewResponse = {
+  permissions: { view: boolean; edit: boolean; admin: boolean };
+  categories: {
+    utility: string[];
+    accessControl: string[];
+    equipment: string[];
+    knownIssueStatuses: string[];
+    propertyContacts: string[];
+    sop: string[];
+    vendorTypes: string[];
+    document: string[];
+    photo: string[];
+  };
+  defaultEmergencyProcedures: string[];
+  property: Property | null;
+  profile: PropertyWikiProfile | null;
+  recentlyUpdated: PropertyWikiEntry[];
+  pinnedCriticalInformation: PropertyWikiEntry[];
+  favorites: PropertyWikiRecordSummary[];
+  recentlyViewed: Array<PropertyWikiRecordSummary & { viewedAt: string }>;
+  emergencyMode: PropertyWikiRecordSummary[];
+  emergencyProcedures: PropertyWikiEntry[];
+  emergencyContacts: PropertyWikiEntry[];
+  vendorHighlights: PropertyWikiVendor[];
+  recentDocuments: PropertyWikiAsset[];
+  recentPhotos: PropertyWikiAsset[];
+  commonCategories: Array<{ label: string; count: number }>;
+};
+
+export type PropertyWikiSearchResult = {
+  id: string;
+  propertyId: string;
+  property: Property;
+  targetType: PropertyWikiTargetType;
+  section: string;
+  title: string;
+  snippet: string;
+  tags: string[];
+  building: string | null;
+  isFavorite: boolean;
+  isEmergency: boolean;
+  updatedAt: string;
+};
+
+export type PropertyWikiRecordDetail = {
+  record: PropertyWikiRecordSummary | null;
+  entry: PropertyWikiEntry | null;
+  vendor: PropertyWikiVendor | null;
+  asset: PropertyWikiAsset | null;
+  related: {
+    sops: PropertyWikiRecordSummary[];
+    equipment: PropertyWikiRecordSummary[];
+    knownIssues: PropertyWikiRecordSummary[];
+    vendors: PropertyWikiRecordSummary[];
+    photos: PropertyWikiRecordSummary[];
+    documents: PropertyWikiRecordSummary[];
+  };
+  history: Array<{
+    id: string;
+    user: string;
+    date: string;
+    action: string;
+  }>;
+};
+
+export type PropertyWikiWorkflowRecordType =
+  | "MAKE_READY_ITEM"
+  | "REFRIGERANT_TRANSACTION"
+  | "POOL_LOG_ENTRY"
+  | "PM_TEMPLATE"
+  | "PM_TASK"
+  | "FUTURE_WORK_ORDER";
+
+export type PropertyWikiWorkflowModule =
+  | "MAKE_READY"
+  | "INSPECTION"
+  | "REFRIGERANT"
+  | "POOL_LOG"
+  | "PREVENTIVE_MAINTENANCE"
+  | "FUTURE_WORK_ORDER";
+
+export type PropertyWikiReference = {
+  referenceId: string;
+  attachedAt: string;
+} & PropertyWikiRecordSummary;
+
+export type PropertyWikiWorkflowContext = {
+  context: {
+    module: PropertyWikiWorkflowModule;
+    propertyId: string;
+    recordType: PropertyWikiWorkflowRecordType | null;
+    recordId: string | null;
+    floorPlan: string | null;
+    unitNumber: string | null;
+    building: string | null;
+    facilityName: string | null;
+    equipmentQuery: string | null;
+    query: string | null;
+  };
+  attached: PropertyWikiReference[];
+  suggestions: PropertyWikiRecordSummary[];
+  makeReadyStandards: PropertyWikiRecordSummary[];
+  knownIssues: PropertyWikiRecordSummary[];
+  emergencyRecords: PropertyWikiRecordSummary[];
+  related: {
+    sops: PropertyWikiRecordSummary[];
+    vendors: PropertyWikiRecordSummary[];
+    equipment: PropertyWikiRecordSummary[];
+    photos: PropertyWikiRecordSummary[];
+    documents: PropertyWikiRecordSummary[];
+    knownIssues: PropertyWikiRecordSummary[];
+  };
+};
+
 export type UserCapacity = {
   id: string;
   userId: string;
@@ -621,6 +1227,45 @@ export type ActivityResponse = {
   };
 };
 
+export type DailyActivityCategory =
+  | "markedReady"
+  | "availability"
+  | "archived"
+  | "restored"
+  | "created"
+  | "updated"
+  | "exception";
+
+export type DailyActivityReport = {
+  date: string;
+  range: { from: string; to: string };
+  summary: Record<DailyActivityCategory | "totalChanges", number>;
+  records: Array<{
+    id: string;
+    at: string;
+    category: DailyActivityCategory;
+    action: string;
+    description: string;
+    actor: Pick<CurrentUser, "id" | "email" | "fullName"> | null;
+    property: Property | null;
+    itemId: string | null;
+    unitNumber: string | null;
+    applicant: string | null;
+    vacancyStatus: string | null;
+    boardGroup: string | null;
+    riskLevel: string | null;
+    moveOutDate: string | null;
+    vacatedDate: string | null;
+    makeReadyDate: string | null;
+    moveInDate: string | null;
+    isArchived: boolean | null;
+    externalActionHint: string;
+  }>;
+  filterOptions: {
+    properties: Property[];
+  };
+};
+
 export type AutomationTriggerType = "ITEM_CREATED" | "ITEM_UPDATED" | "DATE_FIELD_CHANGED" | "STATUS_FIELD_CHANGED" | "SCHEDULED_CHECK";
 export type AutomationConditionOperator = "equals" | "notEquals" | "in" | "contains" | "isEmpty" | "notEmpty" | "dateBefore" | "dateAfter" | "dateBeforeToday" | "dateAfterToday" | "dateWithinNextDays" | "dateMissing" | "dateOnWeekend" | "dateOnMondayOrFriday";
 export type AutomationCondition = {
@@ -813,6 +1458,7 @@ export type LabelDefinition = {
 export type FloorPlan = {
   id: string;
   propertyId: string;
+  code: string;
   name: string;
   bedrooms: number | null;
   bathrooms: number | null;
@@ -856,7 +1502,25 @@ export type Unit = {
   squareFeet: number | null;
   bedrooms?: number | null;
   bathrooms?: number | null;
-  occupancyStatus: "OCCUPIED" | "VACANT_READY" | "VACANT_LEASED" | "VACANT_NOT_LEASED" | "NTV" | "NTV_LEASED" | "DOWN" | "MODEL" | "UNKNOWN";
+  occupancyStatus:
+    | "OCCUPIED"
+    | "VACANT_READY"
+    | "VACANT_LEASED"
+    | "VACANT_NOT_LEASED"
+    | "NTV"
+    | "NTV_LEASED"
+    | "VACANT NOT LEASED READY"
+    | "VACANT NOT LEASED NOT READY"
+    | "NTV NOT LEASED"
+    | "NTV LEASED"
+    | "VACANT LEASED READY"
+    | "VACANT LEASED NOT READY"
+    | "DOWN"
+    | "TO PRE-WALK"
+    | "TO SCOPE"
+    | "TO FINAL WALK"
+    | "MODEL"
+    | "UNKNOWN";
   building: string | null;
   area: string | null;
   floor: string | null;
@@ -1125,6 +1789,10 @@ export function getChargeReport(itemId: string) {
   return request<ChargeReport>(`/make-ready-items/${itemId}/charge-report`);
 }
 
+export function chargeReportCsvUrl(itemId: string) {
+  return `${apiBaseUrl}/make-ready-items/${encodeURIComponent(itemId)}/charge-report.csv`;
+}
+
 export function createItemComment(itemId: string, body: string) {
   return request<{ comment: ItemComment }>(`/make-ready-items/${itemId}/comments`, { method: "POST", body: JSON.stringify({ body }) });
 }
@@ -1236,6 +1904,13 @@ export function logoutAllSessions() {
   });
 }
 
+export function updateCurrentUserPreferences(input: { language: UserLanguage }) {
+  return request<{ user: CurrentUser }>("/auth/me/preferences", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
 export function getAdminUsers() {
   return request<{ users: ManagedUser[] }>("/admin/users");
 }
@@ -1270,6 +1945,7 @@ export function createAdminUser(input: {
   fullName: string;
   email: string;
   role: UserRole;
+  language?: UserLanguage;
   password: string;
   isActive: boolean;
   propertyIds: string[];
@@ -1284,6 +1960,7 @@ export function updateAdminUser(id: string, input: {
   fullName?: string;
   email?: string;
   role?: UserRole;
+  language?: UserLanguage;
   isActive?: boolean;
 }) {
   return request<{ user: ManagedUser }>(`/admin/users/${id}`, {
@@ -1341,6 +2018,26 @@ export function getActivity(filters: {
     }
   });
   return request<ActivityResponse>(`/activity?${params.toString()}`);
+}
+
+export function getDailyActivityReport(filters: { date?: string; propertyId?: string }) {
+  const params = new URLSearchParams();
+  if (filters.date) params.set("date", filters.date);
+  if (filters.propertyId) params.set("propertyId", filters.propertyId);
+  if (typeof window !== "undefined") {
+    params.set("timezoneOffsetMinutes", String(new Date().getTimezoneOffset()));
+  }
+  return request<DailyActivityReport>(`/activity/daily-report?${params.toString()}`);
+}
+
+export function dailyActivityReportCsvUrl(filters: { date?: string; propertyId?: string }) {
+  const params = new URLSearchParams();
+  if (filters.date) params.set("date", filters.date);
+  if (filters.propertyId) params.set("propertyId", filters.propertyId);
+  if (typeof window !== "undefined") {
+    params.set("timezoneOffsetMinutes", String(new Date().getTimezoneOffset()));
+  }
+  return `${apiBaseUrl}/activity/daily-report.csv?${params.toString()}`;
 }
 
 export function getAutomations(includeArchived = false) {
@@ -1835,6 +2532,45 @@ export type UnitImportInput = {
   isBudgeted?: boolean;
 };
 
+export type UnitImportResult = {
+  property: Pick<Property, "id" | "code" | "name">;
+  summary: { created: number; updated: number; skipped: number; floorPlansCreated?: number; floorPlansUpdated?: number; errors: string[] };
+  createdUnitIds: string[];
+  updatedUnitIds: string[];
+};
+
+export type AvailabilityImportInput = UnitImportInput & {
+  vacancyStatus?: Exclude<Unit["occupancyStatus"], "OCCUPIED">;
+  availabilityStatus?: string | null;
+  applicant?: string | null;
+  moveOutDate?: string | null;
+  vacatedDate?: string | null;
+  daysVacant?: number | null;
+  makeReadyDate?: string | null;
+  moveInDate?: string | null;
+  reportDate?: string | null;
+  dateApplied?: string | null;
+  makeReadyStatus?: string | null;
+  scopeLevel?: string | null;
+  notes?: string | null;
+};
+
+export type AvailabilityImportResult = {
+  property: Pick<Property, "id" | "code" | "name">;
+  summary: {
+    unitsCreated: number;
+    unitsUpdated: number;
+    turnsCreated: number;
+    turnsUpdated: number;
+    skipped: number;
+    floorPlansCreated?: number;
+    floorPlansUpdated?: number;
+    errors: string[];
+  };
+  createdItemIds: string[];
+  updatedItemIds: string[];
+};
+
 export function createUnit(input: UnitWriteInput) {
   return request<{ unit: Unit }>("/operations/units", {
     method: "POST",
@@ -1850,7 +2586,21 @@ export function updateUnit(id: string, input: Partial<UnitWriteInput>) {
 }
 
 export function importUnits(input: { propertyId: string; units: UnitImportInput[]; updateExisting?: boolean }) {
-  return request<{ summary: { created: number; updated: number; skipped: number; errors: string[] } }>("/operations/units/import", {
+  return request<UnitImportResult>("/operations/units/import", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function importAvailability(input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting?: boolean; createTurns?: boolean }) {
+  return request<AvailabilityImportResult>("/operations/availability/import", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function revertUnitImport(input: { propertyId: string; createdUnitIds: string[] }) {
+  return request<{ summary: { deleted: number; skipped: number; blocked: string[] } }>("/operations/units/import/revert", {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -1968,6 +2718,10 @@ export function patchMakeReadyItem(id: string, data: Record<string, unknown>) {
   });
 }
 
+export function markMakeReadyItemReady(id: string) {
+  return request<MakeReadyItem>(`/make-ready-items/${id}/mark-ready`, { method: "POST" });
+}
+
 export function getCalendar(field: string, propertyId?: string) {
   const params = new URLSearchParams({ field });
   if (propertyId) params.set("propertyId", propertyId);
@@ -2014,6 +2768,547 @@ export function updateVendor(id: string, input: Partial<Parameters<typeof create
 
 export function archiveVendor(id: string, restore = false) {
   return request<{ vendor: Vendor }>(`/vendors/${id}/${restore ? "restore" : "archive"}`, { method: "POST" });
+}
+
+export function getRefrigerantOverview() {
+  return request<RefrigerantOverviewResponse>("/refrigerant/overview");
+}
+
+export function getRefrigerantTypes() {
+  return request<{ types: RefrigerantType[] }>("/refrigerant/types");
+}
+
+export function createRefrigerantType(input: { name: string; notes?: string | null }) {
+  return request<{ type: RefrigerantType }>("/refrigerant/types", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateRefrigerantType(id: string, input: Partial<{ name: string; notes: string | null; isActive: boolean }>) {
+  return request<{ type: RefrigerantType }>(`/refrigerant/types/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function getRefrigerantCylinders(filters: { category?: RefrigerantCylinder["category"]; status?: RefrigerantCylinder["status"]; includeArchived?: boolean } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      const serialized = String(value);
+      if (serialized) params.set(key, serialized);
+    }
+  });
+  return request<{ cylinders: RefrigerantCylinder[] }>(`/refrigerant/cylinders${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createRefrigerantCylinder(input: {
+  identifier: string;
+  refrigerantTypeId: string;
+  category: RefrigerantCylinder["category"];
+  tankSize: number;
+  currentWeight: number;
+  status?: RefrigerantCylinder["status"];
+  notes?: string | null;
+  dispositionNotes?: string | null;
+  overrideActiveVirgin?: boolean;
+}) {
+  return request<{ cylinder: RefrigerantCylinder }>("/refrigerant/cylinders", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateRefrigerantCylinder(id: string, input: Partial<Parameters<typeof createRefrigerantCylinder>[0]> & { finalRecoveryCompleted?: boolean }) {
+  return request<{ cylinder: RefrigerantCylinder }>(`/refrigerant/cylinders/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function getRefrigerantHistory(filters: { propertyId?: string; unitId?: string; unitNumber?: string; refrigerantTypeId?: string; transactionType?: RefrigerantTransaction["transactionType"]; from?: string; to?: string; limit?: number; offset?: number } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<RefrigerantHistoryResponse>(`/refrigerant/history${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createRefrigerantCharge(input: RefrigerantTransactionInput) {
+  return request<{ transaction: RefrigerantTransaction }>("/refrigerant/transactions/charge", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function createRefrigerantRecovery(input: RefrigerantTransactionInput & { recoveryType: "CLEAN" | "DIRTY" }) {
+  return request<{ transaction: RefrigerantTransaction }>("/refrigerant/transactions/recovery", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function createRefrigerantFinalRecovery(input: RefrigerantTransactionInput) {
+  return request<{ transaction: RefrigerantTransaction }>("/refrigerant/transactions/final-recovery", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function dismissRefrigerantLeakFlag(id: string, notes: string) {
+  return request<{ flag: RefrigerantLeakFlag }>(`/refrigerant/leak-flags/${id}/dismiss`, { method: "POST", body: JSON.stringify({ notes }) });
+}
+
+export function refrigerantExportCsvUrl(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit") {
+  return `${apiBaseUrl}/refrigerant/export.csv?report=${encodeURIComponent(report)}`;
+}
+
+export type RefrigerantTransactionInput = {
+  propertyId?: string;
+  unitId?: string;
+  unitNumber?: string;
+  refrigerantTypeId: string;
+  sourceCylinderId?: string;
+  recoveryCylinderId?: string;
+  startWeight: number;
+  endWeight: number;
+  occurredAt?: string;
+  notes?: string | null;
+};
+
+export function getPoolOverview(filters: { propertyId?: string } = {}) {
+  const params = new URLSearchParams();
+  if (filters.propertyId) params.set("propertyId", filters.propertyId);
+  return request<PoolOverviewResponse>(`/pool/overview${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function getPoolFacilities(filters: { propertyId?: string; includeArchived?: boolean } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<{ facilities: PoolFacility[] }>(`/pool/facilities${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createPoolFacility(input: {
+  propertyId: string;
+  name: string;
+  type: PoolFacility["type"];
+  capacityGallons?: number | null;
+  surfaceType?: string | null;
+  notes?: string | null;
+}) {
+  return request<{ facility: PoolFacility }>("/pool/facilities", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updatePoolFacility(id: string, input: Partial<Parameters<typeof createPoolFacility>[0]> & { isActive?: boolean }) {
+  return request<{ facility: PoolFacility }>(`/pool/facilities/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function getPoolChemicals(filters: { propertyId?: string; includeArchived?: boolean } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<{ chemicals: PoolChemical[] }>(`/pool/chemicals${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createPoolChemical(input: {
+  propertyId: string;
+  name: string;
+  category: PoolChemical["category"];
+  concentrationPercent?: number | null;
+  unit: PoolChemical["unit"];
+  notes?: string | null;
+}) {
+  return request<{ chemical: PoolChemical }>("/pool/chemicals", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updatePoolChemical(id: string, input: Partial<Parameters<typeof createPoolChemical>[0]> & { isActive?: boolean }) {
+  return request<{ chemical: PoolChemical }>(`/pool/chemicals/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function getPoolEntries(filters: { propertyId?: string; facilityId?: string; from?: string; to?: string; limit?: number; offset?: number } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<PoolEntriesResponse>(`/pool/entries${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createPoolLogEntry(input: {
+  propertyId: string;
+  facilityId: string;
+  logDate: string;
+  logTime?: string | null;
+  ph?: number | null;
+  freeChlorine?: number | null;
+  combinedChlorine?: number | null;
+  totalChlorine?: number | null;
+  totalAlkalinity?: number | null;
+  cyanuricAcid?: number | null;
+  calciumHardness?: number | null;
+  waterTemperature?: number | null;
+  vacuumed?: boolean;
+  backwashed?: boolean;
+  skimmerCleaned?: boolean;
+  pumpRunning?: boolean;
+  filterOperating?: boolean;
+  waterClear?: boolean;
+  waterCloudy?: boolean;
+  algaePresent?: boolean;
+  notes?: string | null;
+  safetyChecks?: Array<{ label: string; value: PoolSafetyCheck["value"]; notes?: string | null; sortOrder?: number }>;
+  chemicalAdditions?: Array<{ chemicalId?: string | null; chemicalName: string; amount: number; unit: PoolChemical["unit"]; notes?: string | null }>;
+}) {
+  return request<{ entry: PoolLogEntry }>("/pool/entries", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function poolLogExportCsvUrl(filters: { propertyId?: string; from?: string; to?: string } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, String(value));
+  });
+  return `${apiBaseUrl}/pool/export.csv${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function poolLogPrintableReportUrl(filters: { propertyId?: string; from?: string; to?: string } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, String(value));
+  });
+  return `${apiBaseUrl}/pool/report.html${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function uploadPoolLogAttachment(entryId: string, file: File) {
+  const data = new FormData();
+  data.append("file", file);
+  return request<{ attachment: PoolLogAttachment }>(`/pool/entries/${entryId}/attachments`, { method: "POST", body: data });
+}
+
+export function poolAttachmentDownloadUrl(id: string) {
+  return `${apiBaseUrl}/pool/attachments/${encodeURIComponent(id)}/download`;
+}
+
+export function deletePoolLogAttachment(id: string) {
+  return request<{ ok: true }>(`/pool/attachments/${id}`, { method: "DELETE" });
+}
+
+export function getPreventiveMaintenanceOverview(propertyId?: string) {
+  const params = new URLSearchParams();
+  if (propertyId) params.set("propertyId", propertyId);
+  return request<PreventiveMaintenanceOverviewResponse>(`/pm/overview${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function getPreventiveMaintenanceTemplates(filters: { propertyId?: string; includeArchived?: boolean } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<{ templates: PreventiveMaintenanceTemplate[]; permissions: { view: boolean; edit: boolean; admin: boolean } }>(`/pm/templates${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createPreventiveMaintenanceTemplate(input: {
+  propertyId: string;
+  name: string;
+  category: PreventiveMaintenanceCategory;
+  description?: string | null;
+  instructions?: string | null;
+  frequency: PreventiveMaintenanceFrequency;
+  customEveryDays?: number | null;
+  annualMonth?: number | null;
+  annualDay?: number | null;
+  assignedRole: UserRole;
+  assignedUserId?: string | null;
+  photosRequired?: boolean;
+  notesRequired?: boolean;
+  passFailRequired?: boolean;
+  priority?: PreventiveMaintenancePriority;
+  isActive?: boolean;
+  isArchived?: boolean;
+}) {
+  return request<{ template: PreventiveMaintenanceTemplate }>("/pm/templates", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updatePreventiveMaintenanceTemplate(id: string, input: Partial<Parameters<typeof createPreventiveMaintenanceTemplate>[0]>) {
+  return request<{ template: PreventiveMaintenanceTemplate }>(`/pm/templates/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function getPreventiveMaintenanceTasks(filters: {
+  propertyId?: string;
+  category?: PreventiveMaintenanceCategory;
+  status?: PreventiveMaintenanceStatus;
+  priority?: PreventiveMaintenancePriority;
+  assignedRole?: UserRole;
+  from?: string;
+  to?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<{ tasks: PreventiveMaintenanceTask[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>(`/pm/tasks${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function getPreventiveMaintenanceCalendar(filters: { propertyId?: string; from?: string; to?: string } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, String(value));
+  });
+  return request<{ tasks: PreventiveMaintenanceTask[]; from: string; to: string }>(`/pm/calendar${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function getPreventiveMaintenanceHistory(filters: {
+  propertyId?: string;
+  category?: PreventiveMaintenanceCategory;
+  status?: PreventiveMaintenanceStatus;
+  priority?: PreventiveMaintenancePriority;
+  assignedRole?: UserRole;
+  from?: string;
+  to?: string;
+  q?: string;
+  completedById?: string;
+  limit?: number;
+  offset?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<{ tasks: PreventiveMaintenanceTask[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>(`/pm/history${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function completePreventiveMaintenanceTask(id: string, input: { outcome: "PASS" | "FAIL" | "COMPLETE"; notes?: string | null }) {
+  return request<{ task: PreventiveMaintenanceTask }>(`/pm/tasks/${encodeURIComponent(id)}/complete`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function skipPreventiveMaintenanceTask(id: string, input: { notes?: string | null }) {
+  return request<{ task: PreventiveMaintenanceTask }>(`/pm/tasks/${encodeURIComponent(id)}/skip`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function uploadPreventiveMaintenanceAttachment(taskId: string, file: File) {
+  const data = new FormData();
+  data.append("file", file);
+  return request<{ attachment: PreventiveMaintenanceTaskAttachment }>(`/pm/tasks/${encodeURIComponent(taskId)}/attachments`, { method: "POST", body: data });
+}
+
+export function preventiveMaintenanceAttachmentDownloadUrl(id: string) {
+  return `${apiBaseUrl}/pm/attachments/${encodeURIComponent(id)}/download`;
+}
+
+export function preventiveMaintenanceExportCsvUrl(filters: Record<string, string | undefined> = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  return `${apiBaseUrl}/pm/export.csv${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function preventiveMaintenanceExportExcelUrl(filters: Record<string, string | undefined> = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  return `${apiBaseUrl}/pm/export.xls${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function preventiveMaintenancePrintableReportUrl(filters: Record<string, string | undefined> = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  return `${apiBaseUrl}/pm/report.html${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function getPropertyWikiOverview(propertyId?: string) {
+  const params = new URLSearchParams();
+  if (propertyId) params.set("propertyId", propertyId);
+  return request<PropertyWikiOverviewResponse>(`/property-wiki/overview${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function getPropertyWikiProfile(propertyId: string) {
+  return request<{ profile: PropertyWikiProfile | null; property: Property | null }>(`/property-wiki/profile?propertyId=${encodeURIComponent(propertyId)}`);
+}
+
+export function savePropertyWikiProfile(input: {
+  propertyId: string;
+  address?: string | null;
+  unitCount?: number | null;
+  buildingCount?: number | null;
+  officePhone?: string | null;
+  afterHoursPhone?: string | null;
+  propertyManager?: string | null;
+  maintenanceSupervisor?: string | null;
+  regionalManager?: string | null;
+  generalNotes?: string | null;
+}) {
+  return request<{ profile: PropertyWikiProfile }>("/property-wiki/profile", { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function getPropertyWikiEntries(filters: { propertyId?: string; section?: PropertyWikiSection; includeInactive?: boolean; q?: string } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<{ entries: PropertyWikiEntry[] }>(`/property-wiki/entries${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createPropertyWikiEntry(input: {
+  propertyId: string;
+  section: PropertyWikiSection;
+  title: string;
+  category?: string | null;
+  building?: string | null;
+  locationDescription?: string | null;
+  equipmentModel?: string | null;
+  manufacturer?: string | null;
+  serialNumber?: string | null;
+  installDate?: string | null;
+  warrantyExpiresAt?: string | null;
+  floorPlan?: string | null;
+  unitType?: string | null;
+  blindSizes?: string | null;
+  hvacNotes?: string | null;
+  waterHeaterNotes?: string | null;
+  applianceNotes?: string | null;
+  paintStandards?: string | null;
+  countertopNotes?: string | null;
+  cabinetNotes?: string | null;
+  flooringNotes?: string | null;
+  contactType?: string | null;
+  contactTitle?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  isEmergencyContact?: boolean;
+  relatedEntryIds?: string[] | string;
+  relatedVendorIds?: string[] | string;
+  notes?: string | null;
+  content?: string | null;
+  issueStatus?: "Active" | "Resolved" | "Archived" | null;
+  tags?: string[] | string;
+  contacts?: string | null;
+  situation?: string | null;
+  poolCapacity?: string | null;
+  spaCapacity?: string | null;
+  pumpModels?: string | null;
+  filterModels?: string | null;
+  filterSizes?: string | null;
+  heaterModels?: string | null;
+  controllerNotes?: string | null;
+  chemicalTargetNotes?: string | null;
+  isPinned?: boolean;
+  isEmergency?: boolean;
+  isActive?: boolean;
+}) {
+  return request<{ entry: PropertyWikiEntry }>("/property-wiki/entries", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updatePropertyWikiEntry(id: string, input: Partial<Parameters<typeof createPropertyWikiEntry>[0]>) {
+  return request<{ entry: PropertyWikiEntry }>(`/property-wiki/entries/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function getPropertyWikiVendors(filters: { propertyId?: string; includeInactive?: boolean; q?: string } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<{ vendors: PropertyWikiVendor[] }>(`/property-wiki/vendors${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createPropertyWikiVendor(input: {
+  propertyId: string;
+  vendorType: string;
+  companyName: string;
+  contactName?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  emergencyPhone?: string | null;
+  notes?: string | null;
+  isActive?: boolean;
+}) {
+  return request<{ vendor: PropertyWikiVendor }>("/property-wiki/vendors", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updatePropertyWikiVendor(id: string, input: Partial<Parameters<typeof createPropertyWikiVendor>[0]>) {
+  return request<{ vendor: PropertyWikiVendor }>(`/property-wiki/vendors/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function getPropertyWikiAssets(filters: { propertyId?: string; kind?: PropertyWikiAssetKind; entryId?: string; vendorId?: string; q?: string } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<{ assets: PropertyWikiAsset[] }>(`/property-wiki/assets${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function uploadPropertyWikiAsset(input: {
+  propertyId: string;
+  kind: PropertyWikiAssetKind;
+  title: string;
+  category?: string | null;
+  building?: string | null;
+  description?: string | null;
+  tags?: string[] | string;
+  isEmergency?: boolean;
+  entryId?: string | null;
+  vendorId?: string | null;
+  file: File;
+}) {
+  const data = new FormData();
+  data.append("propertyId", input.propertyId);
+  data.append("kind", input.kind);
+  data.append("title", input.title);
+  if (input.category) data.append("category", input.category);
+  if (input.building) data.append("building", input.building);
+  if (input.description) data.append("description", input.description);
+  if (input.isEmergency !== undefined) data.append("isEmergency", String(input.isEmergency));
+  if (input.entryId) data.append("entryId", input.entryId);
+  if (input.vendorId) data.append("vendorId", input.vendorId);
+  if (input.tags) data.append("tags", Array.isArray(input.tags) ? input.tags.join(", ") : input.tags);
+  data.append("file", input.file);
+  return request<{ asset: PropertyWikiAsset }>("/property-wiki/assets/upload", { method: "POST", body: data });
+}
+
+export function updatePropertyWikiAsset(id: string, input: { title?: string; category?: string | null; building?: string | null; description?: string | null; tags?: string[] | string; isEmergency?: boolean }) {
+  return request<{ asset: PropertyWikiAsset }>(`/property-wiki/assets/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function propertyWikiAssetDownloadUrl(id: string) {
+  return `${apiBaseUrl}/property-wiki/assets/${encodeURIComponent(id)}/download`;
+}
+
+export function deletePropertyWikiAsset(id: string) {
+  return request<{ ok: true }>(`/property-wiki/assets/${id}`, { method: "DELETE" });
+}
+
+export function searchPropertyWiki(input: { propertyId?: string; q: string }) {
+  const params = new URLSearchParams();
+  if (input.propertyId) params.set("propertyId", input.propertyId);
+  params.set("q", input.q);
+  return request<{ results: PropertyWikiSearchResult[] }>(`/property-wiki/search?${params.toString()}`);
+}
+
+export function togglePropertyWikiFavorite(input: { targetType: PropertyWikiTargetType; targetId: string }) {
+  return request<{ favorited: boolean }>("/property-wiki/favorites/toggle", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function getPropertyWikiRecord(targetType: PropertyWikiTargetType, id: string) {
+  return request<PropertyWikiRecordDetail>(`/property-wiki/records/${encodeURIComponent(targetType)}/${encodeURIComponent(id)}`);
+}
+
+export function getPropertyWikiWorkflowContext(input: {
+  module: PropertyWikiWorkflowModule;
+  propertyId?: string;
+  recordType?: PropertyWikiWorkflowRecordType;
+  recordId?: string;
+  floorPlan?: string | null;
+  unitNumber?: string | null;
+  building?: string | null;
+  facilityName?: string | null;
+  equipmentQuery?: string | null;
+  query?: string | null;
+}) {
+  const params = new URLSearchParams();
+  Object.entries(input).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<PropertyWikiWorkflowContext>(`/property-wiki/context?${params.toString()}`);
+}
+
+export function attachPropertyWikiReference(input: {
+  recordType: PropertyWikiWorkflowRecordType;
+  recordId: string;
+  targetType: PropertyWikiTargetType;
+  targetId: string;
+}) {
+  return request<{ reference: { id: string } }>("/property-wiki/references", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function deletePropertyWikiReference(id: string) {
+  return request<{ ok: true }>(`/property-wiki/references/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export function getVendorAssignments(filters: { itemId?: string; propertyId?: string; vendorId?: string; status?: VendorAssignment["status"]; includeCompleted?: boolean; limit?: number; offset?: number } = {}) {

@@ -89,8 +89,10 @@ For a fresh instance, complete or intentionally skip the in-app setup guide.
 
 - Confirm seed data is acceptable for screenshots/demos.
 - Do not include private resident data.
-- Use `./reset-demo.sh --dry-run` to preview demo reset actions.
-- Use `./reset-demo.sh --yes` only for disposable demos; add `--wipe-uploads` only when uploaded demo files should also be removed.
+- Use `./reset-demo.sh --dry-run` to preview reset actions.
+- Use `./reset-demo.sh --yes` only for disposable environments; this restarts in blank first-run mode.
+- Add `--with-demo` only when sample properties, units, and make-ready turns should be seeded.
+- Add `--wipe-uploads` only when uploaded demo files should also be removed.
 
 ## Raspberry Pi / VM Notes
 

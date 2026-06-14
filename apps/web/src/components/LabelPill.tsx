@@ -11,6 +11,7 @@ export function LabelPill({ value, label, muted }: Props) {
   if (!value) {
     return <span className="pill pill-empty">-</span>;
   }
+  const displayValue = value.replace(/_/g, " ");
 
   return (
     <span
@@ -21,7 +22,7 @@ export function LabelPill({ value, label, muted }: Props) {
         color: label?.textColor ?? "#f4f6fa",
       }}
     >
-      {value}
+      {displayValue}
     </span>
   );
 }

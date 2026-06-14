@@ -43,6 +43,7 @@ mkdir -p "$LOG_DIR"
     . ./.env.example
     set +a
   fi
+  export SEED_DEMO_DATA=true
 
   echo "Node: $(node --version)"
   echo "NPM: $(npm --version)"

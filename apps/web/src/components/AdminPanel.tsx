@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ManagedUser, Property, UserRole } from "../lib/api";
+import type { ManagedUser, Property, UserLanguage, UserRole } from "../lib/api";
+import { languageOptions, t } from "../lib/i18n";
 import { BackupTransferPanel } from "./BackupTransferPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { IntegrationsPanel } from "./IntegrationsPanel";
@@ -21,6 +22,7 @@ type Props = {
     fullName: string;
     email: string;
     role: UserRole;
+    language: UserLanguage;
     password: string;
     isActive: boolean;
     propertyIds: string[];
@@ -29,6 +31,7 @@ type Props = {
     fullName?: string;
     email?: string;
     role?: UserRole;
+    language?: UserLanguage;
     isActive?: boolean;
   }) => Promise<void>;
   onResetPassword: (id: string, password: string) => Promise<void>;
@@ -63,6 +66,7 @@ export function AdminPanel({
     fullName: "",
     email: "",
     role: "TECH" as UserRole,
+    language: "en" as UserLanguage,
     password: "",
     isActive: true,
     propertyIds: [] as string[],
@@ -71,6 +75,7 @@ export function AdminPanel({
     fullName: "",
     email: "",
     role: "TECH" as UserRole,
+    language: "en" as UserLanguage,
     isActive: true,
     propertyIds: [] as string[],
     password: "",
@@ -123,6 +128,7 @@ export function AdminPanel({
       fullName: selectedUser.fullName,
       email: selectedUser.email,
       role: selectedUser.role,
+      language: selectedUser.language,
       isActive: selectedUser.isActive,
       propertyIds: propertyIdsForUser(selectedUser),
       password: "",
@@ -153,9 +159,9 @@ export function AdminPanel({
         <header className="admin-card-header">
           <div>
             <p className="eyebrow">Admin</p>
-            <h2>User Management</h2>
+            <h2>{t(createState.language, "admin.userManagement")}</h2>
           </div>
-          <span className="subtitle">Create staff accounts, assign roles, and control property access.</span>
+          <span className="subtitle">{t(createState.language, "admin.userManagementCopy")}</span>
         </header>
 
         {successMessage ? <div className="admin-message success">{successMessage}</div> : null}
@@ -163,10 +169,10 @@ export function AdminPanel({
 
         <div className="admin-grid">
           <section className="admin-section">
-            <h3>Create User</h3>
+            <h3>{t(createState.language, "admin.createUser")}</h3>
             <div className="admin-form-grid">
               <label>
-                Full name
+                {t(createState.language, "admin.fullName")}
                 <input
                   data-testid="admin-create-full-name"
                   value={createState.fullName}
@@ -174,7 +180,7 @@ export function AdminPanel({
                 />
               </label>
               <label>
-                Email
+                {t(createState.language, "auth.email")}
                 <input
                   data-testid="admin-create-email"
                   type="email"
@@ -183,7 +189,7 @@ export function AdminPanel({
                 />
               </label>
               <label>
-                Role
+                {t(createState.language, "admin.role")}
                 <select
                   data-testid="admin-create-role"
                   value={createState.role}
@@ -197,13 +203,27 @@ export function AdminPanel({
                 </select>
               </label>
               <label>
-                Password
+                {t(createState.language, "auth.password")}
                 <input
                   data-testid="admin-create-password"
                   type="password"
                   value={createState.password}
                   onChange={(event) => setCreateState((current) => ({ ...current, password: event.target.value }))}
                 />
+              </label>
+              <label>
+                {t(createState.language, "language.label")}
+                <select
+                  data-testid="admin-create-language"
+                  value={createState.language}
+                  onChange={(event) => setCreateState((current) => ({ ...current, language: event.target.value as UserLanguage }))}
+                >
+                  {languageOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.nativeLabel}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
 
@@ -214,11 +234,11 @@ export function AdminPanel({
                 checked={createState.isActive}
                 onChange={(event) => setCreateState((current) => ({ ...current, isActive: event.target.checked }))}
               />
-              Active account
+              {t(createState.language, "admin.activeAccount")}
             </label>
 
             <div className="property-access-block">
-              <p className="section-label">Property access</p>
+              <p className="section-label">{t(createState.language, "admin.propertyAccess")}</p>
               {properties.length === 0 ? (
                 <div className="admin-empty-state">No active properties are available for assignment yet.</div>
               ) : (
@@ -248,19 +268,20 @@ export function AdminPanel({
                   fullName: "",
                   email: "",
                   role: "TECH",
+                  language: "en",
                   password: "",
                   isActive: true,
                   propertyIds: [],
                 });
               })}
             >
-              Create User
+              {t(createState.language, "admin.createUserButton")}
             </button>
           </section>
 
           <section className="admin-section">
             <div className="admin-section-head">
-              <h3>Users</h3>
+              <h3>{t(createState.language, "admin.users")}</h3>
               <span className="subtitle">{filteredUsers.length} shown · {users.length} total</span>
             </div>
 
@@ -290,6 +311,7 @@ export function AdminPanel({
                       <th>Name</th>
                       <th>Email</th>
                       <th>Role</th>
+                      <th>{t(createState.language, "language.label")}</th>
                       <th>Status</th>
                     </tr>
                   </thead>
@@ -304,6 +326,7 @@ export function AdminPanel({
                         <td>{user.fullName}{user.id === currentUserId ? " (You)" : ""}</td>
                         <td>{user.email}</td>
                         <td>{user.role}</td>
+                        <td>{languageOptions.find((option) => option.value === user.language)?.nativeLabel ?? user.language}</td>
                         <td>
                           <span className={user.isActive ? "status-chip active" : "status-chip inactive"}>
                             {user.isActive ? "Active" : "Inactive"}
@@ -321,7 +344,7 @@ export function AdminPanel({
         {selectedUser ? (
           <section className="admin-section admin-editor">
             <div className="admin-section-head">
-              <h3>Edit User</h3>
+              <h3>{t(editState.language, "admin.editUser")}</h3>
               <span className="subtitle">{selectedUser.email}</span>
             </div>
 
@@ -333,7 +356,7 @@ export function AdminPanel({
 
             <div className="admin-form-grid">
               <label>
-                Full name
+                {t(editState.language, "admin.fullName")}
                 <input
                   data-testid="admin-edit-full-name"
                   value={editState.fullName}
@@ -341,7 +364,7 @@ export function AdminPanel({
                 />
               </label>
               <label>
-                Email
+                {t(editState.language, "auth.email")}
                 <input
                   data-testid="admin-edit-email"
                   type="email"
@@ -350,7 +373,7 @@ export function AdminPanel({
                 />
               </label>
               <label>
-                Role
+                {t(editState.language, "admin.role")}
                 <select
                   data-testid="admin-edit-role"
                   value={editState.role}
@@ -364,6 +387,21 @@ export function AdminPanel({
                   ))}
                 </select>
               </label>
+              <label>
+                {t(editState.language, "language.label")}
+                <select
+                  data-testid="admin-edit-language"
+                  value={editState.language}
+                  onChange={(event) => setEditState((current) => ({ ...current, language: event.target.value as UserLanguage }))}
+                >
+                  {languageOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.nativeLabel}
+                    </option>
+                  ))}
+                </select>
+                <span className="field-help">{t(editState.language, "admin.languageHelp")}</span>
+              </label>
               <label className="toggle-row">
                 <input
                   data-testid="admin-edit-active"
@@ -372,7 +410,7 @@ export function AdminPanel({
                   disabled={isSelf}
                   onChange={(event) => setEditState((current) => ({ ...current, isActive: event.target.checked }))}
                 />
-                Active account
+                {t(editState.language, "admin.activeAccount")}
               </label>
             </div>
 
@@ -390,11 +428,12 @@ export function AdminPanel({
                     fullName: editState.fullName,
                     email: editState.email,
                     role: editState.role,
+                    language: editState.language,
                     isActive: editState.isActive,
                   });
                 }}
               >
-                Save User
+                {t(editState.language, "admin.saveUser")}
               </button>
 
               {selectedUser.isActive ? (
@@ -421,7 +460,7 @@ export function AdminPanel({
             </div>
 
             <div className="property-access-block">
-              <p className="section-label">Property access</p>
+              <p className="section-label">{t(editState.language, "admin.propertyAccess")}</p>
               {properties.length === 0 ? (
                 <div className="admin-empty-state">No properties are available for assignment.</div>
               ) : (
@@ -496,6 +535,7 @@ export function AdminPanel({
             fullName: editState.fullName,
             email: editState.email,
             role: editState.role,
+            language: editState.language,
             isActive: editState.isActive,
           });
           setConfirmAction(null);

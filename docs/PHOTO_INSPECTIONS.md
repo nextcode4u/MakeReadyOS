@@ -63,7 +63,7 @@ Managers and administrators can add property-scoped price-sheet items from the I
 
 The estimate total shown in the gallery is a review aid for damage, cleaning, trash-out, and similar evidence packets. It is intentionally separate from accounting. Exported ZIPs contain the files; the database stores the structured estimate metadata, including pin-level price-sheet references.
 
-`GET /api/make-ready-items/:id/charge-report` returns a scoped, read-only line-item summary of charge-candidate photos and charge-candidate markup pins. It includes file/pin labels, categories, notes, selected price-sheet items, quantities, per-line estimates, missing-context count, and total estimate. The Inspection Gallery exposes the same data through the “Open charge report” action. Use this report for internal review/export tooling; it is still evidence metadata rather than an accounting charge.
+`GET /api/make-ready-items/:id/charge-report` returns a scoped, read-only line-item summary of charge-candidate photos and charge-candidate markup pins. It includes file/pin labels, categories, notes, selected price-sheet items, quantities, per-line estimates, missing-context count, and total estimate. `GET /api/make-ready-items/:id/charge-report.csv` downloads the same line items as CSV for spreadsheet review. The Inspection Gallery exposes the same data through the “Open charge report” action with CSV and ZIP download actions. Use this report for internal review/export tooling; it is still evidence metadata rather than an accounting charge.
 
 ## Storage And Backups
 

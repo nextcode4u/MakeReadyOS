@@ -22,6 +22,8 @@
 - Configurable make-ready custom fields with inline table values
 - Custom fields support archive, restore, and a 7-day trash retention flow before permanent deletion is available.
 - Polished frontend feedback layer with toasts, modals, and stronger empty/loading/error states
+- Mobile browsers can install MakeReadyOS as a Progressive Web App. The manifest and service worker live in committed `assets/`, the in-app prompt appears only on mobile-capable browsers, and API/uploads remain network-only to avoid stale operational data.
+- Pool Log is now a first-class side-rail module for daily pool/spa readings, safety checks, chemical additions, printable reports, scoped pool photos/PDFs, and in-app review reminders for missing/out-of-range logs.
 - Playwright browser E2E coverage for core login, board workflow, saved view, and admin lifecycle flows
 - Read-only Activity workspace for auditing application operations
 - Property map/unit directory foundation for local map uploads, building/area markers, unit marker placement, visual status/risk navigation, mapped/unmapped setup tracking, building/area/floor metadata, and directory occupancy states
@@ -29,7 +31,7 @@
 - Structured Automation workspace with validated rule definitions and run history
 - Scheduled/date-driven automation runner with safe manual execution and cooldown dedupe
 - Typed custom-field conditions for automation preview, manual execution, and scheduled checks
-- Operational automation template library with safe disabled-by-default installation, including starter schedule/risk templates for weekend guards, Monday/Friday guards, vendor lead-time reminders, scope-day planning, date-sequence review, daily load review, in-house/vendor routing review, and ready-unit stock expectations.
+- Operational automation template library with safe disabled-by-default installation, including starter schedule/risk templates for weekend guards, Monday/Friday guards, vendor lead-time reminders, scope-day planning, date-sequence review, daily load review, in-house/vendor routing review, cleaner-assignment review, balanced tech-assignment review, and ready-unit stock expectations.
 - Versioned Operational Library packs for installing safe fields, options, checklists, views, schedule tracks, and disabled automations
 - Core `Setup` workspace for property/unit maintenance, occupancy goals, merge-style unit-directory import, and make-ready item creation
 - Property operating-calendar configuration for no-weekend rules, optional Monday/Friday avoidance, maintenance operating hours, vendor lead days, daily scheduled-unit limits, and scope/work-day preferences
@@ -37,9 +39,10 @@
 - Managed built-in label options and property-owned floor plans with legacy unit-text compatibility
 - Group `+ Add item` rows and protected checked-row batch actions
 - Safe archive/restore lifecycle for make-ready records, with archived turns hidden from normal board views
-- Saved-view sidebar removed from the primary board layout; a narrow left module rail now reserves space for MakeReadyOS plus future PestLogOS, RefrigerantLogOS, PropertyWikiOS, and PoolLogOS surfaces
+- Saved-view sidebar removed from the primary board layout; a narrow left module rail now reserves space for MakeReadyOS plus active RefrigerantLogOS and PoolLogOS modules, with future PestLogOS and PropertyWikiOS surfaces still planned.
 - Right-side operational item inspector opened from table/Kanban with existing audited field, lifecycle, activity, and automation paths
 - Browser-local Default/Dark/Light themes plus independent Dyslexia and Eye-Strain modes
+- User language preferences support English and Spanish in the core app shell/sign-in/admin user workflow, with per-user storage and a self-service toolbar selector
 - AMOLED-black Dark theme, reinforced warm Light contrast, and OFL-licensed OpenDyslexic assets served from tracked `assets/fonts/opendyslexic/`
 - Table-first header menus/popovers for display-label rename/reset, column visibility/order/sort, managed option lifecycle editing, and managed floor-plan lifecycle editing
 - Item-drawer updates, local attachment uploads, checklist templates/instances, seeded make-ready QA front/internal paper workflow templates, `My Work` quick status updates, weak-connection retry messaging, and Ctrl/Cmd+K quick search
@@ -74,11 +77,12 @@
   - `MAKE_READY_BOARD_VAB`
   - `ARCHIVE_TA`
   - `ARCHIVE_VAB`
-- Current schema also includes future starter models for:
-  - refrigerant logs
-  - pool chemical logs
+- Current schema also includes:
+  - active Pool Log models for facilities, chemicals, entries, safety checks, chemical additions, and pool log attachment metadata
+  - legacy pool chemical log compatibility
   - pest tracking
   - property wiki notes
+  - legacy refrigerant log compatibility next to the active refrigerant module
 - Collaboration models now include item comments/attachments plus checklist templates and checklist execution instances.
 
 ## UI Direction
@@ -99,9 +103,10 @@
 - Kanban view grouped by:
   - `Make Ready Status`
   - `Vacancy Status`
-  - `Scope Level`
+  - `Scope Level` where legacy/high-level scope data is still useful
   - `Assigned Tech`
   - `Property`
+- The default table should not show both `scopeLevel` and `makeReadyStatus`; keep `makeReadyStatus` visible as `Make Ready Status` because it includes workflow values such as `FINAL WALK`, while `scopeLevel` remains compatibility/filter data.
 - Schedule view for `NTV / Notice to Vacate`, `Vacated`, core work dates, and active custom date tracks
 - Saved views support:
   - personal views for non-viewers
@@ -152,11 +157,11 @@
 - Core browser coverage now includes compact/theme/accessibility persistence, right-side inspector entry, logout click, Kanban drag/drop, saved view create/delete, header drag ordering, admin user lifecycle actions, custom field editing, table option creation, fast group entry/batch movement, staff assignment selection, and NTV/custom-date scheduling with calendar legend
 - Presentation QA coverage includes column label mutation, ordered saved-column rendering, configured/archiveable custom schedule tracks, AMOLED theme token selection, bundled OpenDyslexic selection, local 12-hour/24-hour clock preference, and runtime source isolation from ignored `reference/` assets
 - Saved table views now persist visible built-in/custom columns, expose compact role-focused presets, and always retain the unit identity column
-- Admin-only MakeReadyOS native JSON backup/transfer supports versioned export plus dry-run/non-destructive merge import, including managed floor plans/unit mappings and built-in board options; users, secrets, sessions, and audit history are excluded
+- Admin-only MakeReadyOS native JSON backup/transfer supports versioned export plus dry-run/non-destructive merge import, including managed floor plans/unit mappings, built-in board options, refrigerant records, and Pool Log setup/log records; users, secrets, sessions, audit history, and uploaded file bytes are excluded
 - `./backup-db.sh` and confirmation-gated `./restore-db.sh` provide Docker Compose PostgreSQL disaster recovery; database dumps include database-backed auth/audit records and remain ignored under `backups/`
 - `./prune-backups.sh` provides guarded local dump retention with dry-run support; `backup-db.sh` invokes it after successful dumps when `BACKUP_RETENTION_DAYS` is configured
 - Example systemd scheduling units are in `deploy/examples/`; deployment procedure is documented in `docs/SCHEDULED_BACKUPS.md`
-- `./run-automations.sh` evaluates enabled structured scheduled rules through Docker Compose, logs each run, and can be scheduled with the supplied automation timer examples
+- `./run-automations.sh` evaluates enabled structured scheduled rules through Docker Compose, logs each run, and can be scheduled with the supplied automation timer examples. It also performs fixed lifecycle maintenance: when an active turn is `NTV NOT LEASED` or `NTV LEASED` and its `NTV / Expected Vacate` date arrives, it moves the item once to `TO PRE-WALK`, records `NTV_PREWALK_TRIGGERED`, and notifies admins plus property-scoped managers and leasing users.
 - Operational Library packs use `makereadyos.libraryPack` version `1`, are data-only, reject executable JavaScript, track install provenance, and install automations disabled by default.
 - Local upload bytes live in the Docker `uploads_data` volume; native transfer includes comments/checklists but excludes file bytes and user inbox preferences.
 - `./seed-large.sh` creates opt-in synthetic records in non-production and logs each run; scale boundaries and virtualization rationale live in `docs/PERFORMANCE_AND_SCALE.md`.
@@ -164,7 +169,7 @@
 
 ## Key Label Vocabulary
 
-- Vacancy-style labels: `VACANT`, `VACANT LEASED`, `OCCUPIED`, `TO WALK`, `NTV`, `NTV LEASED`
+- Vacancy-style labels: `VACANT NOT LEASED READY`, `VACANT NOT LEASED NOT READY`, `NTV NOT LEASED`, `NTV LEASED`, `VACANT LEASED READY`, `VACANT LEASED NOT READY`, `DOWN`, `OCCUPIED`, `TO PRE-WALK`, `TO SCOPE`, `TO FINAL WALK`, `MODEL`
 - Progress labels: `GOOD`, `DONE`, `YES`, `NO`, `NONE`
 - Scope labels: `EASY`, `LITE`, `MEDIUM`, `MAJOR`
 - Paint/repair labels: `FULL PAINT`, `TOUCH UP`, `NEEDS PAINT`, `NEED REPLACEMENT`, `SMALL REPAIRS`, `MEDIUM REPAIRS`, `MAJOR REPAIRS`, `TEXTURE ONLY`
@@ -189,7 +194,7 @@
 - Stored rules and unsaved drafts can be previewed in-app; preview is non-mutating for board/custom-field/run data and creates an `AUTOMATION_PREVIEW_RUN` audit record.
 - Scheduled rules support relative-date checks, can be run by an admin or assigned-property manager, and record checked/matched/action metrics.
 - Active custom text/status/boolean/date/multi-select fields can be used as rule conditions with type-compatible operators and active-option validation.
-- Bundled templates cover overdue, move-in risk, missing schedule dates, schedule review, pest follow-up, flooring scheduling, and major scope priority; installed rules retain `templateId` provenance and remain ordinary editable rules.
+- Bundled templates cover overdue, move-in risk, missing schedule dates, schedule review, pest follow-up, flooring scheduling, cleaner-assignment review, balanced tech-assignment review, and major scope priority; installed rules retain `templateId` provenance and remain ordinary editable rules.
 - Template installation defaults to disabled and reports missing custom-field requirements, including the `Pest Follow-Up Date` requirement for the pest follow-up template.
 - Activity-note actions from scheduled rules are deduplicated per rule/item during `AUTOMATION_NOTE_COOLDOWN_HOURS` to avoid recurring log spam.
 - Rules never execute arbitrary JavaScript. Local legacy board automation files remain documentation/reference material only.
@@ -218,6 +223,7 @@
 - Last-admin protections prevent removing or self-demoting the final active `ADMIN`
 - Admin UX now includes user filtering, reactivation, confirmations for risky actions, and self-lockout safeguards
 - Activity is available to `ADMIN` globally and to `MANAGER` only for property-linked events in assigned properties; `TECH`, `LEASING`, `CLEANER`, and `VIEWER` remain blocked
+- Activity includes a daily manager report with date/property filters, categorized ready/import/archive/update/exception counts, action hints for external property-system reconciliation, and CSV export
 - Native JSON export/import activity is recorded in the audit log; database backup/restore script execution is documented through timestamped `logs/` files instead
 
 ## Important Context For Future Chats
@@ -249,6 +255,7 @@
 - Make-ready reads support scoped optional property/section/date/limit filters; growing drawer/inbox/history surfaces are bounded and out-of-scope explicit manager item requests are rejected.
 - Dashboard saved views can store dashboard scope/filter state and an overview or attention-focus layout; Ctrl/Cmd+K provides fast navigation and record search.
 - Property-owned board section metadata supplies renameable Ready Units, Make Ready, Down Units, and Archive presentation over stable group keys.
+- Completion is now a two-step workflow: setting `Completed` to `YES` moves the make-ready status to `FINAL WALK` and notifies admins/property managers; manager/admin final-walk signoff uses the drawer's Mark Ready action to move the turn into the property's Ready Units section.
 - Floor-plan table/drawer editing now selects property-owned managed plans and synchronizes linked unit metadata; legacy text is retained and labelled for migration.
 - Kanban metadata settings and single/two/four/auto Schedule layout choices are kept as saved-view-safe configuration.
 - Schedule legends derive from actual event colors and schedule events open the shared item inspector.
@@ -296,6 +303,16 @@ Feature expansion is paused for a stabilization/documentation pass. Current main
 - The Planning tab is a form/list foundation, not a drag/drop scheduler. Managers/admins create and replan blocks; assigned staff can update execution status.
 - My Work includes active planning blocks, the item drawer shows an In-House Planning summary, Dashboard exposes planned assignment/uncovered move-in KPIs, and risk evaluation includes `PLANNING_RISK`.
 - Native transfer excludes planning blocks for now because users are excluded; PostgreSQL backups preserve them. See `docs/WORKLOAD_PLANNING.md`.
+
+## Refrigerant Tracking Foundation
+
+- Refrigerant is now a first-class workspace with Overview, Virgin Tanks, Clean Recovery, Dirty Recovery, Unit History, and Exports tabs.
+- The backend uses `RefrigerantType`, `RefrigerantCylinder`, `RefrigerantTransaction`, and `RefrigerantLeakFlag`.
+- Default refrigerant types are seeded: R22, R410A, R454B, R32, and R134a.
+- Virgin charges calculate `startWeight - endWeight`; recovery events calculate `endWeight - startWeight`.
+- Empty virgin cylinders move to `EMPTY_PENDING_RECOVERY` until final recovery is logged, then they can be archived.
+- Repeated additions create leak-review flags, and recovery tanks show 80/90/95 percent capacity warnings.
+- Native backup/transfer includes refrigerant types, cylinders, transactions, and leak flags. CSV export is available; PDF/Excel reporting remains a later reporting enhancement.
 
 ## Property / Board Templates Foundation
 

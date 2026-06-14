@@ -338,5 +338,9 @@ export function normalizeItemPatch(payload: Record<string, unknown>) {
     }
   }
 
+  if (String(payload.pestStatus ?? "").trim().toUpperCase() === "NONE") {
+    data.pestTreated = null;
+  }
+
   return data as Prisma.MakeReadyItemUncheckedUpdateInput;
 }

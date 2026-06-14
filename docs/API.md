@@ -36,6 +36,7 @@ API token requests do not use CSRF headers. Cookie-session requests still requir
 
 - `read:items`: read make-ready items, metadata, and saved views.
 - `write:items`: create/update/archive make-ready items.
+- Refrigerant read/write endpoints currently use `read:items` and `write:items` API-token scopes plus the creating user's role/property permissions. Dedicated refrigerant token scopes are a future hardening item.
 - `write:comments`: create item comments and upload item attachments.
 - `read:vendors`: read vendors and vendor assignments.
 - `write:vendors`: manage vendors and vendor assignments.
@@ -52,6 +53,8 @@ Tokens can also be scoped to specific properties. Property scope is an additiona
 - `GET /api/meta`
 - `GET /api/operations/properties`
 - `GET /api/operations/units?propertyId=`
+- `POST /api/operations/units/import`
+- `POST /api/operations/availability/import`
 - `GET /api/operations/board-sections?propertyId=`
 - `GET /api/operations/options?fieldKey=`
 - `GET /api/operations/floor-plans?propertyId=`
@@ -77,6 +80,11 @@ Tokens can also be scoped to specific properties. Property scope is an additiona
 - `GET /api/activity?limit=&offset=`
 - `GET /api/notifications?limit=&offset=&unreadOnly=`
 - `GET /api/vendors`
+- `GET /api/refrigerant/overview`
+- `GET /api/refrigerant/types`
+- `GET /api/refrigerant/cylinders`
+- `GET /api/refrigerant/history`
+- `GET /api/refrigerant/export.csv`
 - `GET /api/property-maps`
 - `GET /api/property-map-areas?propertyId=&mapId=`
 - `GET /api/unit-map-locations`
@@ -115,6 +123,12 @@ Endpoints that can grow large use `limit` and `offset` where implemented. Keep i
 Other newer collection endpoints may return a `pagination` object in the JSON body.
 
 High-use board filters can be pushed into the item query for integrations that need bounded slices instead of full board exports. Supported filters include property, section/group, board-section type, vacancy, assignee, scope, make-ready status, risk level, risk category, move-in window, updated-since, active custom-field filters, and common operational flags such as overdue, missing dates, pest issues, flooring needed, paint needed, and move-in risk. Item queries also support deterministic bounded sorting through `sortBy` and `sortDirection`; valid sort fields include `boardGroup`, `unitNumber`, `moveInDate`, `makeReadyDate`, `vacatedDate`, `flooringDate`, `daysVacant`, `riskScore`, `riskLevel`, `assignedTech`, `updatedAt`, and `createdAt`. Custom-field filters are passed as a JSON-encoded `customFieldFilters` array using the same operators as saved views; the API validates active field/option references and narrows through custom-field value indexes before returning the paged item array.
+
+## Operations Imports
+
+`POST /api/operations/units/import` updates permanent unit-directory inventory only. It does not create active make-ready turns.
+
+`POST /api/operations/availability/import` updates directory availability and creates or updates active make-ready turns for operational statuses such as `VACANT NOT LEASED READY`, `VACANT NOT LEASED NOT READY`, `NTV NOT LEASED`, `NTV LEASED`, `VACANT LEASED READY`, `VACANT LEASED NOT READY`, `DOWN`, and `MODEL`. Legacy underscore aliases remain accepted for compatibility. The import requires an existing `propertyId`, is merge-style, and does not delete units or turns that are missing from the imported report. Detailed CSV conversion guidance lives in `docs/UNIT_DIRECTORY_AND_OCCUPANCY.md`.
 
 ## Error Format
 

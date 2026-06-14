@@ -66,7 +66,7 @@ type TemplateManifest = {
     boardSections: Array<{ key: string; sectionType: string; displayName: string; sortOrder: number; isActive: boolean }>;
     optionSets: Array<{ fieldKey: string; value: string; color: string; textColor: string; sortOrder: number; isArchived: boolean }>;
     customFields: Array<{ fieldKey: string; module: string; label: string; fieldType: CustomFieldType; description: string | null; sortOrder: number; isArchived: boolean; options: Array<{ label: string; color: string; sortOrder: number; isArchived: boolean }> }>;
-    floorPlans: Array<{ name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null; description: string | null; isActive: boolean }>;
+    floorPlans: Array<{ code?: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null; description: string | null; isActive: boolean }>;
     scheduleTracks: Array<{ sourceField: string; displayName: string; colorBasis: string; colorSourceField: string | null; fixedColor: string | null; groupingMode: string; visibilityFilter: unknown; overdueEnabled: boolean; moveInSoonEnabled: boolean; isEnabled: boolean; isArchived: boolean; sortOrder: number }>;
     savedViews: Array<{ name: string; module: string; viewType: string; filters: unknown; sorts: unknown; grouping: unknown; visibleColumns: unknown; isShared: boolean; isDefault: boolean }>;
     checklistTemplates: Array<{ name: string; scope: string | null; items: Array<{ label: string; notes: string | null; sortOrder: number; required: boolean; dueOffsetDays: number | null; tradeCategory: string | null }> }>;
@@ -169,7 +169,7 @@ async function buildManifest(propertyId: string, include: IncludeConfig): Promis
     include.boardSections ? prisma.boardSection.findMany({ where: { propertyId, isActive: true }, orderBy: { sortOrder: "asc" } }) : [],
     include.optionSets ? prisma.labelDefinition.findMany({ orderBy: [{ fieldKey: "asc" }, { sortOrder: "asc" }] }) : [],
     include.customFields ? prisma.customField.findMany({ include: { options: { orderBy: { sortOrder: "asc" } } }, where: { module: "make-ready", deletedAt: null }, orderBy: { sortOrder: "asc" } }) : [],
-    include.floorPlans ? prisma.floorPlan.findMany({ where: { propertyId }, orderBy: { name: "asc" } }) : [],
+    include.floorPlans ? prisma.floorPlan.findMany({ where: { propertyId }, orderBy: { code: "asc" } }) : [],
     include.scheduleTracks ? prisma.scheduleTrack.findMany({ where: { isArchived: false }, orderBy: [{ sortOrder: "asc" }, { displayName: "asc" }] }) : [],
     include.savedViews || include.dashboardPresets ? prisma.savedView.findMany({
       where: {
@@ -204,7 +204,7 @@ async function buildManifest(propertyId: string, include: IncludeConfig): Promis
         isArchived: field.isArchived,
         options: field.options.map((option) => ({ label: option.label, color: option.color, sortOrder: option.sortOrder, isArchived: option.isArchived })),
       })),
-      floorPlans: floorPlans.map((plan) => ({ name: plan.name, bedrooms: plan.bedrooms, bathrooms: plan.bathrooms, squareFeet: plan.squareFeet, description: plan.description, isActive: plan.isActive })),
+      floorPlans: floorPlans.map((plan) => ({ code: plan.code, name: plan.name, bedrooms: plan.bedrooms, bathrooms: plan.bathrooms, squareFeet: plan.squareFeet, description: plan.description, isActive: plan.isActive })),
       scheduleTracks: scheduleTracks.map((track) => ({
         sourceField: track.sourceField,
         displayName: track.displayName,
@@ -344,14 +344,15 @@ async function applyTemplateManifest(options: {
     }
 
     for (const plan of options.manifest.data.floorPlans) {
-      const existing = canCheckPropertyScopedDuplicates ? await tx.floorPlan.findUnique({ where: { propertyId_name: { propertyId, name: plan.name } } }) : null;
+      const code = plan.code ?? plan.name;
+      const existing = canCheckPropertyScopedDuplicates ? await tx.floorPlan.findUnique({ where: { propertyId_code: { propertyId, code } } }) : null;
       if (existing) {
         summary.floorPlans.skipped += 1;
         continue;
       }
       summary.floorPlans.created += 1;
       if (!options.dryRun) {
-        await tx.floorPlan.create({ data: { propertyId, ...plan } });
+        await tx.floorPlan.create({ data: { propertyId, ...plan, code } });
       }
     }
 

@@ -206,6 +206,8 @@ export function SavedViewsPanel({
               Vacancy
               <select data-testid="filter-vacancy-status" value={config.vacancyStatus} onChange={(event) => onConfigChange({ vacancyStatus: event.target.value })}>
                 <option value="">All vacancy statuses</option>
+                <option value="__vacant__">Vacant not leased</option>
+                <option value="__vacant_leased__">Vacant leased</option>
                 <option value="__ntv__">NTV / Notice to Vacate</option>
                 {Object.values(labelsByField.vacancyStatus ?? {}).filter((option) => !option.isArchived).map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}
               </select>
@@ -264,6 +266,7 @@ export function SavedViewsPanel({
               <select data-testid="filter-archive-state" value={config.archiveState} onChange={(event) => onConfigChange({ archiveState: event.target.value as ArchiveFilter })}>
                 <option value="active">Active items</option>
                 <option value="archived">Archived items</option>
+                <option value="occupied">Occupied</option>
                 <option value="all">Active + archived</option>
               </select>
             </label>

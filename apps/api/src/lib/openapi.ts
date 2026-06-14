@@ -65,6 +65,11 @@ import {
   vendorAssignmentPatchSchema,
 } from "../routes/vendors.js";
 import {
+  poolChemicalSchema,
+  poolFacilitySchema,
+  poolLogEntrySchema,
+} from "../routes/poolLog.js";
+import {
   propertyMapCreateSchema,
   propertyMapPatchSchema,
   propertyMapAreaInputSchema,
@@ -138,6 +143,11 @@ const zodSchemas: Record<string, ZodTypeAny> = {
   VendorPatchRequest: vendorPatchSchema,
   VendorAssignmentCreateRequest: vendorAssignmentSchema,
   VendorAssignmentPatchRequest: vendorAssignmentPatchSchema,
+  PoolFacilityCreateRequest: poolFacilitySchema,
+  PoolFacilityPatchRequest: poolFacilitySchema.partial(),
+  PoolChemicalCreateRequest: poolChemicalSchema,
+  PoolChemicalPatchRequest: poolChemicalSchema.partial(),
+  PoolLogEntryCreateRequest: poolLogEntrySchema,
   PropertyMapCreateRequest: propertyMapCreateSchema,
   PropertyMapPatchRequest: propertyMapPatchSchema,
   PropertyMapAreaCreateRequest: propertyMapAreaInputSchema,
@@ -312,6 +322,56 @@ const generatedResponseSchemas = {
     },
   },
   VendorAssignmentResponse: envelope("assignment", ref("VendorAssignment")),
+  RefrigerantOverviewResponse: {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      summary: { type: "object", additionalProperties: true },
+      types: arrayOf({ type: "object", additionalProperties: true }),
+      recoveryNearCapacity: arrayOf({ type: "object", additionalProperties: true }),
+      leakFlags: arrayOf({ type: "object", additionalProperties: true }),
+      complianceIssues: arrayOf({ type: "object", additionalProperties: true }),
+      recent: arrayOf({ type: "object", additionalProperties: true }),
+    },
+  },
+  RefrigerantTypesResponse: envelope("types", arrayOf({ type: "object", additionalProperties: true })),
+  RefrigerantCylindersResponse: envelope("cylinders", arrayOf({ type: "object", additionalProperties: true })),
+  RefrigerantHistoryResponse: {
+    type: "object",
+    required: ["transactions", "pagination"],
+    properties: {
+      transactions: arrayOf({ type: "object", additionalProperties: true }),
+      pagination,
+    },
+  },
+  PoolOverviewResponse: {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      permissions: { type: "object", additionalProperties: true },
+      safetyItems: arrayOf({ type: "string" }),
+      facilities: arrayOf(ref("PoolFacility")),
+      chemicals: arrayOf(ref("PoolChemical")),
+      summary: { type: "object", additionalProperties: { type: "number" } },
+      missingFacilities: arrayOf(ref("PoolFacility")),
+      safetyFailures: arrayOf({ type: "object", additionalProperties: true }),
+      chemistryIssues: arrayOf({ type: "object", additionalProperties: true }),
+      recentEntries: arrayOf(ref("PoolLogEntry")),
+    },
+  },
+  PoolFacilitiesResponse: envelope("facilities", arrayOf(ref("PoolFacility"))),
+  PoolFacilityResponse: envelope("facility", ref("PoolFacility")),
+  PoolChemicalsResponse: envelope("chemicals", arrayOf(ref("PoolChemical"))),
+  PoolChemicalResponse: envelope("chemical", ref("PoolChemical")),
+  PoolEntriesResponse: {
+    type: "object",
+    required: ["entries", "pagination"],
+    properties: {
+      entries: arrayOf(ref("PoolLogEntry")),
+      pagination,
+    },
+  },
+  PoolEntryResponse: envelope("entry", ref("PoolLogEntry")),
   PropertyMapsResponse: envelope("maps", arrayOf(ref("PropertyMap"))),
   PropertyMapResponse: envelope("map", ref("PropertyMap")),
   PropertyMapAreasResponse: envelope("areas", arrayOf({ type: "object", additionalProperties: true })),
@@ -559,6 +619,7 @@ export const openApiDocument = {
     { name: "Risk" },
     { name: "Planning" },
     { name: "Vendors" },
+    { name: "Pool Log" },
     { name: "Property Maps" },
     { name: "Activity" },
     { name: "Notifications" },
@@ -688,16 +749,16 @@ export const openApiDocument = {
       },
       FloorPlan: {
         type: "object",
-        required: ["id", "propertyId", "name", "isActive"],
+        required: ["id", "propertyId", "code", "name", "isActive"],
         properties: {
           id: { type: "string" },
           propertyId: { type: "string" },
+          code: { type: "string" },
           name: { type: "string" },
-          beds: { type: ["number", "null"] },
-          baths: { type: ["number", "null"] },
-          sqft: { type: ["integer", "null"] },
+          bedrooms: { type: ["integer", "null"] },
+          bathrooms: { type: ["number", "null"] },
+          squareFeet: { type: ["integer", "null"] },
           description: { type: ["string", "null"] },
-          color: { type: ["string", "null"] },
           isActive: { type: "boolean" },
           property: ref("Property"),
         },
@@ -998,6 +1059,62 @@ export const openApiDocument = {
           scheduledDate: { type: ["string", "null"], format: "date-time" },
           dueDate: { type: ["string", "null"], format: "date-time" },
           completedAt: { type: ["string", "null"], format: "date-time" },
+        },
+      },
+      PoolFacility: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          id: { type: "string" },
+          propertyId: { type: "string" },
+          name: { type: "string" },
+          type: { type: "string", enum: ["POOL", "SPA", "WADING_POOL", "SPLASH_PAD", "OTHER"] },
+          capacityGallons: { type: ["number", "null"] },
+          surfaceType: { type: ["string", "null"] },
+          notes: { type: ["string", "null"] },
+          isActive: { type: "boolean" },
+          property: ref("Property"),
+        },
+      },
+      PoolChemical: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          id: { type: "string" },
+          propertyId: { type: "string" },
+          name: { type: "string" },
+          category: { type: "string" },
+          concentrationPercent: { type: ["number", "null"] },
+          unit: { type: "string" },
+          notes: { type: ["string", "null"] },
+          isActive: { type: "boolean" },
+          property: ref("Property"),
+        },
+      },
+      PoolLogEntry: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          id: { type: "string" },
+          propertyId: { type: "string" },
+          facilityId: { type: "string" },
+          technicianId: { type: ["string", "null"] },
+          technicianName: { type: ["string", "null"] },
+          logDate: { type: "string", format: "date-time" },
+          logTime: { type: ["string", "null"] },
+          ph: { type: ["number", "null"] },
+          freeChlorine: { type: ["number", "null"] },
+          combinedChlorine: { type: ["number", "null"] },
+          totalChlorine: { type: ["number", "null"] },
+          totalAlkalinity: { type: ["number", "null"] },
+          cyanuricAcid: { type: ["number", "null"] },
+          calciumHardness: { type: ["number", "null"] },
+          waterTemperature: { type: ["number", "null"] },
+          evaluationJson: { type: ["object", "null"], additionalProperties: true },
+          safetyChecks: arrayOf({ type: "object", additionalProperties: true }),
+          chemicalAdditions: arrayOf({ type: "object", additionalProperties: true }),
+          facility: ref("PoolFacility"),
+          property: ref("Property"),
         },
       },
       PropertyMap: {
@@ -1948,6 +2065,21 @@ export const openApiDocument = {
         responses: { "200": { description: "Charge/evidence report.", ...json(ref("ChargeReportResponse")) } },
       },
     },
+    "/api/make-ready-items/{id}/charge-report.csv": {
+      get: {
+        tags: ["Comments And Attachments"],
+        summary: "Download charge/evidence report CSV",
+        description: "Downloads the same charge/evidence line items as CSV for review, sharing, or external spreadsheet analysis. This is evidence/estimate metadata, not accounting.",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": {
+            description: "Charge/evidence report CSV.",
+            content: { "text/csv": { schema: { type: "string", format: "binary" } } },
+          },
+        },
+      },
+    },
     "/api/make-ready-items/{id}/attachments/archive": {
       get: {
         tags: ["Comments And Attachments"],
@@ -2233,6 +2365,249 @@ export const openApiDocument = {
           content: { "application/json": { schema: ref("VendorAssignmentCreateRequest") } },
         },
         responses: { "201": { description: "Vendor assignment created.", ...json(ref("VendorAssignmentResponse")) } },
+      },
+    },
+    "/api/refrigerant/overview": {
+      get: {
+        tags: ["Refrigerant"],
+        summary: "Refrigerant overview, warnings, and recent activity",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        responses: {
+          "200": { description: "Refrigerant operational overview.", ...json(ref("RefrigerantOverviewResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/api/refrigerant/types": {
+      get: {
+        tags: ["Refrigerant"],
+        summary: "List refrigerant types",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        responses: {
+          "200": { description: "Refrigerant type catalog.", ...json(ref("RefrigerantTypesResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+      post: {
+        tags: ["Refrigerant"],
+        summary: "Create refrigerant type",
+        security: [{ cookieSession: [] }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { type: "object", additionalProperties: true } } },
+        },
+        responses: {
+          "201": { description: "Refrigerant type created.", ...json(envelope("type", { type: "object", additionalProperties: true })) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/api/refrigerant/cylinders": {
+      get: {
+        tags: ["Refrigerant"],
+        summary: "List refrigerant cylinders and recovery tanks",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [
+          { name: "category", in: "query", schema: { enum: ["VIRGIN", "CLEAN_RECOVERY", "DIRTY_RECOVERY"] } },
+          { name: "status", in: "query", schema: { enum: ["ACTIVE", "EMPTY_PENDING_RECOVERY", "ARCHIVED"] } },
+          { name: "includeArchived", in: "query", schema: { type: "boolean" } },
+        ],
+        responses: {
+          "200": { description: "Refrigerant cylinders.", ...json(ref("RefrigerantCylindersResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+      post: {
+        tags: ["Refrigerant"],
+        summary: "Create refrigerant cylinder or recovery tank",
+        security: [{ cookieSession: [] }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { type: "object", additionalProperties: true } } },
+        },
+        responses: {
+          "201": { description: "Cylinder created.", ...json(envelope("cylinder", { type: "object", additionalProperties: true })) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/api/refrigerant/history": {
+      get: {
+        tags: ["Refrigerant"],
+        summary: "List unit refrigerant transaction history",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [
+          { name: "propertyId", in: "query", schema: { type: "string" } },
+          { name: "unitId", in: "query", schema: { type: "string" } },
+          { name: "unitNumber", in: "query", schema: { type: "string" } },
+          { name: "refrigerantTypeId", in: "query", schema: { type: "string" } },
+          { name: "transactionType", in: "query", schema: { enum: ["VIRGIN_CHARGE", "CLEAN_RECOVERY", "DIRTY_RECOVERY", "FINAL_RECOVERY"] } },
+          { name: "limit", in: "query", schema: { type: "integer" } },
+          { name: "offset", in: "query", schema: { type: "integer" } },
+        ],
+        responses: {
+          "200": { description: "Refrigerant transaction history.", ...json(ref("RefrigerantHistoryResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/api/refrigerant/export.csv": {
+      get: {
+        tags: ["Refrigerant"],
+        summary: "Export refrigerant history CSV",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        responses: {
+          "200": { description: "CSV export." },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/api/pool/overview": {
+      get: {
+        tags: ["Pool Log"],
+        summary: "Pool/spa daily log overview, missing logs, safety failures, and chemistry issues",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [{ name: "propertyId", in: "query", schema: { type: "string" } }],
+        responses: {
+          "200": { description: "Pool Log operational overview.", ...json(ref("PoolOverviewResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/api/pool/facilities": {
+      get: {
+        tags: ["Pool Log"],
+        summary: "List pools, spas, and other water facilities",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [
+          { name: "propertyId", in: "query", schema: { type: "string" } },
+          { name: "includeArchived", in: "query", schema: { type: "boolean" } },
+        ],
+        responses: {
+          "200": { description: "Pool/spa setup list.", ...json(ref("PoolFacilitiesResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+      post: {
+        tags: ["Pool Log"],
+        summary: "Create a pool/spa setup record",
+        security: [{ cookieSession: [] }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: ref("PoolFacilityCreateRequest") } },
+        },
+        responses: {
+          "201": { description: "Pool/spa created.", ...json(ref("PoolFacilityResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/api/pool/facilities/{id}": {
+      patch: {
+        tags: ["Pool Log"],
+        summary: "Update or archive a pool/spa setup record",
+        security: [{ cookieSession: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: ref("PoolFacilityPatchRequest") } },
+        },
+        responses: {
+          "200": { description: "Pool/spa updated.", ...json(ref("PoolFacilityResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/api/pool/chemicals": {
+      get: {
+        tags: ["Pool Log"],
+        summary: "List property pool chemical library entries",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [
+          { name: "propertyId", in: "query", schema: { type: "string" } },
+          { name: "includeArchived", in: "query", schema: { type: "boolean" } },
+        ],
+        responses: {
+          "200": { description: "Pool chemical library.", ...json(ref("PoolChemicalsResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+      post: {
+        tags: ["Pool Log"],
+        summary: "Create a pool chemical library entry",
+        security: [{ cookieSession: [] }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: ref("PoolChemicalCreateRequest") } },
+        },
+        responses: {
+          "201": { description: "Pool chemical created.", ...json(ref("PoolChemicalResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/api/pool/chemicals/{id}": {
+      patch: {
+        tags: ["Pool Log"],
+        summary: "Update or archive a pool chemical library entry",
+        security: [{ cookieSession: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: ref("PoolChemicalPatchRequest") } },
+        },
+        responses: {
+          "200": { description: "Pool chemical updated.", ...json(ref("PoolChemicalResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/api/pool/entries": {
+      get: {
+        tags: ["Pool Log"],
+        summary: "List pool/spa log entries",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [
+          { name: "propertyId", in: "query", schema: { type: "string" } },
+          { name: "facilityId", in: "query", schema: { type: "string" } },
+          { name: "from", in: "query", schema: { type: "string", format: "date" } },
+          { name: "to", in: "query", schema: { type: "string", format: "date" } },
+          { name: "limit", in: "query", schema: { type: "integer" } },
+          { name: "offset", in: "query", schema: { type: "integer" } },
+        ],
+        responses: {
+          "200": { description: "Pool/spa log entries.", ...json(ref("PoolEntriesResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+      post: {
+        tags: ["Pool Log"],
+        summary: "Create a daily pool/spa log entry",
+        security: [{ cookieSession: [] }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: ref("PoolLogEntryCreateRequest") } },
+        },
+        responses: {
+          "201": { description: "Pool/spa log entry created.", ...json(ref("PoolEntryResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/api/pool/export.csv": {
+      get: {
+        tags: ["Pool Log"],
+        summary: "Export pool/spa log entries as CSV",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [
+          { name: "propertyId", in: "query", schema: { type: "string" } },
+          { name: "from", in: "query", schema: { type: "string", format: "date" } },
+          { name: "to", in: "query", schema: { type: "string", format: "date" } },
+        ],
+        responses: {
+          "200": { description: "CSV export." },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
       },
     },
     "/api/property-maps": {

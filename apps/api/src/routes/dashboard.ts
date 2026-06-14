@@ -78,8 +78,18 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const downUnitIds = new Set(items
       .filter((item) => item.unitId && sectionType.get(`${item.propertyId}:${item.boardGroup}`) === "DOWN")
       .map((item) => item.unitId as string));
-    const countStatus = (status: string) => items.filter((item) => item.vacancyStatus === status).length;
-    const evaluated = items.map((item) => ({ item, risk: evaluateItemRisk(item) }));
+    const hasAnyStatus = (value: string | null, statuses: string[]) => Boolean(value && statuses.includes(value));
+    const vacantStatuses = ["VACANT", "VACANT_NOT_LEASED", "VACANT_READY", "VACANT NOT LEASED READY", "VACANT NOT LEASED NOT READY"];
+    const vacantLeasedStatuses = ["VACANT LEASED", "VACANT_LEASED", "VACANT LEASED READY", "VACANT LEASED NOT READY"];
+    const readyStockStatuses = ["VACANT_READY", "VACANT NOT LEASED READY", "VACANT LEASED READY"];
+    const ntvStatuses = ["NTV", "NTV NOT LEASED", "NTV_LEASED", "NTV LEASED"];
+    const evaluated = items.map((item) => ({
+      item,
+      risk: evaluateItemRisk({
+        ...item,
+        boardSectionType: sectionType.get(`${item.propertyId}:${item.boardGroup}`) ?? null,
+      }),
+    }));
     const breakdown = <K extends string>(values: K[]) => values.reduce<Record<string, number>>((result, value) => {
       result[value || "Unset"] = (result[value || "Unset"] ?? 0) + 1;
       return result;
@@ -105,10 +115,10 @@ export async function dashboardRoutes(app: FastifyInstance) {
       return acc;
     }, {});
     const occupiedUnits = directoryUnits.filter((unit) => unit.occupancyStatus === "OCCUPIED").length;
-    const directoryVacantReady = directoryUnits.filter((unit) => unit.occupancyStatus === "VACANT_READY").length;
-    const directoryVacantLeased = directoryUnits.filter((unit) => unit.occupancyStatus === "VACANT_LEASED").length;
-    const directoryNtv = directoryUnits.filter((unit) => unit.occupancyStatus === "NTV").length;
-    const directoryNtvLeased = directoryUnits.filter((unit) => unit.occupancyStatus === "NTV_LEASED").length;
+    const directoryVacantReady = directoryUnits.filter((unit) => hasAnyStatus(unit.occupancyStatus, readyStockStatuses)).length;
+    const directoryVacantLeased = directoryUnits.filter((unit) => hasAnyStatus(unit.occupancyStatus, vacantLeasedStatuses)).length;
+    const directoryNtv = directoryUnits.filter((unit) => unit.occupancyStatus === "NTV" || unit.occupancyStatus === "NTV NOT LEASED").length;
+    const directoryNtvLeased = directoryUnits.filter((unit) => unit.occupancyStatus === "NTV_LEASED" || unit.occupancyStatus === "NTV LEASED").length;
     const occupancyPercent = directoryUnits.length ? Math.round((occupiedUnits / directoryUnits.length) * 1000) / 10 : 0;
     const goalContributors = new Map<string, { goal: number; count: number }>();
     for (const unit of directoryUnits) {
@@ -126,8 +136,8 @@ export async function dashboardRoutes(app: FastifyInstance) {
     return {
       kpis: {
         active: items.length,
-        vacant: countStatus("VACANT"),
-        vacantLeased: countStatus("VACANT LEASED"),
+        vacant: items.filter((item) => hasAnyStatus(item.vacancyStatus, vacantStatuses)).length,
+        vacantLeased: items.filter((item) => hasAnyStatus(item.vacancyStatus, vacantLeasedStatuses)).length,
         ntv: items.filter((item) => item.vacancyStatus?.startsWith("NTV")).length,
         downUnits: items.filter((item) => sectionType.get(`${item.propertyId}:${item.boardGroup}`) === "DOWN").length,
         readyUnits: items.filter((item) => sectionType.get(`${item.propertyId}:${item.boardGroup}`) === "READY").length,

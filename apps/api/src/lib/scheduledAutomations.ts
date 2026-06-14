@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma, UserRole } from "@prisma/client";
 import { automationRuleInputSchema, validateRuleReferences } from "./automationDefinition.js";
 import { applyRules, computeDerivedFields, editableFields, normalizeItemPatch } from "./board.js";
 import { writeAuditLog } from "./audit.js";
 import { prisma } from "./prisma.js";
-import { notifyAssignedStaff } from "./notifications.js";
+import { createNotification, notifyAssignedStaff } from "./notifications.js";
 
 export type ScheduledRunMode = "SCHEDULED" | "MANUAL";
 
@@ -15,6 +15,109 @@ function cooldownHours() {
 
 function noteActionKey(value: string) {
   return `note:${createHash("sha256").update(value).digest("hex").slice(0, 20)}`;
+}
+
+const ntvPreWalkSourceStatuses = ["NTV NOT LEASED", "NTV LEASED"];
+const ntvPreWalkTargetStatus = "TO PRE-WALK";
+const ntvPreWalkAuditAction = "NTV_PREWALK_TRIGGERED";
+
+function endOfToday(now = new Date()) {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+}
+
+async function notifyPreWalkStakeholders(item: {
+  id: string;
+  propertyId: string;
+  unitNumber: string;
+  moveOutDate: Date | null;
+}) {
+  const recipients = await prisma.user.findMany({
+    where: {
+      isActive: true,
+      OR: [
+        { role: UserRole.ADMIN },
+        {
+          role: { in: [UserRole.MANAGER, UserRole.LEASING] },
+          propertyAccess: { some: { propertyId: item.propertyId } },
+        },
+      ],
+    },
+    select: { id: true },
+  });
+  await Promise.all(recipients.map((recipient) => createNotification({
+    userId: recipient.id,
+    propertyId: item.propertyId,
+    itemId: item.id,
+    category: "SCHEDULE",
+    title: "Pre-walk needed",
+    message: `${item.unitNumber} reached its NTV / expected vacate date and was moved to ${ntvPreWalkTargetStatus}. Pre-walk the unit.`,
+    dedupeKey: `ntv-prewalk:${item.id}`,
+  })));
+}
+
+async function executeNtvPreWalkLifecycle(options: {
+  actorUserId?: string | null;
+  allowedPropertyIds?: string[] | null;
+}) {
+  const propertyConstraint = options.allowedPropertyIds === null || options.allowedPropertyIds === undefined
+    ? undefined
+    : { in: options.allowedPropertyIds };
+  const candidates = await prisma.makeReadyItem.findMany({
+    where: {
+      propertyId: propertyConstraint,
+      isArchived: false,
+      moveOutDate: { lte: endOfToday() },
+      vacancyStatus: { in: ntvPreWalkSourceStatuses },
+    },
+  });
+  const priorTriggers = candidates.length === 0
+    ? []
+    : await prisma.auditLog.findMany({
+      where: {
+        action: ntvPreWalkAuditAction,
+        entityType: "MAKE_READY_ITEM",
+        entityId: { in: candidates.map((item) => item.id) },
+      },
+      select: { entityId: true },
+    });
+  const alreadyTriggered = new Set(priorTriggers.map((entry) => entry.entityId).filter((id): id is string => Boolean(id)));
+
+  let actionCount = 0;
+  const eligibleItems = candidates.filter((item) => !alreadyTriggered.has(item.id));
+  for (const item of eligibleItems) {
+    const next = { ...item, vacancyStatus: ntvPreWalkTargetStatus };
+    const updated = await prisma.makeReadyItem.update({
+      where: { id: item.id },
+      data: {
+        vacancyStatus: ntvPreWalkTargetStatus,
+        ...computeDerivedFields(next),
+      },
+    });
+    await writeAuditLog({
+      actorUserId: options.actorUserId ?? null,
+      propertyId: updated.propertyId,
+      entityType: "MAKE_READY_ITEM",
+      entityId: updated.id,
+      action: ntvPreWalkAuditAction,
+      message: `${updated.unitNumber} reached NTV / expected vacate date and was moved to ${ntvPreWalkTargetStatus}.`,
+      metadata: {
+        previousVacancyStatus: item.vacancyStatus,
+        vacancyStatus: ntvPreWalkTargetStatus,
+        moveOutDate: item.moveOutDate?.toISOString() ?? null,
+      },
+    });
+    await notifyPreWalkStakeholders(updated);
+    actionCount += 1;
+  }
+
+  return {
+    name: "NTV pre-walk lifecycle",
+    checkedCount: candidates.length,
+    matchedCount: eligibleItems.length,
+    actionCount,
+    warnings: [] as string[],
+    errors: [] as string[],
+  };
 }
 
 export async function executeScheduledAutomationRules(options: {
@@ -177,12 +280,20 @@ export async function executeScheduledAutomationRules(options: {
     summaries.push({ ruleId: rule.id, name: rule.name, checkedCount, matchedCount, actionCount, warnings, errors });
   }
 
+  const lifecycleResult = options.ruleId
+    ? null
+    : await executeNtvPreWalkLifecycle({
+      actorUserId: options.actorUserId,
+      allowedPropertyIds: options.allowedPropertyIds,
+    });
+
   return {
     mode: options.mode,
     rulesEvaluated: summaries.length,
-    checkedCount: summaries.reduce((total, result) => total + result.checkedCount, 0),
-    matchedCount: summaries.reduce((total, result) => total + result.matchedCount, 0),
-    actionCount: summaries.reduce((total, result) => total + result.actionCount, 0),
+    checkedCount: summaries.reduce((total, result) => total + result.checkedCount, lifecycleResult?.checkedCount ?? 0),
+    matchedCount: summaries.reduce((total, result) => total + result.matchedCount, lifecycleResult?.matchedCount ?? 0),
+    actionCount: summaries.reduce((total, result) => total + result.actionCount, lifecycleResult?.actionCount ?? 0),
     results: summaries,
+    lifecycle: lifecycleResult,
   };
 }

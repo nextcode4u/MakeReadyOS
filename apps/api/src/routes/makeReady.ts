@@ -6,7 +6,7 @@ import { scopedAllowedPropertyIds, assignableStaffRoles, canUpdateMakeReadyField
 import { writeAuditLog } from "../lib/audit.js";
 import { automationRuleInputSchema, validateRuleReferences } from "../lib/automationDefinition.js";
 import { prisma } from "../lib/prisma.js";
-import { notifyAssignedStaff } from "../lib/notifications.js";
+import { notifyAssignedStaff, notifyPropertyRoles } from "../lib/notifications.js";
 import { applyRules, computeDerivedFields, editableFields, normalizeItemPatch } from "../lib/board.js";
 import { evaluateAndPersistItemRisk, riskCategories } from "../lib/risk.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
@@ -128,8 +128,15 @@ async function sectionFor(propertyId: string, key: string) {
   return prisma.boardSection.findFirst({ where: { propertyId, key, isActive: true } });
 }
 
-async function lifecycleSection(propertyId: string, type: "ARCHIVE" | "MAKE_READY") {
+async function lifecycleSection(propertyId: string, type: "ARCHIVE" | "MAKE_READY" | "READY") {
   return prisma.boardSection.findFirst({ where: { propertyId, sectionType: type, isActive: true } });
+}
+
+function readyVacancyStatus(value: string | null | undefined) {
+  const normalized = (value ?? "").toUpperCase();
+  if (normalized.includes("LEASED")) return "VACANT LEASED READY";
+  if (normalized === "DOWN") return "DOWN";
+  return "VACANT NOT LEASED READY";
 }
 
 function startOfWeek(date: Date) {
@@ -361,6 +368,9 @@ async function processItem(itemId: string, options: {
       automationPatch[field] = next[field] ?? null;
     }
   }
+  if (String((automationPatch.pestStatus ?? item.pestStatus) ?? "").trim().toUpperCase() === "NONE") {
+    automationPatch.pestTreated = null;
+  }
 
   const updated = await prisma.makeReadyItem.update({
     where: { id: itemId },
@@ -490,6 +500,10 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     }
     if (query.vacancyStatus === "__ntv__") {
       andFilters.push({ vacancyStatus: { startsWith: "NTV" } });
+    } else if (query.vacancyStatus === "__vacant__") {
+      andFilters.push({ vacancyStatus: { in: ["VACANT", "VACANT_NOT_LEASED", "VACANT_READY", "VACANT NOT LEASED READY", "VACANT NOT LEASED NOT READY"] } });
+    } else if (query.vacancyStatus === "__vacant_leased__") {
+      andFilters.push({ vacancyStatus: { in: ["VACANT LEASED", "VACANT_LEASED", "VACANT LEASED READY", "VACANT LEASED NOT READY"] } });
     } else if (query.vacancyStatus) {
       andFilters.push({ vacancyStatus: query.vacancyStatus });
     }
@@ -862,7 +876,33 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     const triggerTypes = ["ITEM_UPDATED"];
     if (changedKeys.some((key) => key.endsWith("Date"))) triggerTypes.push("DATE_FIELD_CHANGED");
     if (changedKeys.some((key) => statusTriggerFields.has(key))) triggerTypes.push("STATUS_FIELD_CHANGED");
-    const updated = await processItem(id, { triggerTypes, request });
+    let updated = await processItem(id, { triggerTypes, request });
+    if (changedKeys.includes("completionStatus") && (updated.completionStatus ?? "").toUpperCase() === "YES" && updated.makeReadyStatus !== "FINAL WALK") {
+      await prisma.makeReadyItem.update({
+        where: { id },
+        data: { makeReadyStatus: "FINAL WALK" },
+      });
+      updated = await processItem(id, { triggerTypes: ["STATUS_FIELD_CHANGED"], request });
+      await notifyPropertyRoles({
+        propertyId: updated.propertyId,
+        itemId: updated.id,
+        roles: [UserRole.ADMIN, UserRole.MANAGER],
+        category: "ITEM_LIFECYCLE",
+        title: "Final walk needed",
+        message: `${updated.unitNumber} was marked complete and needs manager final walk.`,
+        dedupeKey: `final-walk-needed:${updated.id}`,
+      });
+      await writeAuditLog({
+        request,
+        actorUserId: user.id,
+        propertyId: updated.propertyId,
+        entityType: "MAKE_READY_ITEM",
+        entityId: updated.id,
+        action: "BOARD_ITEM_FINAL_WALK_REQUESTED",
+        message: `${updated.unitNumber} was marked complete and moved to Final Walk.`,
+        metadata: { changedKeys, role: user.role },
+      });
+    }
     await writeAuditLog({
       request,
       actorUserId: user.id,
@@ -926,6 +966,76 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     await evaluateAndPersistItemRisk(updated.id, { notify: true });
 
     return updated;
+  });
+
+  app.post("/make-ready-items/:id/mark-ready", async (request, reply) => {
+    const user = request.currentUser!;
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
+      reply.code(403);
+      return { message: "Manager or admin access required" };
+    }
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.makeReadyItem.findUnique({ where: { id } });
+    if (!existing) {
+      reply.code(404);
+      return { message: "Item not found" };
+    }
+    const propertyIds = scopedAllowedPropertyIds(request);
+    if (propertyIds !== null && !propertyIds.includes(existing.propertyId)) {
+      reply.code(403);
+      return { message: "Property access denied" };
+    }
+    const readySection = await lifecycleSection(existing.propertyId, "READY");
+    if (!readySection) {
+      reply.code(409);
+      return { message: "Ready Units section is not configured for this property" };
+    }
+    await prisma.makeReadyItem.update({
+      where: { id },
+      data: {
+        boardGroup: readySection.key,
+        isArchived: false,
+        archivedAt: null,
+        completionStatus: "YES",
+        makeReadyStatus: "DONE",
+        vacancyStatus: readyVacancyStatus(existing.vacancyStatus),
+      },
+    });
+    const item = await processItem(id, { triggerTypes: ["STATUS_FIELD_CHANGED"], request });
+    await evaluateAndPersistItemRisk(item.id, { notify: true });
+    await writeAuditLog({
+      request,
+      actorUserId: user.id,
+      propertyId: item.propertyId,
+      entityType: "MAKE_READY_ITEM",
+      entityId: item.id,
+      action: "BOARD_ITEM_MARKED_READY",
+      message: `${item.unitNumber} passed final walk and moved to Ready Units.`,
+    });
+    await notifyAssignedStaff({
+      assignedTech: item.assignedTech,
+      propertyId: item.propertyId,
+      itemId: item.id,
+      category: "ITEM_LIFECYCLE",
+      title: "Unit marked ready",
+      message: `${item.unitNumber} passed final walk and moved to Ready Units.`,
+      dedupeKey: `marked-ready:${item.id}`,
+    });
+    await queueWebhookEvent({
+      eventType: "item.updated",
+      propertyId: item.propertyId,
+      itemId: item.id,
+      actorUserId: user.id,
+      data: {
+        id: item.id,
+        unitNumber: item.unitNumber,
+        boardGroup: item.boardGroup,
+        vacancyStatus: item.vacancyStatus,
+        makeReadyStatus: item.makeReadyStatus,
+        completionStatus: item.completionStatus,
+      },
+    });
+    return item;
   });
 
   app.post("/make-ready-items/:id/archive", async (request, reply) => {

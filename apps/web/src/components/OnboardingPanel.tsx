@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { CurrentUser, Property, SavedView, ScheduleTrack } from "../lib/api";
+import type { CurrentUser, FloorPlan, Property, SavedView, ScheduleTrack, Unit } from "../lib/api";
 
 type OnboardingView = "dashboard" | "table" | "calendar" | "operations" | "automations" | "admin" | "pond";
 
@@ -7,6 +7,8 @@ type Props = {
   open: boolean;
   currentUser: CurrentUser;
   properties: Property[];
+  units: Unit[];
+  floorPlans: FloorPlan[];
   savedViews: SavedView[];
   scheduleTracks: ScheduleTrack[];
   firstRunDetected: boolean;
@@ -24,7 +26,7 @@ type Step = {
   adminOnly?: boolean;
 };
 
-export function OnboardingPanel({ open, currentUser, properties, savedViews, scheduleTracks, firstRunDetected, onNavigate, onClose, onSkip }: Props) {
+export function OnboardingPanel({ open, currentUser, properties, units, floorPlans, savedViews, scheduleTracks, firstRunDetected, onNavigate, onClose, onSkip }: Props) {
   useEffect(() => {
     if (!open) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -37,6 +39,10 @@ export function OnboardingPanel({ open, currentUser, properties, savedViews, sch
   if (!open) return null;
 
   const isAdmin = currentUser.role === "ADMIN";
+  const activeUnits = units.filter((unit) => unit.isActive);
+  const hasUnitDirectory = activeUnits.length > 0 || properties.some((property) => (property._count?.units ?? 0) > 0);
+  const hasFloorPlanData = floorPlans.some((plan) => plan.isActive)
+    || activeUnits.some((unit) => Boolean(unit.floorPlanId || unit.floorPlan || unit.squareFeet));
   const steps: Step[] = [
     {
       title: "Create or review properties",
@@ -50,7 +56,7 @@ export function OnboardingPanel({ open, currentUser, properties, savedViews, sch
       description: "Load the unit directory, attach managed floor plans, and keep legacy values only until they are mapped.",
       action: "Manage units",
       view: "operations",
-      complete: properties.some((property) => (property._count?.units ?? 0) > 0),
+      complete: hasUnitDirectory && hasFloorPlanData,
     },
     {
       title: "Invite staff and set roles",

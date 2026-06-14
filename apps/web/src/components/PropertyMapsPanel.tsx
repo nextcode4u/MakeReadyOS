@@ -6,6 +6,10 @@ import { displayUnitNumber } from "../lib/board";
 
 type ColorSource = "riskLevel" | "vacancyStatus" | "boardSection" | "assignedTech" | "makeReadyStatus";
 
+function floorPlanLabel(plan: { code: string; name: string }) {
+  return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
+}
+
 type Props = {
   properties: Property[];
   units: Unit[];
@@ -561,7 +565,7 @@ export function PropertyMapsPanel({
                 <article key={unit.id} className="unit-directory-row">
                   <button type="button" onClick={() => item && onOpenItem(item.id)} disabled={!item}>
                     <strong>{displayUnitNumber(property?.code ?? "", unit.number)}</strong>
-                    <small>{unit.floorPlanRecord?.name ?? unit.floorPlan ?? "No floor plan"} / {unit.occupancyStatus?.replace(/_/g, " ") ?? "UNKNOWN"} / {location ? `${location.building ? `Bldg ${location.building} ` : ""}${location.area || "No area"} ${location.floor || ""}` : "Unmapped"}</small>
+                    <small>{unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan ?? "No floor plan"} / {unit.occupancyStatus?.replace(/_/g, " ") ?? "UNKNOWN"} / {location ? `${location.building ? `Bldg ${location.building} ` : ""}${location.area || "No area"} ${location.floor || ""}` : "Unmapped"}</small>
                   </button>
                   {location && canManage ? <button className="button button-secondary" data-testid={`map-location-remove-${unit.number}`} onClick={() => void onRemoveLocation(location.id)}>Remove</button> : null}
                 </article>

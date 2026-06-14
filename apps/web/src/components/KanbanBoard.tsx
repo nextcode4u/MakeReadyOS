@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { BoardColumnDefinition, CustomField, LabelDefinition, MakeReadyItem, Property } from "../lib/api";
 import { configuredBoardColumns, customColumnKey } from "../lib/board";
+import { formatDateDisplay } from "../lib/dateTime";
 import { LabelPill } from "./LabelPill";
 
 type GroupKey = string;
@@ -27,6 +28,10 @@ type Props = {
 
 const EMPTY_KEY = "__empty__";
 
+function floorPlanLabel(plan: { code: string; name: string }) {
+  return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
+}
+
 function slugify(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "empty";
 }
@@ -36,7 +41,7 @@ function valueForGroup(item: MakeReadyItem, groupBy: GroupKey) {
     return item.property.code;
   }
 
-  if (groupBy === "floorPlan") return item.unit?.floorPlanRecord?.name ?? item.floorPlan ?? "";
+  if (groupBy === "floorPlan") return item.unit?.floorPlanRecord ? floorPlanLabel(item.unit.floorPlanRecord) : item.floorPlan ?? "";
   if (groupBy.startsWith("custom:")) {
     const value = item.customFieldValues.find((entry) => entry.customFieldId === groupBy.slice(7))?.value;
     return Array.isArray(value) ? value.join(", ") : String(value ?? "");
@@ -247,7 +252,7 @@ export function KanbanBoard({ items, groupBy, properties, labelsByField, customF
                     </div>
                     <div className="kanban-card-copy">
                       {cardFields.includes("assignedTech") ? <span>Tech: {item.assignedTech || "Unassigned"}</span> : null}
-                      {cardFields.includes("moveInDate") ? <span>Move-In: {item.moveInDate ? new Date(item.moveInDate).toISOString().slice(0, 10) : "-"}</span> : null}
+                      {cardFields.includes("moveInDate") ? <span>Move-In: {item.moveInDate ? formatDateDisplay(item.moveInDate) : "-"}</span> : null}
                       {cardFields.filter((field) => field.startsWith("custom:")).map((field) => <span key={field}>{customFieldsById.get(field.slice(7))?.label}: {String(valueForField(item, field) ?? "-")}</span>)}
                     </div>
                     <button type="button" className="kanban-details" data-testid={`kanban-details-${slugify(item.unitNumber)}`} onClick={(event) => { event.stopPropagation(); onOpenItem(item.id); }}>Open details</button>

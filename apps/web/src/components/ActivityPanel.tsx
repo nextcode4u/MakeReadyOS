@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getActivity, isApiError } from "../lib/api";
+import { dailyActivityReportCsvUrl, getActivity, getDailyActivityReport, isApiError } from "../lib/api";
 import { formatDateTime } from "../lib/dateTime";
 import { StatusState } from "./StatusState";
 
@@ -24,6 +24,26 @@ function titleCase(value: string) {
     .join(" ");
 }
 
+function todayInputValue() {
+  const date = new Date();
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return offsetDate.toISOString().slice(0, 10);
+}
+
+function reportCategoryLabel(value: string) {
+  const labels: Record<string, string> = {
+    totalChanges: "Total changes",
+    markedReady: "Marked ready",
+    availability: "Availability imports",
+    archived: "Archived",
+    restored: "Restored",
+    created: "Created",
+    updated: "Updated",
+    exception: "Needs review",
+  };
+  return labels[value] ?? titleCase(value);
+}
+
 export function ActivityPanel({ onSessionExpired }: Props) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -32,6 +52,8 @@ export function ActivityPanel({ onSessionExpired }: Props) {
   const [entityType, setEntityType] = useState("");
   const [propertyId, setPropertyId] = useState("");
   const [offset, setOffset] = useState(0);
+  const [reportDate, setReportDate] = useState(todayInputValue);
+  const [reportPropertyId, setReportPropertyId] = useState("");
   const limit = 25;
 
   const requestFilters = useMemo(() => ({
@@ -51,11 +73,24 @@ export function ActivityPanel({ onSessionExpired }: Props) {
   });
   const activityData = activityQuery.data;
 
+  const reportFilters = useMemo(() => ({
+    date: reportDate,
+    propertyId: reportPropertyId,
+  }), [reportDate, reportPropertyId]);
+
+  const reportQuery = useQuery({
+    queryKey: ["activity-daily-report", reportFilters],
+    queryFn: () => getDailyActivityReport(reportFilters),
+  });
+
   useEffect(() => {
     if (isApiError(activityQuery.error) && activityQuery.error.status === 401) {
       onSessionExpired();
     }
-  }, [activityQuery.error, onSessionExpired]);
+    if (isApiError(reportQuery.error) && reportQuery.error.status === 401) {
+      onSessionExpired();
+    }
+  }, [activityQuery.error, onSessionExpired, reportQuery.error]);
 
   const updateFilter = (setter: (value: string) => void, value: string) => {
     setter(value);
@@ -131,6 +166,93 @@ export function ActivityPanel({ onSessionExpired }: Props) {
           </select>
         </label>
         <button type="button" className="button button-secondary activity-clear" onClick={clearFilters}>Clear filters</button>
+      </section>
+
+      <section className="daily-report-panel" aria-label="Daily manager report" data-testid="daily-manager-report">
+        <div className="daily-report-heading">
+          <div>
+            <p className="eyebrow">Daily Manager Report</p>
+            <h3>Changed, ready, imported, and exception activity</h3>
+            <p className="subtitle">Use this daily summary to update external property systems without combing through the full audit trail.</p>
+          </div>
+          <div className="daily-report-controls">
+            <label>
+              Report date
+              <input
+                data-testid="daily-report-date"
+                type="date"
+                value={reportDate}
+                onChange={(event) => setReportDate(event.target.value)}
+              />
+            </label>
+            <label>
+              Property
+              <select
+                data-testid="daily-report-property"
+                value={reportPropertyId}
+                onChange={(event) => setReportPropertyId(event.target.value)}
+              >
+                <option value="">All properties</option>
+                {(reportQuery.data?.filterOptions.properties ?? activityQuery.data?.filterOptions.properties ?? []).map((property) => (
+                  <option key={property.id} value={property.id}>{property.code} - {property.name}</option>
+                ))}
+              </select>
+            </label>
+            <a
+              className="button button-secondary daily-report-export"
+              href={dailyActivityReportCsvUrl(reportFilters)}
+              data-testid="daily-report-export"
+            >
+              Export CSV
+            </a>
+          </div>
+        </div>
+
+        {reportQuery.isLoading ? (
+          <StatusState title="Loading daily report" description="Building the manager summary for the selected day." />
+        ) : reportQuery.isError ? (
+          <StatusState
+            title="Daily report failed to load"
+            description={reportQuery.error instanceof Error ? reportQuery.error.message : "Refresh and try again."}
+            tone="error"
+            action={{ label: "Retry", onClick: () => void reportQuery.refetch() }}
+          />
+        ) : reportQuery.data ? (
+          <>
+            <div className="daily-report-summary">
+              {(["totalChanges", "markedReady", "availability", "archived", "created", "updated", "exception"] as const).map((key) => (
+                <div key={key} className={`daily-report-stat daily-report-stat-${key}`}>
+                  <strong>{reportQuery.data.summary[key]}</strong>
+                  <span>{reportCategoryLabel(key)}</span>
+                </div>
+              ))}
+            </div>
+            {reportQuery.data.records.length === 0 ? (
+              <div className="daily-report-empty">
+                No reportable activity for this day and property scope.
+              </div>
+            ) : (
+              <div className="daily-report-list">
+                {reportQuery.data.records.slice(0, 12).map((record) => (
+                  <article key={record.id} className={`daily-report-row daily-report-row-${record.category}`}>
+                    <div>
+                      <span className="daily-report-chip">{reportCategoryLabel(record.category)}</span>
+                      <strong>{record.property ? `${record.property.code}${record.unitNumber ? ` / ${record.unitNumber}` : ""}` : record.unitNumber ?? "System"}</strong>
+                      <span>{formatDateTime(record.at)}</span>
+                    </div>
+                    <p>{record.description}</p>
+                    <small>{record.externalActionHint}</small>
+                  </article>
+                ))}
+                {reportQuery.data.records.length > 12 ? (
+                  <p className="daily-report-more">
+                    Showing first 12 of {reportQuery.data.records.length}. Export CSV for the full manager report.
+                  </p>
+                ) : null}
+              </div>
+            )}
+          </>
+        ) : null}
       </section>
 
       {activityQuery.isLoading ? (

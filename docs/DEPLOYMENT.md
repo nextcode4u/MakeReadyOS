@@ -36,6 +36,8 @@ For public deployments that allow admins to register webhook endpoints, set `WEB
 
 Leave demo user variables set only for evaluation environments. Remove or rotate demo credentials before real use.
 
+`SEED_DEMO_DATA=false` is the recommended first-run setting. It creates the admin user plus baseline MakeReadyOS configuration such as built-in labels, column display names, schedule tracks, and checklist templates, but does not create sample properties, units, or turn records. Set `SEED_DEMO_DATA=true` only for disposable evaluation environments that need sample records.
+
 `MAX_UPLOAD_MB` defaults to `0`, which disables MakeReadyOS' app-level per-file upload cap. The bundled nginx web container also does not impose a request-body limit. If you put MakeReadyOS behind another reverse proxy, set that proxy's body-size and timeout limits for large phone-photo batches or uploads may fail before the API can return a clear error.
 
 Keep `UPLOAD_DIR=/app/uploads` for Docker deployments. Set `UPLOADS_HOST_PATH` when file bytes should live somewhere other than Docker's managed `uploads_data` volume:
@@ -71,11 +73,21 @@ For release-tagged upgrades, also review [RELEASE_PROCESS.md](RELEASE_PROCESS.md
 - Monitor free disk space. Uploads and Docker images can grow over time.
 - Use a reverse proxy such as Caddy or Nginx Proxy Manager for HTTPS when exposing the app.
 
+## Mobile Browser Install
+
+MakeReadyOS ships a Progressive Web App manifest and service worker so mobile browsers can install it to the home screen without a native app package. Android/Chrome can show an optional in-app install prompt when the browser supports `beforeinstallprompt`; users can dismiss it and keep using the browser. iOS Safari does not expose that event, so users install through Share -> Add to Home Screen.
+
+For real mobile deployments, use HTTPS through a reverse proxy. Many browsers require a secure origin before they will offer installation or service-worker behavior outside `localhost`.
+
+The service worker intentionally avoids caching `/api/` and `/uploads/` requests. MakeReadyOS currently supports app-like launch and static shell caching, not offline operational editing.
+
 ## Demo Reset
 
 `./reset-demo.sh --dry-run` shows what will be reset.
 
-`./reset-demo.sh --yes` removes the Docker database volume and restarts the stack. Uploads are preserved by default.
+`./reset-demo.sh --yes` removes the Docker database volume and restarts the stack in blank first-run mode. Uploads are preserved by default.
+
+`./reset-demo.sh --yes --with-demo` resets and then seeds sample properties, units, and make-ready turns for evaluation.
 
 `./reset-demo.sh --yes --wipe-uploads` also removes the uploads volume.
 

@@ -13,6 +13,8 @@ Each make-ready item stores the current evaluated risk state:
 
 Risk is persisted for board speed, native backup parity, and dashboard/filter consistency. Dashboard summaries may also evaluate live item state so newly changed data is represented even before the next explicit evaluation.
 
+Items in a property's Ready Units section are forced to `riskLevel = NONE` and `riskScore = 0`. Ready Units is manager-approved stock, so unfinished-turn risk no longer applies after final walk signoff.
+
 Daily analytics snapshots preserve property-level high-risk and overdue counts for trend reporting after `./run-analytics-snapshot.sh` runs. The snapshots are derived rollups, not the source of truth for current risk.
 
 Planning risk is evaluated from active `WorkAssignmentBlock` records. Move-ins inside the near-term window with incomplete work and no active in-house work block receive a `PLANNING_RISK` reason. Hour/capacity overload detection is intentionally not exposed in the current UI because make-ready work changes too quickly for reliable hour estimates.

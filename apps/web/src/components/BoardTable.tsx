@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { BoardColumnDefinition, BoardSection, CustomField, FloorPlan, LabelDefinition, MakeReadyItem, Property, StaffOption, Unit } from "../lib/api";
-import { boardColumns, boardGroupLabel, configuredBoardColumns, customColumnKey, requiredTableColumnKeys } from "../lib/board";
+import type { ArchiveFilter } from "../lib/structuredFilters";
+import { boardColumns, boardGroupLabel, configuredBoardColumns, customColumnKey, defaultHiddenTableColumnKeys, requiredTableColumnKeys } from "../lib/board";
+import { formatDateDisplay, formatDateInput } from "../lib/dateTime";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { LabelPill } from "./LabelPill";
 import { Modal } from "./Modal";
@@ -24,7 +26,8 @@ type Props = {
   boardGroups: string[];
   boardSections: BoardSection[];
   preferredPropertyId: string;
-  archiveState: "active" | "archived" | "all";
+  archiveState: ArchiveFilter;
+  searchText: string;
   onCreateUnit: (input: { propertyId: string; number: string; floorPlanId: null; floorPlan: null; squareFeet: null }) => Promise<Unit>;
   onCreateItem: (input: {
     propertyId: string;
@@ -52,8 +55,8 @@ type Props = {
   onArchiveBuiltInOption: (id: string, restore: boolean) => Promise<void>;
   onReorderBuiltInOptions: (ids: string[]) => Promise<void>;
   onUpdateCustomOptions: (field: CustomField, options: CustomField["options"]) => Promise<void>;
-  onCreateFloorPlan: (input: { propertyId: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null; description: string | null }) => Promise<void>;
-  onUpdateFloorPlan: (id: string, input: { name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null; description: string | null }) => Promise<void>;
+  onCreateFloorPlan: (input: { propertyId: string; code: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null; description: string | null }) => Promise<void>;
+  onUpdateFloorPlan: (id: string, input: { code: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null; description: string | null }) => Promise<void>;
   onArchiveFloorPlan: (id: string, restore: boolean) => Promise<void>;
   onRenameBuiltInColumn: (fieldKey: string, label: string, reset?: boolean) => Promise<void>;
   onRenameCustomColumn: (field: CustomField, label: string) => Promise<void>;
@@ -69,11 +72,6 @@ type Cell = { itemId: string; key: string; custom: boolean };
 type EditingCell = Cell & { draft: unknown; original: unknown };
 type SaveState = "saving" | "saved" | "error";
 
-function formatDate(value: string | null) {
-  if (!value) return "";
-  return new Date(value).toISOString().slice(0, 10);
-}
-
 function slug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }
@@ -88,6 +86,10 @@ function displayCustomValue(value: unknown) {
   return value === null || value === undefined || value === "" ? "—" : String(value);
 }
 
+function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
+  return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
+}
+
 function valuesMatch(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -96,6 +98,24 @@ function stateLabel(state: SaveState) {
   if (state === "saving") return "Saving";
   if (state === "saved") return "Saved";
   return "Save failed";
+}
+
+function columnClassName(key: string, custom = false) {
+  return `${custom ? "column-custom" : "column-built-in"} column-${slug(key)}`;
+}
+
+const OCCUPIED_GROUP_PREFIX = "OCCUPIED_DIRECTORY:";
+
+function occupiedGroupKey(propertyId: string) {
+  return `${OCCUPIED_GROUP_PREFIX}${propertyId}`;
+}
+
+function isOccupiedDirectoryGroup(group: string) {
+  return group.startsWith(OCCUPIED_GROUP_PREFIX);
+}
+
+function isOccupiedDirectoryItem(item: MakeReadyItem) {
+  return item.id.startsWith("occupied-unit:");
 }
 
 function CellState({ dirty, state, testId }: { dirty: boolean; state?: SaveState; testId: string }) {
@@ -110,14 +130,15 @@ function CellState({ dirty, state, testId }: { dirty: boolean; state?: SaveState
   );
 }
 
-export function BoardTable({ items, labelsByField, customFields, columnDefinitions, visibleColumns, onPatch, onPatchCustomField, canEditField, canEditCustomFields, canManageItems, properties, units, floorPlans, staff, boardGroups, boardSections, preferredPropertyId, archiveState, onCreateUnit, onCreateItem, onBatch, onOpenFieldManager, onOpenBoardSetup, onAddBuiltInOption, onAddCustomOption, onUpdateBuiltInOption, onArchiveBuiltInOption, onReorderBuiltInOptions, onUpdateCustomOptions, onCreateFloorPlan, onUpdateFloorPlan, onArchiveFloorPlan, onRenameBuiltInColumn, onRenameCustomColumn, onHideColumn, onSortColumn, onOpenItem, onAssignFloorPlan, onReorderColumns, onRenameSection }: Props) {
+export function BoardTable({ items, labelsByField, customFields, columnDefinitions, visibleColumns, onPatch, onPatchCustomField, canEditField, canEditCustomFields, canManageItems, properties, units, floorPlans, staff, boardGroups, boardSections, preferredPropertyId, archiveState, searchText, onCreateUnit, onCreateItem, onBatch, onOpenFieldManager, onOpenBoardSetup, onAddBuiltInOption, onAddCustomOption, onUpdateBuiltInOption, onArchiveBuiltInOption, onReorderBuiltInOptions, onUpdateCustomOptions, onCreateFloorPlan, onUpdateFloorPlan, onArchiveFloorPlan, onRenameBuiltInColumn, onRenameCustomColumn, onHideColumn, onSortColumn, onOpenItem, onAssignFloorPlan, onReorderColumns, onRenameSection }: Props) {
   const visibleColumnSet = useMemo(() => visibleColumns === null ? null : new Set([...requiredTableColumnKeys, ...visibleColumns]), [visibleColumns]);
+  const defaultHiddenColumnSet = useMemo(() => new Set<string>(defaultHiddenTableColumnKeys), []);
   const configuredColumns = useMemo(() => configuredBoardColumns(columnDefinitions), [columnDefinitions]);
   const visibleBoardColumns = useMemo(
     () => configuredColumns
-      .filter((column) => visibleColumnSet === null || visibleColumnSet.has(column.key))
+      .filter((column) => visibleColumnSet === null ? !defaultHiddenColumnSet.has(column.key) : visibleColumnSet.has(column.key))
       .sort((left, right) => visibleColumns === null ? 0 : visibleColumns.indexOf(left.key) - visibleColumns.indexOf(right.key)),
-    [configuredColumns, visibleColumnSet, visibleColumns],
+    [configuredColumns, defaultHiddenColumnSet, visibleColumnSet, visibleColumns],
   );
   const visibleCustomFields = useMemo(
     () => customFields
@@ -134,29 +155,107 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
     return columns.sort((left, right) => (position.get(left.key) ?? Number.MAX_SAFE_INTEGER) - (position.get(right.key) ?? Number.MAX_SAFE_INTEGER));
   }, [visibleBoardColumns, visibleColumns, visibleCustomFields]);
   const activeProperties = properties.filter((property) => property.isActive);
+  const allowedPropertyIds = useMemo(
+    () => new Set(preferredPropertyId ? [preferredPropertyId] : activeProperties.map((property) => property.id)),
+    [activeProperties, preferredPropertyId],
+  );
   const visibleSectionKeys = useMemo(() => {
-    const allowedProperties = preferredPropertyId ? new Set([preferredPropertyId]) : new Set(activeProperties.map((property) => property.id));
+    if (archiveState === "occupied") {
+      return activeProperties
+        .filter((property) => allowedPropertyIds.has(property.id))
+        .sort((left, right) => left.code.localeCompare(right.code))
+        .map((property) => occupiedGroupKey(property.id));
+    }
     const sectionTypes = archiveState === "archived" ? new Set(["ARCHIVE"]) : archiveState === "active" ? new Set(["READY", "MAKE_READY", "DOWN"]) : new Set(["READY", "MAKE_READY", "DOWN", "ARCHIVE"]);
     return boardSections
-      .filter((section) => section.isActive && allowedProperties.has(section.propertyId) && sectionTypes.has(section.sectionType))
+      .filter((section) => section.isActive && allowedPropertyIds.has(section.propertyId) && sectionTypes.has(section.sectionType))
       .sort((left, right) => {
         const propertyCompare = (activeProperties.find((property) => property.id === left.propertyId)?.code ?? "").localeCompare(activeProperties.find((property) => property.id === right.propertyId)?.code ?? "");
         return propertyCompare || left.sortOrder - right.sortOrder;
       })
       .map((section) => section.key);
-  }, [activeProperties, archiveState, boardSections, preferredPropertyId]);
+  }, [activeProperties, allowedPropertyIds, archiveState, boardSections]);
+  const occupiedDirectoryItems = useMemo(() => {
+    if (archiveState !== "occupied") return [];
+    const query = searchText.trim().toLowerCase();
+    return units
+      .filter((unit) => unit.isActive && unit.occupancyStatus === "OCCUPIED" && allowedPropertyIds.has(unit.propertyId))
+      .filter((unit) => {
+        if (!query) return true;
+        return [unit.number, unit.floorPlan ?? "", unit.floorPlanRecord?.code ?? "", unit.floorPlanRecord?.name ?? "", unit.building ?? "", unit.area ?? "", unit.property.code]
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
+      })
+      .sort((left, right) => {
+        const propertyCompare = left.property.code.localeCompare(right.property.code);
+        return propertyCompare || left.number.localeCompare(right.number, undefined, { numeric: true });
+      })
+      .map((unit) => ({
+        id: `occupied-unit:${unit.id}`,
+        propertyId: unit.propertyId,
+        unitId: unit.id,
+        boardGroup: occupiedGroupKey(unit.propertyId),
+        itemName: unit.number,
+        unitNumber: unit.number,
+        floorPlan: unit.floorPlanRecord?.code ?? unit.floorPlan,
+        applicant: null,
+        assignedTech: null,
+        scopeLevel: null,
+        status: "OCCUPIED",
+        vacancyStatus: "OCCUPIED",
+        moveOutDate: null,
+        vacatedDate: null,
+        makeReadyDate: null,
+        moveInDate: null,
+        daysVacant: 0,
+        daysUntilMoveIn: null,
+        priority: 0,
+        overdue: false,
+        moveInSoon: false,
+        riskScore: 0,
+        riskLevel: "NONE",
+        riskReasons: [],
+        lastRiskEvaluatedAt: null,
+        completionStatus: null,
+        sheetrockStatus: null,
+        pestStatus: null,
+        pestTreated: null,
+        trashOutStatus: null,
+        floorsStatus: null,
+        flooringDate: null,
+        makeReadyStatus: null,
+        cleaningStatus: null,
+        keysMadeStatus: null,
+        cabinetsStatus: null,
+        countertopsStatus: null,
+        appliancesStatus: null,
+        paintStatus: null,
+        doorsStatus: null,
+        newDoorCode: null,
+        notes: unit.building || unit.area || unit.floor ? [unit.building ? `Building ${unit.building}` : "", unit.area ? `Area ${unit.area}` : "", unit.floor ? `Floor ${unit.floor}` : ""].filter(Boolean).join(" / ") : null,
+        isArchived: false,
+        archivedAt: null,
+        updatedAt: "",
+        property: unit.property,
+        unit,
+        customFieldValues: [],
+      } satisfies MakeReadyItem));
+  }, [allowedPropertyIds, archiveState, searchText, units]);
+  const tableItems = archiveState === "occupied" ? occupiedDirectoryItems : items;
   const groups = useMemo(() => {
     const acc = Object.fromEntries(visibleSectionKeys.map((key) => [key, [] as MakeReadyItem[]]));
-    return items.reduce<Record<string, MakeReadyItem[]>>((acc, item) => {
+    return tableItems.reduce<Record<string, MakeReadyItem[]>>((acc, item) => {
       acc[item.boardGroup] ??= [];
       acc[item.boardGroup].push(item);
       return acc;
     }, acc);
-  }, [items, visibleSectionKeys]);
+  }, [tableItems, visibleSectionKeys]);
   const orderedItems = useMemo(() => Object.values(groups).flat(), [groups]);
-  const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+  const itemById = useMemo(() => new Map(tableItems.map((item) => [item.id, item])), [tableItems]);
   const fieldById = useMemo(() => new Map(customFields.map((field) => [field.id, field])), [customFields]);
   const editableCells = useMemo(() => orderedItems.flatMap((item) => orderedVisibleColumns.flatMap((entry) => {
+    if (isOccupiedDirectoryItem(item)) return [];
     if (entry.custom) return canEditCustomFields ? [{ itemId: item.id, key: entry.field.id, custom: true }] : [];
     return entry.column.type !== "readonly" && canEditField(item, entry.column.key)
       ? [{ itemId: item.id, key: entry.column.key, custom: false }]
@@ -167,7 +266,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [addGroup, setAddGroup] = useState<string | null>(null);
-  const [newItem, setNewItem] = useState({ propertyId: "", unitNumber: "", assignedTech: "", vacancyStatus: "TO WALK", makeReadyStatus: "" });
+  const [newItem, setNewItem] = useState({ propertyId: "", unitNumber: "", assignedTech: "", vacancyStatus: "VACANT NOT LEASED NOT READY", makeReadyStatus: "" });
   const [batchTech, setBatchTech] = useState("");
   const [batchStatus, setBatchStatus] = useState("");
   const [batchGroup, setBatchGroup] = useState("");
@@ -181,24 +280,30 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const [columnMenu, setColumnMenu] = useState<{ group: string; key: string } | null>(null);
   const [columnRename, setColumnRename] = useState<{ key: string; label: string; customField?: CustomField; defaultLabel?: string } | null>(null);
   const [floorPlanPropertyId, setFloorPlanPropertyId] = useState<string | null>(null);
-  const [newPlan, setNewPlan] = useState({ name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
+  const [newPlan, setNewPlan] = useState({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
   const [selectedPlanId, setSelectedPlanId] = useState("");
-  const [planDraft, setPlanDraft] = useState({ name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
+  const [planDraft, setPlanDraft] = useState({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
   const pendingCells = useRef(new Set<string>());
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedItems = useMemo(() => items.filter((item) => selectedSet.has(item.id)), [items, selectedSet]);
   const sectionForGroup = (group: string) => {
+    if (isOccupiedDirectoryGroup(group)) return undefined;
     const property = propertyForGroup(group);
     return boardSections.find((section) => section.key === group && (!property || section.propertyId === property.id));
   };
   const groupName = (group: string) => {
     const property = propertyForGroup(group);
+    if (isOccupiedDirectoryGroup(group)) return property ? `${property.code} / Occupied` : "Occupied";
     const section = sectionForGroup(group);
     const label = section?.displayName ?? boardGroupLabel(group, property?.id, boardSections);
     return property ? `${property.code} / ${label}` : label;
   };
 
   const propertyForGroup = (group: string) => {
+    if (isOccupiedDirectoryGroup(group)) {
+      const propertyId = group.slice(OCCUPIED_GROUP_PREFIX.length);
+      return activeProperties.find((property) => property.id === propertyId) ?? null;
+    }
     const preferred = activeProperties.find((property) => property.id === preferredPropertyId);
     if (preferred && boardSections.some((section) => section.key === group && section.propertyId === preferred.id)) return preferred;
     const configuredSection = boardSections.find((section) => section.key === group);
@@ -227,7 +332,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
     }
     const column = boardColumns.find((entry) => entry.key === cell.key);
     const value = item[cell.key as keyof MakeReadyItem];
-    if (column?.type === "date") return typeof value === "string" ? formatDate(value) : "";
+    if (column?.type === "date") return typeof value === "string" ? formatDateInput(value) : "";
     return typeof value === "string" ? value : "";
   };
 
@@ -332,7 +437,8 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   };
 
   const toggleGroup = (groupItems: MakeReadyItem[]) => {
-    const ids = groupItems.map((item) => item.id);
+    const ids = groupItems.filter((item) => !isOccupiedDirectoryItem(item)).map((item) => item.id);
+    if (ids.length === 0) return;
     const selected = ids.every((id) => selectedSet.has(id));
     setSelectedIds((current) => selected ? current.filter((id) => !ids.includes(id)) : Array.from(new Set([...current, ...ids])));
   };
@@ -380,7 +486,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const openFloorPlanManager = (propertyId?: string) => {
     setFloorPlanPropertyId(propertyId ?? preferredPropertyId ?? activeProperties[0]?.id ?? "");
     setSelectedPlanId("");
-    setNewPlan({ name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
+    setNewPlan({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
   };
 
   const moveColumn = (key: string, direction: -1 | 1) => {
@@ -480,7 +586,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
     </div>
   ) : null;
 
-  if (items.length === 0 && Object.keys(groups).length === 0) {
+  if (orderedItems.length === 0 && Object.keys(groups).length === 0) {
     return (
       <div className="board-scroll" data-testid="board-table-view">
         {workflowTools}
@@ -523,18 +629,18 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
         {orderedItems.map((item) => (
           <article key={item.id} className={item.overdue ? "mobile-board-card overdue" : item.moveInSoon ? "mobile-board-card soon" : "mobile-board-card"}>
             <header>
-              {canManageItems ? <input data-testid={`mobile-select-${slug(item.unitNumber)}`} type="checkbox" checked={selectedSet.has(item.id)} onChange={() => toggleSelected(item.id)} aria-label={`Select ${item.unitNumber}`} /> : null}
+              {canManageItems && !isOccupiedDirectoryItem(item) ? <input data-testid={`mobile-select-${slug(item.unitNumber)}`} type="checkbox" checked={selectedSet.has(item.id)} onChange={() => toggleSelected(item.id)} aria-label={`Select ${item.unitNumber}`} /> : null}
               <div>
                 <strong>{item.unitNumber}</strong>
                 <span>{item.property.code} / {item.floorPlan ?? "No floor plan"}</span>
               </div>
               <LabelPill value={item.vacancyStatus} label={item.vacancyStatus ? labelsByField.vacancyStatus?.[item.vacancyStatus] : undefined} muted />
-              <button type="button" className="item-details-button" data-testid={`mobile-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={`Open details for ${item.unitNumber}`}>Details</button>
+              {!isOccupiedDirectoryItem(item) ? <button type="button" className="item-details-button" data-testid={`mobile-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={`Open details for ${item.unitNumber}`}>Details</button> : null}
             </header>
             <dl>
               <div><dt>Section</dt><dd>{boardGroupLabel(item.boardGroup, item.propertyId, boardSections)}</dd></div>
               <div><dt>Make Ready</dt><dd><LabelPill value={item.makeReadyStatus} label={item.makeReadyStatus ? labelsByField.makeReadyStatus?.[item.makeReadyStatus] : undefined} muted /></dd></div>
-              <div><dt>Move-In</dt><dd>{item.moveInDate ? formatDate(item.moveInDate) : "-"}</dd></div>
+              <div><dt>Move-In</dt><dd>{item.moveInDate ? formatDateDisplay(item.moveInDate) : "-"}</dd></div>
               <div><dt>Tech</dt><dd>{item.assignedTech || "Unassigned"}</dd></div>
             </dl>
             {item.overdue ? <p className="mobile-alert danger">Overdue make-ready</p> : item.moveInSoon ? <p className="mobile-alert warning">Move-in approaching</p> : null}
@@ -563,7 +669,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
             <table className={canManageItems ? "board-table has-selection" : "board-table"} data-testid={`board-group-table-${slug(group)}`}>
               <thead>
                 <tr>
-                  {canManageItems ? <th className="select-column"><input data-testid={`select-group-${slug(group)}`} type="checkbox" checked={groupItems.every((item) => selectedSet.has(item.id))} onChange={() => toggleGroup(groupItems)} aria-label={`Select all in ${groupName(group)}`} /></th> : null}
+                  {canManageItems ? <th className="select-column"><input data-testid={`select-group-${slug(group)}`} type="checkbox" checked={groupItems.filter((item) => !isOccupiedDirectoryItem(item)).length > 0 && groupItems.filter((item) => !isOccupiedDirectoryItem(item)).every((item) => selectedSet.has(item.id))} disabled={groupItems.every(isOccupiedDirectoryItem)} onChange={() => toggleGroup(groupItems)} aria-label={`Select all in ${groupName(group)}`} /></th> : null}
                   {orderedVisibleColumns.map((entry) => {
                     const key = entry.key;
                     const label = entry.custom ? entry.field.label : entry.column.label;
@@ -576,7 +682,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                         onDragOver={(event) => { if (!fixed) event.preventDefault(); }}
                         onDrop={() => reorderColumns(key)}
                         onDragEnd={() => setDragColumn(null)}
-                        className={`${!entry.custom && fixed ? "identity-column " : ""}${!fixed ? "draggable-column" : ""}${dragColumn === key ? " dragging-column" : ""}`}
+                        className={`${columnClassName(key, entry.custom)} ${!entry.custom && fixed ? "identity-column " : ""}${!fixed ? "draggable-column" : ""}${dragColumn === key ? " dragging-column" : ""}`}
                         data-testid={entry.custom ? `custom-field-header-${entry.field.fieldKey}` : `board-column-header-${entry.column.key}`}
                         aria-label={`${label}${fixed ? "" : ", drag to reorder column"}`}
                       >
@@ -623,7 +729,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
               <tbody>
                 {groupItems.map((item) => (
                   <tr key={item.id} className={[item.overdue ? "row-overdue" : item.moveInSoon ? "row-soon" : "", selectedSet.has(item.id) ? "row-selected" : ""].filter(Boolean).join(" ")}>
-                    {canManageItems ? <td className="select-column"><input data-testid={`select-item-${slug(item.unitNumber)}`} type="checkbox" checked={selectedSet.has(item.id)} onChange={() => toggleSelected(item.id)} aria-label={`Select ${item.unitNumber}`} /></td> : null}
+                    {canManageItems ? <td className="select-column">{!isOccupiedDirectoryItem(item) ? <input data-testid={`select-item-${slug(item.unitNumber)}`} type="checkbox" checked={selectedSet.has(item.id)} onChange={() => toggleSelected(item.id)} aria-label={`Select ${item.unitNumber}`} /> : null}</td> : null}
                     {orderedVisibleColumns.map((entry) => {
                       if (entry.custom) {
                         const field = entry.field;
@@ -636,6 +742,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                         const inputTestId = `custom-field-input-${field.fieldKey}-${slug(item.unitNumber)}`;
                         const draft = isEditing ? editing.draft : value;
                         const selectedOption = typeof value === "string" ? field.options.find((option) => option.label === value) : undefined;
+                        const customEditable = canEditCustomFields && !isOccupiedDirectoryItem(item);
                         const label = selectedOption ? {
                           id: selectedOption.id,
                           fieldKey: field.fieldKey,
@@ -646,8 +753,8 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                         } : undefined;
 
                         return (
-                          <td key={field.id} className={canEditCustomFields ? "editable-cell custom-cell" : "readonly-cell custom-cell"}>
-                            {isEditing && canEditCustomFields ? (
+                          <td key={field.id} className={`${columnClassName(field.fieldKey, true)} ${customEditable ? "editable-cell custom-cell" : "readonly-cell custom-cell"}`}>
+                            {isEditing && customEditable ? (
                               <div className="cell-editor">
                                 {field.fieldType === "SINGLE_SELECT" ? (
                                   <select
@@ -722,7 +829,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                     }}
                                   />
                                 )}
-                                {(field.fieldType === "SINGLE_SELECT" || field.fieldType === "MULTI_SELECT") && canEditCustomFields ? (
+                                {(field.fieldType === "SINGLE_SELECT" || field.fieldType === "MULTI_SELECT") && customEditable ? (
                                   <button type="button" data-testid={`manage-options-${field.fieldKey}-${slug(item.unitNumber)}`} className="cell-manage-link" onMouseDown={(event) => event.preventDefault()} onClick={() => openOptionManager(field.fieldKey, field.label, field)}>+ Add option</button>
                                 ) : null}
                                 {feedback}
@@ -733,12 +840,12 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                   type="button"
                                   data-testid={`custom-field-cell-${field.fieldKey}-${slug(item.unitNumber)}`}
                                   className="cell-button cell-button-text"
-                                  disabled={!canEditCustomFields}
+                                  disabled={!customEditable}
                                   aria-label={`Edit ${field.label} for ${item.unitNumber}`}
-                                  onClick={() => canEditCustomFields && beginEdit(cell)}
+                                  onClick={() => customEditable && beginEdit(cell)}
                                 >
                                   {field.fieldType === "SINGLE_SELECT" ? (
-                                    <LabelPill value={typeof value === "string" ? value : null} label={label} muted={!canEditCustomFields} />
+                                    <LabelPill value={typeof value === "string" ? value : null} label={label} muted={!customEditable} />
                                   ) : (
                                     <span>{displayCustomValue(value)}</span>
                                   )}
@@ -754,7 +861,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                       const token = cellToken(cell);
                       const isEditing = editing && cellToken(editing) === token;
                       const value = item[column.key as keyof MakeReadyItem];
-                      const editable = column.type !== "readonly" && canEditField(item, column.key);
+                      const editable = !isOccupiedDirectoryItem(item) && column.type !== "readonly" && canEditField(item, column.key);
                       const dirty = Boolean(isEditing && !valuesMatch(editing.draft, editing.original));
                       const feedback = <CellState dirty={dirty} state={dirty ? undefined : saveStates[token]} testId={`cell-status-${column.key}-${slug(item.unitNumber)}`} />;
 
@@ -765,7 +872,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                         const legacy = Boolean(item.floorPlan && !currentPlan);
                         const options = floorPlans.filter((plan) => plan.propertyId === item.propertyId && (plan.isActive || plan.id === currentPlan?.id));
                         return (
-                          <td key={column.key} className={editable ? "editable-cell floor-plan-cell" : "readonly-cell floor-plan-cell"}>
+                          <td key={column.key} className={`${columnClassName(column.key)} ${editable ? "editable-cell floor-plan-cell" : "readonly-cell floor-plan-cell"}`}>
                             {isEditing && editable ? (
                               <div className="cell-editor floor-plan-editor">
                                 <select
@@ -783,7 +890,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                   <option value="">{legacy ? `LEGACY: ${item.floorPlan}` : "Select managed floor plan"}</option>
                                   {options.map((plan) => (
                                     <option key={plan.id} value={plan.id}>
-                                      {plan.name} / {plan.bedrooms ?? "-"} bd / {plan.bathrooms ?? "-"} ba / {plan.squareFeet ?? "-"} sqft
+                                      {floorPlanLabel(plan)} / {plan.bedrooms ?? "-"} bd / {plan.bathrooms ?? "-"} ba / {plan.squareFeet ?? "-"} sqft
                                     </option>
                                   ))}
                                 </select>
@@ -800,7 +907,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                   disabled={!editable}
                                   aria-label={`Select ${column.label} for ${item.unitNumber}`}
                                 >
-                                  <span>{currentPlan?.name ?? item.floorPlan ?? "—"}</span>
+                                  <span>{currentPlan ? floorPlanLabel(currentPlan) : item.floorPlan ?? "—"}</span>
                                   {legacy ? <small className="legacy-value">LEGACY</small> : null}
                                   {currentPlan ? <small className="floor-plan-meta">{currentPlan.bedrooms ?? "-"}bd / {currentPlan.bathrooms ?? "-"}ba / {currentPlan.squareFeet ?? "-"}sf</small> : null}
                                 </button>
@@ -816,7 +923,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                         const knownAssignment = staff.some((person) => person.fullName === current);
                         const draft = isEditing ? String(editing.draft ?? "") : "";
                         return (
-                          <td key={column.key} className={editable ? "editable-cell" : "readonly-cell"}>
+                          <td key={column.key} className={`${columnClassName(column.key)} ${editable ? "editable-cell" : "readonly-cell"}`}>
                             {isEditing && editable ? (
                               <div className="cell-editor">
                                 <select
@@ -862,7 +969,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                         const options = Object.values(labelsByField[column.key] ?? {}).filter((option) => !option.isArchived).sort((a, b) => a.sortOrder - b.sortOrder);
                         const draft = isEditing ? String(editing.draft ?? "") : "";
                         return (
-                          <td key={column.key} className={editable ? "editable-cell" : "readonly-cell"}>
+                          <td key={column.key} className={`${columnClassName(column.key)} ${editable ? "editable-cell" : "readonly-cell"}`}>
                             {isEditing && editable ? (
                               <div className="cell-editor">
                                 <select
@@ -904,8 +1011,11 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                       }
 
                       const draft = isEditing ? String(editing.draft ?? "") : "";
+                      const displayValue = column.type === "date" ? (typeof value === "string" ? formatDateDisplay(value) : "—") : String(value ?? "—");
+                      const noteText = column.key === "notes" ? displayValue : "";
+                      const noteHasMore = column.key === "notes" && noteText.length > 72;
                       return (
-                        <td key={column.key} className={`${editable ? "editable-cell" : "readonly-cell"}${column.key === "unitNumber" ? " identity-column" : ""}`}>
+                        <td key={column.key} className={`${columnClassName(column.key)} ${editable ? "editable-cell" : "readonly-cell"}${column.key === "unitNumber" ? " identity-column" : ""}`}>
                           {isEditing && editable ? (
                             <div className="cell-editor">
                               <input
@@ -929,14 +1039,15 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                 disabled={!editable}
                                 aria-label={`Edit ${column.label} for ${item.unitNumber}`}
                               >
-                                <span className={editable ? "" : "read-only-cell"}>
-                                  {column.type === "date" ? (typeof value === "string" ? formatDate(value) : "—") : String(value ?? "—")}
+                                <span className={`${editable ? "" : "read-only-cell"}${column.key === "notes" ? " notes-preview" : ""}`}>
+                                  {displayValue}
                                 </span>
+                                {noteHasMore ? <small className="notes-more">... see more</small> : null}
                                 {column.key === "unitNumber" && item.riskLevel && item.riskLevel !== "NONE" ? <small className={`risk-marker ${item.riskLevel === "CRITICAL" || item.riskLevel === "HIGH" ? "danger" : "warning"}`} data-testid={`risk-pill-${slug(item.unitNumber)}`}>{item.riskLevel} risk</small> : null}
                                 {column.key === "unitNumber" && (!item.riskLevel || item.riskLevel === "NONE") && item.overdue ? <small className="risk-marker danger">Overdue</small> : null}
                                 {column.key === "unitNumber" && (!item.riskLevel || item.riskLevel === "NONE") && !item.overdue && item.moveInSoon ? <small className="risk-marker warning">Move-in soon</small> : null}
                               </button>
-                              {column.key === "unitNumber" ? <button type="button" className="item-details-icon" data-testid={`item-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={`Open details for ${item.unitNumber}`}>›</button> : null}
+                              {column.key === "unitNumber" && !isOccupiedDirectoryItem(item) ? <button type="button" className="item-details-icon" data-testid={`item-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={`Open details for ${item.unitNumber}`}>›</button> : null}
                               {feedback}
                             </div>
                           )}
@@ -963,7 +1074,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                       } : undefined;
 
                       return (
-                        <td key={field.id} className={canEditCustomFields ? "editable-cell custom-cell" : "readonly-cell custom-cell"}>
+                        <td key={field.id} className={`${columnClassName(field.fieldKey, true)} ${canEditCustomFields ? "editable-cell custom-cell" : "readonly-cell custom-cell"}`}>
                           {isEditing && canEditCustomFields ? (
                             <div className="cell-editor">
                               {field.fieldType === "SINGLE_SELECT" ? (
@@ -1068,7 +1179,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                     })}
                   </tr>
                 ))}
-                {canManageItems ? (
+                {canManageItems && archiveState !== "occupied" ? (
                   <tr className="add-item-row">
                     <td className="select-column" />
                     <td colSpan={orderedVisibleColumns.length}>
@@ -1191,18 +1302,20 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
         </label>
         <form className="inline-plan-form" onSubmit={async (event) => {
           event.preventDefault();
-          if (!floorPlanPropertyId || !newPlan.name.trim()) return;
+          if (!floorPlanPropertyId || !newPlan.code.trim()) return;
           await onCreateFloorPlan({
             propertyId: floorPlanPropertyId,
-            name: newPlan.name.trim(),
+            code: newPlan.code.trim(),
+            name: newPlan.name.trim() || newPlan.code.trim(),
             bedrooms: numberOrNull(newPlan.bedrooms),
             bathrooms: numberOrNull(newPlan.bathrooms),
             squareFeet: numberOrNull(newPlan.squareFeet),
             description: newPlan.description.trim() || null,
           });
-          setNewPlan({ name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
+          setNewPlan({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
         }}>
-          <input data-testid="inline-floor-plan-name" placeholder="New plan name" value={newPlan.name} onChange={(event) => setNewPlan((current) => ({ ...current, name: event.target.value }))} required />
+          <input data-testid="inline-floor-plan-code" placeholder="Code (B1, C2)" value={newPlan.code} onChange={(event) => setNewPlan((current) => ({ ...current, code: event.target.value }))} required />
+          <input data-testid="inline-floor-plan-name" placeholder="Friendly name (Arlington)" value={newPlan.name} onChange={(event) => setNewPlan((current) => ({ ...current, name: event.target.value }))} />
           <input data-testid="inline-floor-plan-beds" type="number" min="0" placeholder="Beds" value={newPlan.bedrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bedrooms: event.target.value }))} />
           <input data-testid="inline-floor-plan-baths" type="number" step="0.5" min="0" placeholder="Baths" value={newPlan.bathrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bathrooms: event.target.value }))} />
           <input data-testid="inline-floor-plan-sqft" type="number" min="1" placeholder="Sq ft" value={newPlan.squareFeet} onChange={(event) => setNewPlan((current) => ({ ...current, squareFeet: event.target.value }))} />
@@ -1213,21 +1326,22 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
           {plansForInlineManager.map((plan) => (
             <button type="button" className={selectedPlanId === plan.id ? "record-row selected" : "record-row"} key={plan.id} onClick={() => {
               setSelectedPlanId(plan.id);
-              setPlanDraft({ name: plan.name, bedrooms: plan.bedrooms?.toString() ?? "", bathrooms: plan.bathrooms?.toString() ?? "", squareFeet: plan.squareFeet?.toString() ?? "", description: plan.description ?? "" });
+              setPlanDraft({ code: plan.code, name: plan.name, bedrooms: plan.bedrooms?.toString() ?? "", bathrooms: plan.bathrooms?.toString() ?? "", squareFeet: plan.squareFeet?.toString() ?? "", description: plan.description ?? "" });
             }}>
-              <span><strong>{plan.name}</strong>{plan.squareFeet ? `${plan.squareFeet} sq ft` : "No square footage"}</span>
+              <span><strong>{floorPlanLabel(plan)}</strong>{plan.squareFeet ? ` ${plan.squareFeet} sq ft` : " No square footage"}</span>
               <span className={plan.isActive ? "status-chip active" : "status-chip inactive"}>{plan.isActive ? "Active" : "Archived"}</span>
             </button>
           ))}
         </div>
         {selectedPlan ? (
           <div className="inline-plan-editor" data-testid="inline-floor-plan-editor">
+            <input data-testid="inline-floor-plan-edit-code" value={planDraft.code} onChange={(event) => setPlanDraft((current) => ({ ...current, code: event.target.value }))} />
             <input data-testid="inline-floor-plan-edit-name" value={planDraft.name} onChange={(event) => setPlanDraft((current) => ({ ...current, name: event.target.value }))} />
             <input type="number" min="0" value={planDraft.bedrooms} onChange={(event) => setPlanDraft((current) => ({ ...current, bedrooms: event.target.value }))} />
             <input type="number" step="0.5" min="0" value={planDraft.bathrooms} onChange={(event) => setPlanDraft((current) => ({ ...current, bathrooms: event.target.value }))} />
             <input type="number" min="1" value={planDraft.squareFeet} onChange={(event) => setPlanDraft((current) => ({ ...current, squareFeet: event.target.value }))} />
             <input className="span-full" value={planDraft.description} onChange={(event) => setPlanDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Description" />
-            <button data-testid="inline-floor-plan-save" type="button" className="button button-primary" onClick={() => void onUpdateFloorPlan(selectedPlan.id, { name: planDraft.name.trim(), bedrooms: numberOrNull(planDraft.bedrooms), bathrooms: numberOrNull(planDraft.bathrooms), squareFeet: numberOrNull(planDraft.squareFeet), description: planDraft.description.trim() || null })}>Save</button>
+            <button data-testid="inline-floor-plan-save" type="button" className="button button-primary" onClick={() => void onUpdateFloorPlan(selectedPlan.id, { code: planDraft.code.trim(), name: planDraft.name.trim() || planDraft.code.trim(), bedrooms: numberOrNull(planDraft.bedrooms), bathrooms: numberOrNull(planDraft.bathrooms), squareFeet: numberOrNull(planDraft.squareFeet), description: planDraft.description.trim() || null })}>Save</button>
             <button data-testid={selectedPlan.isActive ? "inline-floor-plan-archive" : "inline-floor-plan-restore"} type="button" className="button button-secondary" onClick={() => void onArchiveFloorPlan(selectedPlan.id, !selectedPlan.isActive)}>{selectedPlan.isActive ? "Archive" : "Restore"}</button>
           </div>
         ) : null}

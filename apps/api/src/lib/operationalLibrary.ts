@@ -257,13 +257,84 @@ export const bundledOperationalLibraryPacks: OperationalLibraryPackManifest[] = 
           propertyId: null,
           conditions: {
             all: [
-              { field: "vacancyStatus", operator: "equals", value: "VACANT" },
+              { field: "vacancyStatus", operator: "equals", value: "VACANT NOT LEASED NOT READY" },
               { field: "completionStatus", operator: "notEquals", value: "DONE" },
             ],
           },
           actions: [{ type: "addAuditNote", value: "Library inventory note: review whether this vacant unit should become move-in-ready stock." }],
           category: "Leasing",
           setupNotes: ["Pair this with occupancy and availability goals once property-level targets are configured."],
+        },
+        {
+          key: "library-auto-assign-cleaner-review",
+          name: "Auto-Assign Cleaner Review",
+          description: "Flags turns that appear ready for cleaning so a cleaner can be assigned before final walk.",
+          enabled: false,
+          triggerType: "SCHEDULED_CHECK",
+          propertyId: null,
+          conditions: {
+            all: [
+              { field: "makeReadyStatus", operator: "notEquals", value: "DONE" },
+              { field: "cleaningStatus", operator: "notEquals", value: "DONE" },
+              { field: "completionStatus", operator: "notEquals", value: "DONE" },
+              { field: "completionStatus", operator: "notEquals", value: "YES" },
+            ],
+            any: [
+              { field: "trashOutStatus", operator: "equals", value: "DONE" },
+              { field: "paintStatus", operator: "equals", value: "GOOD" },
+              { field: "doorsStatus", operator: "equals", value: "GOOD" },
+              { field: "floorsStatus", operator: "equals", value: "GOOD" },
+            ],
+          },
+          actions: [{ type: "addAuditNote", value: "Library assignment review: turn appears ready for cleaner assignment before final walk." }],
+          category: "Assignment",
+          setupNotes: [
+            "Adjust the upstream readiness conditions to match the property workflow before enabling.",
+            "This starter creates a review note; true automatic cleaner selection needs a future balanced-assignment action.",
+          ],
+        },
+        {
+          key: "library-balanced-tech-assignment-review",
+          name: "Balanced Tech Assignment Review",
+          description: "Flags unassigned active turns that should be distributed across available make-ready techs.",
+          enabled: false,
+          triggerType: "SCHEDULED_CHECK",
+          propertyId: null,
+          conditions: {
+            all: [
+              { field: "assignedTech", operator: "isEmpty" },
+              { field: "makeReadyDate", operator: "dateWithinNextDays", value: 14 },
+              { field: "completionStatus", operator: "notEquals", value: "DONE" },
+              { field: "completionStatus", operator: "notEquals", value: "YES" },
+            ],
+          },
+          actions: [{ type: "addAuditNote", value: "Library assignment review: upcoming turn is unassigned and should be balanced across available techs." }],
+          category: "Assignment",
+          setupNotes: [
+            "Use this to make unassigned upcoming work visible until automatic least-loaded assignment is implemented.",
+            "Future parameters should include eligible users, look-ahead days, per-day limits, planned work, and property scope.",
+          ],
+        },
+        {
+          key: "library-balanced-upcoming-make-ready-review",
+          name: "Balanced Upcoming Make-Ready Assignment Review",
+          description: "Prompts managers to balance new or upcoming make-readies before one tech carries too much of the load.",
+          enabled: false,
+          triggerType: "SCHEDULED_CHECK",
+          propertyId: null,
+          conditions: {
+            all: [
+              { field: "moveInDate", operator: "dateWithinNextDays", value: 21 },
+              { field: "completionStatus", operator: "notEquals", value: "DONE" },
+              { field: "completionStatus", operator: "notEquals", value: "YES" },
+            ],
+          },
+          actions: [{ type: "addAuditNote", value: "Library workload review: balance this upcoming make-ready against current staff assignments before move-in pressure builds." }],
+          category: "Assignment",
+          setupNotes: [
+            "Change the 21-day look-ahead window after install if the property schedules closer to move-in.",
+            "This starter is advisory until the automation engine has a deterministic balanced-assignment action.",
+          ],
         },
         {
           key: "library-move-in-risk-note",

@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { FloorPlan, MakeReadyItem, Property, SavedView, StaffOption } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
 
+function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
+  return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
+}
+
 type Props = {
   open: boolean;
   items: MakeReadyItem[];
@@ -28,7 +32,7 @@ export function CommandPalette({ open, items, properties, views, staff, floorPla
     properties: properties.filter((property) => `${property.code} ${property.name}`.toLowerCase().includes(match)).slice(0, 4),
     views: views.filter((view) => view.name.toLowerCase().includes(match)).slice(0, 4),
     people: staff.filter((person) => person.fullName.toLowerCase().includes(match)).slice(0, 4),
-    floorPlans: floorPlans.filter((plan) => plan.name.toLowerCase().includes(match)).slice(0, 4),
+    floorPlans: floorPlans.filter((plan) => `${plan.code} ${plan.name}`.toLowerCase().includes(match)).slice(0, 4),
   }), [floorPlans, items, match, properties, staff, views]);
   if (!open) return null;
   return (
@@ -52,7 +56,7 @@ export function CommandPalette({ open, items, properties, views, staff, floorPla
             {results.views.map((view) => <button key={view.id} onClick={() => { onLoadView(view); onClose(); }}><strong>{view.name}</strong><small>Saved view / {view.viewType}</small></button>)}
             {results.properties.map((property) => <div key={property.id}><strong>{property.code} / {property.name}</strong><small>Property</small></div>)}
             {results.people.map((person) => <div key={person.id}><strong>{person.fullName}</strong><small>Staff / {person.role}</small></div>)}
-            {results.floorPlans.map((plan) => <div key={plan.id}><strong>{plan.name}</strong><small>Floor plan</small></div>)}
+            {results.floorPlans.map((plan) => <div key={plan.id}><strong>{floorPlanLabel(plan)}</strong><small>Floor plan</small></div>)}
             {!Object.values(results).some((entries) => entries.length) ? <p className="empty-copy">No matching operational records.</p> : null}
           </div>
         )}

@@ -11,7 +11,7 @@ const apiTokenRateLimitMax = Number(process.env.API_TOKEN_RATE_LIMIT_MAX || 300)
 const apiTokenRateLimitWindowMs = Number(process.env.API_TOKEN_RATE_LIMIT_WINDOW_MINUTES || 15) * 60 * 1000;
 const apiTokenRateLimits = new Map<string, { windowStartedAt: number; count: number }>();
 
-type SessionUser = Pick<User, "id" | "email" | "fullName" | "role" | "isActive"> & {
+type SessionUser = Pick<User, "id" | "email" | "fullName" | "role" | "language" | "isActive"> & {
   propertyAccess: Array<Pick<UserPropertyAccess, "propertyId" | "role">>;
 };
 
@@ -181,6 +181,7 @@ export async function loadSessionUser(request: FastifyRequest) {
       email: token.createdBy.email,
       fullName: token.createdBy.fullName,
       role: token.createdBy.role,
+      language: token.createdBy.language,
       isActive: token.createdBy.isActive,
       propertyAccess: token.createdBy.propertyAccess.map((access) => ({
         propertyId: access.propertyId,
@@ -247,6 +248,7 @@ export async function loadSessionUser(request: FastifyRequest) {
     email: session.user.email,
     fullName: session.user.fullName,
     role: session.user.role,
+    language: session.user.language,
     isActive: session.user.isActive,
     propertyAccess: session.user.propertyAccess.map((access) => ({
       propertyId: access.propertyId,
@@ -377,6 +379,9 @@ function requiredScopeForRequest(request: FastifyRequest): ApiTokenScope | null 
   if (url.startsWith("/units/") && url.includes("/history")) return "read:items";
   if (url.startsWith("/activity")) return "read:activity";
   if (url.startsWith("/vendors") || url.startsWith("/vendor-assignments")) return method === "GET" ? "read:vendors" : "write:vendors";
+  if (url.startsWith("/refrigerant")) return method === "GET" ? "read:items" : "write:items";
+  if (url.startsWith("/pm")) return method === "GET" ? "read:items" : "write:items";
+  if (url.startsWith("/property-wiki")) return method === "GET" ? "read:library" : "write:library";
   if (url.startsWith("/property-maps") || url.startsWith("/unit-map-locations")) return "read:maps";
   if (url.startsWith("/operational-library")) return method === "GET" ? "read:library" : "write:library";
   if (url.startsWith("/meta") || url.startsWith("/saved-views")) return "read:items";
@@ -575,6 +580,7 @@ export function sanitizeUser(user: SessionUser) {
     email: user.email,
     fullName: user.fullName,
     role: user.role,
+    language: user.language,
     propertyAccess: user.propertyAccess,
   };
 }

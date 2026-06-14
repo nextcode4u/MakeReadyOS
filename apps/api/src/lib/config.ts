@@ -1,8 +1,10 @@
 import { z } from "zod";
 
+export const minimumPasswordLength = 8;
+
 const passwordSchema = z
   .string()
-  .min(12, "must be at least 12 characters")
+  .min(minimumPasswordLength, `must be at least ${minimumPasswordLength} characters`)
   .regex(/[a-z]/, "must include a lowercase letter")
   .regex(/[A-Z]/, "must include an uppercase letter")
   .regex(/[0-9]/, "must include a number")
@@ -67,6 +69,7 @@ const envSchema = z.object({
   DEMO_LEASING_PASSWORD: z.string().optional().or(z.literal("")),
   DEMO_CLEANER_EMAIL: z.string().email().optional().or(z.literal("")),
   DEMO_CLEANER_PASSWORD: z.string().optional().or(z.literal("")),
+  SEED_DEMO_DATA: booleanEnv.default(false),
 });
 
 const parsed = envSchema.parse(process.env);
@@ -112,6 +115,7 @@ export const authConfig = {
   demoLeasingPassword: parsed.DEMO_LEASING_PASSWORD || null,
   demoCleanerEmail: parsed.DEMO_CLEANER_EMAIL?.trim().toLowerCase() || null,
   demoCleanerPassword: parsed.DEMO_CLEANER_PASSWORD || null,
+  seedDemoData: parsed.SEED_DEMO_DATA,
   sessionCookieSecret: parsed.SESSION_COOKIE_SECRET,
   webhookSecretEncryptionKey: parsed.WEBHOOK_SECRET_ENCRYPTION_KEY || parsed.SESSION_COOKIE_SECRET,
   webhookDeliveryBatchSize: parsed.WEBHOOK_DELIVERY_BATCH_SIZE,

@@ -53,6 +53,10 @@ The first supported package format is:
     "comments": [],
     "vendors": [],
     "vendorAssignments": [],
+    "refrigerantTypes": [],
+    "refrigerantCylinders": [],
+    "refrigerantTransactions": [],
+    "refrigerantLeakFlags": [],
     "propertyMaps": [],
     "unitMapLocations": [],
     "propertyTemplates": [],
@@ -63,7 +67,7 @@ The first supported package format is:
 }
 ```
 
-References are portable rather than database-ID based. Properties use property codes; floor plans use property code plus plan name; managed board options and built-in display columns use stable field keys; schedule tracks use stable built-in keys or portable custom field keys; operating calendars use property codes; custom field values use field keys plus make-ready item portable keys; and custom columns in saved views use field keys during transfer.
+References are portable rather than database-ID based. Properties use property codes; floor plans use property code plus stable floor-plan code with plan-name fallback for older backups; managed board options and built-in display columns use stable field keys; schedule tracks use stable built-in keys or portable custom field keys; operating calendars use property codes; custom field values use field keys plus make-ready item portable keys; and custom columns in saved views use field keys during transfer.
 
 ## Included Data
 
@@ -80,6 +84,7 @@ References are portable rather than database-ID based. Properties use property c
 - Item operational comments/updates and checklist instance completion state
 - Attachment/photo metadata is preserved by PostgreSQL backups. Local uploaded file bytes require an uploads backup and are not embedded in native JSON transfer files.
 - Vendor directory records and vendor assignments linked to make-ready items
+- Refrigerant types, virgin/recovery cylinder metadata, unit charge/recovery transactions, final recovery records, and repeated-addition leak flags
 - Property map metadata, building/area markers, and unit marker locations
 - Property/board template metadata and manifests
 - Property notes
@@ -93,6 +98,8 @@ References are portable rather than database-ID based. Properties use property c
 - Daily analytics snapshots; they are derived history and can be regenerated on the destination with `./run-analytics-snapshot.sh`
 - In-house workload planning blocks are currently excluded from native transfer because users are not transferred; PostgreSQL disaster-recovery backups preserve them.
 - Operational library source/import manifests by default; re-import library packs separately when pack provenance matters
+- External refrigerant system credentials or regulatory account credentials; MakeReadyOS stores operational refrigerant logs only
+- Pool/spa setup and log records are included in native JSON transfer: facilities, chemicals, chemistry targets, daily log entries, safety checks, and chemical additions. Pool attachment metadata is database-backed, but uploaded pool-related photo/PDF file bytes are still upload-volume data, not embedded JSON.
 - Live records inside property templates, such as make-ready items, comments, attachments, unit history, users, sessions, and tokens
 - Environment files, secrets, and deployment configuration
 - Uploaded attachment/photo/map file bytes; move the local upload volume separately with `backup-uploads.sh`/`restore-uploads.sh` for full continuity

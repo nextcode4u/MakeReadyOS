@@ -31,8 +31,8 @@ type Props = {
   onUpdateOption: (id: string, input: Partial<Pick<LabelDefinition, "value" | "color" | "textColor">>) => Promise<void>;
   onArchiveOption: (id: string, restore: boolean) => Promise<void>;
   onReorderOptions: (ids: string[]) => Promise<void>;
-  onCreateFloorPlan: (input: { propertyId: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null; description: string | null }) => Promise<void>;
-  onUpdateFloorPlan: (id: string, input: { name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null; description: string | null }) => Promise<void>;
+  onCreateFloorPlan: (input: { propertyId: string; code: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null; description: string | null }) => Promise<void>;
+  onUpdateFloorPlan: (id: string, input: { code: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null; description: string | null }) => Promise<void>;
   onArchiveFloorPlan: (id: string, restore: boolean) => Promise<void>;
   onUpdateColumn: (fieldKey: string, label: string) => Promise<void>;
   onCreateScheduleTrack: (input: Omit<ScheduleTrack, "id" | "sortOrder">) => Promise<void>;
@@ -70,9 +70,9 @@ export function BoardConfigurationPanel({
   const selectedOption = fieldOptions.find((option) => option.id === selectedOptionId) ?? null;
 
   const [propertyId, setPropertyId] = useState(properties[0]?.id ?? "");
-  const [newPlan, setNewPlan] = useState({ name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
+  const [newPlan, setNewPlan] = useState({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
   const [selectedPlanId, setSelectedPlanId] = useState("");
-  const [planDraft, setPlanDraft] = useState({ name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
+  const [planDraft, setPlanDraft] = useState({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
   const propertyPlans = floorPlans.filter((plan) => plan.propertyId === propertyId);
   const selectedPlan = propertyPlans.find((plan) => plan.id === selectedPlanId) ?? null;
   const [selectedColumnKey, setSelectedColumnKey] = useState("vacatedDate");
@@ -182,6 +182,7 @@ export function BoardConfigurationPanel({
   useEffect(() => {
     if (!selectedPlan) return;
     setPlanDraft({
+      code: selectedPlan.code,
       name: selectedPlan.name,
       bedrooms: selectedPlan.bedrooms?.toString() ?? "",
       bathrooms: selectedPlan.bathrooms?.toString() ?? "",
@@ -302,14 +303,16 @@ export function BoardConfigurationPanel({
           event.preventDefault();
           void onCreateFloorPlan({
             propertyId,
-            name: newPlan.name,
+            code: newPlan.code,
+            name: newPlan.name.trim() || newPlan.code.trim(),
             bedrooms: numberOrNull(newPlan.bedrooms),
             bathrooms: numberOrNull(newPlan.bathrooms),
             squareFeet: numberOrNull(newPlan.squareFeet),
             description: newPlan.description || null,
-          }).then(() => setNewPlan({ name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" }));
+          }).then(() => setNewPlan({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" }));
         }}>
-          <input data-testid="floor-plan-create-name" placeholder="Plan name" value={newPlan.name} onChange={(event) => setNewPlan((current) => ({ ...current, name: event.target.value }))} required />
+          <input data-testid="floor-plan-create-code" placeholder="Code (B1, C2)" value={newPlan.code} onChange={(event) => setNewPlan((current) => ({ ...current, code: event.target.value }))} required />
+          <input data-testid="floor-plan-create-name" placeholder="Friendly name (Arlington)" value={newPlan.name} onChange={(event) => setNewPlan((current) => ({ ...current, name: event.target.value }))} />
           <input data-testid="floor-plan-create-beds" type="number" min="0" placeholder="Beds" value={newPlan.bedrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bedrooms: event.target.value }))} />
           <input data-testid="floor-plan-create-baths" type="number" step="0.5" min="0" placeholder="Baths" value={newPlan.bathrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bathrooms: event.target.value }))} />
           <input data-testid="floor-plan-create-sqft" type="number" min="1" placeholder="Sq ft" value={newPlan.squareFeet} onChange={(event) => setNewPlan((current) => ({ ...current, squareFeet: event.target.value }))} />
@@ -318,21 +321,22 @@ export function BoardConfigurationPanel({
         </form>
         <div className="record-list">
           {propertyPlans.length === 0 ? <StatusState title="No configured floor plans" description="Legacy text remains valid until a unit is mapped." tone="subtle" /> : propertyPlans.map((plan) => (
-            <button key={plan.id} type="button" data-testid={`floor-plan-row-${plan.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className={selectedPlanId === plan.id ? "record-row selected" : "record-row"} onClick={() => setSelectedPlanId(plan.id)}>
-              <span><strong>{plan.name}</strong>{plan.squareFeet ? `${plan.squareFeet} sq ft` : "No square footage"}</span>
+            <button key={plan.id} type="button" data-testid={`floor-plan-row-${plan.code.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className={selectedPlanId === plan.id ? "record-row selected" : "record-row"} onClick={() => setSelectedPlanId(plan.id)}>
+              <span><strong>{plan.code}</strong>{plan.name !== plan.code ? ` ${plan.name}` : ""}{plan.squareFeet ? ` ${plan.squareFeet} sq ft` : " No square footage"}</span>
               <span className={plan.isActive ? "status-chip active" : "status-chip inactive"}>{plan.isActive ? "Active" : "Archived"}</span>
             </button>
           ))}
         </div>
         {selectedPlan ? (
           <div className="editor-block">
+            <label>Code<input data-testid="floor-plan-edit-code" value={planDraft.code} onChange={(event) => setPlanDraft((current) => ({ ...current, code: event.target.value }))} /></label>
             <label>Name<input data-testid="floor-plan-edit-name" value={planDraft.name} onChange={(event) => setPlanDraft((current) => ({ ...current, name: event.target.value }))} /></label>
             <label>Beds<input type="number" value={planDraft.bedrooms} onChange={(event) => setPlanDraft((current) => ({ ...current, bedrooms: event.target.value }))} /></label>
             <label>Baths<input type="number" step="0.5" value={planDraft.bathrooms} onChange={(event) => setPlanDraft((current) => ({ ...current, bathrooms: event.target.value }))} /></label>
             <label>Sq ft<input type="number" value={planDraft.squareFeet} onChange={(event) => setPlanDraft((current) => ({ ...current, squareFeet: event.target.value }))} /></label>
             <label className="span-full">Description<input data-testid="floor-plan-edit-description" value={planDraft.description} onChange={(event) => setPlanDraft((current) => ({ ...current, description: event.target.value }))} /></label>
             <div className="admin-actions span-full">
-              <button data-testid="floor-plan-save" className="button button-primary" onClick={() => void onUpdateFloorPlan(selectedPlan.id, { name: planDraft.name, bedrooms: numberOrNull(planDraft.bedrooms), bathrooms: numberOrNull(planDraft.bathrooms), squareFeet: numberOrNull(planDraft.squareFeet), description: planDraft.description || null })}>Save</button>
+              <button data-testid="floor-plan-save" className="button button-primary" onClick={() => void onUpdateFloorPlan(selectedPlan.id, { code: planDraft.code.trim(), name: planDraft.name.trim() || planDraft.code.trim(), bedrooms: numberOrNull(planDraft.bedrooms), bathrooms: numberOrNull(planDraft.bathrooms), squareFeet: numberOrNull(planDraft.squareFeet), description: planDraft.description || null })}>Save</button>
               <button data-testid={selectedPlan.isActive ? "floor-plan-archive" : "floor-plan-restore"} className="button button-secondary" onClick={() => void onArchiveFloorPlan(selectedPlan.id, selectedPlan.isActive)}>{selectedPlan.isActive ? "Archive" : "Restore"}</button>
             </div>
           </div>

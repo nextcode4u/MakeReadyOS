@@ -14,7 +14,7 @@ function offsetDays(days: number) {
 async function main() {
   const property = await prisma.property.findFirst({
     where: { isActive: true },
-    include: { floorPlans: { where: { isActive: true }, orderBy: { name: "asc" }, take: 1 } },
+    include: { floorPlans: { where: { isActive: true }, orderBy: { code: "asc" }, take: 1 } },
     orderBy: { code: "asc" },
   });
   if (!property) throw new Error("No active property exists. Run the normal seed before generating load data.");
@@ -52,7 +52,7 @@ async function main() {
         propertyId: property.id,
         number: unitNumber,
         floorPlanId: floorPlan?.id ?? null,
-        floorPlan: floorPlan?.name ?? "Synthetic Plan",
+        floorPlan: floorPlan?.code ?? "Synthetic Plan",
         squareFeet: floorPlan?.squareFeet ?? 900,
         bedrooms: floorPlan?.bedrooms ?? 2,
         bathrooms: floorPlan?.bathrooms ?? 2,
@@ -66,7 +66,7 @@ async function main() {
       unitNumber,
       floorPlan: unit.floorPlan,
       assignedTech: index % 3 === 0 ? admin?.fullName ?? null : null,
-      vacancyStatus: index % 4 === 0 ? "VACANT LEASED" : "VACANT",
+      vacancyStatus: index % 4 === 0 ? "VACANT LEASED NOT READY" : "VACANT NOT LEASED NOT READY",
       scopeLevel: index % 7 === 0 ? "MAJOR" : index % 3 === 0 ? "MEDIUM" : "LITE",
       vacatedDate: offsetDays(-(index % 60)),
       makeReadyDate: offsetDays((index % 18) - 8),

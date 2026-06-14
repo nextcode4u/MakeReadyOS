@@ -44,9 +44,11 @@ The current JSON Schema and example pack live at:
 
 The Automation workspace exposes bundled packs plus a JSON import box for paste/import workflows. Operators should use Preview Imported JSON before Install Imported JSON to inspect created/skipped/conflict counts.
 
-The bundled starter pack includes data-only scheduling and readiness helpers such as weekend schedule review, Monday/Friday schedule review, vendor lead-time reminders, daily load review notes, scope-day planning, date-sequence review, in-house/vendor routing review, and ready-unit stock expectations. These helpers install as disabled structured rules so each property can adjust wording, scope, and enablement before use.
+The bundled starter pack includes data-only scheduling and readiness helpers such as weekend schedule review, Monday/Friday schedule review, vendor lead-time reminders, daily load review notes, scope-day planning, date-sequence review, in-house/vendor routing review, cleaner-assignment review, balanced tech-assignment review, upcoming make-ready workload review, and ready-unit stock expectations. These helpers install as disabled structured rules so each property can adjust wording, scope, and enablement before use.
 
 Date sequencing is intentionally conservative. Current templates can warn that paint, cleaning, final walk, and vendor dates need review around operating-day rules, but they do not automatically rewrite dates. Property operating calendars now store no-weekend, Monday/Friday avoidance, operating-hours, vendor lead-time, daily-limit, scope-day, and work-start preferences. A future business-day offset action can safely support patterns such as make-ready on day 0, paint on day 1, cleaning on day 2, and final walk on day 3 while respecting those property rules.
+
+Assignment templates are also conservative. The current library can flag turns that appear ready for cleaner assignment and unassigned upcoming turns that should be balanced across technicians. It does not yet choose a staff member automatically because that needs a deterministic engine action that can evaluate eligible roles, property access, active status, existing workload, planned work, and per-day caps before mutating `assignedTech`.
 
 ## Install Behavior
 

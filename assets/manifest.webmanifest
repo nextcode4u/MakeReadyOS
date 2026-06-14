@@ -1,0 +1,21 @@
+{
+  "name": "MakeReadyOS",
+  "short_name": "MakeReadyOS",
+  "description": "Self-hosted property operations and make-ready management.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "browser"],
+  "background_color": "#07111f",
+  "theme_color": "#07111f",
+  "orientation": "any",
+  "categories": ["productivity", "business", "utilities"],
+  "icons": [
+    {
+      "src": "/icons/pwa/makereadyos.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

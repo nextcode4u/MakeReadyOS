@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import type { BoardSection, FloorPlan, LabelDefinition, MakeReadyItem, OperatingCalendar, OperatingCalendarInput, Property, RiskPolicy, StaffOption, Unit, UserRole } from "../lib/api";
+import type { AvailabilityImportInput, AvailabilityImportResult, BoardSection, FloorPlan, LabelDefinition, MakeReadyItem, OperatingCalendar, OperatingCalendarInput, Property, RiskPolicy, StaffOption, Unit, UserRole } from "../lib/api";
+import type { ArchiveFilter } from "../lib/structuredFilters";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusState } from "./StatusState";
+
+function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
+  return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
+}
 
 type Props = {
   role: UserRole;
@@ -24,7 +29,9 @@ type Props = {
   onDeleteProperty: (id: string) => Promise<void>;
   onCreateUnit: (input: UnitInput) => Promise<void>;
   onUpdateUnit: (id: string, input: UnitInput) => Promise<void>;
-  onImportUnits: (input: { propertyId: string; units: UnitImportInput[]; updateExisting: boolean }) => Promise<void>;
+  onImportUnits: (input: { propertyId: string; units: UnitImportInput[]; updateExisting: boolean }) => Promise<UnitImportResult>;
+  onImportAvailability: (input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting: boolean; createTurns: boolean }) => Promise<AvailabilityImportResult>;
+  onRevertUnitImport: (input: { propertyId: string; createdUnitIds: string[] }) => Promise<void>;
   onArchiveUnit: (id: string, restore: boolean) => Promise<void>;
   onDeleteUnit: (id: string) => Promise<void>;
   onCreateItem: (input: {
@@ -76,6 +83,13 @@ type UnitImportInput = {
   isBudgeted?: boolean;
 };
 
+type UnitImportResult = {
+  property: Pick<Property, "id" | "code" | "name">;
+  summary: { created: number; updated: number; skipped: number; floorPlansCreated?: number; floorPlansUpdated?: number; errors: string[] };
+  createdUnitIds: string[];
+  updatedUnitIds: string[];
+};
+
 type ConfirmTarget =
   | { type: "property"; operation: "archive" | "delete"; record: Property }
   | { type: "unit"; operation: "archive" | "delete"; record: Unit }
@@ -88,19 +102,81 @@ function displayGroup(group: string) {
 
 const occupancyOptions: Array<{ value: Unit["occupancyStatus"]; label: string }> = [
   { value: "OCCUPIED", label: "Occupied" },
-  { value: "VACANT_READY", label: "Vacant ready" },
-  { value: "VACANT_LEASED", label: "Vacant leased" },
-  { value: "VACANT_NOT_LEASED", label: "Vacant not leased" },
-  { value: "NTV", label: "NTV" },
-  { value: "NTV_LEASED", label: "NTV leased" },
+  { value: "VACANT NOT LEASED READY", label: "Vacant not leased ready" },
+  { value: "VACANT NOT LEASED NOT READY", label: "Vacant not leased not ready" },
+  { value: "NTV NOT LEASED", label: "NTV not leased" },
+  { value: "NTV LEASED", label: "NTV leased" },
+  { value: "VACANT LEASED READY", label: "Vacant leased ready" },
+  { value: "VACANT LEASED NOT READY", label: "Vacant leased not ready" },
   { value: "DOWN", label: "Down" },
+  { value: "TO PRE-WALK", label: "To pre-walk" },
+  { value: "TO SCOPE", label: "To scope" },
+  { value: "TO FINAL WALK", label: "To final walk" },
   { value: "MODEL", label: "Model" },
   { value: "UNKNOWN", label: "Unknown" },
 ];
 
 function occupancyLabel(value: string | null | undefined) {
-  return occupancyOptions.find((option) => option.value === value)?.label ?? "Unknown";
+  return occupancyOptions.find((option) => option.value === value)?.label ?? value?.replace(/_/g, " ").toLowerCase() ?? "Unknown";
 }
+
+const unitDirectoryAiPrompt = `You are converting a property unit directory or availability export into a clean CSV for MakeReadyOS.
+
+Return a CSV file if your interface supports file attachments. If not, return only one fenced csv block and no extra explanation.
+
+Required header, exactly:
+unit,building,area,floor,floorPlan,beds,baths,sqft,occupancyStatus,budgeted
+
+Rules:
+- One row per unit only.
+- Do not include totals, summaries, page headers, footers, blank lines, rent, resident names, lease dates, phone numbers, emails, or private notes.
+- If the export only has unit, floor plan, and square footage, leave unknown columns blank and set occupancyStatus to UNKNOWN.
+- Preserve leading zeroes in unit numbers.
+- Use building only when the source clearly has a building/building number. Leave blank for properties with unit numbers only.
+- Use occupancyStatus values only from: OCCUPIED, VACANT NOT LEASED READY, VACANT NOT LEASED NOT READY, NTV NOT LEASED, NTV LEASED, VACANT LEASED READY, VACANT LEASED NOT READY, DOWN, TO PRE-WALK, TO SCOPE, TO FINAL WALK, MODEL, UNKNOWN.
+- Convert common availability wording: Vacant Not Leased Ready -> VACANT NOT LEASED READY, Vacant Not Leased Not Ready -> VACANT NOT LEASED NOT READY, NTV Not Leased -> NTV NOT LEASED, NTV Leased -> NTV LEASED, Vacant Leased Ready -> VACANT LEASED READY, Vacant Leased Not Ready -> VACANT LEASED NOT READY, occupied -> OCCUPIED, model -> MODEL, down/unavailable -> DOWN.
+- Set budgeted to yes unless the row clearly says the unit should be excluded from occupancy.
+- Keep square footage as a whole number with no commas.
+
+Before final output, verify every row has a unit value and the CSV has exactly the required columns.`;
+
+const availabilityAiPrompt = `You are converting a property availability report into MakeReadyOS availability CSV.
+
+Return a CSV file if your interface supports file attachments. If not, return only one fenced csv block and no extra explanation.
+
+Required header, exactly:
+unit,floorPlan,sqft,availabilityStatus,vacancyStatus,moveOutDate,vacatedDate,daysVacant,makeReadyDate,moveInDate,applicant,reportDate,dateApplied,building,area,floor
+
+Rules:
+- One row per availability/notice unit only. Do not include fully occupied units unless the report explicitly lists them as NTV, vacant, down, or model.
+- Preserve leading zeroes in unit numbers.
+- Do not include current resident names, phone numbers, emails, rent amounts, charges, totals, page headers, footers, or private notes.
+- Do include applicant/preleased names in applicant when the availability report provides them for a future move-in.
+- Use vacancyStatus values only from: VACANT NOT LEASED READY, VACANT NOT LEASED NOT READY, NTV NOT LEASED, NTV LEASED, VACANT LEASED READY, VACANT LEASED NOT READY, DOWN, TO PRE-WALK, TO SCOPE, TO FINAL WALK, MODEL, UNKNOWN.
+- Map report sections carefully:
+  - Vacant Not Leased Ready -> VACANT NOT LEASED READY
+  - Vacant Not Leased Not Ready -> VACANT NOT LEASED NOT READY
+  - NTV Not Leased -> NTV NOT LEASED
+  - NTV Leased -> NTV LEASED
+  - Vacant Leased Ready -> VACANT LEASED READY
+  - Vacant Leased Not Ready -> VACANT LEASED NOT READY
+  - Down/Unavailable -> DOWN
+  - Model -> MODEL
+- Use moveOutDate for expected notice/vacate dates when the report is an NTV section.
+- Use vacatedDate for actual move-out/vacated dates when the report is a vacant section.
+- Copy Days Vacant into daysVacant as a whole number when the report provides it.
+- Use makeReadyDate only when the report provides a scheduled make-ready date.
+- Use moveInDate only when a future move-in date is shown.
+- Include the availability report generated/as-of date in reportDate for every row when the source report shows it.
+- RealPage-style columns usually mean: report generated/as-of date -> reportDate; MoveOut -> moveOutDate for NTV rows or vacatedDate for already-vacant rows; Days Vacant -> daysVacant; Make Ready -> makeReadyDate; Date Applied -> dateApplied; Scheduled Move-In -> moveInDate; Preleased Name -> applicant.
+- If the source has a grouped Preleased header with columns Lease Rent, Lease Signed, Name, and Comments, use the Name value as applicant.
+- If an applicant name wraps onto the next line, join the wrapped line into the same applicant value. Example: "Weger, Kameron" on the unit row plus "Ross" on the next line becomes applicant "Weger, Kameron Ross".
+- Do not put applicant names into notes. Applicant/preleased names belong only in the applicant column.
+- Do not create a notes column for report metadata. MakeReadyOS stores report date/source details in import activity, while item notes are reserved for human operational notes.
+- Keep dates as YYYY-MM-DD if possible. MM/DD/YYYY is also acceptable.
+- Leave unknown columns blank.
+
+Before final output, verify every row has unit and vacancyStatus and the CSV has exactly the required columns.`;
 
 function splitDelimitedLine(line: string, delimiter: "," | "\t") {
   const cells: string[] = [];
@@ -143,11 +219,20 @@ function parseNumberCell(value: string) {
 function normalizeOccupancy(value: string): Unit["occupancyStatus"] {
   const normalized = value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   if (normalized === "OCCUPIED" || normalized === "OCC") return "OCCUPIED";
+  if (["VACANT_NOT_LEASED_READY", "VNL_READY", "VACANT_READY", "READY", "VR", "VACANT_MAKE_READY", "VACANT_AVAILABLE"].includes(normalized)) return "VACANT NOT LEASED READY";
+  if (["VACANT_NOT_LEASED_NOT_READY", "VNL_NOT_READY", "VACANT_NOT_READY", "VACANT_NOT_LEASED", "VNL", "VACANT", "AVAILABLE"].includes(normalized)) return "VACANT NOT LEASED NOT READY";
+  if (["NTV_NOT_LEASED", "NTV", "NOTICE", "NOTICE_TO_VACATE", "ON_NOTICE"].includes(normalized)) return "NTV NOT LEASED";
+  if (["NTV_LEASED", "NOTICE_LEASED", "ON_NOTICE_LEASED"].includes(normalized)) return "NTV LEASED";
+  if (["VACANT_LEASED_READY", "VL_READY"].includes(normalized)) return "VACANT LEASED READY";
+  if (["VACANT_LEASED_NOT_READY", "VACANT_LEASED", "LEASED_VACANT", "VL"].includes(normalized)) return "VACANT LEASED NOT READY";
+  if (["TO_PRE_WALK", "TO_PREWALK", "PRE_WALK", "PREWALK", "TO_WALK", "WALK"].includes(normalized)) return "TO PRE-WALK";
+  if (["TO_SCOPE", "SCOPE"].includes(normalized)) return "TO SCOPE";
+  if (["TO_FINAL_WALK", "FINAL_WALK", "FINALWALK", "QC", "FINAL_QC"].includes(normalized)) return "TO FINAL WALK";
   if (["VACANT_READY", "READY", "VR", "VACANT_MAKE_READY", "VACANT_AVAILABLE"].includes(normalized)) return "VACANT_READY";
   if (["VACANT_LEASED", "LEASED_VACANT", "VL"].includes(normalized)) return "VACANT_LEASED";
   if (["VACANT", "VACANT_NOT_LEASED", "VNL", "AVAILABLE"].includes(normalized)) return "VACANT_NOT_LEASED";
   if (["NTV", "NOTICE", "NOTICE_TO_VACATE", "ON_NOTICE"].includes(normalized)) return "NTV";
-  if (["NTV_LEASED", "NOTICE_LEASED", "ON_NOTICE_LEASED"].includes(normalized)) return "NTV_LEASED";
+  if (["NTV_LEASED", "NOTICE_LEASED", "ON_NOTICE_LEASED"].includes(normalized)) return "NTV LEASED";
   if (["DOWN", "DOWN_UNIT", "UNAVAILABLE"].includes(normalized)) return "DOWN";
   if (["MODEL", "MODEL_UNIT"].includes(normalized)) return "MODEL";
   if (["UNKNOWN", "UNK"].includes(normalized)) return "UNKNOWN";
@@ -160,6 +245,22 @@ function normalizeBooleanCell(value: string, fallback = true) {
   if (["false", "no", "n", "0", "exclude", "excluded", "nonbudgeted", "non-budgeted"].includes(normalized)) return false;
   if (["true", "yes", "y", "1", "include", "included", "budgeted"].includes(normalized)) return true;
   return fallback;
+}
+
+function normalizePreviewDate(value: string | null | undefined) {
+  const trimmed = `${value ?? ""}`.trim();
+  if (!trimmed || trimmed === "-" || trimmed === "—") return "";
+  const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slashMatch) {
+    const [, mm, dd, yyyy] = slashMatch;
+    const year = yyyy.length === 2 ? `20${yyyy}` : yyyy;
+    return `${year}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+  }
+  return trimmed.slice(0, 10);
+}
+
+function hasImportedValue(value: unknown) {
+  return value !== undefined && value !== null && `${value}`.trim() !== "";
 }
 
 function inferHeaderlessUnitHeaders(cellCount: number) {
@@ -215,6 +316,8 @@ export function OperationsPanel({
   onCreateUnit,
   onUpdateUnit,
   onImportUnits,
+  onImportAvailability,
+  onRevertUnitImport,
   onArchiveUnit,
   onDeleteUnit,
   onCreateItem,
@@ -226,7 +329,7 @@ export function OperationsPanel({
   const activeProperties = properties.filter((property) => property.isActive);
   const [selectedPropertyId, setSelectedPropertyId] = useState("");
   const [selectedUnitId, setSelectedUnitId] = useState("");
-  const [turnArchiveMode, setTurnArchiveMode] = useState<"active" | "archived" | "all">("active");
+  const [turnArchiveMode, setTurnArchiveMode] = useState<ArchiveFilter>("active");
   const [turnHistorySearch, setTurnHistorySearch] = useState("");
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget>(null);
   const [propertyDraft, setPropertyDraft] = useState({ name: "", code: "", occupancyGoalPercent: "" });
@@ -235,11 +338,17 @@ export function OperationsPanel({
   const [newUnit, setNewUnit] = useState({ propertyId: "", number: "", floorPlanId: "", floorPlan: "", squareFeet: "", bedrooms: "", bathrooms: "", occupancyStatus: "OCCUPIED" as Unit["occupancyStatus"], building: "", area: "", floor: "", isBudgeted: true });
   const [unitImportText, setUnitImportText] = useState("");
   const [unitImportError, setUnitImportError] = useState("");
+  const [showImportHelp, setShowImportHelp] = useState(false);
+  const [lastImport, setLastImport] = useState<UnitImportResult | null>(null);
+  const [availabilityImportText, setAvailabilityImportText] = useState("");
+  const [availabilityImportError, setAvailabilityImportError] = useState("");
+  const [showAvailabilityImportHelp, setShowAvailabilityImportHelp] = useState(false);
+  const [lastAvailabilityImport, setLastAvailabilityImport] = useState<AvailabilityImportResult | null>(null);
   const [newItem, setNewItem] = useState({
     propertyId: "",
     unitId: "",
     boardGroup: "MAKE_READY_BOARD_TA",
-    vacancyStatus: "TO WALK",
+    vacancyStatus: "VACANT NOT LEASED NOT READY",
     makeReadyStatus: "",
     completionStatus: "NO",
     makeReadyDate: "",
@@ -291,11 +400,18 @@ export function OperationsPanel({
   const floorPlansForNewUnit = floorPlans.filter((plan) => plan.propertyId === newUnit.propertyId && plan.isActive);
   const floorPlansForEditUnit = floorPlans.filter((plan) => plan.propertyId === unitDraft.propertyId && plan.isActive);
   const labelOptions = (key: string) => labels.filter((label) => label.fieldKey === key && !label.isArchived);
+
+  useEffect(() => {
+    if (selectedUnitId && !units.some((unit) => unit.id === selectedUnitId && unit.propertyId === selectedPropertyId)) {
+      setSelectedUnitId("");
+    }
+  }, [selectedPropertyId, selectedUnitId, units]);
   const visibleItems = useMemo(
     () => items
       .filter((item) => !selectedPropertyId || item.propertyId === selectedPropertyId)
       .filter((item) => {
         if (turnArchiveMode === "archived") return item.isArchived;
+        if (turnArchiveMode === "occupied") return item.unit?.occupancyStatus === "OCCUPIED" || item.vacancyStatus === "OCCUPIED";
         if (turnArchiveMode === "all") return true;
         return !item.isArchived;
       })
@@ -308,6 +424,28 @@ export function OperationsPanel({
       }),
     [items, selectedPropertyId, turnArchiveMode, turnHistorySearch],
   );
+  const occupiedDirectoryRows = useMemo(() => {
+    if (turnArchiveMode !== "occupied") return [];
+    const query = turnHistorySearch.trim().toLowerCase();
+    return units
+      .filter((unit) => (!selectedPropertyId || unit.propertyId === selectedPropertyId) && unit.occupancyStatus === "OCCUPIED")
+      .filter((unit) => {
+        if (!query) return true;
+        return [
+          unit.number,
+          unit.property.code,
+          unit.property.name,
+          unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan,
+          unit.building,
+          unit.area,
+          unit.floor,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(query));
+      })
+      .sort((left, right) => left.property.code.localeCompare(right.property.code) || left.number.localeCompare(right.number, undefined, { numeric: true }));
+  }, [selectedPropertyId, turnArchiveMode, turnHistorySearch, units]);
+  const visibleHistoryCount = turnArchiveMode === "occupied" ? occupiedDirectoryRows.length : visibleItems.length;
   const turnsByUnit = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of items) {
@@ -452,6 +590,68 @@ export function OperationsPanel({
     });
   };
 
+  const parseAvailabilityRows = () => {
+    const rows = availabilityImportText.split(/\r?\n/).map((row) => row.trim()).filter(Boolean);
+    if (rows.length === 0) throw new Error("Paste availability CSV rows before importing.");
+    const delimiter: "," | "\t" = rows[0].includes("\t") ? "\t" : ",";
+    const firstCells = splitDelimitedLine(rows[0], delimiter).map(normalizeHeader);
+    const hasHeader = firstCells.some((cell) => ["unit", "unitnumber", "bldgunit", "vacancystatus", "availabilitystatus", "makereadydate", "makeready"].includes(cell));
+    if (!hasHeader) throw new Error("Availability import needs a header row. Use the helper prompt for PDFs or spreadsheets.");
+    const headers = firstCells;
+    const dataRows = rows.slice(1);
+    if (dataRows.length === 0) throw new Error("Add at least one availability row below the header.");
+    const valueAt = (cells: string[], names: string[]) => {
+      const index = headers.findIndex((header) => names.includes(header));
+      return index >= 0 ? cells[index]?.trim() ?? "" : "";
+    };
+    return dataRows.map((row) => {
+      const cells = splitDelimitedLine(row, delimiter);
+      const number = valueAt(cells, ["unit", "unitid", "number", "unitnumber", "apartment", "apartmentnumber", "bldgunit", "bldgapt", "bldgunitnumber"]);
+      if (!number) throw new Error("Every availability row needs a unit number.");
+      const imported: AvailabilityImportInput = { number };
+      const floorPlan = valueAt(cells, ["floorplan", "floorplancode", "plan", "unittype", "unittypename"]);
+      const availabilityStatus = valueAt(cells, ["availabilitystatus", "availability", "availabilitysection", "reportsection", "section", "status", "unitstatus"]);
+      const vacancyStatus = valueAt(cells, ["vacancystatus", "operationalstatus", "occupancystatus"]);
+      const sqft = parseNumberCell(valueAt(cells, ["sqft", "squarefeet", "squarefootage", "rentablesqft", "unitsqft"]));
+      const beds = parseNumberCell(valueAt(cells, ["beds", "bed", "bedrooms"]));
+      const baths = parseNumberCell(valueAt(cells, ["baths", "bath", "bathrooms"]));
+      const building = valueAt(cells, ["building", "buildingnumber", "bldg", "bldgno", "buildingname"]);
+      const area = valueAt(cells, ["area", "phase", "zone", "section"]);
+      const floor = valueAt(cells, ["floor", "level"]);
+      const moveOutDate = valueAt(cells, ["moveoutdate", "moveout", "expectedmoveout", "ntvdate", "noticedate", "expectedvacate", "expectedvacatedate"]);
+      const vacatedDate = valueAt(cells, ["vacateddate", "vacated", "possessiondate", "actualvacate", "actualmoveout"]);
+      const daysVacant = parseNumberCell(valueAt(cells, ["daysvacant", "vacantdays", "dayvacant", "daysempty"]));
+      const makeReadyDate = valueAt(cells, ["makereadydate", "makeready", "readydate", "scheduledmakeready", "scheduledmakereadydate", "scheduledreadydate"]);
+      const moveInDate = valueAt(cells, ["moveindate", "movein", "scheduledmovein", "scheduledmoveindate", "scheduledmoveindate", "scheduledmi", "schedmovein", "schedmi"]);
+      const reportDate = valueAt(cells, ["reportdate", "reportgenerated", "reportgenerateddate", "generatedat", "generateddate", "asof", "asofdate", "reportasof", "availabilitydate"]);
+      const dateApplied = valueAt(cells, ["dateapplied", "applieddate", "applicationdate", "appdate"]);
+      const applicant = valueAt(cells, ["applicant", "applicantname", "futureapplicant", "futureapplicantname", "preleased", "prelease", "preleasedname", "preleasedapplicant", "preleasedapplicantname", "preleasename", "leasedto", "leasename", "futuretenant", "futuretenantname", "prospect", "prospectname", "scheduledresident", "scheduledresidentname", "scheduledapplicant", "scheduledapplicantname", "resident", "name"]);
+      const notes = valueAt(cells, ["notes", "note", "comments"]);
+      if (floorPlan) imported.floorPlan = floorPlan;
+      if (availabilityStatus) imported.availabilityStatus = availabilityStatus;
+      if (vacancyStatus) {
+        const normalized = normalizeOccupancy(vacancyStatus);
+        if (normalized !== "OCCUPIED") imported.vacancyStatus = normalized as AvailabilityImportInput["vacancyStatus"];
+      }
+      if (sqft !== null) imported.squareFeet = Math.round(sqft);
+      if (beds !== null) imported.bedrooms = beds;
+      if (baths !== null) imported.bathrooms = baths;
+      if (building) imported.building = building;
+      if (area) imported.area = area;
+      if (floor) imported.floor = floor;
+      if (moveOutDate) imported.moveOutDate = moveOutDate;
+      if (vacatedDate) imported.vacatedDate = vacatedDate;
+      if (daysVacant !== null) imported.daysVacant = Math.max(0, Math.round(daysVacant));
+      if (makeReadyDate) imported.makeReadyDate = makeReadyDate;
+      if (moveInDate) imported.moveInDate = moveInDate;
+      if (reportDate) imported.reportDate = reportDate;
+      if (dateApplied) imported.dateApplied = dateApplied;
+      if (applicant) imported.applicant = applicant;
+      if (notes) imported.notes = notes;
+      return imported;
+    });
+  };
+
   const unitImportPreview = useMemo(() => {
     if (!unitImportText.trim()) return null;
     try {
@@ -482,15 +682,103 @@ export function OperationsPanel({
     }
   }, [unitImportText]);
 
+  const availabilityImportPreview = useMemo(() => {
+    if (!availabilityImportText.trim()) return null;
+    try {
+      const parsed = parseAvailabilityRows();
+      const existingUnits = new Set(unitsForProperty.map((unit) => unit.number.toUpperCase()));
+      const existingTurnsByUnit = new Map(items
+        .filter((item) => !item.isArchived && item.propertyId === selectedPropertyId)
+        .map((item) => [item.unitNumber.toUpperCase(), item]));
+      const existingTurns = new Set(existingTurnsByUnit.keys());
+      const statuses = parsed.reduce<Record<string, number>>((acc, row) => {
+        const status = row.vacancyStatus ?? normalizeOccupancy(row.availabilityStatus ?? "");
+        acc[status] = (acc[status] ?? 0) + 1;
+        return acc;
+      }, {});
+      const changes = parsed.flatMap((row) => {
+        const turn = existingTurnsByUnit.get(row.number.toUpperCase());
+        if (!turn) return [];
+        const changedFields: string[] = [];
+        const status = row.vacancyStatus ?? normalizeOccupancy(row.availabilityStatus ?? "");
+        if (status && status !== turn.vacancyStatus) changedFields.push(`Vacancy: ${occupancyLabel(turn.vacancyStatus)} -> ${occupancyLabel(status)}`);
+        if (hasImportedValue(row.applicant) && (row.applicant ?? "") !== (turn.applicant ?? "")) changedFields.push(`Applicant: ${turn.applicant || "blank"} -> ${row.applicant}`);
+        if (hasImportedValue(row.moveOutDate) && normalizePreviewDate(row.moveOutDate) !== normalizePreviewDate(turn.moveOutDate)) changedFields.push(`NTV date: ${normalizePreviewDate(turn.moveOutDate) || "blank"} -> ${normalizePreviewDate(row.moveOutDate)}`);
+        if (hasImportedValue(row.vacatedDate) && normalizePreviewDate(row.vacatedDate) !== normalizePreviewDate(turn.vacatedDate)) changedFields.push(`Vacated: ${normalizePreviewDate(turn.vacatedDate) || "blank"} -> ${normalizePreviewDate(row.vacatedDate)}`);
+        if (hasImportedValue(row.makeReadyDate) && normalizePreviewDate(row.makeReadyDate) !== normalizePreviewDate(turn.makeReadyDate)) changedFields.push(`Make ready: ${normalizePreviewDate(turn.makeReadyDate) || "blank"} -> ${normalizePreviewDate(row.makeReadyDate)}`);
+        if (hasImportedValue(row.moveInDate) && normalizePreviewDate(row.moveInDate) !== normalizePreviewDate(turn.moveInDate)) changedFields.push(`Move-in: ${normalizePreviewDate(turn.moveInDate) || "blank"} -> ${normalizePreviewDate(row.moveInDate)}`);
+        if (row.daysVacant !== undefined && row.daysVacant !== null && Number(row.daysVacant) !== Number(turn.daysVacant ?? 0)) changedFields.push(`Days vacant: ${turn.daysVacant ?? 0} -> ${row.daysVacant}`);
+        return changedFields.length > 0 ? [{ unit: row.number, fields: changedFields }] : [];
+      });
+      return {
+        rows: parsed.length,
+        unitCreates: parsed.filter((row) => !existingUnits.has(row.number.toUpperCase())).length,
+        unitUpdates: parsed.filter((row) => existingUnits.has(row.number.toUpperCase())).length,
+        turnCreates: parsed.filter((row) => !existingTurns.has(row.number.toUpperCase())).length,
+        turnUpdates: parsed.filter((row) => existingTurns.has(row.number.toUpperCase())).length,
+        applicants: parsed.filter((row) => hasImportedValue(row.applicant)).length,
+        statuses,
+        changes,
+      };
+    } catch {
+      return null;
+    }
+  }, [availabilityImportText, items, selectedPropertyId, unitsForProperty]);
+
+  const availabilityImportParseError = useMemo(() => {
+    if (!availabilityImportText.trim()) return "";
+    try {
+      parseAvailabilityRows();
+      return "";
+    } catch (error) {
+      return error instanceof Error ? error.message : "Could not parse availability CSV.";
+    }
+  }, [availabilityImportText]);
+
   const importUnitDirectory = async () => {
-    if (!selectedPropertyId) return;
+    if (!properties.length) {
+      setUnitImportError("Create a property before importing a unit directory.");
+      return;
+    }
+    if (!selectedPropertyId || !selectedProperty) {
+      setUnitImportError("Select the property that owns this unit directory before importing.");
+      return;
+    }
     try {
       setUnitImportError("");
       const parsedUnits = parseUnitDirectoryRows();
-      await onImportUnits({ propertyId: selectedPropertyId, units: parsedUnits, updateExisting: true });
+      const result = await onImportUnits({ propertyId: selectedPropertyId, units: parsedUnits, updateExisting: true });
+      setLastImport(result);
+      setTurnArchiveMode("occupied");
       setUnitImportText("");
     } catch (error) {
       setUnitImportError(error instanceof Error ? error.message : "Could not parse unit directory CSV.");
+    }
+  };
+
+  const revertLastUnitImport = async () => {
+    if (!lastImport || lastImport.createdUnitIds.length === 0) return;
+    await onRevertUnitImport({ propertyId: lastImport.property.id, createdUnitIds: lastImport.createdUnitIds });
+    setLastImport(null);
+  };
+
+  const importAvailabilityReport = async () => {
+    if (!properties.length) {
+      setAvailabilityImportError("Create a property before importing availability.");
+      return;
+    }
+    if (!selectedPropertyId || !selectedProperty) {
+      setAvailabilityImportError("Select the property that owns this availability report before importing.");
+      return;
+    }
+    try {
+      setAvailabilityImportError("");
+      const parsedRows = parseAvailabilityRows();
+      const result = await onImportAvailability({ propertyId: selectedPropertyId, rows: parsedRows, updateExisting: true, createTurns: true });
+      setLastAvailabilityImport(result);
+      setAvailabilityImportText("");
+    } catch (error) {
+      setAvailabilityImportError(error instanceof Error ? error.message : "Could not parse availability CSV.");
     }
   };
 
@@ -641,6 +929,23 @@ export function OperationsPanel({
             <h3>Units</h3>
             <span className="subtitle">{unitsForProperty.length} in selected property</span>
           </div>
+          <label className="span-full unit-directory-target">
+            Unit directory property
+            <select
+              data-testid="unit-directory-property"
+              value={selectedPropertyId}
+              onChange={(event) => {
+                setSelectedPropertyId(event.target.value);
+                setSelectedUnitId("");
+                setLastImport(null);
+              }}
+              required
+            >
+              <option value="">Select property before importing</option>
+              {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
+            </select>
+            <span className="helper-copy">The unit list, CSV preview, and import all use this selected property.</span>
+          </label>
           <form className="compact-form" onSubmit={(event) => {
             event.preventDefault();
             void onCreateUnit({
@@ -663,7 +968,7 @@ export function OperationsPanel({
               {activeProperties.map((property) => <option key={property.id} value={property.id}>{property.code}</option>)}
             </select>
             <input data-testid="unit-create-number" placeholder="Unit number" value={newUnit.number} onChange={(event) => setNewUnit((current) => ({ ...current, number: event.target.value }))} required />
-            <select data-testid="unit-create-floor-plan-managed" value={newUnit.floorPlanId} onChange={(event) => setNewUnit((current) => ({ ...current, floorPlanId: event.target.value }))}><option value="">Legacy/freeform</option>{floorPlansForNewUnit.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select>
+            <select data-testid="unit-create-floor-plan-managed" value={newUnit.floorPlanId} onChange={(event) => setNewUnit((current) => ({ ...current, floorPlanId: event.target.value }))}><option value="">Legacy/freeform</option>{floorPlansForNewUnit.map((plan) => <option key={plan.id} value={plan.id}>{floorPlanLabel(plan)}</option>)}</select>
             <input data-testid="unit-create-floor-plan" placeholder="Legacy floor plan text" value={newUnit.floorPlan} onChange={(event) => setNewUnit((current) => ({ ...current, floorPlan: event.target.value }))} />
             <input data-testid="unit-create-square-feet" type="number" min="1" placeholder="Sq ft" value={newUnit.squareFeet} onChange={(event) => setNewUnit((current) => ({ ...current, squareFeet: event.target.value }))} />
             <input data-testid="unit-create-building" placeholder="Building" value={newUnit.building} onChange={(event) => setNewUnit((current) => ({ ...current, building: event.target.value }))} />
@@ -678,7 +983,7 @@ export function OperationsPanel({
           <div className="record-list unit-list">
             {unitsForProperty.length === 0 ? <StatusState title="No units found" description="Add a unit to start a make-ready turn." tone="subtle" /> : unitsForProperty.map((unit) => (
               <button key={unit.id} type="button" data-testid={`unit-row-${unit.number.toLowerCase()}`} className={selectedUnitId === unit.id ? "record-row selected" : "record-row"} onClick={() => setSelectedUnitId(unit.id)}>
-                <span><strong>{unit.number}</strong>{unit.building ? `Bldg ${unit.building} / ` : ""}{unit.floorPlan || "No floor plan"} / {occupancyLabel(unit.occupancyStatus)}</span>
+                <span><strong>{unit.number}</strong>{unit.building ? `Bldg ${unit.building} / ` : ""}{unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan || "No floor plan"} / {occupancyLabel(unit.occupancyStatus)}</span>
                 <span className={unit.isActive ? "status-chip active" : "status-chip inactive"}>{unit.isActive ? "Active" : "Archived"}</span>
               </button>
             ))}
@@ -687,7 +992,7 @@ export function OperationsPanel({
             <div className="editor-block">
               <label>Property<select data-testid="unit-edit-property" value={unitDraft.propertyId} onChange={(event) => setUnitDraft((current) => ({ ...current, propertyId: event.target.value }))}>{activeProperties.map((property) => <option key={property.id} value={property.id}>{property.code}</option>)}</select></label>
               <label>Unit<input data-testid="unit-edit-number" value={unitDraft.number} onChange={(event) => setUnitDraft((current) => ({ ...current, number: event.target.value }))} /></label>
-              <label>Managed floor plan<select data-testid="unit-edit-floor-plan-managed" value={unitDraft.floorPlanId} onChange={(event) => setUnitDraft((current) => ({ ...current, floorPlanId: event.target.value }))}><option value="">Legacy/freeform</option>{floorPlansForEditUnit.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select></label>
+              <label>Managed floor plan<select data-testid="unit-edit-floor-plan-managed" value={unitDraft.floorPlanId} onChange={(event) => setUnitDraft((current) => ({ ...current, floorPlanId: event.target.value }))}><option value="">Legacy/freeform</option>{floorPlansForEditUnit.map((plan) => <option key={plan.id} value={plan.id}>{floorPlanLabel(plan)}</option>)}</select></label>
               <label>Legacy text<input data-testid="unit-edit-floor-plan" value={unitDraft.floorPlan} onChange={(event) => setUnitDraft((current) => ({ ...current, floorPlan: event.target.value }))} /></label>
               <label>Square feet<input data-testid="unit-edit-square-feet" type="number" value={unitDraft.squareFeet} onChange={(event) => setUnitDraft((current) => ({ ...current, squareFeet: event.target.value }))} /></label>
               <label>Building<input data-testid="unit-edit-building" value={unitDraft.building} onChange={(event) => setUnitDraft((current) => ({ ...current, building: event.target.value }))} /></label>
@@ -702,8 +1007,77 @@ export function OperationsPanel({
             </div>
           ) : null}
           <div className="editor-block unit-import-block">
+            <h4>Paste Availability CSV</h4>
+            <p className="helper-copy">Use this for availability snapshots such as NTV, NTV leased, vacant leased, vacant ready, down, and model units. This updates unit occupancy and creates or updates active make-ready table rows for non-occupied availability records.</p>
+            <div className="unit-import-actions">
+              <input
+                data-testid="availability-import-file"
+                type="file"
+                accept=".csv,.txt,.tsv,text/csv,text/tab-separated-values,text/plain"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  if (!file) return;
+                  void file.text().then(setAvailabilityImportText).catch(() => setAvailabilityImportError("Could not read that file."));
+                }}
+              />
+              <button type="button" className="button button-secondary" onClick={() => setAvailabilityImportText("unit,floorPlan,sqft,availabilityStatus,vacancyStatus,moveOutDate,vacatedDate,daysVacant,makeReadyDate,moveInDate,applicant,reportDate,dateApplied,building,area,floor\n081,B1,1186,Vacant Not Leased Not Ready,VACANT NOT LEASED NOT READY,,2026-05-04,19,2026-05-05,,,2026-06-07,,,,\n103,B1,1186,Vacant Not Leased Ready,VACANT NOT LEASED READY,,2026-04-30,24,2026-05-08,,,2026-06-07,,,,\n180,C1,1344,NTV Not Leased,NTV NOT LEASED,2026-05-30,,0,2026-06-02,2026-06-05,,2026-06-07,,,,\n190,C1,1344,Vacant Leased Not Ready,VACANT LEASED NOT READY,,2026-05-28,2,2026-06-01,2026-06-05,Future Applicant,2026-06-07,,,,")}>Load sample</button>
+              <button type="button" className="button button-secondary" onClick={() => setShowAvailabilityImportHelp((current) => !current)}>Need to convert PDF/XLSX?</button>
+              <button type="button" className="button button-secondary" disabled={!availabilityImportText.trim()} onClick={() => setAvailabilityImportText("")}>Clear</button>
+            </div>
+            {showAvailabilityImportHelp ? (
+              <div className="unit-import-help" data-testid="availability-import-ai-help">
+                <div className="admin-section-head">
+                  <div>
+                    <strong>AI conversion helper</strong>
+                    <p className="helper-copy">Use this with an availability PDF/spreadsheet export to preserve statuses, dates, applicant names, and the report date.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => void navigator.clipboard?.writeText(availabilityAiPrompt)}
+                  >
+                    Copy prompt
+                  </button>
+                </div>
+                <textarea readOnly rows={12} value={availabilityAiPrompt} />
+              </div>
+            ) : null}
+            <textarea data-testid="availability-import-csv" rows={5} value={availabilityImportText} onChange={(event) => setAvailabilityImportText(event.target.value)} placeholder={"unit,floorPlan,sqft,availabilityStatus,vacancyStatus,moveOutDate,vacatedDate,daysVacant,makeReadyDate,moveInDate,applicant,reportDate\n081,B1,1186,Vacant Not Leased Not Ready,VACANT NOT LEASED NOT READY,,2026-05-04,19,2026-05-05,,,2026-06-07"} />
+            {availabilityImportPreview ? (
+              <div className="unit-import-preview" data-testid="availability-import-preview">
+                <span><strong>{selectedProperty?.code ?? "No property"}</strong> target</span>
+                <span><strong>{availabilityImportPreview.rows}</strong> rows</span>
+                <span><strong>{availabilityImportPreview.unitCreates}</strong> units new</span>
+                <span><strong>{availabilityImportPreview.unitUpdates}</strong> units update</span>
+                <span><strong>{availabilityImportPreview.turnCreates}</strong> turns new</span>
+                <span><strong>{availabilityImportPreview.turnUpdates}</strong> turns update</span>
+                <span><strong>{availabilityImportPreview.applicants}</strong> applicants</span>
+                {Object.entries(availabilityImportPreview.statuses).map(([status, count]) => <span key={status}><strong>{count}</strong> {occupancyLabel(status)}</span>)}
+              </div>
+            ) : null}
+            {availabilityImportPreview?.changes.length ? (
+              <div className="admin-message warning" data-testid="availability-import-diff-preview">
+                <strong>{availabilityImportPreview.changes.length}</strong> existing turns have report differences. Import will update provided report fields and keep omitted fields unchanged.
+                <ul className="compact-list">
+                  {availabilityImportPreview.changes.slice(0, 6).map((change) => (
+                    <li key={change.unit}><strong>{change.unit}</strong>: {change.fields.slice(0, 3).join("; ")}{change.fields.length > 3 ? `; +${change.fields.length - 3} more` : ""}</li>
+                  ))}
+                  {availabilityImportPreview.changes.length > 6 ? <li>+{availabilityImportPreview.changes.length - 6} more changed units</li> : null}
+                </ul>
+              </div>
+            ) : null}
+            {availabilityImportParseError ? <p className="admin-message error">{availabilityImportParseError}</p> : null}
+            {availabilityImportError ? <p className="admin-message error">{availabilityImportError}</p> : null}
+            {lastAvailabilityImport ? (
+              <div className="admin-message success" data-testid="availability-import-last-import">
+                Last availability import to {lastAvailabilityImport.property.code}: {lastAvailabilityImport.summary.turnsCreated} turns created, {lastAvailabilityImport.summary.turnsUpdated} turns updated, {lastAvailabilityImport.summary.unitsCreated} units created, {lastAvailabilityImport.summary.unitsUpdated} units updated.
+              </div>
+            ) : null}
+            <button data-testid="availability-import-submit" className="button button-primary" disabled={loading || !properties.length || !selectedPropertyId || !availabilityImportText.trim()} onClick={() => void importAvailabilityReport()}>Import Availability & Populate Board</button>
+          </div>
+          <div className="editor-block unit-import-block">
             <h4>Paste Unit Directory CSV</h4>
-            <p className="helper-copy">Paste or load a unit-directory or availability report. Comma and tab-delimited data are supported, including quoted values and common columns like unit, building, floor plan, beds, baths, sq ft, status, and budgeted.</p>
+            <p className="helper-copy">Use this for permanent inventory only. It updates occupied/vacant directory status but does not create active make-ready table rows. For board population, use Availability CSV above.</p>
             <div className="unit-import-actions">
               <input
                 data-testid="unit-import-file"
@@ -715,12 +1089,32 @@ export function OperationsPanel({
                   void file.text().then(setUnitImportText).catch(() => setUnitImportError("Could not read that file."));
                 }}
               />
-              <button type="button" className="button button-secondary" onClick={() => setUnitImportText("unit,building,area,floor,floorPlan,beds,baths,sqft,occupancyStatus,budgeted\n101,1,North,1,A1,1,1,720,OCCUPIED,yes\n102,1,North,1,A1,1,1,720,NTV_LEASED,yes")}>Load sample</button>
+              <button type="button" className="button button-secondary" onClick={() => setUnitImportText("unit,building,area,floor,floorPlan,beds,baths,sqft,occupancyStatus,budgeted\n101,1,North,1,A1,1,1,720,OCCUPIED,yes\n102,1,North,1,A1,1,1,720,NTV LEASED,yes")}>Load sample</button>
+              <button type="button" className="button button-secondary" onClick={() => setShowImportHelp((current) => !current)}>Need to convert Excel/PDF?</button>
               <button type="button" className="button button-secondary" disabled={!unitImportText.trim()} onClick={() => setUnitImportText("")}>Clear</button>
             </div>
+            {showImportHelp ? (
+              <div className="unit-import-help" data-testid="unit-import-ai-help">
+                <div className="admin-section-head">
+                  <div>
+                    <strong>AI conversion helper</strong>
+                    <p className="helper-copy">Use this with a spreadsheet/PDF export when you need a MakeReadyOS-ready CSV.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => void navigator.clipboard?.writeText(unitDirectoryAiPrompt)}
+                  >
+                    Copy prompt
+                  </button>
+                </div>
+                <textarea readOnly rows={10} value={unitDirectoryAiPrompt} />
+              </div>
+            ) : null}
             <textarea data-testid="unit-import-csv" rows={5} value={unitImportText} onChange={(event) => setUnitImportText(event.target.value)} placeholder={"unit\tbuilding\tfloorPlan\tbeds\tbaths\tsqft\toccupancyStatus\n101\t1\tA1\t1\t1\t720\tOCCUPIED"} />
             {unitImportPreview ? (
               <div className="unit-import-preview" data-testid="unit-import-preview">
+                <span><strong>{selectedProperty?.code ?? "No property"}</strong> target</span>
                 <span><strong>{unitImportPreview.rows}</strong> rows</span>
                 <span><strong>{unitImportPreview.creates}</strong> new</span>
                 <span><strong>{unitImportPreview.updates}</strong> updates</span>
@@ -730,7 +1124,17 @@ export function OperationsPanel({
             ) : null}
             {unitImportParseError ? <p className="admin-message error">{unitImportParseError}</p> : null}
             {unitImportError ? <p className="admin-message error">{unitImportError}</p> : null}
-            <button data-testid="unit-import-submit" className="button button-secondary" disabled={loading || !selectedPropertyId || !unitImportText.trim()} onClick={() => void importUnitDirectory()}>Import / Update Directory</button>
+            {lastImport ? (
+              <div className="admin-message warning" data-testid="unit-import-last-import">
+                Last import to {lastImport.property.code}: {lastImport.summary.created} created, {lastImport.summary.updated} updated, {lastImport.summary.skipped} skipped, {lastImport.summary.floorPlansCreated ?? 0} floor plans created, {lastImport.summary.floorPlansUpdated ?? 0} floor plans updated.
+                {lastImport.createdUnitIds.length > 0 ? (
+                  <button type="button" className="button button-danger" disabled={loading} onClick={() => void revertLastUnitImport()}>
+                    Undo created units
+                  </button>
+                ) : <span> No created units to undo.</span>}
+              </div>
+            ) : null}
+            <button data-testid="unit-import-submit" className="button button-secondary" disabled={loading || !properties.length || !selectedPropertyId || !unitImportText.trim()} onClick={() => void importUnitDirectory()}>Import / Update Directory</button>
           </div>
         </article>
       </section>
@@ -743,7 +1147,7 @@ export function OperationsPanel({
           </div>
           <div className="turn-form">
             <label>Property<select data-testid="item-create-property" value={newItem.propertyId} onChange={(event) => setNewItem((current) => ({ ...current, propertyId: event.target.value, unitId: "" }))}>{activeProperties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}</select></label>
-            <label>Unit<select data-testid="item-create-unit" value={newItem.unitId} onChange={(event) => chooseItemUnit(event.target.value)}><option value="">Select unit</option>{activeUnitsForItem.map((unit) => <option key={unit.id} value={unit.id}>{unit.number} - {unit.floorPlan || "No floor plan"}</option>)}</select></label>
+            <label>Unit<select data-testid="item-create-unit" value={newItem.unitId} onChange={(event) => chooseItemUnit(event.target.value)}><option value="">Select unit</option>{activeUnitsForItem.map((unit) => <option key={unit.id} value={unit.id}>{unit.number} - {unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan || "No floor plan"}</option>)}</select></label>
             <label>Section<select data-testid="item-create-group" value={newItem.boardGroup} onChange={(event) => setNewItem((current) => ({ ...current, boardGroup: event.target.value }))}>{sectionsForNewItem.map((section) => <option key={section.id} value={section.key}>{section.displayName}</option>)}</select></label>
             <label>Vacancy<select data-testid="item-create-vacancy" value={newItem.vacancyStatus} onChange={(event) => setNewItem((current) => ({ ...current, vacancyStatus: event.target.value }))}>{labelOptions("vacancyStatus").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
             <label>Make-ready status<select data-testid="item-create-status" value={newItem.makeReadyStatus} onChange={(event) => setNewItem((current) => ({ ...current, makeReadyStatus: event.target.value }))}><option value="">Unset</option>{labelOptions("makeReadyStatus").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
@@ -758,7 +1162,7 @@ export function OperationsPanel({
         <article className="operations-card" data-testid="turn-lifecycle-panel">
           <div className="admin-section-head">
             <div>
-              <h3>Archive / Occupied History</h3>
+              <h3>Archive / Occupied Units</h3>
               <p className="helper-copy">Each make-ready item is one turn. Archive completed turns after move-in while keeping unit-level history, photos, comments, vendors, checklists, risk, and activity available for lookup.</p>
             </div>
             <div className="archive-history-controls">
@@ -770,9 +1174,10 @@ export function OperationsPanel({
               />
               <label className="toolbar-select">
                 <span className="sr-only">Turn archive mode</span>
-                <select data-testid="item-archive-mode" value={turnArchiveMode} onChange={(event) => setTurnArchiveMode(event.target.value as "active" | "archived" | "all")}>
+                <select data-testid="item-archive-mode" value={turnArchiveMode} onChange={(event) => setTurnArchiveMode(event.target.value as ArchiveFilter)}>
                   <option value="active">Active turns</option>
                   <option value="archived">Archive only</option>
+                  <option value="occupied">Occupied</option>
                   <option value="all">Active + archive</option>
                 </select>
               </label>
@@ -782,10 +1187,52 @@ export function OperationsPanel({
             <span><strong>{activeTurns.length}</strong> active turns</span>
             <span><strong>{archivedTurns.length}</strong> archived turns</span>
             <span><strong>{occupiedCount}</strong> occupied directory units</span>
-            <span><strong>{visibleItems.length}</strong> shown</span>
+            <span><strong>{visibleHistoryCount}</strong> shown</span>
           </div>
           <div className="turn-list">
-            {visibleItems.length === 0 ? <StatusState title="No turnover records" description="Create a make-ready item or switch to Archive only to review completed move-in history." tone="subtle" /> : visibleItems.slice(0, 40).map((item) => (
+            {turnArchiveMode === "occupied" ? (
+              occupiedDirectoryRows.length === 0 ? (
+                <StatusState title="No occupied directory units" description="Import a unit directory with occupied units, or switch modes to review active and archived make-ready turns." tone="subtle" />
+              ) : occupiedDirectoryRows.slice(0, 80).map((unit) => {
+                const turnCount = turnsByUnit.get(`${unit.propertyId}|${unit.id}`) ?? turnsByUnit.get(`${unit.propertyId}|${unit.number}`) ?? 0;
+                return (
+                  <div className="turn-row" data-testid={`occupied-unit-row-${unit.number.toLowerCase()}`} key={unit.id}>
+                    <div>
+                      <strong>{unit.property.code} {unit.number}</strong>
+                      <span>{unit.property.name} / {unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan || "No floor plan"} / {turnCount} prior turn(s)</span>
+                      <small>{unit.building ? `Building ${unit.building}` : "No building"} / {unit.area || "No area"} / {unit.floor ? `Floor ${unit.floor}` : "No floor"} / {unit.isBudgeted ? "Budgeted" : "Non-budgeted"}</small>
+                    </div>
+                    <span className="status-chip active">Occupied</span>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={() => {
+                        setSelectedPropertyId(unit.propertyId);
+                        setSelectedUnitId(unit.id);
+                      }}
+                    >
+                      Edit unit
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-primary"
+                      onClick={() => {
+                        setNewItem((current) => ({
+                          ...current,
+                          propertyId: unit.propertyId,
+                          unitId: unit.id,
+                          itemName: unit.number,
+                          unitNumber: unit.number,
+                          floorPlan: unit.floorPlan,
+                        }));
+                      }}
+                    >
+                      Start turn
+                    </button>
+                  </div>
+                );
+              })
+            ) : visibleItems.length === 0 ? <StatusState title="No turnover records" description="Create a make-ready item or switch to Occupied to review imported occupied directory units." tone="subtle" /> : visibleItems.slice(0, 40).map((item) => (
               <div className="turn-row" data-testid={`turn-row-${item.unitNumber.toLowerCase()}`} key={item.id}>
                 <div>
                   <strong>{item.unitNumber}</strong>

@@ -41,7 +41,22 @@ model Property {
   floorPlans       FloorPlan[]
   makeReadyItems   MakeReadyItem[]
   refrigerantLogs  RefrigerantLog[]
+  poolFacilities PoolFacility[]
+  poolChemicals PoolChemical[]
+  poolChemistryTargets PoolChemistryTarget[]
+  poolLogEntries PoolLogEntry[]
+  poolLogAttachments PoolLogAttachment[]
   poolChemicalLogs PoolChemicalLog[]
+  pmTemplates     PreventiveMaintenanceTemplate[]
+  pmTasks         PreventiveMaintenanceTask[]
+  pmTaskAttachments PreventiveMaintenanceTaskAttachment[]
+  wikiProfile      PropertyWikiProfile?
+  wikiEntries      PropertyWikiEntry[]
+  wikiVendors      PropertyWikiVendor[]
+  wikiAssets       PropertyWikiAsset[]
+  wikiFavorites    PropertyWikiFavorite[]
+  wikiRecentViews  PropertyWikiRecentView[]
+  wikiReferences   PropertyWikiReference[]
   pestIssues       PestIssue[]
   notes            PropertyNote[]
   checklistTemplates ChecklistTemplate[]
@@ -99,6 +114,7 @@ model FloorPlan {
   id          String   @id @default(cuid())
   propertyId  String
   property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  code        String
   name        String
   bedrooms    Int?
   bathrooms   Float?
@@ -109,8 +125,9 @@ model FloorPlan {
   updatedAt   DateTime @updatedAt
   units       Unit[]
 
-  @@unique([propertyId, name])
-  @@index([propertyId, isActive, name])
+  @@unique([propertyId, code])
+  @@index([propertyId, isActive, code])
+  @@index([propertyId, name])
 }
 
 model MakeReadyItem {
@@ -192,6 +209,7 @@ model User {
   passwordHash   String
   fullName       String
   role           UserRole
+  language       String               @default("en")
   isActive       Boolean              @default(true)
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
@@ -205,6 +223,21 @@ model User {
   workAssignments WorkAssignmentBlock[]
   comments       ItemComment[]
   attachments    ItemAttachment[]
+  poolLogAttachments PoolLogAttachment[]
+  wikiProfilesCreated PropertyWikiProfile[] @relation("PropertyWikiProfileCreatedBy")
+  wikiProfilesUpdated PropertyWikiProfile[] @relation("PropertyWikiProfileUpdatedBy")
+  wikiEntriesCreated  PropertyWikiEntry[]   @relation("PropertyWikiEntryCreatedBy")
+  wikiEntriesUpdated  PropertyWikiEntry[]   @relation("PropertyWikiEntryUpdatedBy")
+  wikiVendorsCreated  PropertyWikiVendor[]  @relation("PropertyWikiVendorCreatedBy")
+  wikiVendorsUpdated  PropertyWikiVendor[]  @relation("PropertyWikiVendorUpdatedBy")
+  wikiAssetsCreated   PropertyWikiAsset[]   @relation("PropertyWikiAssetCreatedBy")
+  wikiFavorites       PropertyWikiFavorite[]
+  wikiRecentViews     PropertyWikiRecentView[]
+  wikiReferencesCreated PropertyWikiReference[]
+  pmTemplatesCreated  PreventiveMaintenanceTemplate[] @relation("PreventiveMaintenanceTemplateCreatedBy")
+  pmTemplatesUpdated  PreventiveMaintenanceTemplate[] @relation("PreventiveMaintenanceTemplateUpdatedBy")
+  pmTasksCompleted    PreventiveMaintenanceTask[] @relation("PreventiveMaintenanceTaskCompletedBy")
+  pmTaskAttachments   PreventiveMaintenanceTaskAttachment[]
   completedChecklistItems ChecklistInstanceItem[]
   apiTokensCreated ApiToken[]
   webhooksCreated  WebhookEndpoint[]
@@ -881,6 +914,100 @@ model RefrigerantLog {
   updatedAt            DateTime @updatedAt
 }
 
+model RefrigerantType {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  isActive    Boolean  @default(true)
+  notes       String?
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  cylinders   RefrigerantCylinder[]
+  transactions RefrigerantTransaction[]
+  leakFlags   RefrigerantLeakFlag[]
+
+  @@index([isActive, name])
+}
+
+model RefrigerantCylinder {
+  id             String   @id @default(cuid())
+  identifier     String   @unique
+  refrigerantTypeId String
+  refrigerantType RefrigerantType @relation(fields: [refrigerantTypeId], references: [id], onDelete: Restrict)
+  category       String
+  tankSize       Float
+  currentWeight  Float
+  status         String   @default("ACTIVE")
+  notes          String?
+  dispositionNotes String?
+  finalRecoveryCompleted Boolean @default(false)
+  archivedAt     DateTime?
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  sourceTransactions RefrigerantTransaction[] @relation("RefrigerantSourceCylinder")
+  recoveryTransactions RefrigerantTransaction[] @relation("RefrigerantRecoveryCylinder")
+
+  @@index([category, status])
+  @@index([refrigerantTypeId, category, status])
+  @@index([archivedAt])
+}
+
+model RefrigerantTransaction {
+  id              String   @id @default(cuid())
+  transactionType String
+  propertyId      String?
+  unitId          String?
+  unitNumber      String?
+  refrigerantTypeId String
+  refrigerantType RefrigerantType @relation(fields: [refrigerantTypeId], references: [id], onDelete: Restrict)
+  sourceCylinderId String?
+  sourceCylinder RefrigerantCylinder? @relation("RefrigerantSourceCylinder", fields: [sourceCylinderId], references: [id], onDelete: SetNull)
+  recoveryCylinderId String?
+  recoveryCylinder RefrigerantCylinder? @relation("RefrigerantRecoveryCylinder", fields: [recoveryCylinderId], references: [id], onDelete: SetNull)
+  occurredAt      DateTime @default(now())
+  startWeight     Float
+  endWeight       Float
+  amount          Float
+  notes           String?
+  createdById     String?
+  createdByName   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([propertyId, unitId, occurredAt])
+  @@index([propertyId, unitNumber, occurredAt])
+  @@index([refrigerantTypeId, occurredAt])
+  @@index([sourceCylinderId, occurredAt])
+  @@index([recoveryCylinderId, occurredAt])
+  @@index([transactionType, occurredAt])
+}
+
+model RefrigerantLeakFlag {
+  id              String   @id @default(cuid())
+  propertyId      String?
+  unitId          String?
+  unitNumber      String
+  refrigerantTypeId String?
+  refrigerantType RefrigerantType? @relation(fields: [refrigerantTypeId], references: [id], onDelete: SetNull)
+  level           String
+  status          String   @default("ACTIVE")
+  reason          String
+  firstDetectedAt DateTime @default(now())
+  lastDetectedAt  DateTime @default(now())
+  dismissedAt     DateTime?
+  dismissedById   String?
+  dismissalNotes  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([propertyId, unitNumber, status])
+  @@index([unitId, status])
+  @@index([level, status])
+}
+
 model PoolChemicalLog {
   id               String   @id @default(cuid())
   propertyId       String
@@ -898,6 +1025,439 @@ model PoolChemicalLog {
   correctiveAction String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+}
+
+model PoolFacility {
+  id              String   @id @default(cuid())
+  propertyId      String
+  property        Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name            String
+  type            String   @default("POOL")
+  capacityGallons Float?
+  surfaceType     String?
+  notes           String?
+  isActive        Boolean  @default(true)
+  createdById     String?
+  updatedById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  entries         PoolLogEntry[]
+
+  @@unique([propertyId, name])
+  @@index([propertyId, isActive])
+  @@index([type])
+}
+
+model PoolChemical {
+  id                   String   @id @default(cuid())
+  propertyId           String
+  property             Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name                 String
+  category             String
+  concentrationPercent Float?
+  unit                 String
+  notes                String?
+  isActive             Boolean  @default(true)
+  createdById          String?
+  updatedById          String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  additions            PoolChemicalAddition[]
+
+  @@unique([propertyId, name])
+  @@index([propertyId, category, isActive])
+}
+
+model PoolChemistryTarget {
+  id                  String   @id @default(cuid())
+  propertyId          String?
+  property            Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  facilityType        String
+  phMin               Float    @default(7.2)
+  phMax               Float    @default(7.8)
+  freeChlorineMin     Float    @default(1)
+  freeChlorineMax     Float    @default(4)
+  combinedChlorineMax Float    @default(0.2)
+  totalAlkalinityMin  Float    @default(80)
+  totalAlkalinityMax  Float    @default(120)
+  cyaMin              Float    @default(30)
+  cyaMax              Float    @default(50)
+  calciumHardnessMin  Float    @default(200)
+  calciumHardnessMax  Float    @default(400)
+  updatedById         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([propertyId, facilityType])
+  @@index([facilityType])
+}
+
+model PoolLogEntry {
+  id                 String   @id @default(cuid())
+  propertyId         String
+  property           Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  facilityId         String
+  facility           PoolFacility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  technicianId       String?
+  technicianName     String?
+  logDate            DateTime
+  logTime            String?
+  ph                 Float?
+  freeChlorine       Float?
+  combinedChlorine   Float?
+  totalChlorine      Float?
+  totalAlkalinity    Float?
+  cyanuricAcid       Float?
+  calciumHardness    Float?
+  waterTemperature   Float?
+  vacuumed           Boolean  @default(false)
+  backwashed         Boolean  @default(false)
+  skimmerCleaned     Boolean  @default(false)
+  pumpRunning        Boolean  @default(false)
+  filterOperating    Boolean  @default(false)
+  waterClear         Boolean  @default(false)
+  waterCloudy        Boolean  @default(false)
+  algaePresent       Boolean  @default(false)
+  notes              String?
+  evaluationJson     Json?
+  createdById        String?
+  updatedById        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  safetyChecks       PoolSafetyCheck[]
+  chemicalAdditions  PoolChemicalAddition[]
+  attachments        PoolLogAttachment[]
+
+  @@index([propertyId, logDate])
+  @@index([facilityId, logDate])
+  @@index([technicianId, logDate])
+}
+
+model PoolLogAttachment {
+  id           String       @id @default(cuid())
+  entryId      String
+  entry        PoolLogEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  propertyId   String
+  property     Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  uploadedById String?
+  uploadedBy   User?        @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploaderName String
+  originalName String
+  storedName   String       @unique
+  mimeType     String
+  sizeBytes    Int
+  category     String?
+  notes        String?
+  createdAt    DateTime     @default(now())
+
+  @@index([entryId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model PoolSafetyCheck {
+  id        String   @id @default(cuid())
+  entryId   String
+  entry     PoolLogEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  label     String
+  value     String   @default("PASS")
+  notes     String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([entryId, value])
+}
+
+model PoolChemicalAddition {
+  id           String   @id @default(cuid())
+  entryId      String
+  entry        PoolLogEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  chemicalId   String?
+  chemical     PoolChemical? @relation(fields: [chemicalId], references: [id], onDelete: SetNull)
+  chemicalName String
+  amount       Float
+  unit         String
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@index([entryId])
+  @@index([chemicalId])
+}
+
+model PropertyWikiProfile {
+  id                    String   @id @default(cuid())
+  propertyId            String   @unique
+  property              Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  address               String?
+  unitCount             Int?
+  buildingCount         Int?
+  officePhone           String?
+  afterHoursPhone       String?
+  propertyManager       String?
+  maintenanceSupervisor String?
+  regionalManager       String?
+  generalNotes          String?
+  createdById           String?
+  updatedById           String?
+  createdBy             User?    @relation("PropertyWikiProfileCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy             User?    @relation("PropertyWikiProfileUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([propertyId])
+}
+
+model PropertyWikiEntry {
+  id                  String   @id @default(cuid())
+  propertyId          String
+  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  section             String
+  title               String
+  category            String?
+  building            String?
+  locationDescription String?
+  equipmentModel      String?
+  manufacturer        String?
+  serialNumber        String?
+  installDate         DateTime?
+  warrantyExpiresAt   DateTime?
+  floorPlan           String?
+  unitType            String?
+  blindSizes          String?
+  hvacNotes           String?
+  waterHeaterNotes    String?
+  applianceNotes      String?
+  paintStandards      String?
+  countertopNotes     String?
+  cabinetNotes        String?
+  flooringNotes       String?
+  contactType         String?
+  contactTitle        String?
+  phone               String?
+  email               String?
+  isEmergencyContact  Boolean  @default(false)
+  relatedEntryIds     String[] @default([])
+  relatedVendorIds    String[] @default([])
+  notes               String?
+  content             String?
+  issueStatus         String?
+  tags                String[] @default([])
+  contacts            String?
+  situation           String?
+  poolCapacity        String?
+  spaCapacity         String?
+  pumpModels          String?
+  filterModels        String?
+  filterSizes         String?
+  heaterModels        String?
+  controllerNotes     String?
+  chemicalTargetNotes String?
+  isPinned            Boolean  @default(false)
+  isEmergency         Boolean  @default(false)
+  isActive            Boolean  @default(true)
+  createdById         String?
+  updatedById         String?
+  createdBy           User?    @relation("PropertyWikiEntryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy           User?    @relation("PropertyWikiEntryUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  assets              PropertyWikiAsset[]
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([propertyId, section, isActive, updatedAt])
+  @@index([propertyId, category])
+  @@index([propertyId, contactType, isActive])
+  @@index([propertyId, floorPlan, unitType])
+  @@index([propertyId, building])
+}
+
+model PropertyWikiVendor {
+  id             String   @id @default(cuid())
+  propertyId     String
+  property       Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  vendorType     String
+  companyName    String
+  contactName    String?
+  phone          String?
+  email          String?
+  emergencyPhone String?
+  notes          String?
+  isActive       Boolean  @default(true)
+  createdById    String?
+  updatedById    String?
+  createdBy      User?    @relation("PropertyWikiVendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy      User?    @relation("PropertyWikiVendorUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  assets         PropertyWikiAsset[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([propertyId, vendorType, isActive])
+  @@index([propertyId, companyName])
+}
+
+model PropertyWikiAsset {
+  id           String   @id @default(cuid())
+  propertyId   String
+  property     Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  entryId      String?
+  entry        PropertyWikiEntry? @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  vendorId     String?
+  vendor       PropertyWikiVendor? @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  kind         String
+  title        String
+  category     String?
+  building     String?
+  description  String?
+  tags         String[] @default([])
+  isEmergency  Boolean  @default(false)
+  storedName   String   @unique
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  createdById  String?
+  createdBy    User?    @relation("PropertyWikiAssetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  @@index([propertyId, kind, createdAt])
+  @@index([entryId, kind])
+  @@index([vendorId, kind])
+  @@index([propertyId, building])
+}
+
+model PropertyWikiFavorite {
+  id         String   @id @default(cuid())
+  userId     String
+  propertyId String
+  targetType String
+  targetId   String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, targetType, targetId])
+  @@index([propertyId, userId, createdAt])
+}
+
+model PropertyWikiRecentView {
+  id         String   @id @default(cuid())
+  userId     String
+  propertyId String
+  targetType String
+  targetId   String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  viewedAt   DateTime @default(now())
+
+  @@unique([userId, targetType, targetId])
+  @@index([propertyId, userId, viewedAt])
+}
+
+model PropertyWikiReference {
+  id             String   @id @default(cuid())
+  propertyId     String
+  recordType     String
+  recordId       String
+  targetType     String
+  targetId       String
+  createdById    String?
+  property       Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdBy      User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt      DateTime @default(now())
+
+  @@unique([recordType, recordId, targetType, targetId])
+  @@index([propertyId, recordType, recordId, createdAt])
+  @@index([targetType, targetId])
+}
+
+model PreventiveMaintenanceTemplate {
+  id               String   @id @default(cuid())
+  propertyId       String
+  property         Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name             String
+  category         String
+  description      String?
+  instructions     String?
+  frequency        String
+  customEveryDays  Int?
+  annualMonth      Int?
+  annualDay        Int?
+  assignedRole     String
+  assignedUserId   String?
+  assignedUserName String?
+  photosRequired   Boolean  @default(false)
+  notesRequired    Boolean  @default(false)
+  passFailRequired Boolean  @default(false)
+  priority         String   @default("Normal")
+  isActive         Boolean  @default(true)
+  isArchived       Boolean  @default(false)
+  createdById      String?
+  updatedById      String?
+  createdBy        User?    @relation("PreventiveMaintenanceTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy        User?    @relation("PreventiveMaintenanceTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  tasks            PreventiveMaintenanceTask[]
+
+  @@index([propertyId, isArchived, isActive])
+  @@index([propertyId, category])
+  @@index([propertyId, frequency])
+  @@index([propertyId, assignedRole, assignedUserId])
+}
+
+model PreventiveMaintenanceTask {
+  id                String   @id @default(cuid())
+  propertyId        String
+  property          Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  templateId        String
+  template          PreventiveMaintenanceTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  taskName          String
+  category          String
+  description       String?
+  instructions      String?
+  assignedRole      String
+  assignedUserId    String?
+  assignedUserName  String?
+  dueDate           DateTime
+  status            String   @default("UPCOMING")
+  priority          String   @default("Normal")
+  photosRequired    Boolean  @default(false)
+  notesRequired     Boolean  @default(false)
+  passFailRequired  Boolean  @default(false)
+  completionOutcome String?
+  completionNotes   String?
+  completedById     String?
+  completedByName   String?
+  completedAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  completedBy       User?    @relation("PreventiveMaintenanceTaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  attachments       PreventiveMaintenanceTaskAttachment[]
+
+  @@index([propertyId, dueDate, status])
+  @@index([templateId, dueDate])
+  @@index([propertyId, category, dueDate])
+  @@index([propertyId, assignedRole, dueDate])
+  @@index([propertyId, assignedUserId, dueDate])
+  @@index([completedAt])
+}
+
+model PreventiveMaintenanceTaskAttachment {
+  id           String   @id @default(cuid())
+  taskId       String
+  task         PreventiveMaintenanceTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  propertyId   String
+  property     Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploaderName String
+  originalName String
+  storedName   String   @unique
+  mimeType     String
+  sizeBytes    Int
+  note         String?
+  createdAt    DateTime @default(now())
+
+  @@index([taskId, createdAt])
+  @@index([propertyId, createdAt])
 }
 
 model PestIssue {

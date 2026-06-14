@@ -15,6 +15,7 @@ export const notificationCategories = [
   "RISK",
   "VENDOR",
   "PLANNING",
+  "PM",
 ] as const;
 
 type NotificationCategory = (typeof notificationCategories)[number];
@@ -75,4 +76,37 @@ export async function notifyAssignedStaff(input: {
   const userId = await assignedStaffUserId(input.assignedTech);
   if (!userId) return null;
   return createNotification({ ...input, userId });
+}
+
+export async function notifyPropertyRoles(input: {
+  propertyId: string;
+  itemId?: string | null;
+  roles: UserRole[];
+  category: NotificationCategory;
+  title: string;
+  message: string;
+  dedupeKey?: string | null;
+}) {
+  const users = await prisma.user.findMany({
+    where: {
+      isActive: true,
+      OR: [
+        { role: UserRole.ADMIN },
+        {
+          role: { in: input.roles.filter((role) => role !== UserRole.ADMIN) },
+          propertyAccess: { some: { propertyId: input.propertyId } },
+        },
+      ],
+    },
+    select: { id: true },
+  });
+  return Promise.all(users.map((user) => createNotification({
+    userId: user.id,
+    propertyId: input.propertyId,
+    itemId: input.itemId ?? null,
+    category: input.category,
+    title: input.title,
+    message: input.message,
+    dedupeKey: input.dedupeKey,
+  })));
 }

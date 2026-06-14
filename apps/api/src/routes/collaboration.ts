@@ -135,6 +135,140 @@ function annotationEstimate(annotation: { chargeEstimatedCents?: number | null; 
   return annotation.chargeEstimatedCents ?? 0;
 }
 
+async function buildChargeReport(request: FastifyRequest, reply: FastifyReply, id: string) {
+  const item = await getScopedItem(request, reply, id);
+  if (!item) return null;
+  const attachments = await prisma.itemAttachment.findMany({
+    where: { itemId: id, commentId: null },
+    include: { chargePriceSheetItem: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const fileLines = attachments
+    .filter((attachment) => attachment.chargeCandidate)
+    .map((attachment) => ({
+      type: "FILE" as const,
+      attachmentId: attachment.id,
+      attachmentName: attachment.originalName,
+      pinId: null,
+      label: attachment.category || attachment.originalName,
+      category: attachment.category,
+      inspectionStage: attachment.inspectionStage,
+      note: attachment.note,
+      chargeNote: attachment.chargeNote,
+      priceSheetItemId: attachment.chargePriceSheetItemId,
+      priceSheetItemName: attachment.chargePriceSheetItem?.name ?? null,
+      quantity: attachment.chargeQuantity,
+      estimatedCents: attachment.chargeEstimatedCents ?? 0,
+    }));
+  const pinLines = attachments.flatMap((attachment) => {
+    const annotations = Array.isArray(attachment.markupAnnotations) ? attachment.markupAnnotations : [];
+    return annotations
+      .filter((annotation): annotation is {
+        id: string;
+        label: string;
+        note?: string | null;
+        category?: string | null;
+        chargeCandidate?: boolean;
+        chargePriceSheetItemId?: string | null;
+        chargePriceSheetItemName?: string | null;
+        chargeQuantity?: number | null;
+        chargeEstimatedCents?: number | null;
+      } => Boolean(annotation && typeof annotation === "object" && "chargeCandidate" in annotation && annotation.chargeCandidate))
+      .map((annotation) => ({
+        type: "PIN" as const,
+        attachmentId: attachment.id,
+        attachmentName: attachment.originalName,
+        pinId: annotation.id,
+        label: annotation.label,
+        category: annotation.category ?? null,
+        inspectionStage: attachment.inspectionStage,
+        note: annotation.note ?? attachment.note,
+        chargeNote: attachment.chargeNote,
+        priceSheetItemId: annotation.chargePriceSheetItemId ?? null,
+        priceSheetItemName: annotation.chargePriceSheetItemName ?? null,
+        quantity: annotation.chargeQuantity ?? null,
+        estimatedCents: annotationEstimate(annotation),
+      }));
+  });
+  const lines = [...fileLines, ...pinLines];
+  const missingContext = lines.filter((line) => !line.priceSheetItemId && !line.estimatedCents && !line.note && !line.chargeNote).length;
+  return {
+    item: {
+      id: item.id,
+      propertyId: item.propertyId,
+      propertyCode: item.property.code,
+      unitNumber: item.unitNumber,
+      boardGroup: item.boardGroup,
+    },
+    summary: {
+      fileCount: fileLines.length,
+      pinCount: pinLines.length,
+      lineCount: lines.length,
+      missingContext,
+      totalEstimatedCents: lines.reduce((total, line) => total + line.estimatedCents, 0),
+    },
+    lines,
+  };
+}
+
+function csvCell(value: unknown) {
+  const text = value === null || value === undefined ? "" : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function centsToCsvDollars(cents: number | null | undefined) {
+  return typeof cents === "number" ? (cents / 100).toFixed(2) : "";
+}
+
+function chargeReportCsv(report: NonNullable<Awaited<ReturnType<typeof buildChargeReport>>>) {
+  const headers = [
+    "Property",
+    "Unit",
+    "Type",
+    "Attachment",
+    "Pin ID",
+    "Label",
+    "Category",
+    "Inspection Stage",
+    "Price Sheet Item",
+    "Quantity",
+    "Estimated Amount",
+    "Note",
+    "Charge Note",
+  ];
+  const rows = report.lines.map((line) => [
+    report.item.propertyCode,
+    report.item.unitNumber,
+    line.type,
+    line.attachmentName,
+    line.pinId,
+    line.label,
+    line.category,
+    line.inspectionStage,
+    line.priceSheetItemName,
+    line.quantity,
+    centsToCsvDollars(line.estimatedCents),
+    line.note,
+    line.chargeNote,
+  ]);
+  rows.push([
+    report.item.propertyCode,
+    report.item.unitNumber,
+    "TOTAL",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    centsToCsvDollars(report.summary.totalEstimatedCents),
+    `${report.summary.lineCount} line(s)`,
+    "Evidence/estimate metadata only; does not create accounting charges.",
+  ]);
+  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
+}
+
 export async function collaborationRoutes(app: FastifyInstance) {
   app.get("/make-ready-items/:id/collaboration", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
@@ -182,78 +316,17 @@ export async function collaborationRoutes(app: FastifyInstance) {
 
   app.get("/make-ready-items/:id/charge-report", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const item = await getScopedItem(request, reply, id);
-    if (!item) return;
-    const attachments = await prisma.itemAttachment.findMany({
-      where: { itemId: id, commentId: null },
-      include: { chargePriceSheetItem: true },
-      orderBy: { createdAt: "asc" },
-    });
-    const fileLines = attachments
-      .filter((attachment) => attachment.chargeCandidate)
-      .map((attachment) => ({
-        type: "FILE" as const,
-        attachmentId: attachment.id,
-        attachmentName: attachment.originalName,
-        label: attachment.category || attachment.originalName,
-        category: attachment.category,
-        inspectionStage: attachment.inspectionStage,
-        note: attachment.note,
-        chargeNote: attachment.chargeNote,
-        priceSheetItemId: attachment.chargePriceSheetItemId,
-        priceSheetItemName: attachment.chargePriceSheetItem?.name ?? null,
-        quantity: attachment.chargeQuantity,
-        estimatedCents: attachment.chargeEstimatedCents ?? 0,
-      }));
-    const pinLines = attachments.flatMap((attachment) => {
-      const annotations = Array.isArray(attachment.markupAnnotations) ? attachment.markupAnnotations : [];
-      return annotations
-        .filter((annotation): annotation is {
-          id: string;
-          label: string;
-          note?: string | null;
-          category?: string | null;
-          chargeCandidate?: boolean;
-          chargePriceSheetItemId?: string | null;
-          chargePriceSheetItemName?: string | null;
-          chargeQuantity?: number | null;
-          chargeEstimatedCents?: number | null;
-        } => Boolean(annotation && typeof annotation === "object" && "chargeCandidate" in annotation && annotation.chargeCandidate))
-        .map((annotation) => ({
-          type: "PIN" as const,
-          attachmentId: attachment.id,
-          attachmentName: attachment.originalName,
-          pinId: annotation.id,
-          label: annotation.label,
-          category: annotation.category ?? null,
-          inspectionStage: attachment.inspectionStage,
-          note: annotation.note ?? attachment.note,
-          chargeNote: attachment.chargeNote,
-          priceSheetItemId: annotation.chargePriceSheetItemId ?? null,
-          priceSheetItemName: annotation.chargePriceSheetItemName ?? null,
-          quantity: annotation.chargeQuantity ?? null,
-          estimatedCents: annotationEstimate(annotation),
-        }));
-    });
-    const lines = [...fileLines, ...pinLines];
-    const missingContext = lines.filter((line) => !line.priceSheetItemId && !line.estimatedCents && !line.note && !line.chargeNote).length;
-    return {
-      item: {
-        id: item.id,
-        propertyId: item.propertyId,
-        propertyCode: item.property.code,
-        unitNumber: item.unitNumber,
-        boardGroup: item.boardGroup,
-      },
-      summary: {
-        fileCount: fileLines.length,
-        pinCount: pinLines.length,
-        lineCount: lines.length,
-        missingContext,
-        totalEstimatedCents: lines.reduce((total, line) => total + line.estimatedCents, 0),
-      },
-      lines,
-    };
+    return buildChargeReport(request, reply, id);
+  });
+
+  app.get("/make-ready-items/:id/charge-report.csv", async (request, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const report = await buildChargeReport(request, reply, id);
+    if (!report) return;
+    reply.header("Content-Type", "text/csv; charset=utf-8");
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`${report.item.propertyCode}-${report.item.unitNumber}-charge-report.csv`)}"`);
+    return reply.send(chargeReportCsv(report));
   });
 
   app.post("/make-ready-items/:id/comments", async (request, reply) => {

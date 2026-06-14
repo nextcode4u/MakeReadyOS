@@ -1,6 +1,8 @@
-import type { AnalyticsSummaryResponse, DashboardResponse } from "../lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { getPropertyWikiOverview, type AnalyticsSummaryResponse, type DashboardResponse } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
 import { formatDateTime } from "../lib/dateTime";
+import { openWikiRecord } from "../lib/wikiNavigation";
 import { StatusState } from "./StatusState";
 
 type Props = {
@@ -14,6 +16,7 @@ type Props = {
   onOpenPond: () => void;
   layout: "overview" | "focus";
   onLayoutChange: (layout: "overview" | "focus") => void;
+  propertyId?: string;
 };
 
 const kpiLabels: Record<string, string> = {
@@ -133,7 +136,55 @@ function AnalyticsPanel({ data, loading }: { data?: AnalyticsSummaryResponse; lo
   );
 }
 
-export function DashboardPanel({ data, analytics, loading, analyticsLoading, error, onOpenItem, onDrillDown, onOpenPond, layout, onLayoutChange }: Props) {
+function DashboardWikiWidget({ propertyId }: { propertyId?: string }) {
+  const overviewQuery = useQuery({
+    queryKey: ["property-wiki", "overview", propertyId],
+    queryFn: () => getPropertyWikiOverview(propertyId),
+    enabled: Boolean(propertyId),
+  });
+
+  if (!propertyId) {
+    return (
+      <section className="dashboard-chart dashboard-wiki-widget">
+        <h3>Property Wiki</h3>
+        <p className="muted">Select a property to pin emergency and knowledge widgets to this dashboard.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="dashboard-chart dashboard-wiki-widget" data-testid="dashboard-wiki-widget">
+      <div className="drawer-section-title">
+        <h3>Property Wiki</h3>
+        <button type="button" className="button button-secondary" onClick={() => openWikiRecord({ targetType: "ENTRY", id: overviewQuery.data?.pinnedCriticalInformation[0]?.id ?? overviewQuery.data?.emergencyContacts[0]?.id ?? "", propertyId })} disabled={!overviewQuery.data?.pinnedCriticalInformation[0] && !overviewQuery.data?.emergencyContacts[0]}>
+          Open Wiki
+        </button>
+      </div>
+      <div className="dashboard-wiki-actions">
+        {(overviewQuery.data?.emergencyContacts ?? []).slice(0, 2).map((entry) => (
+          <button key={entry.id} type="button" className="dashboard-row-action" onClick={() => openWikiRecord({ targetType: "ENTRY", id: entry.id, propertyId })}>
+            <strong>{entry.title}</strong>
+            <span>{entry.phone || entry.email || "Emergency contact"}</span>
+          </button>
+        ))}
+        {(overviewQuery.data?.pinnedCriticalInformation ?? []).slice(0, 3).map((entry) => (
+          <button key={entry.id} type="button" className="dashboard-row-action" onClick={() => openWikiRecord({ targetType: "ENTRY", id: entry.id, propertyId })}>
+            <strong>{entry.title}</strong>
+            <span>{entry.section.replace(/_/g, " ")}{entry.building ? ` / ${entry.building}` : ""}</span>
+          </button>
+        ))}
+        {(overviewQuery.data?.recentlyUpdated ?? []).slice(0, 2).map((entry) => (
+          <button key={entry.id} type="button" className="dashboard-row-action" onClick={() => openWikiRecord({ targetType: "ENTRY", id: entry.id, propertyId })}>
+            <strong>{entry.title}</strong>
+            <span>Updated {formatDateTime(entry.updatedAt)}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function DashboardPanel({ data, analytics, loading, analyticsLoading, error, onOpenItem, onDrillDown, onOpenPond, layout, onLayoutChange, propertyId }: Props) {
   if (loading) return <StatusState title="Loading dashboard" description="Calculating operational risk and workload totals." />;
   if (error || !data) return <StatusState title="Dashboard unavailable" description="Refresh to recalculate dashboard summaries." tone="error" />;
   return (
@@ -162,6 +213,7 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
         <Breakdown title="Property Comparison" data={data.propertyComparison} type="property" onDrillDown={onDrillDown} />
         {Object.keys(data.downUnitsByArea ?? {}).length ? <Breakdown title="Down Units By Area" data={data.downUnitsByArea} type="property" onDrillDown={onDrillDown} /> : null}
         <AnalyticsPanel data={analytics} loading={analyticsLoading} />
+        <DashboardWikiWidget propertyId={propertyId} />
       </div>
       <RatioStrip data={data} />
       <section className="dashboard-frog-preview" data-testid="dashboard-frog-preview">

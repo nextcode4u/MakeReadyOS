@@ -33,6 +33,7 @@ export type RiskReason = {
 };
 
 type RiskItem = MakeReadyItem & {
+  boardSectionType?: string | null;
   comments?: Array<{ createdAt: Date }>;
   checklistInstances?: Array<{
     items: Array<{ required: boolean; completed: boolean }>;
@@ -107,6 +108,9 @@ function maxLevel(reasons: RiskReason[], score: number): RiskLevel {
 }
 
 export function evaluateItemRisk(item: RiskItem, now = new Date(), policyInput?: Partial<RiskPolicyInput> | null) {
+  if (item.boardSectionType === "READY") {
+    return { riskScore: 0, riskLevel: "NONE" as RiskLevel, riskReasons: [], lastRiskEvaluatedAt: now };
+  }
   const policy = normalizeRiskPolicy(policyInput);
   const reasons: RiskReason[] = [];
   const daysUntilMoveIn = item.moveInDate ? daysBetween(now, item.moveInDate) : null;
@@ -211,7 +215,11 @@ export async function evaluateAndPersistItemRisk(itemId: string, options: { noti
   if (!item) return null;
   const previousLevel = item.riskLevel as RiskLevel;
   const policy = await prisma.propertyRiskPolicy.findUnique({ where: { propertyId: item.propertyId } });
-  const result = evaluateItemRisk(item, new Date(), policy);
+  const section = await prisma.boardSection.findFirst({
+    where: { propertyId: item.propertyId, key: item.boardGroup, isActive: true },
+    select: { sectionType: true },
+  });
+  const result = evaluateItemRisk({ ...item, boardSectionType: section?.sectionType ?? null }, new Date(), policy);
   const updated = await prisma.makeReadyItem.update({
     where: { id: item.id },
     data: {

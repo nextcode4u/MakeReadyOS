@@ -8,6 +8,7 @@ import { FilterBar, type ThemeMode } from "./components/FilterBar";
 import { LoginScreen } from "./components/LoginScreen";
 import { NotificationDrawer } from "./components/NotificationDrawer";
 import { OnboardingPanel } from "./components/OnboardingPanel";
+import { PWAInstallPrompt } from "./components/PWAInstallPrompt";
 import { StatusState } from "./components/StatusState";
 import { ToastItem, ToastViewport } from "./components/ToastViewport";
 import {
@@ -25,7 +26,9 @@ import {
   createVendorAssignment,
   createPropertyMap,
   createPropertyTemplateFromProperty,
+  importAvailability,
   importUnits,
+  revertUnitImport,
   archiveMakeReadyItem,
   archiveProperty,
   archiveUnit,
@@ -80,6 +83,7 @@ import {
   logout,
   installAutomationTemplate,
   installOperationalLibraryPack,
+  markMakeReadyItemReady,
   patchMakeReadyItem,
   previewAutomation,
   previewOperationalLibraryPack,
@@ -92,6 +96,7 @@ import {
   isApiError,
   updateAdminUser,
   updateAdminUserPropertyAccess,
+  updateCurrentUserPreferences,
   toggleAutomation,
   updateAutomation,
   updateCustomField,
@@ -130,6 +135,7 @@ import {
 import { configuredScheduleTracks, kanbanGroupOptions, labelMap, normalizeVisibleColumns, visibleColumnOptions } from "./lib/board";
 import { clockModeStorageKey, type ClockMode } from "./lib/dateTime";
 import { customFieldFilterChipLabel, customOperatorsByType, defaultCustomFilterFor, defaultStructuredFilters, itemMatchesStructuredFilters, normalizeCustomFieldFilters, type CustomFieldFilter, type StructuredFilters } from "./lib/structuredFilters";
+import { openWikiRecordEventName, type OpenWikiRecordRequest } from "./lib/wikiNavigation";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel").then((module) => ({ default: module.AdminPanel })));
 const ActivityPanel = lazy(() => import("./components/ActivityPanel").then((module) => ({ default: module.ActivityPanel })));
@@ -144,10 +150,14 @@ const KanbanBoard = lazy(() => import("./components/KanbanBoard").then((module) 
 const MyWorkPanel = lazy(() => import("./components/MyWorkPanel").then((module) => ({ default: module.MyWorkPanel })));
 const OperationsPanel = lazy(() => import("./components/OperationsPanel").then((module) => ({ default: module.OperationsPanel })));
 const PlanningPanel = lazy(() => import("./components/PlanningPanel").then((module) => ({ default: module.PlanningPanel })));
+const PreventiveMaintenancePanel = lazy(() => import("./components/PreventiveMaintenancePanel").then((module) => ({ default: module.PreventiveMaintenancePanel })));
+const PoolLogPanel = lazy(() => import("./components/PoolLogPanel").then((module) => ({ default: module.PoolLogPanel })));
+const PropertyWikiPanel = lazy(() => import("./components/PropertyWikiPanel").then((module) => ({ default: module.PropertyWikiPanel })));
 const PropertyMapsPanel = lazy(() => import("./components/PropertyMapsPanel").then((module) => ({ default: module.PropertyMapsPanel })));
+const RefrigerantPanel = lazy(() => import("./components/RefrigerantPanel").then((module) => ({ default: module.RefrigerantPanel })));
 const VendorsPanel = lazy(() => import("./components/VendorsPanel").then((module) => ({ default: module.VendorsPanel })));
 
-type AppView = "dashboard" | "mywork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "fields" | "automations" | "activity" | "admin";
+type AppView = "dashboard" | "mywork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pm" | "wiki" | "fields" | "automations" | "activity" | "admin";
 type KanbanGroupKey = string;
 const compactModeStorageKey = "makereadyos.compactMode";
 const themeModeStorageKey = "makereadyos.themeMode";
@@ -228,6 +238,10 @@ function humanizeField(key: string) {
     .trim();
 }
 
+function moduleRailMask(path: string) {
+  return { "--icon-mask": `url("${path}")` } as React.CSSProperties;
+}
+
 function replaceAdminUser(users: ManagedUser[] | undefined, nextUser: ManagedUser) {
   if (!users) {
     return users;
@@ -255,7 +269,7 @@ function App() {
   const [structuredFilters, setStructuredFilters] = useState<StructuredFilters>(defaultStructuredFilters);
   const [visibleColumns, setVisibleColumns] = useState<string[] | null>(null);
   const [customFieldToAdd, setCustomFieldToAdd] = useState("");
-  const [tableFiltersOpen, setTableFiltersOpen] = useState(false);
+  const [tableFiltersOpen, setTableFiltersOpen] = useState(true);
   const [loginError, setLoginError] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
   const [adminError, setAdminError] = useState("");
@@ -293,9 +307,11 @@ function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingSkipped, setOnboardingSkipped] = useState(() => window.localStorage.getItem(onboardingSkippedStorageKey) === "true");
   const [myWorkUserId, setMyWorkUserId] = useState("");
+  const [defaultWorkspaceAppliedForUser, setDefaultWorkspaceAppliedForUser] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
   const [apiDegraded, setApiDegraded] = useState(false);
   const [lastConnectionIssueAt, setLastConnectionIssueAt] = useState<string | null>(null);
+  const [wikiRecordRequest, setWikiRecordRequest] = useState<(OpenWikiRecordRequest & { nonce: number }) | null>(null);
   const queryClient = useQueryClient();
 
   const pushToast = (title: string, message: string | undefined, tone: ToastItem["tone"]) => {
@@ -325,6 +341,18 @@ function App() {
     void queryClient.invalidateQueries();
     pushToast("Retrying connection", "Refreshing active MakeReadyOS data.", "info");
   };
+
+  useEffect(() => {
+    const handleOpenWikiRecord = (event: Event) => {
+      const detail = (event as CustomEvent<OpenWikiRecordRequest>).detail;
+      if (!detail?.id || !detail?.targetType) return;
+      if (detail.propertyId) setPropertyId(detail.propertyId);
+      setWikiRecordRequest({ ...detail, nonce: Date.now() });
+      setActiveView("wiki");
+    };
+    window.addEventListener(openWikiRecordEventName, handleOpenWikiRecord as EventListener);
+    return () => window.removeEventListener(openWikiRecordEventName, handleOpenWikiRecord as EventListener);
+  }, []);
 
   const meQuery = useQuery({
     queryKey: ["auth", "me"],
@@ -638,6 +666,19 @@ function App() {
     },
   });
 
+  const markReadyMutation = useMutation({
+    mutationFn: markMakeReadyItemReady,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
+      await queryClient.invalidateQueries({ queryKey: ["activity"] });
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      pushToast("Unit marked ready", "Final walk signoff moved the unit to Ready Units.", "success");
+    },
+    onError: (error) => {
+      pushToast("Mark ready failed", error instanceof Error ? error.message : "Could not mark unit ready", "error");
+    },
+  });
+
   const customValueMutation = useMutation({
     mutationFn: ({ itemId, fieldId, value }: { itemId: string; fieldId: string; value: unknown }) => updateCustomFieldValue(itemId, fieldId, value),
     onSuccess: async () => {
@@ -742,11 +783,46 @@ function App() {
     mutationFn: importUnits,
     onSuccess: async (data) => {
       await refreshOperations(`Imported unit directory: ${data.summary.created} created, ${data.summary.updated} updated`);
-      pushToast("Unit directory imported", `${data.summary.created} created, ${data.summary.updated} updated, ${data.summary.skipped} skipped.`, "success");
+      const floorPlanSummary = data.summary.floorPlansCreated || data.summary.floorPlansUpdated
+        ? ` ${data.summary.floorPlansCreated ?? 0} floor plans created, ${data.summary.floorPlansUpdated ?? 0} updated.`
+        : "";
+      pushToast("Unit directory imported", `${data.summary.created} created, ${data.summary.updated} updated, ${data.summary.skipped} skipped.${floorPlanSummary}`, "success");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Unit import failed");
       pushToast("Unit import failed", error instanceof Error ? error.message : undefined, "error");
+    },
+  });
+
+  const importAvailabilityMutation = useMutation({
+    mutationFn: importAvailability,
+    onSuccess: async (data) => {
+      await Promise.all([
+        refreshOperations(`Imported availability: ${data.summary.turnsCreated} turns created, ${data.summary.turnsUpdated} updated`),
+        queryClient.invalidateQueries({ queryKey: ["make-ready-items"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      ]);
+      const floorPlanSummary = data.summary.floorPlansCreated || data.summary.floorPlansUpdated
+        ? ` ${data.summary.floorPlansCreated ?? 0} floor plans created, ${data.summary.floorPlansUpdated ?? 0} updated.`
+        : "";
+      pushToast("Availability imported", `${data.summary.turnsCreated} turns created, ${data.summary.turnsUpdated} turns updated, ${data.summary.skipped} skipped.${floorPlanSummary}`, "success");
+    },
+    onError: (error) => {
+      setOperationsError(error instanceof Error ? error.message : "Availability import failed");
+      pushToast("Availability import failed", error instanceof Error ? error.message : undefined, "error");
+    },
+  });
+
+  const revertUnitImportMutation = useMutation({
+    mutationFn: revertUnitImport,
+    onSuccess: async (data) => {
+      await refreshOperations(`Reverted unit directory import: ${data.summary.deleted} created units removed`);
+      const blocked = data.summary.blocked.length ? ` ${data.summary.blocked.length} linked units were kept.` : "";
+      pushToast("Unit import reverted", `${data.summary.deleted} created units removed.${blocked}`, "info");
+    },
+    onError: (error) => {
+      setOperationsError(error instanceof Error ? error.message : "Unit import revert failed");
+      pushToast("Import revert failed", error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -1427,7 +1503,7 @@ function App() {
       ));
       if (currentUser?.id === data.user.id) {
         queryClient.setQueryData<{ user: CurrentUser; roles: string[]; csrfToken: string } | null | undefined>(["auth", "me"], (current) => (
-          current ? { ...current, user: { ...current.user, fullName: data.user.fullName, email: data.user.email, role: data.user.role } } : current
+          current ? { ...current, user: { ...current.user, fullName: data.user.fullName, email: data.user.email, role: data.user.role, language: data.user.language } } : current
         ));
       }
       await refreshAdmin(`Updated ${data.user.fullName}`);
@@ -1438,6 +1514,19 @@ function App() {
       setAdminMessage("");
       setAdminError(error instanceof Error ? error.message : "Update user failed");
       pushToast("Update failed", error instanceof Error ? error.message : "Update user failed", "error");
+    },
+  });
+
+  const updateLanguageMutation = useMutation({
+    mutationFn: updateCurrentUserPreferences,
+    onSuccess: (data) => {
+      queryClient.setQueryData<{ user: CurrentUser; roles: string[]; csrfToken: string } | null | undefined>(["auth", "me"], (current) => (
+        current ? { ...current, user: data.user } : current
+      ));
+      pushToast("Language updated", data.user.language === "es" ? "La interfaz principal ahora usa español." : "Core interface labels now use English.", "success");
+    },
+    onError: (error) => {
+      pushToast("Language update failed", error instanceof Error ? error.message : "Language preference was not saved", "error");
     },
   });
 
@@ -1594,10 +1683,45 @@ function App() {
         event.preventDefault();
         setCommandPaletteOpen((open) => !open);
       }
-      if (event.key === "Escape") setCommandPaletteOpen(false);
+      if (event.key === "Escape") {
+        setCommandPaletteOpen(false);
+        setNotificationsOpen(false);
+        setOnboardingOpen(false);
+        setSelectedItemId(null);
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    const pairs = [
+      [".modal-backdrop", ".modal-panel"],
+      [".notification-backdrop", ".notification-drawer"],
+      [".palette-backdrop", ".command-palette"],
+      [".onboarding-backdrop", ".onboarding-panel"],
+      [".item-drawer-backdrop", ".item-drawer"],
+    ] as const;
+
+    const cleanupOrphanBlockers = () => {
+      for (const [backdropSelector, panelSelector] of pairs) {
+        const backdrop = document.querySelector<HTMLElement>(backdropSelector);
+        if (backdrop && !document.querySelector(panelSelector)) {
+          backdrop.remove();
+        }
+      }
+
+      document.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => {
+        const rect = input.getBoundingClientRect();
+        if (rect.width > window.innerWidth * 0.8 || rect.height > window.innerHeight * 0.8) {
+          input.style.pointerEvents = "none";
+        }
+      });
+    };
+
+    cleanupOrphanBlockers();
+    const interval = window.setInterval(cleanupOrphanBlockers, 1000);
+    return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -1658,6 +1782,16 @@ function App() {
   const currentUser = forceLoggedOut ? undefined : meQuery.data?.user;
 
   useEffect(() => {
+    if (!currentUser || defaultWorkspaceAppliedForUser === currentUser.id) {
+      return;
+    }
+    setDefaultWorkspaceAppliedForUser(currentUser.id);
+    if (currentUser.role === "TECH" || currentUser.role === "CLEANER") {
+      setActiveView("mywork");
+    }
+  }, [currentUser, defaultWorkspaceAppliedForUser]);
+
+  useEffect(() => {
     if (activeScheduleTrack && activeCalendarField !== activeScheduleTrack.id) {
       setActiveCalendarField(activeScheduleTrack.id);
     }
@@ -1704,6 +1838,19 @@ function App() {
   const sortedItems = useMemo(() => {
     return [...filteredItems].sort((a, b) => compareValues(a[sortKey as keyof typeof a], b[sortKey as keyof typeof b], sortDirection));
   }, [filteredItems, sortDirection, sortKey]);
+  const occupiedDirectoryResultCount = useMemo(() => {
+    if (structuredFilters.archiveState !== "occupied") return 0;
+    const query = deferredSearch.trim().toLowerCase();
+    return (metaQuery.data?.units ?? []).filter((unit) => {
+      if (!unit.isActive || unit.occupancyStatus !== "OCCUPIED") return false;
+      if (propertyId && unit.propertyId !== propertyId) return false;
+      if (!query) return true;
+      return [unit.number, unit.floorPlan ?? "", unit.floorPlanRecord?.code ?? "", unit.floorPlanRecord?.name ?? "", unit.building ?? "", unit.area ?? "", unit.property.code]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    }).length;
+  }, [deferredSearch, metaQuery.data?.units, propertyId, structuredFilters.archiveState]);
   const itemsById = useMemo(() => new Map(boardItems.map((item) => [item.id, item])), [boardItems]);
   const selectedItem = selectedItemId ? itemsById.get(selectedItemId) ?? null : null;
   const selectedItemPlanningQuery = useQuery({
@@ -1721,7 +1868,7 @@ function App() {
     propertyId ? { key: "property", label: `Property: ${metaQuery.data?.properties.find((property) => property.id === propertyId)?.code ?? "Selected"}`, onRemove: () => setPropertyId("") } : null,
     search ? { key: "search", label: `Search: ${search}`, onRemove: () => setSearch("") } : null,
     scopeLevelFilter ? { key: "scope", label: `Scope: ${scopeLevelFilter}`, onRemove: () => setScopeLevelFilter("") } : null,
-    structuredFilters.vacancyStatus ? { key: "vacancy", label: `Vacancy: ${structuredFilters.vacancyStatus === "__ntv__" ? "NTV" : structuredFilters.vacancyStatus}`, onRemove: () => setStructuredFilters((current) => ({ ...current, vacancyStatus: "" })) } : null,
+    structuredFilters.vacancyStatus ? { key: "vacancy", label: `Vacancy: ${structuredFilters.vacancyStatus === "__ntv__" ? "NTV" : structuredFilters.vacancyStatus === "__vacant__" ? "Vacant not leased" : structuredFilters.vacancyStatus === "__vacant_leased__" ? "Vacant leased" : structuredFilters.vacancyStatus}`, onRemove: () => setStructuredFilters((current) => ({ ...current, vacancyStatus: "" })) } : null,
     structuredFilters.assignedTech ? { key: "tech", label: `Assigned: ${structuredFilters.assignedTech === "__unassigned__" ? "Unassigned" : structuredFilters.assignedTech}`, onRemove: () => setStructuredFilters((current) => ({ ...current, assignedTech: "" })) } : null,
     structuredFilters.boardSection ? { key: "section", label: `Section: ${structuredFilters.boardSection.replace("type:", "")}`, onRemove: () => setStructuredFilters((current) => ({ ...current, boardSection: "" })) } : null,
     structuredFilters.makeReadyStatus ? { key: "make-ready", label: `Make Ready: ${structuredFilters.makeReadyStatus}`, onRemove: () => setStructuredFilters((current) => ({ ...current, makeReadyStatus: "" })) } : null,
@@ -1734,7 +1881,7 @@ function App() {
     structuredFilters.moveInRiskOnly ? { key: "move-in-risk", label: "Move-In Risk", onRemove: () => setStructuredFilters((current) => ({ ...current, moveInRiskOnly: false })) } : null,
     structuredFilters.riskLevel ? { key: "risk-level", label: `Risk: ${structuredFilters.riskLevel}`, onRemove: () => setStructuredFilters((current) => ({ ...current, riskLevel: "" })) } : null,
     structuredFilters.riskCategory ? { key: "risk-category", label: `Risk Category: ${structuredFilters.riskCategory.replace(/_/g, " ")}`, onRemove: () => setStructuredFilters((current) => ({ ...current, riskCategory: "" })) } : null,
-    structuredFilters.archiveState !== "active" ? { key: "archive", label: structuredFilters.archiveState === "archived" ? "Archived Only" : "Including Archived", onRemove: () => setStructuredFilters((current) => ({ ...current, archiveState: "active" })) } : null,
+    structuredFilters.archiveState !== "active" ? { key: "archive", label: structuredFilters.archiveState === "archived" ? "Archived Only" : structuredFilters.archiveState === "occupied" ? "Occupied" : "Including Archived", onRemove: () => setStructuredFilters((current) => ({ ...current, archiveState: "active" })) } : null,
     ...structuredFilters.customFieldFilters.map((filter) => ({
       key: `custom-${filter.fieldId}`,
       label: customFieldFilterChipLabel(filter, metaQuery.data?.customFields ?? [], metaQuery.data?.staff ?? []),
@@ -1862,7 +2009,7 @@ function App() {
       moveInRiskOnly: Boolean(filters.moveInRiskOnly),
       riskLevel: typeof filters.riskLevel === "string" ? filters.riskLevel : "",
       riskCategory: typeof filters.riskCategory === "string" ? filters.riskCategory : "",
-      archiveState: filters.archiveState === "archived" || filters.archiveState === "all" ? filters.archiveState : "active",
+      archiveState: filters.archiveState === "archived" || filters.archiveState === "occupied" || filters.archiveState === "all" ? filters.archiveState : "active",
       customFieldFilters: normalizeCustomFieldFilters(filters.customFieldFilters, metaQuery.data?.customFields ?? []),
     });
     setSortKey(view.sorts?.key ?? "moveInDate");
@@ -1894,10 +2041,12 @@ function App() {
           loading={loginMutation.isPending}
           errorMessage={loginError || (meQuery.error instanceof Error && !isApiError(meQuery.error) ? meQuery.error.message : "")}
           infoMessage={sessionMessage}
+          language="en"
           onSubmit={async (email, password) => {
             await loginMutation.mutateAsync({ email, password });
           }}
         />
+        <PWAInstallPrompt />
         <ToastViewport toasts={toasts} onDismiss={dismissToast} />
       </>
     );
@@ -1930,6 +2079,10 @@ function App() {
         onEyeStrainModeChange={setEyeStrainMode}
         dyslexiaMode={dyslexiaMode}
         onDyslexiaModeChange={setDyslexiaMode}
+        language={currentUser.language}
+        onLanguageChange={(language) => {
+          updateLanguageMutation.mutate({ language });
+        }}
         archiveMode={structuredFilters.archiveState}
         onArchiveModeChange={(value) => setStructuredFilters((current) => ({ ...current, archiveState: value }))}
         notificationUnreadCount={notificationsQuery.data?.unreadCount ?? 0}
@@ -1946,9 +2099,57 @@ function App() {
       />
 
       <main className="workspace module-rail-layout">
-        <aside className="module-rail" aria-label="Future MakeReadyOS modules">
-          <button className="module-rail-button active" type="button" title="MakeReadyOS board" aria-label="MakeReadyOS board">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h6v14H4V5Zm9 0h7v4h-7V5Zm0 7h7v7h-7v-7Z" /></svg>
+        <aside className="module-rail" aria-label="MakeReadyOS modules">
+          <button
+            className={activeView === "refrigerant" || activeView === "pool" || activeView === "pm" || activeView === "wiki" ? "module-rail-button" : "module-rail-button active"}
+            type="button"
+            title="MakeReadyOS board"
+            aria-label="MakeReadyOS board"
+            onClick={() => setActiveView("table")}
+          >
+            <span className="module-rail-icon" style={moduleRailMask("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5h6v14H4V5Zm9 0h7v4h-7V5Zm0 7h7v7h-7v-7Z'/%3E%3C/svg%3E")} aria-hidden="true" />
+          </button>
+          {currentUser.role !== "CLEANER" && currentUser.role !== "LEASING" ? (
+            <button
+              className={activeView === "refrigerant" ? "module-rail-button active" : "module-rail-button"}
+              type="button"
+              title="RefrigerantLogOS"
+              aria-label="Open RefrigerantLogOS"
+              data-testid="module-rail-refrigerant"
+              onClick={() => setActiveView("refrigerant")}
+            >
+              <span className="module-rail-icon" style={moduleRailMask("/icons/fontawesome/snowflake.svg")} aria-hidden="true" />
+            </button>
+          ) : null}
+          <button
+            className={activeView === "pool" ? "module-rail-button active" : "module-rail-button"}
+            type="button"
+            title="PoolLogOS"
+            aria-label="Open PoolLogOS"
+            data-testid="module-rail-pool"
+            onClick={() => setActiveView("pool")}
+          >
+            <span className="module-rail-icon" style={moduleRailMask("/icons/fontawesome/pool.svg")} aria-hidden="true" />
+          </button>
+          <button
+            className={activeView === "pm" ? "module-rail-button active" : "module-rail-button"}
+            type="button"
+            title="Preventive Maintenance"
+            aria-label="Open Preventive Maintenance"
+            data-testid="module-rail-pm"
+            onClick={() => setActiveView("pm")}
+          >
+            <span className="module-rail-icon" style={moduleRailMask("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 7.5 16.5 3l-2.1 2.1 1.5 1.5-3.9 3.9-1.5-1.5L3 16.5 7.5 21l7.5-7.5-1.5-1.5 3.9-3.9 1.5 1.5L21 7.5Z'/%3E%3C/svg%3E")} aria-hidden="true" />
+          </button>
+          <button
+            className={activeView === "wiki" ? "module-rail-button active" : "module-rail-button"}
+            type="button"
+            title="Property Wiki"
+            aria-label="Open Property Wiki"
+            data-testid="module-rail-property-wiki"
+            onClick={() => setActiveView("wiki")}
+          >
+            <span className="module-rail-icon" style={moduleRailMask("/icons/fontawesome/wiki.svg")} aria-hidden="true" />
           </button>
           {activeFilterChips.length ? (
             <button className="module-rail-button rail-filter-count" type="button" onClick={() => clearBoardFilters(true)} aria-label="Clear active filters">{activeFilterChips.length}</button>
@@ -1969,6 +2170,7 @@ function App() {
               loading={dashboardQuery.isLoading}
               analyticsLoading={analyticsQuery.isLoading}
               error={dashboardQuery.isError}
+              propertyId={propertyId}
               onOpenItem={setSelectedItemId}
               onDrillDown={({ type, value }) => {
                 setActiveView("table");
@@ -1989,8 +2191,8 @@ function App() {
                     return;
                   }
                   const kpiFilters: Record<string, Partial<StructuredFilters>> = {
-                    vacant: { vacancyStatus: "VACANT" },
-                    vacantLeased: { vacancyStatus: "VACANT LEASED" },
+                    vacant: { vacancyStatus: "__vacant__" },
+                    vacantLeased: { vacancyStatus: "__vacant_leased__" },
                     ntv: { vacancyStatus: "__ntv__" },
                     downUnits: { boardSection: "type:DOWN" },
                     readyUnits: { boardSection: "type:READY" },
@@ -2075,7 +2277,8 @@ function App() {
                 boardSections={metaQuery.data?.boardSections ?? []}
                 loading={
                   createPropertyMutation.isPending || updatePropertyMutation.isPending || propertyLifecycleMutation.isPending || deletePropertyMutation.isPending
-                  || createUnitMutation.isPending || updateUnitMutation.isPending || importUnitsMutation.isPending || unitLifecycleMutation.isPending || deleteUnitMutation.isPending
+                  || createUnitMutation.isPending || updateUnitMutation.isPending || importUnitsMutation.isPending || importAvailabilityMutation.isPending || unitLifecycleMutation.isPending || deleteUnitMutation.isPending
+                  || revertUnitImportMutation.isPending
                   || createItemMutation.isPending || itemLifecycleMutation.isPending
                   || operatingCalendarUpdateMutation.isPending
                   || riskPolicyUpdateMutation.isPending
@@ -2088,7 +2291,9 @@ function App() {
                 onDeleteProperty={async (id) => { await deletePropertyMutation.mutateAsync(id); }}
                 onCreateUnit={async (input) => { await createUnitMutation.mutateAsync(input); }}
                 onUpdateUnit={async (id, input) => { await updateUnitMutation.mutateAsync({ id, data: input }); }}
-                onImportUnits={async (input) => { await importUnitsMutation.mutateAsync(input); }}
+                onImportUnits={async (input) => importUnitsMutation.mutateAsync(input)}
+                onImportAvailability={async (input) => importAvailabilityMutation.mutateAsync(input)}
+                onRevertUnitImport={async (input) => { await revertUnitImportMutation.mutateAsync(input); }}
                 onArchiveUnit={async (id, restore) => { await unitLifecycleMutation.mutateAsync({ id, restore }); }}
                 onDeleteUnit={async (id) => { await deleteUnitMutation.mutateAsync(id); }}
                 onCreateItem={async (input) => { await createItemMutation.mutateAsync(input); }}
@@ -2183,6 +2388,31 @@ function App() {
               onArchiveVendor={async (id, restore = false) => { await vendorArchiveMutation.mutateAsync({ id, restore }); }}
               onCreateAssignment={async (input) => { await vendorAssignmentCreateMutation.mutateAsync(input); }}
               onUpdateAssignment={async (id, input) => { await vendorAssignmentUpdateMutation.mutateAsync({ id, data: input }); }}
+            />
+          ) : activeView === "refrigerant" && currentUser.role !== "CLEANER" && currentUser.role !== "LEASING" ? (
+            <RefrigerantPanel
+              properties={metaQuery.data?.properties ?? []}
+              units={metaQuery.data?.units ?? []}
+              userRole={currentUser.role}
+            />
+          ) : activeView === "pool" ? (
+            <PoolLogPanel
+              properties={metaQuery.data?.properties ?? []}
+              selectedPropertyId={propertyId}
+              userRole={currentUser.role}
+            />
+          ) : activeView === "pm" ? (
+            <PreventiveMaintenancePanel
+              properties={metaQuery.data?.properties ?? []}
+              selectedPropertyId={propertyId}
+              userRole={currentUser.role}
+            />
+          ) : activeView === "wiki" ? (
+            <PropertyWikiPanel
+              properties={metaQuery.data?.properties ?? []}
+              selectedPropertyId={propertyId}
+              userRole={currentUser.role}
+              openRecordRequest={wikiRecordRequest}
             />
           ) : activeView === "fields" && (currentUser.role === "ADMIN" || currentUser.role === "MANAGER") ? (
             customFieldsQuery.isLoading ? (
@@ -2373,7 +2603,7 @@ function App() {
           ) : <>
             {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
               <>
-                <ActiveFilterBar chips={activeFilterChips} resultCount={sortedItems.length} onClear={() => clearBoardFilters()} />
+                <ActiveFilterBar chips={activeFilterChips} resultCount={structuredFilters.archiveState === "occupied" ? occupiedDirectoryResultCount : sortedItems.length} onClear={() => clearBoardFilters()} />
                 <div className="board-window-controls" data-testid="board-window-controls">
                   <label className="toggle-row">
                     <input
@@ -2440,6 +2670,8 @@ function App() {
                 <label>Vacancy
                   <select data-testid="filter-vacancy-status" value={structuredFilters.vacancyStatus} onChange={(event) => setStructuredFilters((current) => ({ ...current, vacancyStatus: event.target.value }))}>
                     <option value="">All vacancy statuses</option>
+                    <option value="__vacant__">Vacant not leased</option>
+                    <option value="__vacant_leased__">Vacant leased</option>
                     <option value="__ntv__">NTV / Notice to Vacate</option>
                     {Object.values(labelsByField.vacancyStatus ?? {}).filter((label) => !label.isArchived).map((label) => <option key={label.id} value={label.value}>{label.value}</option>)}
                   </select>
@@ -2469,6 +2701,7 @@ function App() {
                   <select data-testid="filter-archive-state" value={structuredFilters.archiveState} onChange={(event) => setStructuredFilters((current) => ({ ...current, archiveState: event.target.value as StructuredFilters["archiveState"] }))}>
                     <option value="active">Active items</option>
                     <option value="archived">Archived only</option>
+                    <option value="occupied">Occupied</option>
                     <option value="all">Active + archived</option>
                   </select>
                 </label>
@@ -2553,7 +2786,7 @@ function App() {
                 {activeCustomFields.length === 0 ? (
                   <div className="custom-filter-empty">
                     <span>No custom fields yet.</span>
-                    {(currentUser.role === "ADMIN" || currentUser.role === "MANAGER") ? (
+                    {(currentUser?.role === "ADMIN" || currentUser?.role === "MANAGER") ? (
                       <button type="button" className="link-button" data-testid="custom-filter-create-field" onClick={() => setActiveView("fields")}>
                         Create one
                       </button>
@@ -2592,6 +2825,7 @@ function App() {
               boardSections={metaQuery.data?.boardSections ?? []}
               preferredPropertyId={propertyId}
               archiveState={structuredFilters.archiveState}
+              searchText={deferredSearch}
               visibleColumns={visibleColumns}
               canEditField={(item, key) => canEditField(currentUser, key)}
               canEditCustomFields={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
@@ -2750,6 +2984,7 @@ function App() {
             onAssignFloorPlan={assignFloorPlan}
             onCreateVendorAssignment={async (input) => { await vendorAssignmentCreateMutation.mutateAsync(input); }}
             onUpdateVendorAssignment={async (id, input) => { await vendorAssignmentUpdateMutation.mutateAsync({ id, data: input }); }}
+            onMarkReady={async (id) => { await markReadyMutation.mutateAsync(id); }}
             onBatch={async (input) => { await batchItemsMutation.mutateAsync(input); }}
           />
         </Suspense>
@@ -2787,6 +3022,8 @@ function App() {
         open={onboardingOpen}
         currentUser={currentUser}
         properties={metaQuery.data?.properties ?? []}
+        units={metaQuery.data?.units ?? []}
+        floorPlans={floorPlansQuery.data?.floorPlans ?? []}
         savedViews={savedViewsQuery.data?.views ?? metaQuery.data?.views ?? []}
         scheduleTracks={metaQuery.data?.scheduleTracks ?? []}
         firstRunDetected={firstRunDetected}
@@ -2798,6 +3035,7 @@ function App() {
           setOnboardingOpen(false);
         }}
       />
+      <PWAInstallPrompt />
       <ToastViewport toasts={toasts} onDismiss={dismissToast} />
     </div>
   );

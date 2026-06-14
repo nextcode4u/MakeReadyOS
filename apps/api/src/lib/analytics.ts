@@ -42,6 +42,10 @@ function boardSectionTypeMap(sections: Array<{ propertyId: string; key: string; 
   return new Map(sections.map((section) => [`${section.propertyId}:${section.key}`, section.sectionType]));
 }
 
+function isVacantStatus(value?: string | null) {
+  return Boolean(value && ["VACANT", "VACANT_NOT_LEASED", "VACANT_READY", "VACANT NOT LEASED READY", "VACANT NOT LEASED NOT READY", "VACANT LEASED", "VACANT_LEASED", "VACANT LEASED READY", "VACANT LEASED NOT READY"].includes(value));
+}
+
 export async function computePropertySnapshot(propertyId: string, date = startOfDay()) {
   const nextDay = addDays(date, 1);
   const next7 = addDays(date, 7);
@@ -64,7 +68,7 @@ export async function computePropertySnapshot(propertyId: string, date = startOf
     propertyId,
     date,
     activeTurns: activeItems.length,
-    vacant: activeItems.filter((item) => item.vacancyStatus === "VACANT" || item.vacancyStatus === "VACANT LEASED").length,
+    vacant: activeItems.filter((item) => isVacantStatus(item.vacancyStatus)).length,
     ntv: activeItems.filter((item) => item.vacancyStatus?.startsWith("NTV")).length,
     ready: activeItems.filter((item) => sectionTypes.get(`${item.propertyId}:${item.boardGroup}`) === "READY").length,
     down: activeItems.filter((item) => sectionTypes.get(`${item.propertyId}:${item.boardGroup}`) === "DOWN").length,

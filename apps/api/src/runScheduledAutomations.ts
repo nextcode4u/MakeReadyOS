@@ -4,6 +4,9 @@ import { prisma } from "./lib/prisma.js";
 try {
   const result = await executeScheduledAutomationRules({ mode: "SCHEDULED" });
   console.log(`Scheduled automation evaluation completed: ${result.rulesEvaluated} rules, ${result.checkedCount} checked, ${result.matchedCount} matched, ${result.actionCount} actions.`);
+  if (result.lifecycle) {
+    console.log(`${result.lifecycle.name}: checked=${result.lifecycle.checkedCount} matched=${result.lifecycle.matchedCount} actions=${result.lifecycle.actionCount}`);
+  }
   for (const rule of result.results) {
     console.log(`${rule.name}: checked=${rule.checkedCount} matched=${rule.matchedCount} actions=${rule.actionCount} warnings=${rule.warnings.length} errors=${rule.errors.length}`);
   }

@@ -21,7 +21,9 @@ MakeReadyOS now includes a lightweight setup guide for administrators and manage
 
 ## Demo vs Production
 
-Seeded demo data is useful for evaluation. For a real deployment, replace it with actual properties, units, staff, floor plans, and templates. Do not use demo passwords outside local testing.
+New deployments start with baseline configuration only: make-ready board labels, display columns, schedule tracks, and checklist templates are seeded so admins do not have to recreate the standard operating columns by hand. Properties, units, floor plans, turns, staff assignments, and templates are left for the setup guide and import workflows.
+
+Seeded demo data is useful for evaluation. Set `SEED_DEMO_DATA=true` only when you want sample properties, units, and make-ready turns. For a real deployment, keep `SEED_DEMO_DATA=false`, import actual unit directories, create real staff users, and apply property templates intentionally. Do not use demo passwords outside local testing.
 
 ## Reopening Later
 

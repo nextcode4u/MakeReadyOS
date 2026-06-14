@@ -27,3 +27,33 @@ export function formatTime(value: string | Date | null | undefined, mode = readC
     hour12: hour12(mode),
   }).format(new Date(value));
 }
+
+function parseDateOnly(value: string | Date) {
+  if (value instanceof Date) return value;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return new Date(value);
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function ordinal(day: number) {
+  if (day >= 11 && day <= 13) return `${day}th`;
+  const suffix = day % 10 === 1 ? "st" : day % 10 === 2 ? "nd" : day % 10 === 3 ? "rd" : "th";
+  return `${day}${suffix}`;
+}
+
+export function formatDateDisplay(value: string | Date | null | undefined, now = new Date()) {
+  if (!value) return "";
+  const date = parseDateOnly(value);
+  const month = new Intl.DateTimeFormat(undefined, { month: "short" }).format(date);
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${month} ${ordinal(date.getDate())}`;
+  }
+  return `${month} ${ordinal(date.getDate())}, ${date.getFullYear()}`;
+}
+
+export function formatDateInput(value: string | Date | null | undefined) {
+  if (!value) return "";
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+  return match ? match[1] : new Date(value).toISOString().slice(0, 10);
+}

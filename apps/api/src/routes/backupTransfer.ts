@@ -20,6 +20,7 @@ const propertySchema = z.object({
 
 const floorPlanSchema = z.object({
   propertyCode: z.string().min(1),
+  code: z.string().min(1).optional(),
   name: z.string().min(1),
   bedrooms: z.number().int().nullable(),
   bathrooms: z.number().nullable(),
@@ -88,6 +89,7 @@ const operatingCalendarSchema = z.object({
 const unitSchema = z.object({
   propertyCode: z.string().min(1),
   number: z.string().min(1),
+  floorPlanCode: z.string().nullable().optional().default(null),
   floorPlanName: z.string().nullable().optional().default(null),
   floorPlan: z.string().nullable(),
   squareFeet: z.number().int().nullable(),
@@ -347,6 +349,130 @@ const propertyTemplateSchema = z.object({
   isArchived: z.boolean().default(false),
 });
 
+const refrigerantTypeSchema = z.object({
+  name: z.string().min(1),
+  notes: z.string().nullable().optional().default(null),
+  isActive: z.boolean().optional().default(true),
+});
+
+const refrigerantCylinderSchema = z.object({
+  identifier: z.string().min(1),
+  refrigerantTypeName: z.string().min(1),
+  category: z.enum(["VIRGIN", "CLEAN_RECOVERY", "DIRTY_RECOVERY"]),
+  tankSize: z.number(),
+  currentWeight: z.number(),
+  status: z.enum(["ACTIVE", "EMPTY_PENDING_RECOVERY", "ARCHIVED"]),
+  notes: z.string().nullable().optional().default(null),
+  dispositionNotes: z.string().nullable().optional().default(null),
+  finalRecoveryCompleted: z.boolean().optional().default(false),
+  archivedAt: nullableDate.optional().default(null),
+});
+
+const refrigerantTransactionSchema = z.object({
+  transactionType: z.enum(["VIRGIN_CHARGE", "CLEAN_RECOVERY", "DIRTY_RECOVERY", "FINAL_RECOVERY"]),
+  propertyCode: z.string().nullable().optional().default(null),
+  unitNumber: z.string().nullable().optional().default(null),
+  refrigerantTypeName: z.string().min(1),
+  sourceCylinderIdentifier: z.string().nullable().optional().default(null),
+  recoveryCylinderIdentifier: z.string().nullable().optional().default(null),
+  occurredAt: z.string().datetime(),
+  startWeight: z.number(),
+  endWeight: z.number(),
+  amount: z.number(),
+  notes: z.string().nullable().optional().default(null),
+  createdByName: z.string().nullable().optional().default(null),
+});
+
+const refrigerantLeakFlagSchema = z.object({
+  propertyCode: z.string().nullable().optional().default(null),
+  unitNumber: z.string().min(1),
+  refrigerantTypeName: z.string().nullable().optional().default(null),
+  level: z.string().min(1),
+  reason: z.string().min(1),
+  status: z.string().min(1),
+  lastDetectedAt: z.string().datetime(),
+  dismissedAt: nullableDate.optional().default(null),
+  dismissalNotes: z.string().nullable().optional().default(null),
+});
+
+const poolFacilityBackupSchema = z.object({
+  propertyCode: z.string().min(1),
+  name: z.string().min(1),
+  type: z.string().min(1),
+  capacityGallons: z.number().nullable().optional().default(null),
+  surfaceType: z.string().nullable().optional().default(null),
+  notes: z.string().nullable().optional().default(null),
+  isActive: z.boolean().optional().default(true),
+});
+
+const poolChemicalBackupSchema = z.object({
+  propertyCode: z.string().min(1),
+  name: z.string().min(1),
+  category: z.string().min(1),
+  concentrationPercent: z.number().nullable().optional().default(null),
+  unit: z.string().min(1),
+  notes: z.string().nullable().optional().default(null),
+  isActive: z.boolean().optional().default(true),
+});
+
+const poolChemistryTargetBackupSchema = z.object({
+  propertyCode: z.string().nullable().optional().default(null),
+  facilityType: z.string().min(1),
+  phMin: z.number(),
+  phMax: z.number(),
+  freeChlorineMin: z.number(),
+  freeChlorineMax: z.number(),
+  combinedChlorineMax: z.number(),
+  totalAlkalinityMin: z.number(),
+  totalAlkalinityMax: z.number(),
+  cyaMin: z.number(),
+  cyaMax: z.number(),
+  calciumHardnessMin: z.number(),
+  calciumHardnessMax: z.number(),
+});
+
+const poolLogEntryBackupSchema = z.object({
+  propertyCode: z.string().min(1),
+  facilityName: z.string().min(1),
+  technicianName: z.string().nullable().optional().default(null),
+  logDate: z.string().datetime(),
+  logTime: z.string().nullable().optional().default(null),
+  ph: z.number().nullable().optional().default(null),
+  freeChlorine: z.number().nullable().optional().default(null),
+  combinedChlorine: z.number().nullable().optional().default(null),
+  totalChlorine: z.number().nullable().optional().default(null),
+  totalAlkalinity: z.number().nullable().optional().default(null),
+  cyanuricAcid: z.number().nullable().optional().default(null),
+  calciumHardness: z.number().nullable().optional().default(null),
+  waterTemperature: z.number().nullable().optional().default(null),
+  vacuumed: z.boolean().optional().default(false),
+  backwashed: z.boolean().optional().default(false),
+  skimmerCleaned: z.boolean().optional().default(false),
+  pumpRunning: z.boolean().optional().default(false),
+  filterOperating: z.boolean().optional().default(false),
+  waterClear: z.boolean().optional().default(false),
+  waterCloudy: z.boolean().optional().default(false),
+  algaePresent: z.boolean().optional().default(false),
+  notes: z.string().nullable().optional().default(null),
+  evaluationJson: z.unknown().nullable().optional().default(null),
+});
+
+const poolSafetyCheckBackupSchema = z.object({
+  entryKey: z.string().min(1),
+  label: z.string().min(1),
+  value: z.string().min(1),
+  notes: z.string().nullable().optional().default(null),
+  sortOrder: z.number().int().optional().default(0),
+});
+
+const poolChemicalAdditionBackupSchema = z.object({
+  entryKey: z.string().min(1),
+  chemicalName: z.string().min(1),
+  amount: z.number(),
+  unit: z.string().min(1),
+  notes: z.string().nullable().optional().default(null),
+});
+
 const backupSchema = z.object({
   format: z.literal(backupFormat),
   version: z.literal(backupVersion),
@@ -382,6 +508,16 @@ const backupSchema = z.object({
     checklistInstances: z.array(checklistInstanceSchema).optional().default([]),
     notes: z.array(propertyNoteSchema),
     propertyTemplates: z.array(propertyTemplateSchema).optional().default([]),
+    refrigerantTypes: z.array(refrigerantTypeSchema).optional().default([]),
+    refrigerantCylinders: z.array(refrigerantCylinderSchema).optional().default([]),
+    refrigerantTransactions: z.array(refrigerantTransactionSchema).optional().default([]),
+    refrigerantLeakFlags: z.array(refrigerantLeakFlagSchema).optional().default([]),
+    poolFacilities: z.array(poolFacilityBackupSchema).optional().default([]),
+    poolChemicals: z.array(poolChemicalBackupSchema).optional().default([]),
+    poolChemistryTargets: z.array(poolChemistryTargetBackupSchema).optional().default([]),
+    poolLogEntries: z.array(poolLogEntryBackupSchema).optional().default([]),
+    poolSafetyChecks: z.array(poolSafetyCheckBackupSchema).optional().default([]),
+    poolChemicalAdditions: z.array(poolChemicalAdditionBackupSchema).optional().default([]),
   }),
 });
 
@@ -434,6 +570,16 @@ function emptySummary(): ImportSummary {
     checklistInstances: bucket(),
     notes: bucket(),
     propertyTemplates: bucket(),
+    refrigerantTypes: bucket(),
+    refrigerantCylinders: bucket(),
+    refrigerantTransactions: bucket(),
+    refrigerantLeakFlags: bucket(),
+    poolFacilities: bucket(),
+    poolChemicals: bucket(),
+    poolChemistryTargets: bucket(),
+    poolLogEntries: bucket(),
+    poolSafetyChecks: bucket(),
+    poolChemicalAdditions: bucket(),
   };
 }
 
@@ -447,6 +593,10 @@ function nullableJson(value: unknown) {
 
 function dateValue(value: string | null) {
   return value ? new Date(value) : null;
+}
+
+function poolEntryPortableKey(entry: { property: { code: string }; facility: { name: string }; logDate: Date; logTime: string | null }) {
+  return [entry.property.code, entry.facility.name, entry.logDate.toISOString(), entry.logTime ?? ""].join("|");
 }
 
 function defaultBoardSections(propertyCode: string) {
@@ -472,9 +622,9 @@ async function ensureAdmin(request: FastifyRequest, reply: FastifyReply) {
 }
 
 async function buildExport(): Promise<NativeBackup> {
-  const [properties, floorPlans, boardOptions, boardColumns, boardSections, scheduleTracks, operatingCalendars, riskPolicies, units, items, fields, savedViews, rules, templates, chargePriceSheetItems, comments, vendors, vendorAssignments, propertyMaps, propertyMapAreas, unitMapLocations, checklistInstances, notes, propertyTemplates] = await Promise.all([
+  const [properties, floorPlans, boardOptions, boardColumns, boardSections, scheduleTracks, operatingCalendars, riskPolicies, units, items, fields, savedViews, rules, templates, chargePriceSheetItems, comments, vendors, vendorAssignments, propertyMaps, propertyMapAreas, unitMapLocations, checklistInstances, notes, propertyTemplates, refrigerantTypes, refrigerantCylinders, refrigerantTransactions, refrigerantLeakFlags, poolFacilities, poolChemicals, poolChemistryTargets, poolLogEntries, poolSafetyChecks, poolChemicalAdditions] = await Promise.all([
     prisma.property.findMany({ orderBy: { code: "asc" } }),
-    prisma.floorPlan.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { name: "asc" }] }),
+    prisma.floorPlan.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { code: "asc" }] }),
     prisma.labelDefinition.findMany({ orderBy: [{ fieldKey: "asc" }, { sortOrder: "asc" }] }),
     prisma.boardColumnDefinition.findMany({ orderBy: { fieldKey: "asc" } }),
     prisma.boardSection.findMany({ include: { property: true }, orderBy: [{ propertyId: "asc" }, { sortOrder: "asc" }] }),
@@ -497,6 +647,16 @@ async function buildExport(): Promise<NativeBackup> {
     prisma.checklistInstance.findMany({ include: { template: true, items: { orderBy: { sortOrder: "asc" } } }, orderBy: { createdAt: "asc" } }),
     prisma.propertyNote.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { title: "asc" }] }),
     prisma.propertyTemplate.findMany({ where: { isArchived: false }, orderBy: [{ category: "asc" }, { name: "asc" }] }),
+    prisma.refrigerantType.findMany({ orderBy: { name: "asc" } }),
+    prisma.refrigerantCylinder.findMany({ include: { refrigerantType: true }, orderBy: { identifier: "asc" } }),
+    prisma.refrigerantTransaction.findMany({ include: { refrigerantType: true, sourceCylinder: true, recoveryCylinder: true }, orderBy: { occurredAt: "asc" } }),
+    prisma.refrigerantLeakFlag.findMany({ include: { refrigerantType: true }, orderBy: { lastDetectedAt: "asc" } }),
+    prisma.poolFacility.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { name: "asc" }] }),
+    prisma.poolChemical.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { name: "asc" }] }),
+    prisma.poolChemistryTarget.findMany({ include: { property: true }, orderBy: [{ facilityType: "asc" }] }),
+    prisma.poolLogEntry.findMany({ include: { property: true, facility: true }, orderBy: [{ logDate: "asc" }, { logTime: "asc" }] }),
+    prisma.poolSafetyCheck.findMany({ include: { entry: { include: { property: true, facility: true } } }, orderBy: [{ entryId: "asc" }, { sortOrder: "asc" }] }),
+    prisma.poolChemicalAddition.findMany({ include: { entry: { include: { property: true, facility: true } } }, orderBy: { createdAt: "asc" } }),
   ]);
   const fieldKeysById = new Map(fields.map((field) => [field.id, field.fieldKey]));
   const itemKeysById = new Map(items.map((item) => [item.id, itemPortableKey(item)]));
@@ -522,6 +682,7 @@ async function buildExport(): Promise<NativeBackup> {
       })),
       floorPlans: floorPlans.map((floorPlan) => ({
         propertyCode: floorPlan.property.code,
+        code: floorPlan.code,
         name: floorPlan.name,
         bedrooms: floorPlan.bedrooms,
         bathrooms: floorPlan.bathrooms,
@@ -598,6 +759,7 @@ async function buildExport(): Promise<NativeBackup> {
       units: units.map((unit) => ({
         propertyCode: unit.property.code,
         number: unit.number,
+        floorPlanCode: unit.floorPlanRecord?.code ?? null,
         floorPlanName: unit.floorPlanRecord?.name ?? null,
         floorPlan: unit.floorPlan,
         squareFeet: unit.squareFeet,
@@ -826,6 +988,126 @@ async function buildExport(): Promise<NativeBackup> {
         manifest: template.manifest,
         isArchived: template.isArchived,
       })),
+      refrigerantTypes: refrigerantTypes.map((type) => ({
+        name: type.name,
+        notes: type.notes,
+        isActive: type.isActive,
+      })),
+      refrigerantCylinders: refrigerantCylinders.map((cylinder) => ({
+        identifier: cylinder.identifier,
+        refrigerantTypeName: cylinder.refrigerantType.name,
+        category: cylinder.category as "VIRGIN" | "CLEAN_RECOVERY" | "DIRTY_RECOVERY",
+        tankSize: cylinder.tankSize,
+        currentWeight: cylinder.currentWeight,
+        status: cylinder.status as "ACTIVE" | "EMPTY_PENDING_RECOVERY" | "ARCHIVED",
+        notes: cylinder.notes,
+        dispositionNotes: cylinder.dispositionNotes,
+        finalRecoveryCompleted: cylinder.finalRecoveryCompleted,
+        archivedAt: cylinder.archivedAt?.toISOString() ?? null,
+      })),
+      refrigerantTransactions: refrigerantTransactions.map((entry) => {
+        const property = entry.propertyId ? properties.find((candidate) => candidate.id === entry.propertyId) : null;
+        return {
+          transactionType: entry.transactionType as "VIRGIN_CHARGE" | "CLEAN_RECOVERY" | "DIRTY_RECOVERY" | "FINAL_RECOVERY",
+          propertyCode: property?.code ?? null,
+          unitNumber: entry.unitNumber,
+          refrigerantTypeName: entry.refrigerantType.name,
+          sourceCylinderIdentifier: entry.sourceCylinder?.identifier ?? null,
+          recoveryCylinderIdentifier: entry.recoveryCylinder?.identifier ?? null,
+          occurredAt: entry.occurredAt.toISOString(),
+          startWeight: entry.startWeight,
+          endWeight: entry.endWeight,
+          amount: entry.amount,
+          notes: entry.notes,
+          createdByName: entry.createdByName,
+        };
+      }),
+      refrigerantLeakFlags: refrigerantLeakFlags.map((flag) => {
+        const property = flag.propertyId ? properties.find((candidate) => candidate.id === flag.propertyId) : null;
+        return {
+          propertyCode: property?.code ?? null,
+          unitNumber: flag.unitNumber,
+          refrigerantTypeName: flag.refrigerantType?.name ?? null,
+          level: flag.level,
+          reason: flag.reason,
+          status: flag.status,
+          lastDetectedAt: flag.lastDetectedAt.toISOString(),
+          dismissedAt: flag.dismissedAt?.toISOString() ?? null,
+          dismissalNotes: flag.dismissalNotes,
+        };
+      }),
+      poolFacilities: poolFacilities.map((facility) => ({
+        propertyCode: facility.property.code,
+        name: facility.name,
+        type: facility.type,
+        capacityGallons: facility.capacityGallons,
+        surfaceType: facility.surfaceType,
+        notes: facility.notes,
+        isActive: facility.isActive,
+      })),
+      poolChemicals: poolChemicals.map((chemical) => ({
+        propertyCode: chemical.property.code,
+        name: chemical.name,
+        category: chemical.category,
+        concentrationPercent: chemical.concentrationPercent,
+        unit: chemical.unit,
+        notes: chemical.notes,
+        isActive: chemical.isActive,
+      })),
+      poolChemistryTargets: poolChemistryTargets.map((target) => ({
+        propertyCode: target.property?.code ?? null,
+        facilityType: target.facilityType,
+        phMin: target.phMin,
+        phMax: target.phMax,
+        freeChlorineMin: target.freeChlorineMin,
+        freeChlorineMax: target.freeChlorineMax,
+        combinedChlorineMax: target.combinedChlorineMax,
+        totalAlkalinityMin: target.totalAlkalinityMin,
+        totalAlkalinityMax: target.totalAlkalinityMax,
+        cyaMin: target.cyaMin,
+        cyaMax: target.cyaMax,
+        calciumHardnessMin: target.calciumHardnessMin,
+        calciumHardnessMax: target.calciumHardnessMax,
+      })),
+      poolLogEntries: poolLogEntries.map((entry) => ({
+        propertyCode: entry.property.code,
+        facilityName: entry.facility.name,
+        technicianName: entry.technicianName,
+        logDate: entry.logDate.toISOString(),
+        logTime: entry.logTime,
+        ph: entry.ph,
+        freeChlorine: entry.freeChlorine,
+        combinedChlorine: entry.combinedChlorine,
+        totalChlorine: entry.totalChlorine,
+        totalAlkalinity: entry.totalAlkalinity,
+        cyanuricAcid: entry.cyanuricAcid,
+        calciumHardness: entry.calciumHardness,
+        waterTemperature: entry.waterTemperature,
+        vacuumed: entry.vacuumed,
+        backwashed: entry.backwashed,
+        skimmerCleaned: entry.skimmerCleaned,
+        pumpRunning: entry.pumpRunning,
+        filterOperating: entry.filterOperating,
+        waterClear: entry.waterClear,
+        waterCloudy: entry.waterCloudy,
+        algaePresent: entry.algaePresent,
+        notes: entry.notes,
+        evaluationJson: entry.evaluationJson,
+      })),
+      poolSafetyChecks: poolSafetyChecks.map((check) => ({
+        entryKey: poolEntryPortableKey(check.entry),
+        label: check.label,
+        value: check.value,
+        notes: check.notes,
+        sortOrder: check.sortOrder,
+      })),
+      poolChemicalAdditions: poolChemicalAdditions.map((addition) => ({
+        entryKey: poolEntryPortableKey(addition.entry),
+        chemicalName: addition.chemicalName,
+        amount: addition.amount,
+        unit: addition.unit,
+        notes: addition.notes,
+      })),
     },
   };
 }
@@ -840,7 +1122,12 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
       .filter((property) => !sectionPropertyCodes.has(property.code))
       .flatMap((property) => defaultBoardSections(property.code)),
   ];
-  const floorPlanKeys = new Set(backup.data.floorPlans.map((floorPlan) => `${floorPlan.propertyCode}|${floorPlan.name}`));
+  const floorPlanKey = (propertyCode: string, codeOrName: string) => `${propertyCode}|${codeOrName}`;
+  const backupFloorPlanCode = (floorPlan: z.infer<typeof floorPlanSchema>) => floorPlan.code ?? floorPlan.name;
+  const floorPlanKeys = new Set(backup.data.floorPlans.flatMap((floorPlan) => [
+    floorPlanKey(floorPlan.propertyCode, backupFloorPlanCode(floorPlan)),
+    floorPlanKey(floorPlan.propertyCode, floorPlan.name),
+  ]));
   const fieldKeys = new Set(backup.data.customFields.map((field) => field.fieldKey));
   const itemKeys = new Set(backup.data.makeReadyItems.map((item) => item.portableKey));
   const rejectDuplicates = <K extends keyof ImportSummary>(bucket: K, keys: string[]) => {
@@ -854,7 +1141,7 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
     }
   };
   rejectDuplicates("properties", backup.data.properties.map((property) => property.code));
-  rejectDuplicates("floorPlans", backup.data.floorPlans.map((floorPlan) => `${floorPlan.propertyCode}|${floorPlan.name}`));
+  rejectDuplicates("floorPlans", backup.data.floorPlans.map((floorPlan) => floorPlanKey(floorPlan.propertyCode, backupFloorPlanCode(floorPlan))));
   rejectDuplicates("boardOptions", backup.data.boardOptions.map((option) => `${option.fieldKey}|${option.value}`));
   rejectDuplicates("boardColumns", backup.data.boardColumns.map((column) => column.fieldKey));
   rejectDuplicates("boardSections", boardSections.map((section) => `${section.propertyCode}|${section.sectionType}`));
@@ -879,17 +1166,28 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
   rejectDuplicates("checklistInstances", backup.data.checklistInstances.map((instance) => `${instance.itemKey}|${instance.name}`));
   rejectDuplicates("notes", backup.data.notes.map((note) => `${note.propertyCode}|${note.noteType}|${note.title}`));
   rejectDuplicates("propertyTemplates", backup.data.propertyTemplates.map((template) => template.name));
+  rejectDuplicates("refrigerantTypes", backup.data.refrigerantTypes.map((type) => type.name));
+  rejectDuplicates("refrigerantCylinders", backup.data.refrigerantCylinders.map((cylinder) => cylinder.identifier));
+  rejectDuplicates("refrigerantTransactions", backup.data.refrigerantTransactions.map((entry) => `${entry.transactionType}|${entry.refrigerantTypeName}|${entry.propertyCode ?? ""}|${entry.unitNumber ?? ""}|${entry.occurredAt}|${entry.amount}`));
+  rejectDuplicates("refrigerantLeakFlags", backup.data.refrigerantLeakFlags.map((flag) => `${flag.propertyCode ?? ""}|${flag.unitNumber}|${flag.refrigerantTypeName ?? ""}|${flag.status}`));
+  rejectDuplicates("poolFacilities", backup.data.poolFacilities.map((facility) => `${facility.propertyCode}|${facility.name}`));
+  rejectDuplicates("poolChemicals", backup.data.poolChemicals.map((chemical) => `${chemical.propertyCode}|${chemical.name}`));
+  rejectDuplicates("poolChemistryTargets", backup.data.poolChemistryTargets.map((target) => `${target.propertyCode ?? "global"}|${target.facilityType}`));
+  rejectDuplicates("poolLogEntries", backup.data.poolLogEntries.map((entry) => `${entry.propertyCode}|${entry.facilityName}|${entry.logDate}|${entry.logTime ?? ""}`));
+  rejectDuplicates("poolSafetyChecks", backup.data.poolSafetyChecks.map((check) => `${check.entryKey}|${check.label}`));
+  rejectDuplicates("poolChemicalAdditions", backup.data.poolChemicalAdditions.map((addition) => `${addition.entryKey}|${addition.chemicalName}|${addition.amount}|${addition.unit}|${addition.notes ?? ""}`));
 
   for (const unit of backup.data.units) {
     if (!propertyCodes.has(unit.propertyCode) && !(await prisma.property.findUnique({ where: { code: unit.propertyCode } }))) {
       summary.units.errors.push(`Property ${unit.propertyCode} is missing for unit ${unit.number}`);
     }
-    if (unit.floorPlanName && !floorPlanKeys.has(`${unit.propertyCode}|${unit.floorPlanName}`)) {
+    const unitFloorPlanRef = unit.floorPlanCode ?? unit.floorPlanName;
+    if (unitFloorPlanRef && !floorPlanKeys.has(floorPlanKey(unit.propertyCode, unitFloorPlanRef))) {
       const property = await prisma.property.findUnique({ where: { code: unit.propertyCode } });
       const existingFloorPlan = property
-        ? await prisma.floorPlan.findUnique({ where: { propertyId_name: { propertyId: property.id, name: unit.floorPlanName } } })
+        ? await prisma.floorPlan.findFirst({ where: { propertyId: property.id, OR: [{ code: unitFloorPlanRef }, { name: unitFloorPlanRef }] } })
         : null;
-      if (!existingFloorPlan) summary.units.errors.push(`Floor plan ${unit.floorPlanName} is missing for unit ${unit.number}`);
+      if (!existingFloorPlan) summary.units.errors.push(`Floor plan ${unitFloorPlanRef} is missing for unit ${unit.number}`);
     }
   }
   for (const floorPlan of backup.data.floorPlans) {
@@ -967,6 +1265,49 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
   for (const instance of backup.data.checklistInstances) {
     if (!itemKeys.has(instance.itemKey)) summary.checklistInstances.errors.push(`Make-ready item ${instance.itemKey} is missing for checklist ${instance.name}`);
   }
+  for (const cylinder of backup.data.refrigerantCylinders) {
+    if (!backup.data.refrigerantTypes.some((type) => type.name === cylinder.refrigerantTypeName) && !(await prisma.refrigerantType.findUnique({ where: { name: cylinder.refrigerantTypeName } }))) {
+      summary.refrigerantCylinders.errors.push(`Refrigerant type ${cylinder.refrigerantTypeName} is missing for cylinder ${cylinder.identifier}`);
+    }
+  }
+  for (const entry of backup.data.refrigerantTransactions) {
+    if (entry.propertyCode && !propertyCodes.has(entry.propertyCode) && !(await prisma.property.findUnique({ where: { code: entry.propertyCode } }))) {
+      summary.refrigerantTransactions.errors.push(`Property ${entry.propertyCode} is missing for refrigerant transaction`);
+    }
+  }
+  const poolFacilityKeys = new Set(backup.data.poolFacilities.map((facility) => `${facility.propertyCode}|${facility.name}`));
+  const poolEntryKeys = new Set(backup.data.poolLogEntries.map((entry) => `${entry.propertyCode}|${entry.facilityName}|${entry.logDate}|${entry.logTime ?? ""}`));
+  for (const facility of backup.data.poolFacilities) {
+    if (!propertyCodes.has(facility.propertyCode) && !(await prisma.property.findUnique({ where: { code: facility.propertyCode } }))) {
+      summary.poolFacilities.errors.push(`Property ${facility.propertyCode} is missing for pool facility ${facility.name}`);
+    }
+  }
+  for (const chemical of backup.data.poolChemicals) {
+    if (!propertyCodes.has(chemical.propertyCode) && !(await prisma.property.findUnique({ where: { code: chemical.propertyCode } }))) {
+      summary.poolChemicals.errors.push(`Property ${chemical.propertyCode} is missing for pool chemical ${chemical.name}`);
+    }
+  }
+  for (const target of backup.data.poolChemistryTargets) {
+    if (target.propertyCode && !propertyCodes.has(target.propertyCode) && !(await prisma.property.findUnique({ where: { code: target.propertyCode } }))) {
+      summary.poolChemistryTargets.errors.push(`Property ${target.propertyCode} is missing for pool chemistry target ${target.facilityType}`);
+    }
+  }
+  for (const entry of backup.data.poolLogEntries) {
+    if (!propertyCodes.has(entry.propertyCode) && !(await prisma.property.findUnique({ where: { code: entry.propertyCode } }))) {
+      summary.poolLogEntries.errors.push(`Property ${entry.propertyCode} is missing for pool log entry`);
+    }
+    if (!poolFacilityKeys.has(`${entry.propertyCode}|${entry.facilityName}`)) {
+      const property = await prisma.property.findUnique({ where: { code: entry.propertyCode } });
+      const existingFacility = property ? await prisma.poolFacility.findUnique({ where: { propertyId_name: { propertyId: property.id, name: entry.facilityName } } }) : null;
+      if (!existingFacility) summary.poolLogEntries.errors.push(`Pool facility ${entry.facilityName} is missing for pool log entry`);
+    }
+  }
+  for (const check of backup.data.poolSafetyChecks) {
+    if (!poolEntryKeys.has(check.entryKey)) summary.poolSafetyChecks.errors.push(`Pool log entry ${check.entryKey} is missing for safety check ${check.label}`);
+  }
+  for (const addition of backup.data.poolChemicalAdditions) {
+    if (!poolEntryKeys.has(addition.entryKey)) summary.poolChemicalAdditions.errors.push(`Pool log entry ${addition.entryKey} is missing for chemical addition ${addition.chemicalName}`);
+  }
   if (Object.values(summary).some((bucket) => bucket.errors.length > 0)) return summary;
 
   const run = async (tx: Prisma.TransactionClient | typeof prisma) => {
@@ -992,16 +1333,19 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
     const floorPlanMap = new Map<string, string>();
     for (const floorPlan of backup.data.floorPlans) {
       const propertyId = propertyMap.get(floorPlan.propertyCode);
-      const existing = propertyId ? await tx.floorPlan.findUnique({ where: { propertyId_name: { propertyId, name: floorPlan.name } } }) : null;
+      const code = backupFloorPlanCode(floorPlan);
+      const existing = propertyId ? await tx.floorPlan.findUnique({ where: { propertyId_code: { propertyId, code } } }) : null;
       if (existing) {
-        floorPlanMap.set(`${floorPlan.propertyCode}|${floorPlan.name}`, existing.id);
+        floorPlanMap.set(floorPlanKey(floorPlan.propertyCode, code), existing.id);
+        floorPlanMap.set(floorPlanKey(floorPlan.propertyCode, floorPlan.name), existing.id);
         summary.floorPlans.skipped += 1;
       } else {
         summary.floorPlans.created += 1;
         if (!dryRun && propertyId) {
           const { propertyCode: _propertyCode, ...floorPlanData } = floorPlan;
-          const created = await tx.floorPlan.create({ data: { ...floorPlanData, propertyId } });
-          floorPlanMap.set(`${floorPlan.propertyCode}|${floorPlan.name}`, created.id);
+          const created = await tx.floorPlan.create({ data: { ...floorPlanData, code, propertyId } });
+          floorPlanMap.set(floorPlanKey(floorPlan.propertyCode, created.code), created.id);
+          floorPlanMap.set(floorPlanKey(floorPlan.propertyCode, created.name), created.id);
         }
       }
     }
@@ -1047,8 +1391,9 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
       } else {
         summary.units.created += 1;
         if (!dryRun && propertyId) {
-          const { propertyCode: _propertyCode, floorPlanName, ...unitData } = unit;
-          const floorPlanId = floorPlanName ? floorPlanMap.get(`${unit.propertyCode}|${floorPlanName}`) ?? null : null;
+          const { propertyCode: _propertyCode, floorPlanCode, floorPlanName, ...unitData } = unit;
+          const unitFloorPlanRef = floorPlanCode ?? floorPlanName;
+          const floorPlanId = unitFloorPlanRef ? floorPlanMap.get(floorPlanKey(unit.propertyCode, unitFloorPlanRef)) ?? null : null;
           const created = await tx.unit.create({ data: { ...unitData, propertyId, floorPlanId } });
           unitMap.set(`${unit.propertyCode}|${unit.number}`, created.id);
         }
@@ -1483,6 +1828,294 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
             isArchived: template.isArchived,
           },
         });
+      }
+    }
+
+    const refrigerantTypeMap = new Map<string, string>();
+    for (const type of backup.data.refrigerantTypes) {
+      const existing = await tx.refrigerantType.findUnique({ where: { name: type.name } });
+      if (existing) {
+        refrigerantTypeMap.set(type.name, existing.id);
+        summary.refrigerantTypes.skipped += 1;
+      } else {
+        summary.refrigerantTypes.created += 1;
+        if (!dryRun) {
+          const created = await tx.refrigerantType.create({
+            data: {
+              name: type.name,
+              notes: type.notes,
+              isActive: type.isActive,
+            },
+          });
+          refrigerantTypeMap.set(type.name, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.refrigerantTypes.length > 0) {
+      const existingTypes = await tx.refrigerantType.findMany({ where: { name: { in: backup.data.refrigerantTypes.map((type) => type.name) } } });
+      existingTypes.forEach((type) => refrigerantTypeMap.set(type.name, type.id));
+    }
+
+    const refrigerantCylinderMap = new Map<string, string>();
+    for (const cylinder of backup.data.refrigerantCylinders) {
+      const existing = await tx.refrigerantCylinder.findUnique({ where: { identifier: cylinder.identifier } });
+      if (existing) {
+        refrigerantCylinderMap.set(cylinder.identifier, existing.id);
+        summary.refrigerantCylinders.skipped += 1;
+      } else {
+        summary.refrigerantCylinders.created += 1;
+        const refrigerantTypeId = refrigerantTypeMap.get(cylinder.refrigerantTypeName);
+        if (!dryRun && refrigerantTypeId) {
+          const created = await tx.refrigerantCylinder.create({
+            data: {
+              identifier: cylinder.identifier,
+              refrigerantTypeId,
+              category: cylinder.category,
+              tankSize: cylinder.tankSize,
+              currentWeight: cylinder.currentWeight,
+              status: cylinder.status,
+              notes: cylinder.notes,
+              dispositionNotes: cylinder.dispositionNotes,
+              finalRecoveryCompleted: cylinder.finalRecoveryCompleted,
+              archivedAt: dateValue(cylinder.archivedAt),
+            },
+          });
+          refrigerantCylinderMap.set(cylinder.identifier, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.refrigerantCylinders.length > 0) {
+      const existingCylinders = await tx.refrigerantCylinder.findMany({ where: { identifier: { in: backup.data.refrigerantCylinders.map((cylinder) => cylinder.identifier) } } });
+      existingCylinders.forEach((cylinder) => refrigerantCylinderMap.set(cylinder.identifier, cylinder.id));
+    }
+
+    for (const entry of backup.data.refrigerantTransactions) {
+      const propertyId = entry.propertyCode ? propertyMap.get(entry.propertyCode) ?? null : null;
+      const refrigerantTypeId = refrigerantTypeMap.get(entry.refrigerantTypeName);
+      const sourceCylinderId = entry.sourceCylinderIdentifier ? refrigerantCylinderMap.get(entry.sourceCylinderIdentifier) ?? null : null;
+      const recoveryCylinderId = entry.recoveryCylinderIdentifier ? refrigerantCylinderMap.get(entry.recoveryCylinderIdentifier) ?? null : null;
+      const existing = refrigerantTypeId ? await tx.refrigerantTransaction.findFirst({
+        where: {
+          transactionType: entry.transactionType,
+          propertyId,
+          unitNumber: entry.unitNumber,
+          refrigerantTypeId,
+          occurredAt: new Date(entry.occurredAt),
+          amount: entry.amount,
+        },
+      }) : null;
+      if (existing) summary.refrigerantTransactions.skipped += 1;
+      else {
+        summary.refrigerantTransactions.created += 1;
+        if (!dryRun && refrigerantTypeId) {
+          const unitId = entry.propertyCode && entry.unitNumber ? unitMap.get(`${entry.propertyCode}|${entry.unitNumber}`) ?? null : null;
+          await tx.refrigerantTransaction.create({
+            data: {
+              transactionType: entry.transactionType,
+              propertyId,
+              unitId,
+              unitNumber: entry.unitNumber,
+              refrigerantTypeId,
+              sourceCylinderId,
+              recoveryCylinderId,
+              occurredAt: new Date(entry.occurredAt),
+              startWeight: entry.startWeight,
+              endWeight: entry.endWeight,
+              amount: entry.amount,
+              notes: entry.notes,
+              createdByName: entry.createdByName,
+            },
+          });
+        }
+      }
+    }
+
+    for (const flag of backup.data.refrigerantLeakFlags) {
+      const propertyId = flag.propertyCode ? propertyMap.get(flag.propertyCode) ?? null : null;
+      const refrigerantTypeId = flag.refrigerantTypeName ? refrigerantTypeMap.get(flag.refrigerantTypeName) ?? null : null;
+      const unitId = flag.propertyCode ? unitMap.get(`${flag.propertyCode}|${flag.unitNumber}`) ?? null : null;
+      const existing = await tx.refrigerantLeakFlag.findFirst({
+        where: {
+          propertyId,
+          unitNumber: flag.unitNumber,
+          refrigerantTypeId,
+          status: flag.status,
+        },
+      });
+      if (existing) summary.refrigerantLeakFlags.skipped += 1;
+      else {
+        summary.refrigerantLeakFlags.created += 1;
+        if (!dryRun) {
+          await tx.refrigerantLeakFlag.create({
+            data: {
+              propertyId,
+              unitId,
+              unitNumber: flag.unitNumber,
+              refrigerantTypeId,
+              level: flag.level,
+              reason: flag.reason,
+              status: flag.status,
+              lastDetectedAt: new Date(flag.lastDetectedAt),
+              dismissedAt: dateValue(flag.dismissedAt),
+              dismissalNotes: flag.dismissalNotes,
+            },
+          });
+        }
+      }
+    }
+
+    const poolFacilityMap = new Map<string, string>();
+    for (const facility of backup.data.poolFacilities) {
+      const propertyId = propertyMap.get(facility.propertyCode);
+      const existing = propertyId ? await tx.poolFacility.findUnique({ where: { propertyId_name: { propertyId, name: facility.name } } }) : null;
+      if (existing) {
+        poolFacilityMap.set(`${facility.propertyCode}|${facility.name}`, existing.id);
+        summary.poolFacilities.skipped += 1;
+      } else {
+        summary.poolFacilities.created += 1;
+        if (!dryRun && propertyId) {
+          const { propertyCode: _propertyCode, ...data } = facility;
+          const created = await tx.poolFacility.create({ data: { ...data, propertyId } });
+          poolFacilityMap.set(`${facility.propertyCode}|${facility.name}`, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.poolFacilities.length > 0) {
+      const existingFacilities = await tx.poolFacility.findMany({
+        include: { property: true },
+        where: {
+          OR: backup.data.poolFacilities.flatMap((facility) => {
+            const propertyId = propertyMap.get(facility.propertyCode);
+            return propertyId ? [{ propertyId, name: facility.name }] : [];
+          }),
+        },
+      });
+      existingFacilities.forEach((facility) => poolFacilityMap.set(`${facility.property.code}|${facility.name}`, facility.id));
+    }
+
+    const poolChemicalMap = new Map<string, string>();
+    for (const chemical of backup.data.poolChemicals) {
+      const propertyId = propertyMap.get(chemical.propertyCode);
+      const existing = propertyId ? await tx.poolChemical.findUnique({ where: { propertyId_name: { propertyId, name: chemical.name } } }) : null;
+      if (existing) {
+        poolChemicalMap.set(`${chemical.propertyCode}|${chemical.name}`, existing.id);
+        summary.poolChemicals.skipped += 1;
+      } else {
+        summary.poolChemicals.created += 1;
+        if (!dryRun && propertyId) {
+          const { propertyCode: _propertyCode, ...data } = chemical;
+          const created = await tx.poolChemical.create({ data: { ...data, propertyId } });
+          poolChemicalMap.set(`${chemical.propertyCode}|${chemical.name}`, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.poolChemicals.length > 0) {
+      const existingChemicals = await tx.poolChemical.findMany({
+        include: { property: true },
+        where: {
+          OR: backup.data.poolChemicals.flatMap((chemical) => {
+            const propertyId = propertyMap.get(chemical.propertyCode);
+            return propertyId ? [{ propertyId, name: chemical.name }] : [];
+          }),
+        },
+      });
+      existingChemicals.forEach((chemical) => poolChemicalMap.set(`${chemical.property.code}|${chemical.name}`, chemical.id));
+    }
+
+    for (const target of backup.data.poolChemistryTargets) {
+      const propertyId = target.propertyCode ? propertyMap.get(target.propertyCode) ?? null : null;
+      const existing = await tx.poolChemistryTarget.findFirst({ where: { propertyId, facilityType: target.facilityType } });
+      if (existing) summary.poolChemistryTargets.skipped += 1;
+      else {
+        summary.poolChemistryTargets.created += 1;
+        if (!dryRun) {
+          const { propertyCode: _propertyCode, ...data } = target;
+          await tx.poolChemistryTarget.create({ data: { ...data, propertyId } });
+        }
+      }
+    }
+
+    const poolEntryMap = new Map<string, string>();
+    for (const entry of backup.data.poolLogEntries) {
+      const propertyId = propertyMap.get(entry.propertyCode);
+      const facilityId = poolFacilityMap.get(`${entry.propertyCode}|${entry.facilityName}`);
+      const logDate = new Date(entry.logDate);
+      const existing = propertyId && facilityId ? await tx.poolLogEntry.findFirst({
+        where: {
+          propertyId,
+          facilityId,
+          logDate,
+          logTime: entry.logTime,
+        },
+      }) : null;
+      const entryKey = `${entry.propertyCode}|${entry.facilityName}|${entry.logDate}|${entry.logTime ?? ""}`;
+      if (existing) {
+        poolEntryMap.set(entryKey, existing.id);
+        summary.poolLogEntries.skipped += 1;
+      } else {
+        summary.poolLogEntries.created += 1;
+        if (!dryRun && propertyId && facilityId) {
+          const { propertyCode: _propertyCode, facilityName: _facilityName, logDate: _logDate, evaluationJson, ...data } = entry;
+          const created = await tx.poolLogEntry.create({
+            data: {
+              ...data,
+              propertyId,
+              facilityId,
+              logDate,
+              evaluationJson: evaluationJson === null ? Prisma.DbNull : jsonValue(evaluationJson),
+            },
+          });
+          poolEntryMap.set(entryKey, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.poolLogEntries.length > 0) {
+      const existingEntries = await tx.poolLogEntry.findMany({
+        include: { property: true, facility: true },
+        where: {
+          OR: backup.data.poolLogEntries.flatMap((entry) => {
+            const propertyId = propertyMap.get(entry.propertyCode);
+            const facilityId = poolFacilityMap.get(`${entry.propertyCode}|${entry.facilityName}`);
+            return propertyId && facilityId ? [{ propertyId, facilityId, logDate: new Date(entry.logDate), logTime: entry.logTime }] : [];
+          }),
+        },
+      });
+      existingEntries.forEach((entry) => poolEntryMap.set(poolEntryPortableKey(entry), entry.id));
+    }
+
+    for (const check of backup.data.poolSafetyChecks) {
+      const entryId = poolEntryMap.get(check.entryKey);
+      const existing = entryId ? await tx.poolSafetyCheck.findFirst({ where: { entryId, label: check.label } }) : null;
+      if (existing) summary.poolSafetyChecks.skipped += 1;
+      else {
+        summary.poolSafetyChecks.created += 1;
+        if (!dryRun && entryId) {
+          const { entryKey: _entryKey, ...data } = check;
+          await tx.poolSafetyCheck.create({ data: { ...data, entryId } });
+        }
+      }
+    }
+
+    for (const addition of backup.data.poolChemicalAdditions) {
+      const entryId = poolEntryMap.get(addition.entryKey);
+      const existing = entryId ? await tx.poolChemicalAddition.findFirst({
+        where: {
+          entryId,
+          chemicalName: addition.chemicalName,
+          amount: addition.amount,
+          unit: addition.unit,
+          notes: addition.notes,
+        },
+      }) : null;
+      if (existing) summary.poolChemicalAdditions.skipped += 1;
+      else {
+        summary.poolChemicalAdditions.created += 1;
+        if (!dryRun && entryId) {
+          const entry = await tx.poolLogEntry.findUnique({ where: { id: entryId }, include: { property: true } });
+          const chemicalId = entry ? poolChemicalMap.get(`${entry.property.code}|${addition.chemicalName}`) ?? null : null;
+          const { entryKey: _entryKey, ...data } = addition;
+          await tx.poolChemicalAddition.create({ data: { ...data, entryId, chemicalId } });
+        }
       }
     }
   };

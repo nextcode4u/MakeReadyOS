@@ -2,7 +2,7 @@
 
 MakeReadyOS is a self-hosted property operations platform focused on apartment make-ready and maintenance workflows. It uses a dense software-defined spreadsheet workflow built for local ownership, Docker deployment, and property maintenance operations.
 
-The core workflow is a fast table-first make-ready board with Kanban, Schedule, Dashboard, item drawer, comments, attachments, checklists, vendors, risk scoring, automations, property maps, and a Frog Pond visualization.
+The core workflow is a fast table-first make-ready board with Kanban, Schedule, Dashboard, item drawer, comments, attachments, checklists, vendors, preventive maintenance, refrigerant tracking, pool/spa logging, risk scoring, automations, property maps, and a Frog Pond visualization.
 
 ## What MakeReadyOS Is / Is Not
 
@@ -38,8 +38,12 @@ MakeReadyOS is not:
 ## What It Includes
 
 - Dense make-ready table with inline editing, custom fields, managed labels, floor plans, structured server-side board filters, batch actions, and archive/restore workflows.
-- Kanban, Schedule, Dashboard, Activity, My Work, Planning, Vendors, Maps, Frog Pond, Automations, Setup, Fields, Admin, and Integrations workspaces.
+- Kanban, Schedule, Dashboard, Activity, My Work, Planning, Vendors, Preventive Maintenance, Refrigerant, Pool Log, Maps, Frog Pond, Automations, Setup, Fields, Admin, and Integrations workspaces.
+- Preventive Maintenance includes recurring templates, due-task generation, history, printable reports, attachments, and Property Wiki references.
+- Pool Log includes daily readings, safety checks, chemical additions, printable reports, scoped photos/PDFs, and in-app review reminders.
 - Authentication, roles, property-scoped permissions, audit logs, API tokens, and in-app notifications.
+- English/Spanish user language preferences for the core app shell and user-management workflow.
+- Mobile browser install support through a Progressive Web App manifest and app-like home-screen launch.
 - Local attachments/photos, item comments, checklist templates, item drawer, unit history, analytics snapshots, and risk scoring.
 - Scoped integration API with examples and a lightweight OpenAPI contract at `/api/openapi.json`.
 - Docker Compose, PostgreSQL, Prisma, Fastify, React, Vite, TypeScript, backup scripts, and deployment docs.
@@ -72,7 +76,7 @@ Open:
 - Web UI: `http://localhost:8080`
 - API health: `http://localhost:4000/health`
 
-Default demo credentials come from `.env`. With the provided example values:
+Default admin credentials come from `.env`. With the provided example values:
 
 ```text
 admin@example.com
@@ -81,7 +85,15 @@ ChangeThisAdmin!23456
 
 Change `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and `SESSION_COOKIE_SECRET` before using a real deployment.
 
+The example environment starts as a blank operational workspace: no sample properties, units, or turns are created, but baseline make-ready labels, table columns, checklist templates, and schedule tracks are ready. Set `SEED_DEMO_DATA=true` only when you want sample properties and records for evaluation.
+
 For deployment details, including Raspberry Pi/VM notes, updates, migrations, backups, upload volume handling, and restore, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), [docs/DISASTER_RECOVERY.md](docs/DISASTER_RECOVERY.md), and [docs/BACKUP_AND_TRANSFER.md](docs/BACKUP_AND_TRANSFER.md).
+
+For EPA 608-friendly refrigerant tracking, tank lifecycle rules, recovery workflow, and exports, see [docs/REFRIGERANT.md](docs/REFRIGERANT.md).
+
+For daily pool/spa readings, safety checks, chemical additions, and chemistry review, see [docs/POOL_LOG.md](docs/POOL_LOG.md).
+
+For recurring filter changes, seasonal routines, PM templates, task history, and PM exports, see [docs/PREVENTIVE_MAINTENANCE.md](docs/PREVENTIVE_MAINTENANCE.md).
 
 ## Local Development
 
@@ -94,12 +106,20 @@ npm --prefix apps/api run seed
 npm run dev
 ```
 
+For local demo data, set `SEED_DEMO_DATA=true` before running the API seed.
+
 Local dev endpoints:
 
 - Web UI: `http://localhost:5173`
 - API: `http://localhost:4000`
 
 For disposable local databases, `npm --prefix apps/api run db:push` can be used as a fast schema-sync fallback. For shared or production-like environments, use versioned Prisma migrations.
+
+## Mobile Install
+
+On supported mobile browsers, MakeReadyOS can be installed to the home screen as a Progressive Web App. Android/Chrome shows an optional install prompt when available, with a `Continue in browser` bypass. iOS users can use the browser share menu and choose `Add to Home Screen`.
+
+The current PWA support is for app-like launch and static shell caching. Operational API data and uploaded files are not cached for offline edits.
 
 ## Build And Test
 
@@ -163,6 +183,8 @@ Start here:
 - [Property Maps](docs/PROPERTY_MAPS.md)
 - [Unit Directory And Occupancy](docs/UNIT_DIRECTORY_AND_OCCUPANCY.md)
 - [Photo Inspections](docs/PHOTO_INSPECTIONS.md)
+- [Pool Log](docs/POOL_LOG.md)
+- [Preventive Maintenance](docs/PREVENTIVE_MAINTENANCE.md)
 - [Make Ready QA Checklist](docs/MAKE_READY_QA_CHECKLIST.md)
 - [Upload Storage](docs/UPLOAD_STORAGE.md)
 - [Operating Calendars](docs/OPERATING_CALENDARS.md)

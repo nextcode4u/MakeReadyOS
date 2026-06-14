@@ -36,6 +36,7 @@ Many teams use generic project tools for make-ready work. Those tools are flexib
 - manageable built-in status choices and property-scoped floor plans
 - dense table-first layout with a browser-local compact mode for high-volume laptop operation
 - local Default/Dark/Light themes plus optional dyslexia and eye-strain reading modes that preserve compact operations density
+- installable mobile browser behavior through a Progressive Web App manifest and service worker
 - polished operator UX with fast feedback, clear states, and mobile-safe layouts
 - self-hosted deployment control
 - admin-operated native JSON backup transfer between MakeReadyOS instances
@@ -46,8 +47,12 @@ Many teams use generic project tools for make-ready work. Those tools are flexib
 - long-term extensibility for other maintenance logs
 - field collaboration through item updates, staged photo inspections, local attachments, and reusable turn checklists
 - lightweight vendor/contractor tracking for outside flooring, pest, paint, cleaning, HVAC, and general work
+- recurring preventive-maintenance templates, due-task generation, PM evidence capture, printable PM reporting, and property-scoped PM history
 - local property maps with building/area markers, unit markers, mapped/unmapped setup tracking, visual navigation, and future risk/status heatmaps
 - active SLA/risk scoring so managers can see move-in failure risk, aging turns, missing critical dates, unassigned work, pest/flooring/paint risk, checklist risk, stale activity, and date conflicts
+- EPA 608-friendly refrigerant tracking for virgin tanks, clean/dirty recovery tanks, unit charge/recovery history, repeated-addition leak flags, compliance warnings, and CSV exports
+- daily pool/spa logging for chemistry readings, safety checks, chemical additions, and manager review of missing logs or out-of-range readings
+- property-scoped wiki/reference content for utilities, access systems, vendors, emergency procedures, documents, and site photos
 
 ## Configurable Columns
 
@@ -75,6 +80,8 @@ MakeReadyOS also seeds a practical make-ready QA paper workflow for teams that s
 
 Administrators can review all recorded application activity, including authentication and native transfer actions. Managers receive a read-only activity view limited to records tied to properties they can access. Filters and paging make daily review practical without exposing unscoped security records to operational roles.
 
+The Activity workspace also includes a daily manager report for operational handoff. It summarizes what changed on a selected day, including turns marked ready, availability imports, created/updated turns, archive/restore actions, and exception/risk events. The report includes property/unit context and CSV export so managers can reconcile MakeReadyOS with external property systems without using human notes as import history.
+
 Database backup and restore scripts are disaster-recovery tools rather than user actions in the web app. Their execution trail stays in timestamped `logs/` files.
 
 ## SLA / Risk Visibility
@@ -83,7 +90,7 @@ The Dashboard surfaces critical/high risk counts, move-in risk, aging turns, mis
 
 ## Analytics And Unit History
 
-Unit history is available from the item drawer and unit-history API by deriving a timeline from make-ready lifecycle dates, audit/activity records, comments, attachments, checklist completions, vendor assignments, automation runs, and current risk state. Turn history is derived from make-ready records linked to the unit, so prior turns can be summarized without duplicating operational source data. The Setup workspace Archive / Occupied History panel exposes active/archive/all turn views with search, turn counts, key dates, and direct item-detail links for post-move-in lookup. A script-friendly snapshot runner records property/day rollups for average days vacant, completed turns, overdue work, high-risk counts, and move-in windows.
+Unit history is available from the item drawer and unit-history API by deriving a timeline from make-ready lifecycle dates, audit/activity records, comments, attachments, checklist completions, vendor assignments, automation runs, and current risk state. Turn history is derived from make-ready records linked to the unit, so prior turns can be summarized without duplicating operational source data. The Setup workspace Archive / Occupied Units panel exposes active/archive/all turn views plus read-only occupied directory visibility with search, turn counts, key dates, and direct item-detail links for post-move-in lookup. A script-friendly snapshot runner records property/day rollups for average days vacant, completed turns, overdue work, high-risk counts, and move-in windows.
 
 ## Workload Planning
 
@@ -95,10 +102,30 @@ Operating calendars add property-level scheduling guardrails for no-weekend work
 
 The vendor foundation tracks active/archived vendors, trade/category, contact information, preferred status, property service areas, basic insurance/license expiration dates, and assignments linked to make-ready items. Vendor assignments carry scheduled/due dates, status, notes, optional cost/reference fields, and are visible from the Vendors workspace and item drawer. Vendor dates can be shown as Schedule tracks; Dashboard and Risk include vendor overdue/follow-up/blocked-work signals. Native backup includes vendor records and assignments, but MakeReadyOS does not include accounting, payments, vendor portals, email, or SMS.
 
+## Refrigerant Tracking
+
+The Refrigerant workspace gives maintenance teams a simple operational log for refrigerant types, virgin cylinders, clean recovery tanks, dirty recovery tanks, unit charge/recovery events, and final recovery from empty virgin cylinders. Weight math is calculated from start/end weights, recovery tanks show 80/90/95 percent capacity warnings, and repeated additions on the same unit/refrigerant create manager-review leak flags. Admins manage refrigerant types; managers and techs can log field work; viewers can read scoped records; leasing and cleaning roles do not see the workspace. Native backup includes refrigerant configuration and logs, while CSV exports support spreadsheet review.
+
+## Pool And Spa Logs
+
+The Pool Log workspace gives properties a lightweight daily water-feature log for pools, spas, wading pools, splash pads, and other water features. Admins/managers configure pools/spas and chemical libraries; techs can record daily chemistry readings, operational checks, safety checklist values, notes, chemical additions, and pool-specific photos/PDFs. The overview highlights pools not logged today, failed safety checks, out-of-range chemistry, and missing dosage inputs such as capacity or chemical concentration. CSV export and a browser-printable report support review; missing logs and review-needed entries create deduped in-app notifications. External probes, weather feeds, email/SMS, and health-department integrations remain future work.
+
+## Preventive Maintenance
+
+The Preventive Maintenance workspace gives properties a lightweight recurring-task system for operational routines such as filter changes, safety walkthroughs, seasonal checks, common housekeeping inspections, and equipment PM tasks. Admins and managers can define property-scoped templates with category, instructions, frequency, assigned role, priority, and evidence requirements. Techs and cleaners can complete scoped tasks, upload photos, record notes, and mark pass/fail outcomes when required by the template. Leasing and viewer roles can read scoped PM information without editing it.
+
+The PM module includes dashboard, calendar, task, template, history, and report views. Completing or skipping a task generates the next occurrence from the template so recurring work continues without a separate dispatch engine. PM templates and tasks can also attach Property Wiki references for SOPs, equipment notes, known issues, and emergency context. Native transfer inclusion for PM records is still a follow-up item, and the current design intentionally avoids approval workflows, work-order accounting, or vendor dispatch complexity.
+
+## Property Wiki
+
+The Property Wiki workspace gives each property a lightweight operational knowledge base. It is designed for fast lookup rather than deep knowledge-management workflows. Admins, managers, and techs can maintain property overview details, utility-location notes, access-control references, pool equipment reference notes, emergency procedures, simple custom pages, equipment registry records, unit standards, property contacts, SOPs, known issues, scoped vendor contacts, and linked document/photo uploads. Leasing, cleaners, and viewers can read scoped wiki content without editing it. Search spans wiki titles, notes, tags, vendors, documents, photos, building values, contact details, equipment details, SOP content, known issues, and overview notes within the user’s allowed property scope.
+
+The workspace now also includes per-user favorites, recently viewed records, a lightweight record-detail panel with related content and audit-based change history, a dedicated Emergency Mode surface for critical records, workflow references/smart suggestions inside Make Ready, Preventive Maintenance, Pool Log, and Refrigerant, plus a Dashboard widget for emergency and pinned knowledge visibility. The current foundation still intentionally avoids nested page trees, approvals, QR systems, or asset-management complexity. Native transfer inclusion for Property Wiki data and workflow-reference metadata is still a follow-up item.
+
 
 ## Unit Directory And Occupancy
 
-MakeReadyOS now separates permanent unit inventory from active make-ready turns. Properties can store an occupancy goal percentage, and units can carry directory-level occupancy states such as occupied, vacant ready, vacant leased, NTV, NTV leased, down, model, and unknown. Building, area, and floor metadata support both simple unit-only properties and larger communities with irregular building numbering. The Setup workspace includes merge-style paste/file import for comma-delimited or tab-delimited unit directories and availability reports, with a preview before writing. Sparse files are safe: a unit directory can contain only unit number, floor plan, and square footage, and missing columns will not wipe existing unit metadata during updates. The Dashboard shows occupancy percentage, goal, total units, occupied units, vacant ready stock, and availability-report counts. Completed turns still belong in each property Archive section for later history review after move-in.
+MakeReadyOS now separates permanent unit inventory from active make-ready turns. Properties can store an occupancy goal percentage, and units can carry directory-level occupancy states such as occupied, vacant not leased ready, vacant not leased not ready, NTV not leased, NTV leased, vacant leased ready, vacant leased not ready, down, model, and unknown. Building, area, and floor metadata support both simple unit-only properties and larger communities with irregular building numbering. The Setup workspace includes merge-style paste/file import for comma-delimited or tab-delimited unit directories and availability reports, with a preview before writing. Directory imports update inventory only. Availability imports update operational availability and create/update active make-ready table rows for non-occupied availability statuses. Sparse files are safe: a unit directory can contain only unit number, floor plan, and square footage, and missing columns will not wipe existing unit metadata during updates. The Dashboard shows occupancy percentage, goal, total units, occupied units, vacant ready stock, and availability-report counts. Completed turns still belong in each property Archive section for later history review after move-in.
 
 ## Property Maps And Unit Directory
 
@@ -118,7 +145,7 @@ Preview mode lets an authorized user test a saved rule or an unsaved draft again
 
 Scheduled checks cover time-driven risks such as overdue work, nearby move-ins, missing dates, and property-specific custom status/date fields. The builder adapts operators and input choices to each custom field type, so status options and date logic can be configured without unsafe expressions. Operators schedule the supplied runner through Linux cron/systemd or execute an enabled rule from the workspace. Repeated matching activity notes use a cooldown so periodic checks remain useful rather than noisy.
 
-An operational template library reduces setup time for common workflows. Admins and managers can preview and install templates for overdue work, imminent move-ins, missing dates, schedule-review warnings, pest follow-up, flooring scheduling, weekend schedule guards, vendor lead-time reminders, scope-day planning, date-sequence review, daily schedule load review, in-house/vendor routing review, ready-unit stock expectations, and major scope. Installed templates become regular editable rules and remain disabled unless the operator explicitly enables them. Templates that depend on a missing custom field show the setup step instead of silently installing incomplete logic.
+An operational template library reduces setup time for common workflows. Admins and managers can preview and install templates for overdue work, imminent move-ins, missing dates, schedule-review warnings, pest follow-up, flooring scheduling, weekend schedule guards, vendor lead-time reminders, scope-day planning, date-sequence review, daily schedule load review, in-house/vendor routing review, cleaner-assignment review, balanced tech-assignment review, ready-unit stock expectations, and major scope. Installed templates become regular editable rules and remain disabled unless the operator explicitly enables them. Templates that depend on a missing custom field show the setup step instead of silently installing incomplete logic. Balanced-assignment templates are advisory until the automation engine has a safe least-loaded-staff assignment action.
 
 Operational Library packs broaden setup beyond single automation templates. A pack can bundle reusable fields, labels, checklists, schedule tracks, saved views, and disabled automations for categories such as Make Ready, Leasing, Cleaning, Flooring, Paint, Pest, Scheduling, Risk/SLA, Notifications, and Reporting. Bundled packs appear in the Automation workspace alongside rule templates, property templates, rules, and run history, with compact section navigation to keep the page readable as the library grows. A JSON import box supports preview/install of external pack files. Packs are previewed before install, duplicate-safe, and data-only; imported JavaScript is never accepted.
 
@@ -128,15 +155,19 @@ Property templates extend that setup model to full property configuration. Admin
 
 The daily board prioritizes visible operational rows over oversized application chrome. A unified toolbar keeps navigation, property selection, search, export, session controls, and local display preferences within reach without overlapping board controls. Compact Mode reduces desktop spacing in tables, Kanban lanes, and filters while retaining focus treatment and mobile-friendly controls. Theme and accessibility preferences persist in the browser: `Dark` is an AMOLED-style black palette distinct from balanced `Default`, and `Light` uses readable warm high-contrast surfaces. Eye-Strain mode softens the selected theme instead of replacing it; Dyslexia mode uses the OFL-licensed OpenDyslexic runtime assets committed under `assets/fonts/opendyslexic/` while preserving compact density when enabled.
 
+Mobile operators can install MakeReadyOS from supported browsers for an app-like home-screen launch. The PWA layer caches only static shell assets and keeps API/uploads network-bound so stale operational data is not shown as if it were current.
+
 Weak-connection handling is intentionally conservative in this release. The web UI detects browser offline state and API reachability failures, shows a retry banner, and avoids pretending edits are safely queued. Full offline sync for comments, checklist changes, photos, and status updates remains future work because self-hosted deployments need explicit conflict handling and upload retry semantics.
 
 ## Workspace Organization And Onboarding
 
 The top navigation is grouped by operational intent instead of one long tab row: Operations, Visibility, Management, and Admin. Role-based visibility is preserved, so field users do not see admin-only surfaces.
 
+Language preferences support English and Spanish for the core app shell, sign-in flow, and user-management workflow. Administrators can assign a default language per user, and users can switch their own language from the toolbar. This is the localization foundation; deeper operational copy can be translated incrementally without changing permissions or data bindings.
+
 Admins and managers can open the setup guide from the toolbar. On a new instance with no properties, the guide appears automatically and walks through property creation, unit/floor-plan setup, staff roles, property templates, starter automations, schedule tracks, saved views, Dashboard, and Frog Pond. It is a local browser guide, not a hard server workflow, so operators can skip it and reopen it later.
 
-The old saved-view/filter sidebar has been removed from the primary board layout to reclaim horizontal working space. A narrow left module rail remains for MakeReadyOS and future placeholders such as PestLogOS, RefrigerantLogOS, PropertyWikiOS, and PoolLogOS. Small-screen users receive a compact board-card scan view with selectable items before the full spreadsheet grid, while Kanban remains a horizontally scrollable workflow surface.
+The old saved-view/filter sidebar has been removed from the primary board layout to reclaim horizontal working space. A narrow left module rail remains for MakeReadyOS plus active side workspaces such as Preventive Maintenance, Refrigerant, Pool Log, and Property Wiki. Small-screen users receive a compact board-card scan view with selectable items before the full spreadsheet grid, while Kanban remains a horizontally scrollable workflow surface.
 
 ## Property And Unit Setup
 
@@ -153,7 +184,7 @@ Local preferences preserve a balanced Default theme, a true-black AMOLED Dark th
 
 The Dashboard supports the spreadsheet workflow rather than replacing it: permission-scoped KPI counts, vacancy/scope donuts, readiness ratio strips, workload and property percentages, visible freshness time, a Frog Pond preview, and drilldown controls lead back to exact board slices, maps, or the operational item inspector. Drilldowns set structured filter chips for operational conditions such as vacant leased, NTV, down/ready/archive sections, assignee workload, move-in windows, overdue work, missing dates, specialty work, and risk. Operators can also filter directly from the table surface without starting from Dashboard. Vendor compliance expiration is intentionally out of scope for MakeReadyOS because that belongs in dedicated compliance systems such as NetVendor. Operators can combine slices with typed custom-field filters, save a dashboard overview/focus preset, and receive the same filtered records in Table, Kanban, Schedule, and Frog Pond. The Alerts inbox provides read/dismiss visibility and in-app category preferences for assignments, comments, checklist activity, status/date changes, lifecycle transitions, section moves, batch effects, and automation warnings; email, push, and realtime delivery remain future work.
 
-Properties expose renameable `Ready Units`, `Make Ready`, `Down Units`, and `Archive` section labels while stable internal group keys remain durable. Archive is a real property-scoped section for completed move-in history, and the board toolbar can switch between active work, archive-only history, and combined troubleshooting views. Kanban is metadata-driven across built-in status/date fields, property/floor-plan/assignee values, and compatible custom fields; safe drag writes remain limited to authorized editable lanes. Schedule supports dense single, split-two, grid-four, and responsive auto track layouts with event-derived legends and drawer-opening events. Month grids use a Sunday-first operational layout, visibly mark the current day, and mute past days so supervisors can scan remaining work without losing historical context.
+Properties expose renameable `Ready Units`, `Make Ready`, `Down Units`, and `Archive` section labels while stable internal group keys remain durable. Archive is a real property-scoped section for completed move-in history, and the board toolbar can switch between active work, archive-only history, and combined troubleshooting views. Completion is intentionally two-step: field staff can mark `Completed = YES` to request final walk, while manager/admin signoff moves the turn to Ready Units after review. Kanban is metadata-driven across built-in status/date fields, property/floor-plan/assignee values, and compatible custom fields; safe drag writes remain limited to authorized editable lanes. Schedule supports dense single, split-two, grid-four, and responsive auto track layouts with event-derived legends and drawer-opening events. Month grids use a Sunday-first operational layout, visibly mark the current day, and mute past days so supervisors can scan remaining work without losing historical context.
 
 Property Maps remain local and self-hosted. Unit markers open the shared item drawer, and building/area summaries are derived from the unit directory so teams can see mapped versus expected units by building without forcing every property into the same numbering model.
 
