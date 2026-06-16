@@ -65,8 +65,8 @@ Requirements:
 - Node.js 20+ if running scripts outside containers
 
 ```bash
-git clone <your-fork-or-repo-url> makereadyos
-cd makereadyos
+git clone https://github.com/nextcode4u/MakeReadyOS.git
+cd MakeReadyOS
 cp .env.example .env
 docker compose up --build -d
 ```
