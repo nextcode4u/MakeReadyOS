@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addLeaseComplianceIssueNote,
   archiveLeaseComplianceIssue,
+  createPropertyMapPin,
   createLeaseComplianceIssue,
   createLeaseComplianceIssueType,
   deleteLeaseComplianceIssuePhoto,
@@ -33,6 +34,7 @@ import {
   type Unit,
   type UserRole,
 } from "../lib/api";
+import type { OpenLeaseQuickAddRequest } from "../lib/leaseNavigation";
 import { StatusState } from "./StatusState";
 import { UnitSearchSelect } from "./UnitSearchSelect";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
@@ -45,6 +47,7 @@ type Props = {
   users: Array<{ id: string; fullName: string; role: UserRole }>;
   userRole: UserRole;
   selectedPropertyId?: string;
+  openQuickAddRequest?: (OpenLeaseQuickAddRequest & { nonce: number }) | null;
 };
 
 const noticeActions: Array<{ label: string; value: LeaseComplianceNoticeAction["action"] }> = [
@@ -257,7 +260,7 @@ function IssueCard({
   );
 }
 
-export function LeaseCompliancePanel({ properties, units, users, userRole, selectedPropertyId }: Props) {
+export function LeaseCompliancePanel({ properties, units, users, userRole, selectedPropertyId, openQuickAddRequest }: Props) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>("dashboard");
   const [propertyId, setPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
@@ -303,6 +306,27 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
   useEffect(() => {
     if (selectedPropertyId) setPropertyId(selectedPropertyId);
   }, [selectedPropertyId]);
+
+  useEffect(() => {
+    if (!openQuickAddRequest?.propertyId) return;
+    setPropertyId(openQuickAddRequest.propertyId);
+    setTab("grounds");
+    setQuickAddUnitId(openQuickAddRequest.unitId ?? "");
+    setQuickAddPhotos([]);
+    setQuickAddDraft({
+      building: openQuickAddRequest.building ?? "",
+      area: openQuickAddRequest.area ?? "",
+      issueTypeId: "",
+      issueTypeName: openQuickAddRequest.issueTypeName ?? "",
+      additionalIssueType: "",
+      priority: (openQuickAddRequest.priority as LeaseCompliancePriority | undefined) ?? "Normal",
+      source: (openQuickAddRequest.source as LeaseComplianceSource | undefined) ?? "Grounds Walk",
+      description: openQuickAddRequest.description ?? "",
+      locationNotes: openQuickAddRequest.locationNotes ?? "",
+      assignedUserId: "",
+    });
+    window.setTimeout(() => descriptionInputRef.current?.focus(), 0);
+  }, [openQuickAddRequest]);
 
   const overviewQuery = useQuery({
     queryKey: ["lease-compliance", "overview", propertyId],
@@ -402,6 +426,24 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
       locationNotes: quickAddDraft.locationNotes.trim() || null,
       assignedUserId: quickAddDraft.assignedUserId || null,
     });
+    if (openQuickAddRequest?.mapPin && openQuickAddRequest.propertyId === propertyId) {
+      void createPropertyMapPin({
+        propertyId,
+        mapId: openQuickAddRequest.mapPin.mapId,
+        title: `${created.issue.unit?.number ?? created.issue.area ?? created.issue.building ?? "Area"} / ${created.issue.issueTypeName}`,
+        pinType: "Known Issue",
+        xPercent: openQuickAddRequest.mapPin.xPercent,
+        yPercent: openQuickAddRequest.mapPin.yPercent,
+        building: created.issue.building ?? null,
+        unitLabel: created.issue.unit?.number ?? null,
+        area: created.issue.area ?? null,
+        description: created.issue.description ?? created.issue.locationNotes ?? null,
+        linkedRecordType: "LEASE_COMPLIANCE_ISSUE",
+        linkedRecordId: created.issue.id,
+        tags: ["lease-compliance", "property-map"],
+        isEmergency: created.issue.priority === "Critical",
+      }).then(() => queryClient.invalidateQueries({ queryKey: ["property-map-pins"] })).catch(() => undefined);
+    }
     if (quickAddPhotos.length) {
       for (const file of quickAddPhotos) {
         // Preserve the fast field workflow: create the issue first, then attach selected evidence as initial photos.

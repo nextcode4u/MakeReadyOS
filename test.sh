@@ -211,7 +211,7 @@ mkdir -p "$LOG_DIR"
   echo
 
   echo "Checking API extension docs, schemas, and examples"
-  for required_env in WEBHOOK_ALLOW_PRIVATE_URLS WEBHOOK_ALLOWED_HOSTS WEBHOOK_AUTO_DISABLE_FAILURES; do
+  for required_env in APP_URL EXTRA_ALLOWED_ORIGINS SELF_HOSTED TRUST_PROXY WEBHOOK_ALLOW_PRIVATE_URLS WEBHOOK_ALLOWED_HOSTS WEBHOOK_AUTO_DISABLE_FAILURES APP_RELEASE_CHANNEL APP_BUILD_REF APP_BUILD_DATE APP_UPDATE_RELEASES_ENABLED APP_UPDATE_REPO; do
     if ! rg -q "^${required_env}=" .env.example; then
       echo "ERROR: .env.example missing $required_env"
       exit 1
@@ -359,6 +359,7 @@ mkdir -p "$LOG_DIR"
         "CalendarEvent",
         "AutomationRule",
         "AutomationRunsResponse",
+        "AutomationRunContext",
         "OperationalLibraryPackSummary",
         "OperationalLibraryInstallSummary",
         "ApiToken",
@@ -381,7 +382,7 @@ mkdir -p "$LOG_DIR"
       if (!body.paths?.["/api/admin/import"]?.post?.requestBody) throw new Error("backup import request body is not documented");
       if (!body.paths?.["/api/admin/integrations/webhooks/{id}/health"]) throw new Error("missing webhook health path");
       const webhookEvents = body.components?.schemas?.WebhookCreateRequest?.properties?.eventTypes?.items?.enum || [];
-      for (const eventName of ["item.archived", "item.restored", "attachment.created", "attachment.deleted"]) {
+      for (const eventName of ["item.archived", "item.restored", "attachment.created", "attachment.deleted", "property-map.pin.created", "property-map.pin.archived", "wiki.entry.created", "wiki.asset.deleted"]) {
         if (!webhookEvents.includes(eventName)) throw new Error(`missing webhook event enum: ${eventName}`);
       }
     ' "$OPENAPI_JSON"
@@ -442,6 +443,7 @@ mkdir -p "$LOG_DIR"
     META_JSON="$(mktemp)"
     curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/meta" >"$META_JSON"
     node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!Array.isArray(body.staff) || !body.staff.some((person) => person.fullName === process.argv[2])) process.exit(1);' "$META_JSON" "$ADMIN_STAFF_NAME"
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const app=body.app; const deployment=app?.deployment; if (!app || typeof app.version !== "string" || typeof app.releaseChannel !== "string" || typeof app.updateCommand !== "string" || typeof app.updatePullCommand !== "string" || typeof app.deploymentDocsPath !== "string") process.exit(1); if (!deployment || !Array.isArray(deployment.allowedOrigins) || !Array.isArray(deployment.extraAllowedOrigins) || !Array.isArray(deployment.startupWarnings) || typeof deployment.trustedProxy !== "boolean" || typeof deployment.secureCookies !== "boolean" || typeof deployment.selfHosted !== "boolean" || typeof deployment.environment !== "string") process.exit(1); if (app.latestRelease !== null && (typeof app.latestRelease.tag !== "string" || typeof app.latestRelease.version !== "string" || typeof app.latestRelease.updateAvailable !== "boolean")) process.exit(1);' "$META_JSON"
     curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/make-ready-items" >/dev/null
     PAGINATION_HEADERS="$(mktemp)"
     curl -fsS -D "$PAGINATION_HEADERS" -o /tmp/makereadyos-items-page.json -b "$COOKIE_JAR" \
@@ -518,7 +520,7 @@ mkdir -p "$LOG_DIR"
       cat /tmp/makereadyos-integrations.json
       exit 1
     fi
-    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-integrations.json","utf8")); for (const eventName of ["item.archived","item.restored","attachment.created","attachment.deleted"]) { if (!body.webhookEvents?.includes(eventName)) process.exit(1); }'
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync("/tmp/makereadyos-integrations.json","utf8")); for (const eventName of ["item.archived","item.restored","attachment.created","attachment.deleted","property-map.pin.created","property-map.pin.archived","wiki.entry.created","wiki.asset.deleted"]) { if (!body.webhookEvents?.includes(eventName)) process.exit(1); }'
     API_TOKEN_JSON="$(mktemp)"
     API_TOKEN_STATUS="$(curl -s -o "$API_TOKEN_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
@@ -1676,6 +1678,8 @@ NODE
     ASSIGN_RUN_STATUS="$(curl -s -o /tmp/makereadyos-assign-run.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
       -X POST "http://localhost:${API_PORT:-4000}/api/automations/$ASSIGN_AUTOMATION_ID/run")"
+    curl -fsS -o /tmp/makereadyos-assign-runs.json -b "$COOKIE_JAR" \
+      "http://localhost:${API_PORT:-4000}/api/automations/runs?ruleId=$ASSIGN_AUTOMATION_ID&limit=1"
     curl -fsS -o /tmp/makereadyos-assign-items-after.json -b "$COOKIE_JAR" \
       "http://localhost:${API_PORT:-4000}/api/make-ready-items?propertyId=$TEST_PROPERTY_ID&includeArchived=true&limit=400"
     if [ "$CREATE_ASSIGN_AUTOMATION_STATUS" != "201" ] || [ "$ASSIGN_PREVIEW_STATUS" != "200" ] || [ "$ASSIGN_RUN_STATUS" != "200" ]; then
@@ -1683,7 +1687,7 @@ NODE
       echo "ERROR: least-loaded assignment automation smoke failed"
       exit 1
     fi
-    node -e 'const fs=require("fs"); const preview=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const run=JSON.parse(fs.readFileSync(process.argv[2],"utf8")).execution; const items=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); const item=items.find((entry) => entry.id === process.argv[4]); const affected=preview.affectedItems?.find((entry) => entry.id === process.argv[4]); const proposed=affected?.proposedActions?.find((action) => action.type === "assignLeastLoadedStaff"); if (!preview.preview || preview.matchingItemCount < 1 || !affected || !proposed || proposed.proposedValue !== process.argv[5] || !String(proposed.summary || "").includes(process.argv[5]) || run.actionCount < 1 || !item || item.assignedTech !== process.argv[5]) process.exit(1);' /tmp/makereadyos-assign-preview.json /tmp/makereadyos-assign-run.json /tmp/makereadyos-assign-items-after.json "$ASSIGN_ITEM_ID" "$ADMIN_STAFF_NAME"
+    node -e 'const fs=require("fs"); const preview=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const run=JSON.parse(fs.readFileSync(process.argv[2],"utf8")).execution; const runs=JSON.parse(fs.readFileSync(process.argv[3],"utf8")).runs; const items=JSON.parse(fs.readFileSync(process.argv[4],"utf8")); const item=items.find((entry) => entry.id === process.argv[5]); const affected=preview.affectedItems?.find((entry) => entry.itemId === process.argv[5]); const proposed=affected?.proposedActions?.find((action) => action.type === "assignLeastLoadedStaff"); const assignment=proposed?.diagnostics?.assignment; const candidate=assignment?.candidates?.find((entry) => entry.fullName === process.argv[6]); const historyRun=runs?.[0]; const matchedItem=historyRun?.context?.matchedItems?.find((entry) => entry.itemId === process.argv[5]); const historyAction=matchedItem?.actionSummaries?.find((action) => action.type === "assignLeastLoadedStaff"); const historyAssignment=historyAction?.diagnostics?.assignment; if (!preview.preview || preview.matchingItemCount < 1 || !affected || !proposed || proposed.proposedValue !== process.argv[6] || !String(proposed.summary || "").includes(process.argv[6]) || !assignment || assignment.selectedUserName !== process.argv[6] || !candidate || candidate.status !== "selected" || typeof candidate.workloadScore !== "number" || run.actionCount < 1 || !item || item.assignedTech !== process.argv[6] || !historyRun || !matchedItem || !historyAction || historyAssignment?.selectedUserName !== process.argv[6]) process.exit(1);' /tmp/makereadyos-assign-preview.json /tmp/makereadyos-assign-run.json /tmp/makereadyos-assign-runs.json /tmp/makereadyos-assign-items-after.json "$ASSIGN_ITEM_ID" "$ADMIN_STAFF_NAME"
     echo "Least-loaded assignment automation validation passed"
 
     TOGGLE_AUTOMATION_STATUS="$(curl -s -o /tmp/makereadyos-toggle-automation.json -b "$COOKIE_JAR" -w "%{http_code}" \

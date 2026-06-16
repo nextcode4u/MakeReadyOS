@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { z } from "zod";
 
 export const minimumPasswordLength = 8;
@@ -18,13 +19,6 @@ export function assertStrongPassword(password: string, label: string) {
   }
 }
 
-function parseOrigins(value: string) {
-  return value
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-}
-
 function parseList(value?: string) {
   return (value ?? "")
     .split(",")
@@ -40,6 +34,74 @@ const booleanEnv = z.preprocess((value) => {
   }
   return value;
 }, z.boolean());
+
+function normalizeHttpOrigin(value: string) {
+  const parsed = new URL(value);
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("origin must use http or https");
+  }
+  return parsed.origin;
+}
+
+function parseOrigins(value?: string) {
+  const normalized: string[] = [];
+  const invalid: string[] = [];
+  for (const origin of (value ?? "").split(",").map((entry) => entry.trim()).filter(Boolean)) {
+    try {
+      normalized.push(normalizeHttpOrigin(origin));
+    } catch {
+      invalid.push(origin);
+    }
+  }
+  return { normalized, invalid };
+}
+
+function isLocalOrPrivateHostname(hostname: string) {
+  const normalized = hostname.trim().toLowerCase();
+  if (!normalized) return false;
+  if (["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"].includes(normalized)) return true;
+  if (normalized.endsWith(".local")) return true;
+  const ipKind = isIP(normalized);
+  if (ipKind === 4) {
+    const [a, b] = normalized.split(".").map((part) => Number(part));
+    return a === 10
+      || a === 127
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168)
+      || (a === 169 && b === 254)
+      || a === 0;
+  }
+  if (ipKind === 6) {
+    return normalized === "::1"
+      || normalized.startsWith("fc")
+      || normalized.startsWith("fd")
+      || normalized.startsWith("fe80");
+  }
+  return false;
+}
+
+function isDevelopmentFriendlyOrigin(origin: string) {
+  try {
+    const parsed = new URL(origin);
+    if (!["http:", "https:"].includes(parsed.protocol)) return false;
+    return isLocalOrPrivateHostname(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function deriveCookieDomain(origin: string | null) {
+  if (!origin) return null;
+  try {
+    const hostname = new URL(origin).hostname;
+    if (!hostname || isLocalOrPrivateHostname(hostname) || isIP(hostname)) {
+      return null;
+    }
+    return hostname;
+  } catch {
+    return null;
+  }
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -62,7 +124,11 @@ const envSchema = z.object({
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(50).default(5),
   LOGIN_RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().min(1).max(60).default(15),
-  CORS_ORIGIN: z.string().min(1, "CORS_ORIGIN must list at least one allowed origin"),
+  APP_URL: z.string().optional().or(z.literal("")),
+  EXTRA_ALLOWED_ORIGINS: z.string().optional().or(z.literal("")),
+  SELF_HOSTED: booleanEnv.default(true),
+  TRUST_PROXY: booleanEnv.default(false),
+  CORS_ORIGIN: z.string().optional().or(z.literal("")),
   DEMO_TECH_EMAIL: z.string().email().optional().or(z.literal("")),
   DEMO_TECH_PASSWORD: z.string().optional().or(z.literal("")),
   DEMO_LEASING_EMAIL: z.string().email().optional().or(z.literal("")),
@@ -100,9 +166,54 @@ for (const [emailKey, passwordKey] of [
   }
 }
 
-const corsOrigins = parseOrigins(parsed.CORS_ORIGIN);
-if (corsOrigins.length === 0) {
-  throw new Error("CORS_ORIGIN must contain at least one allowed origin");
+const startupWarnings: string[] = [];
+let appUrl: string | null = null;
+
+if (parsed.APP_URL?.trim()) {
+  try {
+    appUrl = normalizeHttpOrigin(parsed.APP_URL.trim());
+    const url = new URL(parsed.APP_URL.trim());
+    if (url.pathname && url.pathname !== "/") {
+      startupWarnings.push(`APP_URL path ${url.pathname} is ignored; using origin ${url.origin} only.`);
+    }
+  } catch {
+    startupWarnings.push("APP_URL is invalid. Falling back to derived localhost or legacy origin settings.");
+  }
+}
+
+const extraOrigins = parseOrigins(parsed.EXTRA_ALLOWED_ORIGINS);
+const legacyOrigins = parseOrigins(parsed.CORS_ORIGIN);
+
+for (const invalid of extraOrigins.invalid) {
+  startupWarnings.push(`Ignoring invalid EXTRA_ALLOWED_ORIGINS entry: ${invalid}`);
+}
+for (const invalid of legacyOrigins.invalid) {
+  startupWarnings.push(`Ignoring invalid deprecated CORS_ORIGIN entry: ${invalid}`);
+}
+
+const allowedOriginSet = new Set<string>();
+if (appUrl) allowedOriginSet.add(appUrl);
+for (const origin of extraOrigins.normalized) allowedOriginSet.add(origin);
+for (const origin of legacyOrigins.normalized) allowedOriginSet.add(origin);
+
+if (!appUrl) {
+  if (legacyOrigins.normalized.length > 0) {
+    startupWarnings.push("APP_URL not configured. Using deprecated CORS_ORIGIN fallback; remote/self-hosted access may be harder to troubleshoot.");
+  } else {
+    startupWarnings.push("APP_URL not configured. Using localhost fallback. Remote access may not function correctly.");
+    allowedOriginSet.add("http://localhost:8080");
+    allowedOriginSet.add("http://localhost:5173");
+  }
+}
+
+const allowedOrigins = Array.from(allowedOriginSet);
+const primaryOrigin = appUrl ?? allowedOrigins[0] ?? null;
+if (allowedOrigins.length === 0) {
+  throw new Error("No valid allowed origins could be derived from APP_URL, EXTRA_ALLOWED_ORIGINS, or CORS_ORIGIN.");
+}
+
+for (const warning of startupWarnings) {
+  console.warn(`[config] ${warning}`);
 }
 
 export const authConfig = {
@@ -129,8 +240,14 @@ export const authConfig = {
   sessionTtlDays: parsed.SESSION_TTL_DAYS,
   loginRateLimitMax: parsed.LOGIN_RATE_LIMIT_MAX,
   loginRateLimitWindowMinutes: parsed.LOGIN_RATE_LIMIT_WINDOW_MINUTES,
-  corsOrigins,
-  secureCookies: parsed.NODE_ENV === "production",
+  appUrl,
+  extraAllowedOrigins: extraOrigins.normalized,
+  selfHosted: parsed.SELF_HOSTED,
+  trustProxy: parsed.TRUST_PROXY,
+  corsOrigins: allowedOrigins,
+  secureCookies: primaryOrigin ? new URL(primaryOrigin).protocol === "https:" : false,
+  sessionCookieDomain: deriveCookieDomain(primaryOrigin),
+  startupWarnings,
 } as const;
 
 export function validateTrustedOrigin(origin?: string) {
@@ -138,5 +255,13 @@ export function validateTrustedOrigin(origin?: string) {
     return true;
   }
 
-  return authConfig.corsOrigins.includes(origin);
+  let normalized: string;
+  try {
+    normalized = normalizeHttpOrigin(origin);
+  } catch {
+    return false;
+  }
+
+  return authConfig.corsOrigins.includes(normalized)
+    || (authConfig.nodeEnv === "development" && isDevelopmentFriendlyOrigin(normalized));
 }

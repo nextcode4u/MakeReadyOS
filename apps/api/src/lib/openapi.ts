@@ -934,8 +934,93 @@ const generatedResponseSchemas = {
     properties: {
       matchingItemCount: { type: "integer" },
       rule: ref("AutomationPreviewRule"),
+      assignmentSummary: ref("AutomationPreviewAssignmentSummary"),
       affectedItems: arrayOf(ref("AutomationPreviewAffectedItem")),
       warnings: arrayOf({ type: "string" }),
+    },
+  },
+  AutomationPreviewAssignmentSummary: {
+    type: "object",
+    properties: {
+      matchedActionCount: { type: "integer" },
+      assignedItemCount: { type: "integer" },
+      alreadyAssignedItemCount: { type: "integer" },
+      noEligibleStaffItemCount: { type: "integer" },
+      dailyCapBlockedItemCount: { type: "integer" },
+      otherBlockedItemCount: { type: "integer" },
+      selectedUsers: arrayOf(ref("AutomationPreviewAssignmentUserCount")),
+    },
+  },
+  AutomationPreviewAssignmentUserCount: {
+    type: "object",
+    properties: {
+      fullName: { type: "string" },
+      count: { type: "integer" },
+    },
+  },
+  AutomationPreviewAction: {
+    type: "object",
+    properties: {
+      type: { type: "string" },
+      summary: { type: "string" },
+      proposedValue: { nullable: true },
+      diagnostics: ref("AutomationPreviewActionDiagnostics"),
+    },
+  },
+  AutomationRunContext: {
+    type: "object",
+    properties: {
+      itemName: { type: ["string", "null"] },
+      unitNumber: { type: ["string", "null"] },
+      triggerType: { type: "string" },
+      triggerTypes: arrayOf({ type: "string" }),
+      cooldownHours: { type: "integer" },
+      actionSummaries: arrayOf(ref("AutomationPreviewAction")),
+      matchedItems: arrayOf(ref("AutomationRunMatchedItem")),
+      matchedItemsTruncated: { type: "boolean" },
+    },
+  },
+  AutomationRunMatchedItem: {
+    type: "object",
+    properties: {
+      itemId: { type: "string" },
+      propertyId: { type: "string" },
+      propertyCode: { type: "string" },
+      unitNumber: { type: "string" },
+      actionSummaries: arrayOf(ref("AutomationPreviewAction")),
+    },
+  },
+  AutomationPreviewActionDiagnostics: {
+    type: "object",
+    properties: {
+      assignment: ref("AutomationAssignmentDiagnostics"),
+    },
+  },
+  AutomationAssignmentDiagnostics: {
+    type: "object",
+    properties: {
+      targetDate: { type: "string", format: "date-time" },
+      lookAheadDays: { type: "integer" },
+      includePlannedWork: { type: "boolean" },
+      dailyAssignmentCap: { type: ["integer", "null"] },
+      selectedUserId: { type: ["string", "null"] },
+      selectedUserName: { type: ["string", "null"] },
+      selectedReason: { type: ["string", "null"] },
+      candidates: arrayOf(ref("AutomationAssignmentCandidate")),
+    },
+  },
+  AutomationAssignmentCandidate: {
+    type: "object",
+    properties: {
+      userId: { type: "string" },
+      fullName: { type: "string" },
+      role: { type: "string" },
+      activeCount: { type: "integer" },
+      plannedCount: { type: "integer" },
+      plannedDayCount: { type: "integer" },
+      workloadScore: { type: "integer" },
+      status: { type: "string", enum: ["selected", "eligible", "daily-cap-blocked"] },
+      reason: { type: ["string", "null"] },
     },
   },
   AutomationExecutionResponse: envelope("execution", ref("AutomationExecution")),
@@ -2691,9 +2776,17 @@ export const openApiDocument = {
         properties: {
           itemId: { type: "string" },
           unitNumber: { type: "string" },
-          propertyCode: { type: "string" },
-          matches: { type: "array", items: { type: "string" } },
-          proposedActions: { $ref: "#/components/schemas/AutomationCreateRequest/properties/actions" },
+          property: ref("Property"),
+          triggerSummary: { type: "string" },
+          conditionSummary: {
+            type: "object",
+            additionalProperties: true,
+            properties: {
+              matched: { type: "boolean" },
+            },
+          },
+          proposedActions: arrayOf(ref("AutomationPreviewAction")),
+          warnings: arrayOf({ type: "string" }),
         },
       },
       AutomationExecution: {
@@ -2722,6 +2815,7 @@ export const openApiDocument = {
           actionCount: { type: "integer" },
           errorCount: { type: "integer" },
           ranAt: { type: "string", format: "date-time" },
+          context: ref("AutomationRunContext"),
           rule: ref("AutomationRule"),
           item: ref("MakeReadyItem"),
         },

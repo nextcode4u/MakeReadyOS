@@ -154,7 +154,10 @@ This means the following auth settings must be present for realistic local runs:
 - optional `DEMO_LEASING_EMAIL`/`DEMO_LEASING_PASSWORD`
 - optional `DEMO_CLEANER_EMAIL`/`DEMO_CLEANER_PASSWORD`
 - `SESSION_COOKIE_SECRET`
-- `CORS_ORIGIN`
+- `APP_URL`
+- `EXTRA_ALLOWED_ORIGINS`
+- `SELF_HOSTED`
+- `TRUST_PROXY`
 
 ## Kanban And Saved View Notes
 

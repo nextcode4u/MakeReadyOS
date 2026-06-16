@@ -9,7 +9,8 @@ Use this before tagging or deploying a MakeReadyOS release.
 - Copy `.env.example` to `.env`.
 - Set strong `ADMIN_PASSWORD`.
 - Set a unique `SESSION_COOKIE_SECRET` of at least 32 characters.
-- Confirm `CORS_ORIGIN` matches the deployment URL.
+- Confirm `APP_URL` matches the deployment URL and that any temporary `EXTRA_ALLOWED_ORIGINS` entries are intentional.
+- Confirm `TRUST_PROXY` matches the actual reverse-proxy topology.
 - Confirm `UPLOAD_DIR`, `UPLOADS_HOST_PATH`, `MAX_UPLOAD_MB`, external reverse-proxy upload limits, and backup retention settings.
 
 ## Build And Test

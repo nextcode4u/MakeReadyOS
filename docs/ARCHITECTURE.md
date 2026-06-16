@@ -52,7 +52,7 @@ Hardening currently applied:
 - `SameSite` cookie policy
 - `Secure` cookies in production mode
 - per-session CSRF token for state-changing authenticated requests
-- trusted-origin allowlist via `CORS_ORIGIN`
+- trusted-origin allowlist derived from `APP_URL` plus optional `EXTRA_ALLOWED_ORIGINS`, with deprecated `CORS_ORIGIN` fallback support
 - failed-login audit entries
 - basic login rate limiting using recent failed attempts from the same client IP
 - opportunistic expired-session cleanup during auth flows

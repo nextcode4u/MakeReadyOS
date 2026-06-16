@@ -28,7 +28,7 @@ The workspace currently supports:
 - Dashboard visibility for recent project updates and recently added project photos
 - Recommendation-to-project conversion
 - CSV, Excel-compatible, and printable report exports
-- Image-backed property map view for pinned records, selected-record detail, and direct pin repositioning
+- Image-backed property map view for pinned records, selected-record detail, direct pin repositioning, and direct placement/move of existing filtered records onto the selected property map
 - Map view now honors the existing Projects search/source/budget/deferred/aging filters so teams can narrow visible pins without leaving the workspace
 - My Work surfacing for directly assigned project records and project tasks
 - Audit-log-backed lifecycle history on the record detail view
@@ -60,7 +60,7 @@ This first pass keeps the data model extensible without pretending the whole ope
 
 Current intentional limitations:
 
-- Map view now uses the linked property map image/PDF context with selected-record detail, direct pin repositioning, and the same workspace filters used by the list views. It remains intentionally lightweight rather than becoming a full GIS or multi-layer construction-planning surface.
+- Map view now uses the linked property map image/PDF context with selected-record detail, direct pin repositioning, direct place/move-on-map actions for existing filtered records, and the same workspace filters used by the list views. It remains intentionally lightweight rather than becoming a full GIS or multi-layer construction-planning surface.
 - Bids / Quotes now has a dedicated working view for records that need bids or already have bid activity, plus record-level vendor/contact/bid-status/bid-notes editing and quick actions such as request, received, approve, and deny. It is still intentionally lightweight and does not attempt side-by-side quote comparison or procurement workflows.
 - Category management is available in-app on the Reports tab for admins, including add, rename, activate/deactivate, and color updates.
 - Attachment metadata can be edited after upload from the record detail view, including caption changes and attachment-type reclassification.

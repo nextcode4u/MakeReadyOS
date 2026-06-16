@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { AutomationAction, AutomationCondition, AutomationPreviewResponse, AutomationRule, AutomationRun, AutomationTemplate, AutomationTriggerType, CustomField, OperationalLibraryPack, Property, PropertyTemplate, PropertyTemplateInclude, UserRole } from "../lib/api";
-import { formatDateTime } from "../lib/dateTime";
+import type { AutomationAction, AutomationActionSummary, AutomationCondition, AutomationPreviewResponse, AutomationRule, AutomationRun, AutomationTemplate, AutomationTriggerType, CustomField, OperationalLibraryPack, Property, PropertyTemplate, PropertyTemplateInclude, UserRole } from "../lib/api";
+import { formatDateDisplay, formatDateTime } from "../lib/dateTime";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusState } from "./StatusState";
 
@@ -236,6 +236,129 @@ function humanize(value: string) {
   return value.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+function templateHasLeastLoadedAssignment(template: AutomationTemplate) {
+  return Boolean(template.draft?.actions.some((action) => action.type === "assignLeastLoadedStaff"));
+}
+
+function formatPreviewActionDiagnostics(action: AutomationActionSummary) {
+  const assignment = action.diagnostics?.assignment;
+  if (!assignment) {
+    return null;
+  }
+
+  return (
+    <div className="automation-preview-diagnostics">
+      <small>
+        Target date {formatDateDisplay(assignment.targetDate)} · look ahead {assignment.lookAheadDays} day{assignment.lookAheadDays === 1 ? "" : "s"} · planned work {assignment.includePlannedWork ? "included" : "ignored"}
+        {assignment.dailyAssignmentCap ? ` · daily cap ${assignment.dailyAssignmentCap}` : ""}
+      </small>
+      {assignment.selectedUserName ? <small>{assignment.selectedUserName}: {assignment.selectedReason}</small> : null}
+      {assignment.candidates.length > 0 ? (
+        <ul className="automation-preview-candidate-list">
+          {assignment.candidates.map((candidate) => (
+            <li key={candidate.userId}>
+              <strong>{candidate.fullName}</strong> ({candidate.role}) · workload {candidate.workloadScore} · active {candidate.activeCount} · planned {candidate.plannedCount} · target-day {candidate.plannedDayCount} · {candidate.status.replace(/-/g, " ")}
+              {candidate.reason ? ` · ${candidate.reason}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function renderAssignmentValidation(summary: NonNullable<AutomationPreviewResponse["assignmentSummary"]>) {
+  const blockedCount = summary.noEligibleStaffItemCount + summary.dailyCapBlockedItemCount + summary.otherBlockedItemCount;
+  const assignedCount = summary.assignedItemCount;
+  const largestAssigneeCount = summary.selectedUsers.reduce((max, entry) => Math.max(max, entry.count), 0);
+  const isHeavilySkewed = assignedCount > 1 && largestAssigneeCount / assignedCount >= 0.75;
+
+  let tone: "safe" | "caution" | "unsafe" = "safe";
+  let title = "Ready for property-level field validation";
+
+  if (assignedCount === 0 && blockedCount > 0) {
+    tone = "unsafe";
+    title = "Not ready to enable";
+  } else if (summary.noEligibleStaffItemCount > 0 || summary.otherBlockedItemCount > 0) {
+    tone = "unsafe";
+    title = "Fix staffing or rule constraints before enabling";
+  } else if (summary.dailyCapBlockedItemCount > 0 || isHeavilySkewed || summary.alreadyAssignedItemCount > 0) {
+    tone = "caution";
+    title = "Use caution during property-level validation";
+  }
+
+  const notes: string[] = [];
+  if (assignedCount > 0) {
+    notes.push(`${assignedCount} matched item${assignedCount === 1 ? "" : "s"} would receive a fresh assignment in this preview.`);
+  }
+  if (summary.noEligibleStaffItemCount > 0) {
+    notes.push(`${summary.noEligibleStaffItemCount} item${summary.noEligibleStaffItemCount === 1 ? "" : "s"} have no eligible staff based on the selected roles/users and property staffing.`);
+  }
+  if (summary.dailyCapBlockedItemCount > 0) {
+    notes.push(`${summary.dailyCapBlockedItemCount} item${summary.dailyCapBlockedItemCount === 1 ? "" : "s"} would be blocked by the configured daily cap.`);
+  }
+  if (summary.otherBlockedItemCount > 0) {
+    notes.push(`${summary.otherBlockedItemCount} item${summary.otherBlockedItemCount === 1 ? "" : "s"} were blocked for other rule reasons and should be inspected before enabling.`);
+  }
+  if (summary.alreadyAssignedItemCount > 0) {
+    notes.push(`${summary.alreadyAssignedItemCount} matched item${summary.alreadyAssignedItemCount === 1 ? "" : "s"} are already assigned, so live results may be smaller than the match count.`);
+  }
+  if (isHeavilySkewed) {
+    const topAssignee = summary.selectedUsers.find((entry) => entry.count === largestAssigneeCount);
+    if (topAssignee) {
+      notes.push(`${topAssignee.fullName} would receive ${topAssignee.count} of ${assignedCount} new assignments in this preview, so confirm that workload concentration is intentional.`);
+    }
+  }
+  if (tone === "safe") {
+    notes.push("Preview diagnostics look consistent enough for a single-property live validation pass. Keep starter templates scoped to one property until run history confirms the same behavior.");
+  }
+
+  return (
+    <div className={`automation-preview-validation ${tone}`} data-testid="automation-preview-validation">
+      <h4>{title}</h4>
+      <ul>
+        {notes.map((note) => (
+          <li key={note}>{note}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function formatAutomationRunContext(run: AutomationRun) {
+  if (run.context?.matchedItems?.length) {
+    return (
+      <div className="automation-preview-actions">
+        {run.context.matchedItems.map((item) => (
+          <div key={item.itemId} className="automation-preview-action">
+            <span>{item.propertyCode} / {item.unitNumber}</span>
+            {item.actionSummaries.map((action, index) => (
+              <div key={`${item.itemId}-${action.type}-${index}`}>
+                <span>{action.summary}</span>
+                {formatPreviewActionDiagnostics(action)}
+              </div>
+            ))}
+          </div>
+        ))}
+        {run.context.matchedItemsTruncated ? <div className="automation-preview-diagnostics"><small>Run details truncated to the first {run.context.matchedItems.length} matched items for readability.</small></div> : null}
+      </div>
+    );
+  }
+  if (run.context?.actionSummaries?.length) {
+    return (
+      <div className="automation-preview-actions">
+        {run.context.actionSummaries.map((action, index) => (
+          <div key={`${run.id}-${action.type}-${index}`} className="automation-preview-action">
+            <span>{action.summary}</span>
+            {formatPreviewActionDiagnostics(action)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return null;
+}
+
 const defaultTemplateInclude: PropertyTemplateInclude = {
   boardSections: true,
   optionSets: true,
@@ -321,6 +444,8 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
           {visibleTemplates.map((template) => {
             const installedForScope = template.installedRules.some((rule) => rule.propertyId === templateScopeId);
             const scopeMissing = role === "MANAGER" && !templateScopeId;
+            const propertyScopeRequired = templateHasLeastLoadedAssignment(template);
+            const assignmentScopeMissing = propertyScopeRequired && !templateScopeId;
             return (
               <article className="automation-template" key={template.id} data-testid={`automation-template-${template.id}`}>
                 <div className="automation-template-head">
@@ -333,6 +458,12 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                   <span>{humanize(template.triggerType)}</span>
                   <span>{template.requiredFields.length} required field{template.requiredFields.length === 1 ? "" : "s"}</span>
                 </div>
+                {propertyScopeRequired ? (
+                  <div className="automation-template-requirement">
+                    <strong>Property validation required</strong>
+                    <span>Least-loaded auto-assignment starters must be previewed and installed for one property at a time.</span>
+                  </div>
+                ) : null}
                 {template.setupRequirements.length > 0 ? (
                   <div className="automation-template-requirement" data-testid={`automation-template-requirements-${template.id}`}>
                     <strong>Setup required</strong>
@@ -346,14 +477,14 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                     className="button button-secondary"
                     type="button"
                     data-testid={`automation-template-preview-${template.id}`}
-                    disabled={!template.draft || previewLoading || scopeMissing}
+                    disabled={!template.draft || previewLoading || scopeMissing || assignmentScopeMissing}
                     onClick={() => template.draft && void onPreviewDraft({ ...template.draft, propertyId: templateScopeId, enabled: false })}
                   >Preview</button>
                   <button
                     className="button button-primary"
                     type="button"
                     data-testid={`automation-template-install-${template.id}`}
-                    disabled={!template.readyToInstall || installedForScope || loading || scopeMissing}
+                    disabled={!template.readyToInstall || installedForScope || loading || scopeMissing || assignmentScopeMissing}
                     onClick={() => void onInstallTemplate(template.id, templateScopeId, enableTemplateOnInstall)}
                   >{installedForScope ? "Installed" : "Install"}</button>
                 </div>
@@ -923,6 +1054,29 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
             <strong className="status-chip active">{preview.matchingItemCount} match{preview.matchingItemCount === 1 ? "" : "es"}</strong>
           </div>
           <div className="automation-preview-notice" data-testid="automation-preview-notice">No changes will be made. This preview is audit logged for accountability.</div>
+          {preview.assignmentSummary ? (
+            <>
+              <div className="automation-preview-diagnostics">
+                <small>
+                  Assignment preview: {preview.assignmentSummary.assignedItemCount} would assign
+                  {preview.assignmentSummary.alreadyAssignedItemCount ? ` · ${preview.assignmentSummary.alreadyAssignedItemCount} already assigned` : ""}
+                  {preview.assignmentSummary.noEligibleStaffItemCount ? ` · ${preview.assignmentSummary.noEligibleStaffItemCount} no eligible staff` : ""}
+                  {preview.assignmentSummary.dailyCapBlockedItemCount ? ` · ${preview.assignmentSummary.dailyCapBlockedItemCount} blocked by cap` : ""}
+                  {preview.assignmentSummary.otherBlockedItemCount ? ` · ${preview.assignmentSummary.otherBlockedItemCount} other blocked` : ""}
+                </small>
+                {preview.assignmentSummary.selectedUsers.length ? (
+                  <ul className="automation-preview-candidate-list">
+                    {preview.assignmentSummary.selectedUsers.map((entry) => (
+                      <li key={entry.fullName}>
+                        <strong>{entry.fullName}</strong> would receive {entry.count} assignment{entry.count === 1 ? "" : "s"}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+              {renderAssignmentValidation(preview.assignmentSummary)}
+            </>
+          ) : null}
           <div className="automation-preview-warnings">
             {preview.warnings.map((warning) => <p key={warning}>{warning}</p>)}
           </div>
@@ -938,7 +1092,12 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                   </div>
                   <span>{item.conditionSummary.all.filter((condition) => condition.matched).length} of {item.conditionSummary.all.length} required conditions matched</span>
                   <div className="automation-preview-actions">
-                    {item.proposedActions.map((action, index) => <span key={`${action.type}-${index}`}>{action.summary}</span>)}
+                    {item.proposedActions.map((action, index) => (
+                      <div key={`${action.type}-${index}`} className="automation-preview-action">
+                        <span>{action.summary}</span>
+                        {formatPreviewActionDiagnostics(action)}
+                      </div>
+                    ))}
                   </div>
                 </article>
               ))}
@@ -956,6 +1115,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                 <strong><span className={`automation-run-type ${run.runType.toLowerCase()}`}>{run.runType}</span>{run.rule.name}</strong>
                 <span>{run.message}</span>
                 <span>{run.item ? `${run.item.property.code} / ${run.item.unitNumber}` : run.checkedCount === null ? "No linked item" : `${run.checkedCount} checked / ${run.matchedCount ?? 0} matched / ${run.actionCount ?? 0} actions`}</span>
+                {formatAutomationRunContext(run)}
                 <time>{formatDateTime(run.ranAt)}</time>
               </div>
             ))}

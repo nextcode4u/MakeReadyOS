@@ -138,6 +138,72 @@ function describeAction(action: z.infer<typeof actionSchema>, customFieldLabels:
   return { type: action.type, proposedValue: action.value, summary: "Append item note" };
 }
 
+function buildAssignmentPreviewSummary(affectedItems: Array<{
+  proposedActions: Array<{
+    type: string;
+    summary: string;
+    proposedValue?: unknown;
+    diagnostics?: {
+      assignment?: {
+        selectedUserName: string | null;
+        selectedReason: string | null;
+      };
+    };
+  }>;
+}>) {
+  const relevantActions = affectedItems.flatMap((item) => item.proposedActions.filter((action) => action.type === "assignLeastLoadedStaff"));
+  if (relevantActions.length === 0) {
+    return null;
+  }
+
+  const assignedCounts = new Map<string, number>();
+  let assignedItemCount = 0;
+  let alreadyAssignedItemCount = 0;
+  let noEligibleStaffItemCount = 0;
+  let dailyCapBlockedItemCount = 0;
+  let otherBlockedItemCount = 0;
+
+  for (const action of relevantActions) {
+    const summary = String(action.summary ?? "");
+    const assignment = action.diagnostics?.assignment;
+    if (assignment?.selectedUserName) {
+      assignedItemCount += 1;
+      assignedCounts.set(assignment.selectedUserName, (assignedCounts.get(assignment.selectedUserName) ?? 0) + 1);
+      continue;
+    }
+    if (summary.startsWith("Skipped auto-assignment because")) {
+      alreadyAssignedItemCount += 1;
+      continue;
+    }
+    if (assignment?.selectedReason?.includes("No active eligible staff")) {
+      noEligibleStaffItemCount += 1;
+      continue;
+    }
+    if (assignment?.selectedReason?.includes("configured planned-day cap")) {
+      dailyCapBlockedItemCount += 1;
+      continue;
+    }
+    otherBlockedItemCount += 1;
+  }
+
+  return {
+    matchedActionCount: relevantActions.length,
+    assignedItemCount,
+    alreadyAssignedItemCount,
+    noEligibleStaffItemCount,
+    dailyCapBlockedItemCount,
+    otherBlockedItemCount,
+    selectedUsers: Array.from(assignedCounts.entries())
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .map(([fullName, count]) => ({ fullName, count })),
+  };
+}
+
+function hasLeastLoadedAssignmentAction(actions: unknown) {
+  return Array.isArray(actions)
+    && actions.some((action) => typeof action === "object" && action !== null && "type" in action && (action as { type?: unknown }).type === "assignLeastLoadedStaff");
+}
+
 function customValuesByField(values: Array<{ customFieldId: string; value: Prisma.JsonValue }>) {
   return Object.fromEntries(values.map((value) => [value.customFieldId, value.value]));
 }
@@ -195,6 +261,12 @@ export async function automationRoutes(app: FastifyInstance) {
         message: "Template setup requirements must be completed before installation",
         setupRequirements: template.setupRequirements,
         requiredFields: template.requiredFields,
+      };
+    }
+    if (!propertyId && hasLeastLoadedAssignmentAction(template.draft.actions)) {
+      reply.code(400);
+      return {
+        message: "Least-loaded auto-assignment templates must be installed for a specific property so they can be validated before broader rollout.",
       };
     }
     const existing = await prisma.automationRule.findFirst({
@@ -405,6 +477,7 @@ export async function automationRoutes(app: FastifyInstance) {
       },
       matchingItemCount: matches.length,
       affectedItems,
+      assignmentSummary: buildAssignmentPreviewSummary(affectedItems),
       warnings,
       limit: payload.limit,
     };

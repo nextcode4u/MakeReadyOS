@@ -78,6 +78,7 @@ function sessionCookieOptions(expiresAt: Date) {
     httpOnly: true,
     sameSite: authConfig.sessionCookieSameSite,
     path: "/",
+    ...(authConfig.sessionCookieDomain ? { domain: authConfig.sessionCookieDomain } : {}),
     secure: authConfig.secureCookies,
     signed: true,
     expires: expiresAt,
@@ -127,6 +128,7 @@ export async function clearSession(request: FastifyRequest, reply: FastifyReply)
   reply.clearCookie(AUTH_COOKIE_NAME, {
     path: "/",
     sameSite: authConfig.sessionCookieSameSite,
+    ...(authConfig.sessionCookieDomain ? { domain: authConfig.sessionCookieDomain } : {}),
     secure: authConfig.secureCookies,
   });
 }
@@ -146,6 +148,7 @@ export async function clearAllSessionsForUser(request: FastifyRequest, reply: Fa
   reply.clearCookie(AUTH_COOKIE_NAME, {
     path: "/",
     sameSite: authConfig.sessionCookieSameSite,
+    ...(authConfig.sessionCookieDomain ? { domain: authConfig.sessionCookieDomain } : {}),
     secure: authConfig.secureCookies,
   });
 }
@@ -627,7 +630,7 @@ export function sanitizeUser(user: SessionUser) {
 
 export function clientIpAddress(request: FastifyRequest) {
   const forwarded = request.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") {
+  if (authConfig.trustProxy && typeof forwarded === "string") {
     return forwarded.split(",")[0]?.trim() || request.ip;
   }
 

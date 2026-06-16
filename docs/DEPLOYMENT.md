@@ -27,10 +27,42 @@ Minimum production-sensitive environment values:
 - `WEBHOOK_AUTO_DISABLE_FAILURES`
 - `WEBHOOK_ALLOW_PRIVATE_URLS`
 - `WEBHOOK_ALLOWED_HOSTS`
-- `CORS_ORIGIN`
+- `APP_URL`
+- `EXTRA_ALLOWED_ORIGINS`
+- `SELF_HOSTED`
+- `TRUST_PROXY`
 - `UPLOAD_DIR`
 - `UPLOADS_HOST_PATH`
 - `MAX_UPLOAD_MB`
+- `APP_RELEASE_CHANNEL`
+- `APP_BUILD_REF`
+- `APP_BUILD_DATE`
+- `APP_UPDATE_RELEASES_ENABLED`
+- `APP_UPDATE_REPO`
+
+Set `APP_URL` to the actual URL operators use to reach MakeReadyOS. This is now the primary source of truth for browser origin validation, trusted-origin checks, cookie security, and self-hosted diagnostics:
+
+```bash
+APP_URL=http://localhost:8080
+```
+
+Examples:
+
+```bash
+APP_URL=http://192.168.0.105:8080
+APP_URL=https://makereadyos.duckdns.org
+APP_URL=https://makereadyos.example.com
+```
+
+Use `EXTRA_ALLOWED_ORIGINS` only when you intentionally want more than one browser origin during migration, testing, or mixed local/domain access:
+
+```bash
+EXTRA_ALLOWED_ORIGINS=http://localhost:5173,http://192.168.0.105:8080
+```
+
+Set `TRUST_PROXY=true` when MakeReadyOS is running behind Caddy, Nginx, Traefik, Cloudflare Tunnel, or another reverse proxy that terminates HTTPS and forwards `X-Forwarded-*` headers. Leave it `false` for direct local Docker access.
+
+`SELF_HOSTED=true` is the default deployment model and keeps origin handling centered on `APP_URL` plus `EXTRA_ALLOWED_ORIGINS`. `CORS_ORIGIN` remains as a deprecated fallback only for older installs.
 
 For public deployments that allow admins to register webhook endpoints, set `WEBHOOK_ALLOW_PRIVATE_URLS=false` unless you intentionally deliver webhooks to local/LAN services. Use `WEBHOOK_ALLOWED_HOSTS` for explicit trusted exceptions.
 
@@ -49,6 +81,17 @@ UPLOADS_HOST_PATH=/mnt/storage/makereadyos-uploads
 For existing deployments, run `./move-uploads.sh /mnt/storage/makereadyos-uploads` before changing `.env`. See [UPLOAD_STORAGE.md](UPLOAD_STORAGE.md).
 
 Admins can also open `Admin -> Uploads / NAS Storage` to inspect the active upload mode, confirm current write status, validate a proposed host/NAS path, and copy the generated move/restart commands. The UI is a safety assistant; Docker still needs the host path mounted through `UPLOADS_HOST_PATH`.
+
+Admins can also open `Admin -> Deployment updates` to confirm the installed version, release channel, optional build ref/date metadata, optional latest GitHub release visibility, and copy the preferred `./update.sh` commands without opening the shell docs first. The actual update still runs on the host server.
+
+If you want the in-app update panel to show the latest published GitHub release, leave `APP_UPDATE_RELEASES_ENABLED=true` and point `APP_UPDATE_REPO` at the public repository:
+
+```bash
+APP_UPDATE_RELEASES_ENABLED=true
+APP_UPDATE_REPO=nextcode4u/MakeReadyOS
+```
+
+Set `APP_UPDATE_RELEASES_ENABLED=false` for fully local/offline installs that should never call GitHub from the API container.
 
 ## Updates
 

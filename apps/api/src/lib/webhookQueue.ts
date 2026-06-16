@@ -30,6 +30,16 @@ export const webhookEventTypes = [
   "lease.issue.updated",
   "lease.issue.resolved",
   "lease.issue.archived",
+  "property-map.pin.created",
+  "property-map.pin.updated",
+  "property-map.pin.archived",
+  "wiki.entry.created",
+  "wiki.entry.updated",
+  "wiki.vendor.created",
+  "wiki.vendor.updated",
+  "wiki.asset.created",
+  "wiki.asset.updated",
+  "wiki.asset.deleted",
 ] as const;
 
 export type WebhookEventType = (typeof webhookEventTypes)[number];

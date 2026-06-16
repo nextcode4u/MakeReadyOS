@@ -9,6 +9,7 @@ import { prisma } from "../lib/prisma.js";
 import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
+import { queueWebhookEvent } from "../lib/webhookQueue.js";
 
 const wikiSections = [
   "UTILITIES",
@@ -1276,6 +1277,22 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
       include: { property: true, assets: true },
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: input.propertyId, entityType: "PROPERTY_WIKI_ENTRY", entityId: entry.id, action: "PROPERTY_WIKI_ENTRY_CREATED", message: `Created property wiki ${input.section.toLowerCase().replace(/_/g, " ")} entry ${entry.title}` });
+    await queueWebhookEvent({
+      eventType: "wiki.entry.created",
+      propertyId: entry.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        entryId: entry.id,
+        section: entry.section,
+        title: entry.title,
+        category: entry.category,
+        building: entry.building,
+        issueStatus: entry.issueStatus,
+        isEmergency: entry.isEmergency,
+        isPinned: entry.isPinned,
+        isActive: entry.isActive,
+      },
+    });
     reply.code(201);
     return { entry };
   });
@@ -1308,6 +1325,22 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
       include: { property: true, assets: true },
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: existing.propertyId, entityType: "PROPERTY_WIKI_ENTRY", entityId: existing.id, action: "PROPERTY_WIKI_ENTRY_UPDATED", message: `Updated property wiki entry ${entry.title}` });
+    await queueWebhookEvent({
+      eventType: "wiki.entry.updated",
+      propertyId: entry.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        entryId: entry.id,
+        section: entry.section,
+        title: entry.title,
+        category: entry.category,
+        building: entry.building,
+        issueStatus: entry.issueStatus,
+        isEmergency: entry.isEmergency,
+        isPinned: entry.isPinned,
+        isActive: entry.isActive,
+      },
+    });
     return { entry };
   });
 
@@ -1352,6 +1385,18 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
       include: { property: true, assets: true },
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: input.propertyId, entityType: "PROPERTY_WIKI_VENDOR", entityId: vendor.id, action: "PROPERTY_WIKI_VENDOR_CREATED", message: `Created property wiki vendor ${vendor.companyName}` });
+    await queueWebhookEvent({
+      eventType: "wiki.vendor.created",
+      propertyId: vendor.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        vendorId: vendor.id,
+        vendorType: vendor.vendorType,
+        companyName: vendor.companyName,
+        contactName: vendor.contactName,
+        isActive: vendor.isActive,
+      },
+    });
     reply.code(201);
     return { vendor };
   });
@@ -1372,6 +1417,18 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
       include: { property: true, assets: true },
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: existing.propertyId, entityType: "PROPERTY_WIKI_VENDOR", entityId: existing.id, action: "PROPERTY_WIKI_VENDOR_UPDATED", message: `Updated property wiki vendor ${vendor.companyName}` });
+    await queueWebhookEvent({
+      eventType: "wiki.vendor.updated",
+      propertyId: vendor.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        vendorId: vendor.id,
+        vendorType: vendor.vendorType,
+        companyName: vendor.companyName,
+        contactName: vendor.contactName,
+        isActive: vendor.isActive,
+      },
+    });
     return { vendor };
   });
 
@@ -1471,6 +1528,22 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
       include: { property: true, entry: true, vendor: true },
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: fields.propertyId, entityType: "PROPERTY_WIKI_ASSET", entityId: asset.id, action: "PROPERTY_WIKI_ASSET_CREATED", message: `Uploaded wiki ${fields.kind.toLowerCase()} ${asset.title}` });
+    await queueWebhookEvent({
+      eventType: "wiki.asset.created",
+      propertyId: asset.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        assetId: asset.id,
+        kind: asset.kind,
+        title: asset.title,
+        category: asset.category,
+        building: asset.building,
+        entryId: asset.entryId,
+        vendorId: asset.vendorId,
+        isEmergency: asset.isEmergency,
+        originalName: asset.originalName,
+      },
+    });
     reply.code(201);
     return { asset };
   });
@@ -1498,6 +1571,22 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
       include: { property: true, entry: true, vendor: true },
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: existing.propertyId, entityType: "PROPERTY_WIKI_ASSET", entityId: existing.id, action: "PROPERTY_WIKI_ASSET_UPDATED", message: `Updated wiki asset ${asset.title}` });
+    await queueWebhookEvent({
+      eventType: "wiki.asset.updated",
+      propertyId: asset.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        assetId: asset.id,
+        kind: asset.kind,
+        title: asset.title,
+        category: asset.category,
+        building: asset.building,
+        entryId: asset.entryId,
+        vendorId: asset.vendorId,
+        isEmergency: asset.isEmergency,
+        originalName: asset.originalName,
+      },
+    });
     return { asset };
   });
 
@@ -1522,6 +1611,22 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
     await prisma.propertyWikiAsset.delete({ where: { id } });
     await removeStoredUpload(asset.storedName);
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: asset.propertyId, entityType: "PROPERTY_WIKI_ASSET", entityId: asset.id, action: "PROPERTY_WIKI_ASSET_DELETED", message: `Deleted wiki asset ${asset.title}` });
+    await queueWebhookEvent({
+      eventType: "wiki.asset.deleted",
+      propertyId: asset.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        assetId: asset.id,
+        kind: asset.kind,
+        title: asset.title,
+        category: asset.category,
+        building: asset.building,
+        entryId: asset.entryId,
+        vendorId: asset.vendorId,
+        isEmergency: asset.isEmergency,
+        originalName: asset.originalName,
+      },
+    });
     return { ok: true };
   });
 

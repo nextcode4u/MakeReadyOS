@@ -602,7 +602,7 @@ export function ProjectsPanel({ properties, users, userRole, selectedPropertyId,
       deferredMaintenance: deferredFilter ? deferredFilter === "yes" : undefined,
       agingBucket: (agingFilter || undefined) as "0-30" | "31-90" | "91-180" | "180+" | undefined,
     }),
-    enabled: canView && Boolean(propertyId) && tab !== "dashboard" && tab !== "reports" && tab !== "map",
+    enabled: canView && Boolean(propertyId) && tab !== "dashboard" && tab !== "reports",
   });
   const mapQuery = useQuery({
     queryKey: ["projects", "map", propertyId],
@@ -755,6 +755,7 @@ export function ProjectsPanel({ properties, users, userRole, selectedPropertyId,
   const pinnedMapIds = useMemo(() => Array.from(new Set(filteredPinnedRecords.map((record) => record.propertyMapId).filter(Boolean))) as string[], [filteredPinnedRecords]);
   const selectedProjectsMap = maps.find((map) => map.id === selectedMapId) ?? null;
   const selectedProjectsMapHasImage = selectedProjectsMap?.mimeType?.startsWith("image/");
+  const mapCandidateRecords = useMemo(() => visibleRecords.filter((record) => !record.isArchived), [visibleRecords]);
   const selectedMapRecords = useMemo(() => {
     return filteredPinnedRecords
       .filter((record) => record.propertyMapId === selectedMapId)
@@ -766,7 +767,22 @@ export function ProjectsPanel({ properties, users, userRole, selectedPropertyId,
         return left.title.localeCompare(right.title);
       });
   }, [filteredPinnedRecords, selectedMapId]);
-  const selectedMapRecord = selectedMapRecords.find((record) => record.id === selectedRecordId) ?? selectedMapRecords[0] ?? null;
+  const selectedWorkspaceMapRecord = mapCandidateRecords.find((record) => record.id === selectedRecordId) ?? selectedMapRecords[0] ?? mapCandidateRecords[0] ?? null;
+  const selectedMapRecord = selectedWorkspaceMapRecord && selectedWorkspaceMapRecord.propertyMapId === selectedMapId && selectedWorkspaceMapRecord.pinX !== null && selectedWorkspaceMapRecord.pinY !== null
+    ? selectedWorkspaceMapRecord
+    : null;
+  const availableMapRecords = useMemo(() => {
+    return mapCandidateRecords
+      .filter((record) => record.id !== selectedMapRecord?.id)
+      .filter((record) => record.propertyMapId !== selectedMapId || record.pinX === null || record.pinY === null)
+      .sort((left, right) => {
+        if (left.priority !== right.priority) {
+          const order = { Critical: 4, High: 3, Normal: 2, Low: 1 };
+          return (order[right.priority] ?? 0) - (order[left.priority] ?? 0);
+        }
+        return left.title.localeCompare(right.title);
+      });
+  }, [mapCandidateRecords, selectedMapId, selectedMapRecord?.id]);
   const projectSearchPlaceholder = tab === "bids"
     ? "Vendor, bid notes, contact, budget year, tags"
     : tab === "map"
@@ -846,16 +862,20 @@ export function ProjectsPanel({ properties, users, userRole, selectedPropertyId,
 
   useEffect(() => {
     const preferredMapId = selectedMapId && mapsById.has(selectedMapId) ? selectedMapId : "";
-    if (preferredMapId && pinnedMapIds.includes(preferredMapId)) return;
-    const defaultMap = maps.find((map) => map.isDefault && pinnedMapIds.includes(map.id)) ?? maps.find((map) => pinnedMapIds.includes(map.id)) ?? maps.find((map) => map.isDefault) ?? maps[0] ?? null;
+    if (preferredMapId) return;
+    const defaultMap = maps.find((map) => map.isDefault && pinnedMapIds.includes(map.id))
+      ?? maps.find((map) => pinnedMapIds.includes(map.id))
+      ?? maps.find((map) => map.isDefault)
+      ?? maps[0]
+      ?? null;
     setSelectedMapId(defaultMap?.id ?? "");
-  }, [selectedMapId, pinnedMapIds.join(","), maps]);
+  }, [selectedMapId, pinnedMapIds.join(","), maps, mapsById]);
 
   useEffect(() => {
-    if (selectedMapRecord && selectedRecordId !== selectedMapRecord.id) {
-      setSelectedRecordId(selectedMapRecord.id);
+    if (selectedWorkspaceMapRecord && selectedRecordId !== selectedWorkspaceMapRecord.id) {
+      setSelectedRecordId(selectedWorkspaceMapRecord.id);
     }
-  }, [selectedMapRecord?.id]);
+  }, [selectedWorkspaceMapRecord?.id, selectedRecordId]);
 
   useEffect(() => {
     setMapRepositionMode(false);
@@ -977,11 +997,11 @@ export function ProjectsPanel({ properties, users, userRole, selectedPropertyId,
   };
 
   const moveSelectedMapRecord = async (event: MouseEvent<HTMLDivElement>) => {
-    if (!mapRepositionMode || !selectedMapRecord) return;
+    if (!mapRepositionMode || !selectedWorkspaceMapRecord || !selectedMapId) return;
     const point = mapPercentFromPointer(event);
     if (!point) return;
     await updateMutation.mutateAsync({
-      id: selectedMapRecord.id,
+      id: selectedWorkspaceMapRecord.id,
       patch: {
         propertyMapId: selectedMapId,
         pinX: Number(point.xPercent.toFixed(1)),
@@ -1420,7 +1440,7 @@ export function ProjectsPanel({ properties, users, userRole, selectedPropertyId,
               {selectedProjectsMap?.mimeType === "application/pdf" ? <a className="button button-secondary" href={propertyMapFileUrl(selectedProjectsMap.id)} target="_blank" rel="noreferrer">Open PDF Map</a> : null}
             </div>
           </div>
-          {pinnedRecords.length === 0 ? <p className="muted">No pinned project or recommendation locations yet.</p> : filteredPinnedRecords.length === 0 ? <p className="muted">No pinned records match the current Projects filters.</p> : !selectedProjectsMap ? <p className="muted">Select a property map with pinned project records.</p> : (
+          {!selectedProjectsMap ? <p className="muted">Select a property map to inspect and place project records.</p> : (
             <div className="projects-map-grid">
               <section className="pool-card projects-map-card">
                 <div className="projects-map-card-header">
@@ -1429,18 +1449,26 @@ export function ProjectsPanel({ properties, users, userRole, selectedPropertyId,
                     <span className="muted">{selectedMapRecords.length} pinned record{selectedMapRecords.length === 1 ? "" : "s"}</span>
                   </div>
                   <div className="pool-entry-actions">
-                    {canEdit && selectedMapRecord ? (
+                    {canEdit && selectedWorkspaceMapRecord ? (
                       <>
                         <button className={mapRepositionMode ? "button button-primary" : "button button-secondary"} type="button" onClick={() => setMapRepositionMode((current) => !current)}>
-                          {mapRepositionMode ? "Cancel Reposition" : "Reposition Selected Pin"}
+                          {mapRepositionMode
+                            ? "Cancel Placement"
+                            : selectedMapRecord
+                              ? "Reposition Selected Pin"
+                              : selectedWorkspaceMapRecord.propertyMapId && selectedWorkspaceMapRecord.pinX !== null && selectedWorkspaceMapRecord.pinY !== null
+                                ? "Move Selected To This Map"
+                                : "Place Selected On Map"}
                         </button>
-                        <button
-                          className="button button-secondary"
-                          type="button"
-                          onClick={() => void updateMutation.mutateAsync({ id: selectedMapRecord.id, patch: { propertyMapId: null, pinX: null, pinY: null } })}
-                        >
-                          Remove Pin
-                        </button>
+                        {selectedMapRecord ? (
+                          <button
+                            className="button button-secondary"
+                            type="button"
+                            onClick={() => void updateMutation.mutateAsync({ id: selectedMapRecord.id, patch: { propertyMapId: null, pinX: null, pinY: null } })}
+                          >
+                            Remove Pin
+                          </button>
+                        ) : null}
                       </>
                     ) : null}
                   </div>
@@ -1474,51 +1502,68 @@ export function ProjectsPanel({ properties, users, userRole, selectedPropertyId,
                 </div>
                 <div className="projects-map-footer">
                   <span className="muted">
-                    {mapRepositionMode && selectedMapRecord ? `Click the map to move "${selectedMapRecord.title}".` : selectedMapRecord?.pinX !== null && selectedMapRecord?.pinY !== null ? `Selected pin: ${selectedMapRecord.pinX.toFixed(1)}%, ${selectedMapRecord.pinY.toFixed(1)}%` : "Select a pinned record to inspect it here."}
+                    {mapRepositionMode && selectedWorkspaceMapRecord
+                      ? `Click the map to place "${selectedWorkspaceMapRecord.title}" on ${selectedProjectsMap.name}.`
+                      : selectedMapRecord && selectedMapRecord.pinX !== null && selectedMapRecord.pinY !== null
+                        ? `Selected pin: ${selectedMapRecord.pinX.toFixed(1)}%, ${selectedMapRecord.pinY.toFixed(1)}%`
+                        : selectedWorkspaceMapRecord
+                          ? `"${selectedWorkspaceMapRecord.title}" is not pinned on this map yet.`
+                          : selectedMapRecords.length
+                            ? "Select a pinned record to inspect it here."
+                            : "No filtered records are pinned on this map yet."}
                   </span>
                 </div>
               </section>
               <aside className="pool-card projects-map-detail">
-                {selectedMapRecord ? (
+                {selectedWorkspaceMapRecord ? (
                   <>
                     <div className="drawer-section-title">
                       <div>
-                        <h3>{selectedMapRecord.title}</h3>
-                        <span className={`status-pill ${selectedMapRecord.priority === "Critical" ? "risk-critical" : selectedMapRecord.priority === "High" ? "risk-high" : ""}`}>{selectedMapRecord.status}</span>
+                        <h3>{selectedWorkspaceMapRecord.title}</h3>
+                        <span className={`status-pill ${selectedWorkspaceMapRecord.priority === "Critical" ? "risk-critical" : selectedWorkspaceMapRecord.priority === "High" ? "risk-high" : ""}`}>{selectedWorkspaceMapRecord.status}</span>
                       </div>
-                      <button className="button button-secondary" type="button" onClick={() => setTab(selectedMapRecord.recordType === "Recommendation" ? "recommendations" : "projects")}>Open Record</button>
+                      <button className="button button-secondary" type="button" onClick={() => setTab(selectedWorkspaceMapRecord.recordType === "Recommendation" ? "recommendations" : "projects")}>Open Record</button>
                     </div>
                     <div className="projects-map-meta">
-                      <div><dt>Type</dt><dd>{selectedMapRecord.recordType}</dd></div>
-                      <div><dt>Priority</dt><dd>{selectedMapRecord.priority}</dd></div>
-                      <div><dt>Category</dt><dd>{selectedMapRecord.categoryName ?? "Uncategorized"}</dd></div>
-                      <div><dt>Assigned</dt><dd>{selectedMapRecord.assignedUserName ?? selectedMapRecord.assignedRole ?? "Unassigned"}</dd></div>
-                      <div><dt>Building</dt><dd>{selectedMapRecord.building ?? "-"}</dd></div>
-                      <div><dt>Area</dt><dd>{selectedMapRecord.area ?? "-"}</dd></div>
-                      <div><dt>Map Pin</dt><dd>{selectedMapRecord.pinX !== null && selectedMapRecord.pinY !== null ? `${selectedMapRecord.pinX.toFixed(1)}%, ${selectedMapRecord.pinY.toFixed(1)}%` : "Not pinned"}</dd></div>
-                      <div><dt>Updated</dt><dd>{formatDateTime(selectedMapRecord.updatedAt)}</dd></div>
+                      <div><dt>Type</dt><dd>{selectedWorkspaceMapRecord.recordType}</dd></div>
+                      <div><dt>Priority</dt><dd>{selectedWorkspaceMapRecord.priority}</dd></div>
+                      <div><dt>Category</dt><dd>{selectedWorkspaceMapRecord.categoryName ?? "Uncategorized"}</dd></div>
+                      <div><dt>Assigned</dt><dd>{selectedWorkspaceMapRecord.assignedUserName ?? selectedWorkspaceMapRecord.assignedRole ?? "Unassigned"}</dd></div>
+                      <div><dt>Building</dt><dd>{selectedWorkspaceMapRecord.building ?? "-"}</dd></div>
+                      <div><dt>Area</dt><dd>{selectedWorkspaceMapRecord.area ?? "-"}</dd></div>
+                      <div><dt>Map Pin</dt><dd>{selectedMapRecord && selectedMapRecord.pinX !== null && selectedMapRecord.pinY !== null ? `${selectedMapRecord.pinX.toFixed(1)}%, ${selectedMapRecord.pinY.toFixed(1)}%` : "Not pinned on this map"}</dd></div>
+                      <div><dt>Updated</dt><dd>{formatDateTime(selectedWorkspaceMapRecord.updatedAt)}</dd></div>
                     </div>
-                    {selectedMapRecord.description ? <p>{selectedMapRecord.description}</p> : null}
-                    {selectedMapRecord.locationNotes ? <p className="muted">{selectedMapRecord.locationNotes}</p> : null}
-                    {selectedMapRecord.attachments.length ? (
+                    {selectedWorkspaceMapRecord.description ? <p>{selectedWorkspaceMapRecord.description}</p> : null}
+                    {selectedWorkspaceMapRecord.locationNotes ? <p className="muted">{selectedWorkspaceMapRecord.locationNotes}</p> : null}
+                    {selectedWorkspaceMapRecord.attachments.length ? (
                       <div className="projects-map-photo-strip">
-                        {selectedMapRecord.attachments.filter((attachment) => isImageAttachment(attachment.mimeType)).slice(0, 3).map((attachment) => (
+                        {selectedWorkspaceMapRecord.attachments.filter((attachment) => isImageAttachment(attachment.mimeType)).slice(0, 3).map((attachment) => (
                           <img key={attachment.id} src={projectAttachmentDownloadUrl(attachment.id)} alt={attachment.caption ?? attachment.originalName} />
                         ))}
                       </div>
                     ) : null}
                     <div className="projects-map-record-list">
                       <h4>Records On This Map</h4>
-                      {selectedMapRecords.map((record) => (
-                        <button key={record.id} type="button" className={`projects-map-record-row${selectedMapRecord.id === record.id ? " active" : ""}`} onClick={() => setSelectedRecordId(record.id)}>
+                      {selectedMapRecords.length ? selectedMapRecords.map((record) => (
+                        <button key={record.id} type="button" className={`projects-map-record-row${selectedWorkspaceMapRecord.id === record.id ? " active" : ""}`} onClick={() => setSelectedRecordId(record.id)}>
                           <strong>{record.title}</strong>
                           <span>{record.recordType} / {record.priority} / {record.building ?? record.area ?? "No location label"}</span>
                         </button>
-                      ))}
+                      )) : <p className="muted">No filtered records are pinned on this map.</p>}
+                    </div>
+                    <div className="projects-map-record-list">
+                      <h4>Available To Place</h4>
+                      {availableMapRecords.length ? availableMapRecords.slice(0, 12).map((record) => (
+                        <button key={record.id} type="button" className={`projects-map-record-row${selectedWorkspaceMapRecord.id === record.id ? " active" : ""}`} onClick={() => setSelectedRecordId(record.id)}>
+                          <strong>{record.title}</strong>
+                          <span>{record.recordType} / {record.priority} / {record.propertyMapId && record.pinX !== null && record.pinY !== null ? "Pinned on another map" : "Unpinned"} / {record.building ?? record.area ?? "No location label"}</span>
+                        </button>
+                      )) : <p className="muted">All filtered records are already pinned on this map.</p>}
                     </div>
                   </>
                 ) : (
-                  <p className="muted">Select a pinned project or recommendation to inspect it.</p>
+                  <p className="muted">Select a filtered project or recommendation to inspect it and place it on this map.</p>
                 )}
               </aside>
             </div>

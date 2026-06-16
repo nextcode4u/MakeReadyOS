@@ -11,6 +11,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
+import { queueWebhookEvent } from "../lib/webhookQueue.js";
 
 const allowedMapExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".pdf"]);
 const allowedMapTypes = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
@@ -366,6 +367,24 @@ export async function propertyMapRoutes(app: FastifyInstance) {
       include: propertyMapPinInclude(),
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: pin.propertyId, entityType: "PROPERTY_MAP_PIN", entityId: pin.id, action: "PROPERTY_MAP_PIN_CREATED", message: `Created map pin ${pin.title}` });
+    await queueWebhookEvent({
+      eventType: "property-map.pin.created",
+      propertyId: pin.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        pinId: pin.id,
+        mapId: pin.mapId,
+        title: pin.title,
+        pinType: pin.pinType,
+        building: pin.building,
+        unitLabel: pin.unitLabel,
+        area: pin.area,
+        linkedRecordType: pin.linkedRecordType,
+        linkedRecordId: pin.linkedRecordId,
+        isEmergency: pin.isEmergency,
+        isArchived: pin.isArchived,
+      },
+    });
     reply.code(201);
     return { pin: { ...pin, linkedRecord: await buildLinkedRecordSummary(pin) } };
   });
@@ -383,6 +402,24 @@ export async function propertyMapRoutes(app: FastifyInstance) {
       include: propertyMapPinInclude(),
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: pin.propertyId, entityType: "PROPERTY_MAP_PIN", entityId: pin.id, action: "PROPERTY_MAP_PIN_UPDATED", message: `Updated map pin ${pin.title}` });
+    await queueWebhookEvent({
+      eventType: "property-map.pin.updated",
+      propertyId: pin.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        pinId: pin.id,
+        mapId: pin.mapId,
+        title: pin.title,
+        pinType: pin.pinType,
+        building: pin.building,
+        unitLabel: pin.unitLabel,
+        area: pin.area,
+        linkedRecordType: pin.linkedRecordType,
+        linkedRecordId: pin.linkedRecordId,
+        isEmergency: pin.isEmergency,
+        isArchived: pin.isArchived,
+      },
+    });
     return { pin: { ...pin, linkedRecord: await buildLinkedRecordSummary(pin) } };
   });
 
@@ -398,6 +435,24 @@ export async function propertyMapRoutes(app: FastifyInstance) {
       include: propertyMapPinInclude(),
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: pin.propertyId, entityType: "PROPERTY_MAP_PIN", entityId: pin.id, action: "PROPERTY_MAP_PIN_ARCHIVED", message: `Archived map pin ${pin.title}` });
+    await queueWebhookEvent({
+      eventType: "property-map.pin.archived",
+      propertyId: pin.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        pinId: pin.id,
+        mapId: pin.mapId,
+        title: pin.title,
+        pinType: pin.pinType,
+        building: pin.building,
+        unitLabel: pin.unitLabel,
+        area: pin.area,
+        linkedRecordType: pin.linkedRecordType,
+        linkedRecordId: pin.linkedRecordId,
+        isEmergency: pin.isEmergency,
+        isArchived: pin.isArchived,
+      },
+    });
     return { pin: { ...pin, linkedRecord: await buildLinkedRecordSummary(pin) } };
   });
 

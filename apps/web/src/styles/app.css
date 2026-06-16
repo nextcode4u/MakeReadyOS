@@ -3928,6 +3928,44 @@ textarea {
   border: 1px solid rgba(73, 212, 154, 0.18);
 }
 
+.automation-preview-action,
+.automation-preview-diagnostics {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.automation-preview-diagnostics {
+  padding: 0.5rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.automation-preview-candidate-list {
+  margin: 0;
+  padding-left: 1rem;
+  color: var(--text-soft);
+  font-size: 0.84rem;
+}
+
+.automation-preview-candidate-list li + li {
+  margin-top: 0.22rem;
+}
+
+.admin-command-block {
+  flex: 1 1 20rem;
+  min-height: var(--control-height);
+  padding: 0.8rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(8, 12, 18, 0.62);
+  color: var(--text);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .custom-fields-shell {
   display: grid;
   grid-template-columns: minmax(17rem, 22rem) minmax(24rem, 1fr);
@@ -5538,6 +5576,45 @@ textarea {
   background: rgba(73, 210, 161, 0.1);
   font-size: 0.85rem;
   font-weight: 650;
+}
+
+.automation-preview-validation {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.automation-preview-validation.safe {
+  border-color: rgba(73, 210, 161, 0.45);
+  background: rgba(73, 210, 161, 0.08);
+}
+
+.automation-preview-validation.caution {
+  border-color: rgba(255, 196, 90, 0.45);
+  background: rgba(255, 196, 90, 0.08);
+}
+
+.automation-preview-validation.unsafe {
+  border-color: rgba(235, 101, 123, 0.55);
+  background: rgba(235, 101, 123, 0.08);
+}
+
+.automation-preview-validation h4,
+.automation-preview-validation ul {
+  margin: 0;
+}
+
+.automation-preview-validation ul {
+  padding-left: 1rem;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
+.automation-preview-validation li + li {
+  margin-top: 0.2rem;
 }
 
 .automation-preview-warnings {

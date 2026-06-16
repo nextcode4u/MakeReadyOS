@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import { Prisma, UserRole } from "@prisma/client";
 import { automationRuleInputSchema, validateRuleReferences } from "./automationDefinition.js";
-import { applyAutomationRules } from "./automationAssignments.js";
+import { applyAutomationRules, type ActionPreviewSummary } from "./automationAssignments.js";
 import { computeDerivedFields, editableFields, normalizeItemPatch } from "./board.js";
 import { writeAuditLog } from "./audit.js";
 import { prisma } from "./prisma.js";
 import { createNotification, notifyAssignedStaff } from "./notifications.js";
 
 export type ScheduledRunMode = "SCHEDULED" | "MANUAL";
+const automationRunContextItemLimit = 15;
 
 function cooldownHours() {
   const configured = Number(process.env.AUTOMATION_NOTE_COOLDOWN_HOURS ?? "24");
@@ -153,6 +154,13 @@ export async function executeScheduledAutomationRules(options: {
     const startedAt = new Date();
     const warnings: string[] = [];
     const errors: string[] = [];
+    const matchedItems: Array<{
+      itemId: string;
+      propertyId: string;
+      propertyCode: string;
+      unitNumber: string;
+      actionSummaries: ActionPreviewSummary[];
+    }> = [];
     let checkedCount = 0;
     let matchedCount = 0;
     let actionCount = 0;
@@ -194,6 +202,15 @@ export async function executeScheduledAutomationRules(options: {
           }], customValues, { operatingCalendar: item.property.operatingCalendar });
           if (simulation.logs.length === 0) continue;
           matchedCount += 1;
+          if (matchedItems.length < automationRunContextItemLimit) {
+            matchedItems.push({
+              itemId: item.id,
+              propertyId: item.propertyId,
+              propertyCode: item.property.code,
+              unitNumber: item.unitNumber,
+              actionSummaries: simulation.actionSummaries.get(rule.id) ?? [],
+            });
+          }
 
           const patch: Record<string, unknown> = {};
           for (const field of editableFields) {
@@ -286,7 +303,12 @@ export async function executeScheduledAutomationRules(options: {
         errors,
         startedAt,
         completedAt,
-        context: { triggerType: "SCHEDULED_CHECK", cooldownHours: cooldownHours() },
+        context: {
+          triggerType: "SCHEDULED_CHECK",
+          cooldownHours: cooldownHours(),
+          matchedItems,
+          matchedItemsTruncated: matchedCount > matchedItems.length,
+        },
       },
     });
     summaries.push({ ruleId: rule.id, name: rule.name, checkedCount, matchedCount, actionCount, warnings, errors });

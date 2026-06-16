@@ -16,6 +16,28 @@ export type ActionPreviewSummary = {
   sourceField?: string;
   targetField?: string;
   offsetDays?: number;
+  diagnostics?: {
+    assignment?: {
+      targetDate: string;
+      lookAheadDays: number;
+      includePlannedWork: boolean;
+      dailyAssignmentCap: number | null;
+      selectedUserId: string | null;
+      selectedUserName: string | null;
+      selectedReason: string | null;
+      candidates: Array<{
+        userId: string;
+        fullName: string;
+        role: UserRole;
+        activeCount: number;
+        plannedCount: number;
+        plannedDayCount: number;
+        workloadScore: number;
+        status: "selected" | "eligible" | "daily-cap-blocked";
+        reason: string | null;
+      }>;
+    };
+  };
 };
 
 type AutomationItem = Partial<MakeReadyItem> & {
@@ -54,6 +76,7 @@ async function resolveLeastLoadedAssignee(item: AutomationItem, action: AssignLe
       assignedTech: item.assignedTech,
       summary: `Skipped auto-assignment because ${item.unitNumber} is already assigned to ${item.assignedTech}.`,
       changed: false,
+      diagnostics: null,
     };
   }
 
@@ -63,6 +86,7 @@ async function resolveLeastLoadedAssignee(item: AutomationItem, action: AssignLe
       assignedTech: null,
       summary: "No eligible assignment roles were configured.",
       changed: false,
+      diagnostics: null,
     };
   }
 
@@ -96,6 +120,18 @@ async function resolveLeastLoadedAssignee(item: AutomationItem, action: AssignLe
       assignedTech: null,
       summary: "No active eligible staff were available for this property.",
       changed: false,
+      diagnostics: {
+        assignment: {
+          targetDate: targetDate.toISOString(),
+          lookAheadDays: action.lookAheadDays,
+          includePlannedWork: action.includePlannedWork,
+          dailyAssignmentCap: action.dailyAssignmentCap ?? null,
+          selectedUserId: null,
+          selectedUserName: null,
+          selectedReason: "No active eligible staff matched the configured role/user/property filters.",
+          candidates: [],
+        },
+      },
     };
   }
 
@@ -137,7 +173,7 @@ async function resolveLeastLoadedAssignee(item: AutomationItem, action: AssignLe
     }
   }
 
-  const candidates = users
+  const allCandidates = users
     .map((user) => {
       const activeCount = activeCounts.get(user.fullName) ?? 0;
       const plannedCount = plannedWindowCounts.get(user.id) ?? 0;
@@ -149,7 +185,9 @@ async function resolveLeastLoadedAssignee(item: AutomationItem, action: AssignLe
         plannedDayCount,
         workloadScore: activeCount + (action.includePlannedWork ? plannedCount : 0),
       };
-    })
+    });
+
+  const candidates = allCandidates
     .filter((entry) => action.dailyAssignmentCap == null || entry.plannedDayCount < action.dailyAssignmentCap)
     .sort((left, right) => {
       if (left.workloadScore !== right.workloadScore) return left.workloadScore - right.workloadScore;
@@ -165,14 +203,80 @@ async function resolveLeastLoadedAssignee(item: AutomationItem, action: AssignLe
       assignedTech: null,
       summary: "All eligible staff are already at the configured planned-work cap for the target date.",
       changed: false,
+      diagnostics: {
+        assignment: {
+          targetDate: targetDate.toISOString(),
+          lookAheadDays: action.lookAheadDays,
+          includePlannedWork: action.includePlannedWork,
+          dailyAssignmentCap: action.dailyAssignmentCap ?? null,
+          selectedUserId: null,
+          selectedUserName: null,
+          selectedReason: "All eligible staff were blocked by the configured planned-day cap.",
+          candidates: allCandidates
+            .sort((left, right) => left.user.fullName.localeCompare(right.user.fullName) || left.user.id.localeCompare(right.user.id))
+            .map((entry) => ({
+              userId: entry.user.id,
+              fullName: entry.user.fullName,
+              role: entry.user.role,
+              activeCount: entry.activeCount,
+              plannedCount: entry.plannedCount,
+              plannedDayCount: entry.plannedDayCount,
+              workloadScore: entry.workloadScore,
+              status: "daily-cap-blocked" as const,
+              reason: action.dailyAssignmentCap == null
+                ? "Not eligible for assignment."
+                : `Blocked by daily assignment cap ${action.dailyAssignmentCap} on ${targetDate.toISOString().slice(0, 10)}.`,
+            })),
+        },
+      },
     };
   }
 
   const changed = selected.user.fullName !== (item.assignedTech ?? null);
+  const diagnosticsCandidates = allCandidates
+    .sort((left, right) => {
+      if ((left.user.id === selected.user.id) !== (right.user.id === selected.user.id)) {
+        return left.user.id === selected.user.id ? -1 : 1;
+      }
+      if (left.workloadScore !== right.workloadScore) return left.workloadScore - right.workloadScore;
+      if (left.plannedDayCount !== right.plannedDayCount) return left.plannedDayCount - right.plannedDayCount;
+      return left.user.fullName.localeCompare(right.user.fullName) || left.user.id.localeCompare(right.user.id);
+    })
+    .map((entry) => {
+      const blockedByCap = action.dailyAssignmentCap != null && entry.plannedDayCount >= action.dailyAssignmentCap;
+      const isSelected = entry.user.id === selected.user.id;
+      return {
+        userId: entry.user.id,
+        fullName: entry.user.fullName,
+        role: entry.user.role,
+        activeCount: entry.activeCount,
+        plannedCount: entry.plannedCount,
+        plannedDayCount: entry.plannedDayCount,
+        workloadScore: entry.workloadScore,
+        status: isSelected ? "selected" as const : blockedByCap ? "daily-cap-blocked" as const : "eligible" as const,
+        reason: isSelected
+          ? "Lowest workload after eligible-role, property-access, and cap checks."
+          : blockedByCap
+            ? `Blocked by daily assignment cap ${action.dailyAssignmentCap} on ${targetDate.toISOString().slice(0, 10)}.`
+            : "Eligible alternative candidate.",
+      };
+    });
   return {
     assignedTech: selected.user.fullName,
     summary: `Assign to ${selected.user.fullName} (${selected.activeCount} active turns${action.includePlannedWork ? `, ${selected.plannedCount} planned blocks in next ${action.lookAheadDays} day${action.lookAheadDays === 1 ? "" : "s"}` : ""}).`,
     changed,
+    diagnostics: {
+      assignment: {
+        targetDate: targetDate.toISOString(),
+        lookAheadDays: action.lookAheadDays,
+        includePlannedWork: action.includePlannedWork,
+        dailyAssignmentCap: action.dailyAssignmentCap ?? null,
+        selectedUserId: selected.user.id,
+        selectedUserName: selected.user.fullName,
+        selectedReason: "Lowest workload after eligible-role, property-access, and cap checks.",
+        candidates: diagnosticsCandidates,
+      },
+    },
   };
 }
 
@@ -226,6 +330,7 @@ async function resolveRuleActions(item: AutomationItem, actions: AutomationActio
       type: action.type,
       proposedValue: resolution.assignedTech ?? null,
       summary: resolution.summary,
+      diagnostics: resolution.diagnostics ?? undefined,
     });
     if (!resolution.assignedTech || !resolution.changed) continue;
     resolvedActions.push({

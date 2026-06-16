@@ -4,7 +4,7 @@ import multipart from "@fastify/multipart";
 import Fastify from "fastify";
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
-import { authConfig } from "./lib/config.js";
+import { authConfig, validateTrustedOrigin } from "./lib/config.js";
 import { loadSessionUser, requireApiTokenRateLimit, requireApiTokenScope, requireAuthenticated, requireCsrf } from "./lib/auth.js";
 import { openApiDocument } from "./lib/openapi.js";
 import { prisma } from "./lib/prisma.js";
@@ -39,6 +39,7 @@ import { vendorRoutes } from "./routes/vendors.js";
 
 const app = Fastify({
   logger: false,
+  trustProxy: authConfig.trustProxy,
 });
 const diagnosticsEnabled = process.env.NODE_ENV !== "production" && process.env.ENABLE_API_TIMING_LOGS === "true";
 const requestStartedAt = Symbol("requestStartedAt");
@@ -60,7 +61,7 @@ if (diagnosticsEnabled) {
 
 await app.register(cors, {
   origin: (origin, callback) => {
-    if (!origin || authConfig.corsOrigins.includes(origin)) {
+    if (validateTrustedOrigin(origin)) {
       callback(null, true);
       return;
     }

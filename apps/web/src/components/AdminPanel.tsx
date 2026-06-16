@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ManagedUser, Property, UserLanguage, UserRole } from "../lib/api";
+import type { ManagedUser, MetaResponse, Property, UserLanguage, UserRole } from "../lib/api";
 import { languageOptions, t } from "../lib/i18n";
 import { BackupTransferPanel } from "./BackupTransferPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -14,6 +14,7 @@ const statusFilterOptions = ["ALL", "ACTIVE", "INACTIVE"] as const;
 type Props = {
   users: ManagedUser[];
   properties: Property[];
+  appInfo: MetaResponse["app"] | null;
   currentUserId: string;
   loading?: boolean;
   successMessage?: string;
@@ -47,6 +48,7 @@ function propertyIdsForUser(user: ManagedUser) {
 export function AdminPanel({
   users,
   properties,
+  appInfo,
   currentUserId,
   loading,
   successMessage,
@@ -81,6 +83,7 @@ export function AdminPanel({
     password: "",
   });
   const [confirmAction, setConfirmAction] = useState<null | "role" | "deactivate" | "password">(null);
+  const [copiedCommand, setCopiedCommand] = useState<"standard" | "pull" | null>(null);
 
   const filteredUsers = useMemo(() => {
     return users.filter((user) => {
@@ -151,6 +154,17 @@ export function AdminPanel({
         ? current.propertyIds.filter((id) => id !== propertyId)
         : [...current.propertyIds, propertyId],
     }));
+  };
+
+  const copyCommand = async (mode: "standard" | "pull") => {
+    const command = mode === "pull" ? appInfo?.updatePullCommand : appInfo?.updateCommand;
+    if (!command || typeof navigator === "undefined" || !navigator.clipboard) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(command);
+    setCopiedCommand(mode);
+    window.setTimeout(() => setCopiedCommand((current) => (current === mode ? null : current)), 1800);
   };
 
   return (
@@ -515,6 +529,112 @@ export function AdminPanel({
             <StatusState title="No user selected" description="Pick a user from the table or create a new account to start editing access and role settings." tone="subtle" />
           </section>
         )}
+      </section>
+
+      <section className="admin-card" data-testid="admin-updates-panel">
+        <header className="admin-card-header">
+          <div>
+            <p className="eyebrow">Updates</p>
+            <h2>Deployment updates</h2>
+          </div>
+          <span className="subtitle">Current install details and the preferred server-side update commands.</span>
+        </header>
+
+        <div className="admin-grid">
+          <section className="admin-section">
+            <h3>Installed build</h3>
+            <div className="admin-form-grid">
+              <label>
+                Installed version
+                <input value={appInfo?.version ?? "Unknown"} readOnly />
+              </label>
+              <label>
+                Release channel
+                <input value={appInfo?.releaseChannel ?? "Unknown"} readOnly />
+              </label>
+              <label>
+                Build ref
+                <input value={appInfo?.buildRef ?? "Not captured"} readOnly />
+              </label>
+              <label>
+                Build date
+                <input value={appInfo?.buildDate ?? "Not captured"} readOnly />
+              </label>
+            </div>
+            <div className="admin-message warning">
+              MakeReadyOS still updates from the host server, not from a one-click browser action. This panel keeps the current version visible and gives admins the exact commands to run.
+            </div>
+            {appInfo?.latestRelease ? (
+              <div className={appInfo.latestRelease.updateAvailable ? "admin-message warning" : "admin-message success"}>
+                {appInfo.latestRelease.updateAvailable
+                  ? `Latest published release ${appInfo.latestRelease.tag} is newer than this install.`
+                  : `This install matches the latest published release ${appInfo.latestRelease.tag}.`}
+                {appInfo.latestRelease.publishedAt ? ` Published ${new Date(appInfo.latestRelease.publishedAt).toLocaleString()}.` : ""}
+                {appInfo.latestRelease.url ? <> <a href={appInfo.latestRelease.url} target="_blank" rel="noreferrer">Open release page</a>.</> : null}
+              </div>
+            ) : null}
+            <h3>Origin diagnostics</h3>
+            <div className="admin-form-grid">
+              <label>
+                APP_URL
+                <input value={appInfo?.deployment.appUrl ?? "Not configured"} readOnly />
+              </label>
+              <label>
+                Current origin
+                <input value={appInfo?.deployment.currentOrigin ?? "Unavailable"} readOnly />
+              </label>
+              <label>
+                Environment
+                <input value={appInfo?.deployment.environment ?? "Unknown"} readOnly />
+              </label>
+              <label>
+                Trusted proxy
+                <input value={appInfo?.deployment.trustedProxy ? "Enabled" : "Disabled"} readOnly />
+              </label>
+              <label>
+                Secure cookies
+                <input value={appInfo?.deployment.secureCookies ? "Enabled" : "Disabled"} readOnly />
+              </label>
+              <label>
+                Cookie domain
+                <input value={appInfo?.deployment.cookieDomain ?? "Host-only"} readOnly />
+              </label>
+            </div>
+            <div className="admin-message success">
+              Allowed origins: <code>{appInfo?.deployment.allowedOrigins.join(", ") || "None"}</code>
+            </div>
+            {appInfo?.deployment.extraAllowedOrigins.length ? (
+              <div className="admin-message success">
+                Extra allowed origins: <code>{appInfo.deployment.extraAllowedOrigins.join(", ")}</code>
+              </div>
+            ) : null}
+            {appInfo?.deployment.startupWarnings.length ? (
+              <div className="admin-message warning">
+                {appInfo.deployment.startupWarnings.join(" ")}
+              </div>
+            ) : null}
+          </section>
+
+          <section className="admin-section">
+            <h3>Preferred commands</h3>
+            <div className="admin-inline-form">
+              <code className="admin-command-block">{appInfo?.updateCommand ?? "./update.sh --yes"}</code>
+              <button type="button" className="button button-secondary" onClick={() => void copyCommand("standard")}>
+                {copiedCommand === "standard" ? "Copied" : "Copy command"}
+              </button>
+            </div>
+            <div className="admin-inline-form">
+              <code className="admin-command-block">{appInfo?.updatePullCommand ?? "./update.sh --pull --yes"}</code>
+              <button type="button" className="button button-secondary" onClick={() => void copyCommand("pull")}>
+                {copiedCommand === "pull" ? "Copied" : "Copy pull-latest"}
+              </button>
+            </div>
+            <p className="subtitle">Use the first command for an already-updated checkout. Use the pull variant when this install should fetch the latest `main` changes before rebuilding.</p>
+            <div className="admin-message success">
+              Deployment guide: <code>{appInfo?.deploymentDocsPath ?? "docs/DEPLOYMENT.md"}</code>
+            </div>
+          </section>
+        </div>
       </section>
 
       <IntegrationsPanel properties={properties} />

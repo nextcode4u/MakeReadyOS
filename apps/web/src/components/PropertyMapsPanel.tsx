@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   BoardSection,
   LabelDefinition,
+  LeaseComplianceIssue,
   MakeReadyItem,
   PestIssue,
   PreventiveMaintenanceTask,
@@ -17,6 +18,7 @@ import type {
 } from "../lib/api";
 import {
   createPropertyMapPin,
+  getLeaseComplianceIssues,
   getPestIssues,
   getPreventiveMaintenanceTasks,
   getProjectMapRecords,
@@ -33,6 +35,7 @@ import {
   uploadPropertyMapPinAttachment,
 } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
+import { openLeaseQuickAdd } from "../lib/leaseNavigation";
 import { openPestQuickAdd } from "../lib/pestNavigation";
 import { openProjectCreate, openProjectRecord } from "../lib/projectNavigation";
 import { UnitSearchSelect } from "./UnitSearchSelect";
@@ -320,6 +323,11 @@ export function PropertyMapsPanel({
     queryFn: () => getPestIssues({ propertyId, limit: 300, includeArchived: false }),
     enabled: Boolean(propertyId),
   });
+  const leaseQuery = useQuery({
+    queryKey: ["property-map-lease", propertyId],
+    queryFn: () => getLeaseComplianceIssues({ propertyId, limit: 300, includeArchived: false }),
+    enabled: Boolean(propertyId),
+  });
   const pmQuery = useQuery({
     queryKey: ["property-map-pm", propertyId],
     queryFn: () => getPreventiveMaintenanceTasks({ propertyId, limit: 300 }),
@@ -365,6 +373,7 @@ export function PropertyMapsPanel({
 
   const wikiEntries = wikiQuery.data?.entries ?? [];
   const pestIssues = pestQuery.data?.issues ?? [];
+  const leaseIssues = leaseQuery.data?.issues ?? [];
   const pmTasks = pmQuery.data?.tasks ?? [];
   const projectRecords = (projectPinsQuery.data?.records ?? []).filter((record) => record.propertyMapId === selectedMap?.id && record.pinX !== null && record.pinY !== null);
   const customPins = pinsQuery.data?.pins ?? [];
@@ -394,9 +403,10 @@ export function PropertyMapsPanel({
   const linkedRecordOptions = useMemo(() => ({
     PROJECT_RECORD: projectPinsQuery.data?.records ?? [],
     PEST_ISSUE: pestIssues,
+    LEASE_COMPLIANCE_ISSUE: leaseIssues,
     PM_TASK: pmTasks,
     WIKI_ENTRY: wikiEntries,
-  }), [pestIssues, pmTasks, projectPinsQuery.data?.records, wikiEntries]);
+  }), [leaseIssues, pestIssues, pmTasks, projectPinsQuery.data?.records, wikiEntries]);
 
   const imagePreview = selectedMap?.mimeType?.startsWith("image/");
 
@@ -871,6 +881,7 @@ export function PropertyMapsPanel({
                   <option value="">No linked record</option>
                   <option value="PROJECT_RECORD">Project / Recommendation</option>
                   <option value="PEST_ISSUE">Pest Control</option>
+                  <option value="LEASE_COMPLIANCE_ISSUE">Lease Compliance</option>
                   <option value="PM_TASK">PM Task</option>
                   <option value="WIKI_ENTRY">Wiki Entry</option>
                 </select>
@@ -879,6 +890,7 @@ export function PropertyMapsPanel({
                     <option value="">Choose linked record</option>
                     {pinDraft.linkedRecordType === "PROJECT_RECORD" ? linkedRecordOptions.PROJECT_RECORD.map((record) => <option key={record.id} value={record.id}>{record.title}</option>) : null}
                     {pinDraft.linkedRecordType === "PEST_ISSUE" ? linkedRecordOptions.PEST_ISSUE.map((issue) => <option key={issue.id} value={issue.id}>{issue.unit?.number ?? issue.area ?? issue.pestType} / {issue.pestType}</option>) : null}
+                    {pinDraft.linkedRecordType === "LEASE_COMPLIANCE_ISSUE" ? linkedRecordOptions.LEASE_COMPLIANCE_ISSUE.map((issue: LeaseComplianceIssue) => <option key={issue.id} value={issue.id}>{issue.unit?.number ?? issue.area ?? issue.issueTypeName} / {issue.issueTypeName}</option>) : null}
                     {pinDraft.linkedRecordType === "PM_TASK" ? linkedRecordOptions.PM_TASK.map((task) => <option key={task.id} value={task.id}>{task.taskName}</option>) : null}
                     {pinDraft.linkedRecordType === "WIKI_ENTRY" ? linkedRecordOptions.WIKI_ENTRY.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>) : null}
                   </select>
@@ -978,6 +990,33 @@ export function PropertyMapsPanel({
                       >
                         Create Pest Request
                       </button>
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={() => {
+                          const location = selectedMarker.location;
+                          const unit = propertyUnits.find((entry) => entry.id === location.unitId) ?? location.unit;
+                          openLeaseQuickAdd({
+                            propertyId,
+                            unitId: location.unitId,
+                            building: location.building ?? unit.building ?? "",
+                            area: location.area ?? unit.area ?? "",
+                            source: "Grounds Walk",
+                            description: `Map follow-up for unit ${unit.number}.`,
+                            locationNotes: [location.building ? `Building ${location.building}` : null, location.area, location.floor].filter(Boolean).join(" / "),
+                            mapPin: {
+                              mapId: location.mapId,
+                              xPercent: location.xPercent,
+                              yPercent: location.yPercent,
+                              sourceRecordType: "UNIT_MAP_LOCATION",
+                              sourceRecordId: location.id,
+                              sourceRecordLabel: unit.number,
+                            },
+                          });
+                        }}
+                      >
+                        Create Lease Issue
+                      </button>
                     </>
                   ) : null}
                   {selectedMarker?.kind === "area" ? (
@@ -1013,6 +1052,28 @@ export function PropertyMapsPanel({
                         })}
                       >
                         Create Pest Request
+                      </button>
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={() => openLeaseQuickAdd({
+                          propertyId,
+                          building: selectedMarker.area.areaType === "BUILDING" ? selectedMarker.area.name : "",
+                          area: selectedMarker.area.areaType !== "BUILDING" ? selectedMarker.area.name : "",
+                          source: "Grounds Walk",
+                          description: `${selectedMarker.area.areaType} map follow-up.`,
+                          locationNotes: selectedMarker.area.notes || selectedMarker.area.name,
+                          mapPin: {
+                            mapId: selectedMarker.area.mapId,
+                            xPercent: selectedMarker.area.xPercent,
+                            yPercent: selectedMarker.area.yPercent,
+                            sourceRecordType: "PROPERTY_MAP_AREA",
+                            sourceRecordId: selectedMarker.area.id,
+                            sourceRecordLabel: selectedMarker.area.name,
+                          },
+                        })}
+                      >
+                        Create Lease Issue
                       </button>
                     </>
                   ) : null}
@@ -1050,6 +1111,28 @@ export function PropertyMapsPanel({
                         })}
                       >
                         Create Pest Request
+                      </button>
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={() => openLeaseQuickAdd({
+                          propertyId,
+                          building: selectedMarker.pin.building ?? "",
+                          area: selectedMarker.pin.area ?? selectedMarker.pin.title,
+                          source: "Grounds Walk",
+                          description: selectedMarker.pin.title,
+                          locationNotes: [selectedMarker.pin.description, selectedMarker.pin.unitLabel ? `Unit ${selectedMarker.pin.unitLabel}` : null].filter(Boolean).join("\n\n"),
+                          mapPin: {
+                            mapId: selectedMarker.pin.mapId,
+                            xPercent: selectedMarker.pin.xPercent,
+                            yPercent: selectedMarker.pin.yPercent,
+                            sourceRecordType: "PROPERTY_MAP_PIN",
+                            sourceRecordId: selectedMarker.pin.id,
+                            sourceRecordLabel: selectedMarker.pin.title,
+                          },
+                        })}
+                      >
+                        Create Lease Issue
                       </button>
                     </>
                   ) : null}

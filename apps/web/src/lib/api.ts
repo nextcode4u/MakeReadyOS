@@ -1817,8 +1817,54 @@ export type AutomationRun = {
   actionCount: number | null;
   warnings: string[] | null;
   errors: string[] | null;
+  context: AutomationRunContext | null;
   rule: Pick<AutomationRule, "id" | "name" | "triggerType">;
   item: { id: string; unitNumber: string; property: Property } | null;
+};
+export type AutomationAssignmentCandidate = {
+  userId: string;
+  fullName: string;
+  role: UserRole;
+  activeCount: number;
+  plannedCount: number;
+  plannedDayCount: number;
+  workloadScore: number;
+  status: "selected" | "eligible" | "daily-cap-blocked";
+  reason: string | null;
+};
+export type AutomationAssignmentDiagnostics = {
+  targetDate: string;
+  lookAheadDays: number;
+  includePlannedWork: boolean;
+  dailyAssignmentCap: number | null;
+  selectedUserId: string | null;
+  selectedUserName: string | null;
+  selectedReason: string | null;
+  candidates: AutomationAssignmentCandidate[];
+};
+export type AutomationActionSummary = {
+  type: string;
+  summary: string;
+  proposedValue?: unknown;
+  diagnostics?: {
+    assignment?: AutomationAssignmentDiagnostics;
+  };
+};
+export type AutomationRunContext = {
+  itemName?: string | null;
+  unitNumber?: string | null;
+  triggerType?: string;
+  triggerTypes?: string[];
+  cooldownHours?: number;
+  actionSummaries?: AutomationActionSummary[];
+  matchedItems?: Array<{
+    itemId: string;
+    propertyId: string;
+    propertyCode: string;
+    unitNumber: string;
+    actionSummaries: AutomationActionSummary[];
+  }>;
+  matchedItemsTruncated?: boolean;
 };
 export type AutomationExecutionResult = {
   mode: "MANUAL" | "SCHEDULED";
@@ -1856,6 +1902,15 @@ export type AutomationPreviewResponse = {
     source: "stored" | "draft";
   };
   matchingItemCount: number;
+  assignmentSummary: {
+    matchedActionCount: number;
+    assignedItemCount: number;
+    alreadyAssignedItemCount: number;
+    noEligibleStaffItemCount: number;
+    dailyCapBlockedItemCount: number;
+    otherBlockedItemCount: number;
+    selectedUsers: Array<{ fullName: string; count: number }>;
+  } | null;
   affectedItems: Array<{
     itemId: string;
     property: Property;
@@ -1866,7 +1921,7 @@ export type AutomationPreviewResponse = {
       all: Array<{ condition: AutomationCondition; matched: boolean }>;
       any: Array<{ condition: AutomationCondition; matched: boolean }>;
     };
-    proposedActions: Array<{ type: string; summary: string; proposedValue?: unknown }>;
+    proposedActions: AutomationActionSummary[];
     warnings: string[];
   }>;
   warnings: string[];
@@ -2172,6 +2227,35 @@ export type MetaResponse = {
   boardSections: BoardSection[];
   auth: {
     user: CurrentUser;
+  };
+  app: {
+    version: string;
+    releaseChannel: string;
+    buildRef: string | null;
+    buildDate: string | null;
+    updateCommand: string;
+    updatePullCommand: string;
+    deploymentDocsPath: string;
+    latestRelease: {
+      tag: string;
+      version: string;
+      publishedAt: string | null;
+      url: string | null;
+      updateAvailable: boolean;
+    } | null;
+    deployment: {
+      appUrl: string | null;
+      allowedOrigins: string[];
+      extraAllowedOrigins: string[];
+      trustedOrigins: string[];
+      trustedProxy: boolean;
+      secureCookies: boolean;
+      cookieDomain: string | null;
+      environment: "development" | "test" | "production";
+      selfHosted: boolean;
+      currentOrigin: string | null;
+      startupWarnings: string[];
+    };
   };
 };
 

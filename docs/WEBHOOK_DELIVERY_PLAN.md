@@ -11,7 +11,7 @@ Webhook endpoints can be registered in the Admin Integrations area. Delivery is 
 - `GET /api/admin/integrations/webhooks/:id/health` returns endpoint state, status counts, event counts, pending work, and latest failure metadata.
 - Admins can queue a signed test payload with `POST /api/admin/integrations/webhooks/:id/test-payload` and `{"enqueue": true}`.
 - `./run-webhooks.sh` processes queued attempts from inside the API container, signs payloads, applies an HTTP timeout, records responses, and retries failures with bounded backoff.
-- Core application writes now queue subscribed webhook events for item create/update/assignment/archive/restore, risk-level changes, comment creation, attachment create/delete, checklist item completion, vendor assignment changes, project record lifecycle, pest issue lifecycle, PM template/task lifecycle, and pool log entry creation.
+- Core application writes now queue subscribed webhook events for item create/update/assignment/archive/restore, risk-level changes, comment creation, attachment create/delete, checklist item completion, vendor assignment changes, project record lifecycle, pest issue lifecycle, PM template/task lifecycle, pool log entry creation, Property Map pin lifecycle, and Property Wiki entry/vendor/asset lifecycle.
 
 ## Runner Configuration
 

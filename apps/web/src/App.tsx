@@ -138,6 +138,7 @@ import { customFieldFilterChipLabel, customOperatorsByType, defaultCustomFilterF
 import { openWikiRecordEventName, type OpenWikiRecordRequest } from "./lib/wikiNavigation";
 import { openProjectCreateEventName, openProjectRecordEventName, type OpenProjectCreateRequest, type OpenProjectRecordRequest } from "./lib/projectNavigation";
 import { openPestQuickAddEventName, openPestWorkspaceEventName, type OpenPestQuickAddRequest, type OpenPestWorkspaceRequest } from "./lib/pestNavigation";
+import { openLeaseQuickAddEventName, type OpenLeaseQuickAddRequest } from "./lib/leaseNavigation";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel").then((module) => ({ default: module.AdminPanel })));
 const ActivityPanel = lazy(() => import("./components/ActivityPanel").then((module) => ({ default: module.ActivityPanel })));
@@ -321,6 +322,7 @@ function App() {
   const [projectCreateRequest, setProjectCreateRequest] = useState<(OpenProjectCreateRequest & { nonce: number }) | null>(null);
   const [pestQuickAddRequest, setPestQuickAddRequest] = useState<(OpenPestQuickAddRequest & { nonce: number }) | null>(null);
   const [pestWorkspaceRequest, setPestWorkspaceRequest] = useState<(OpenPestWorkspaceRequest & { nonce: number }) | null>(null);
+  const [leaseQuickAddRequest, setLeaseQuickAddRequest] = useState<(OpenLeaseQuickAddRequest & { nonce: number }) | null>(null);
   const queryClient = useQueryClient();
 
   const pushToast = (title: string, message: string | undefined, tone: ToastItem["tone"]) => {
@@ -409,6 +411,18 @@ function App() {
     };
     window.addEventListener(openPestWorkspaceEventName, handleOpenPestWorkspace as EventListener);
     return () => window.removeEventListener(openPestWorkspaceEventName, handleOpenPestWorkspace as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const handleOpenLeaseQuickAdd = (event: Event) => {
+      const detail = (event as CustomEvent<OpenLeaseQuickAddRequest>).detail;
+      if (!detail?.propertyId) return;
+      setPropertyId(detail.propertyId);
+      setLeaseQuickAddRequest({ ...detail, nonce: Date.now() });
+      setActiveView("lease");
+    };
+    window.addEventListener(openLeaseQuickAddEventName, handleOpenLeaseQuickAdd as EventListener);
+    return () => window.removeEventListener(openLeaseQuickAddEventName, handleOpenLeaseQuickAdd as EventListener);
   }, []);
 
   useEffect(() => {
@@ -2524,6 +2538,7 @@ function App() {
               users={adminUsersQuery.data?.users?.map((user) => ({ id: user.id, fullName: user.fullName, role: user.role })) ?? []}
               selectedPropertyId={propertyId}
               userRole={currentUser.role}
+              openQuickAddRequest={leaseQuickAddRequest}
             />
           ) : activeView === "pm" ? (
             <PreventiveMaintenancePanel
@@ -2678,6 +2693,7 @@ function App() {
               <AdminPanel
                 users={adminUsersQuery.data?.users ?? []}
                 properties={adminPropertiesQuery.data?.properties ?? []}
+                appInfo={metaQuery.data?.app ?? null}
                 currentUserId={currentUser.id}
                 loading={
                   adminUsersQuery.isLoading ||

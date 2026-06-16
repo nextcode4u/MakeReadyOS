@@ -108,7 +108,12 @@ run_check() {
     find "$ROOT_DIR/apps/api/prisma/migrations" -mindepth 1 -maxdepth 1 -type d | while read -r dir; do
       name="$(basename "$dir")"
       if [ -f "$dir/migration.sql" ]; then
-        checksum="$(sha256sum "$dir/migration.sql" | awk '{print $1}')"
+        checksum_db="$(awk -F '|' -v name="$name" '$1 == name { print $2; exit }' "$tmp_db")"
+        if [ -n "$checksum_db" ] && [ "${#checksum_db}" -eq 32 ]; then
+          checksum="$(md5sum "$dir/migration.sql" | awk '{print $1}')"
+        else
+          checksum="$(sha256sum "$dir/migration.sql" | awk '{print $1}')"
+        fi
         printf "%s|%s\n" "$name" "$checksum"
       fi
     done | sort > "$tmp_fs"

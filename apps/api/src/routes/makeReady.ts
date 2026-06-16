@@ -466,7 +466,7 @@ async function processItem(itemId: string, options: {
 
   const derived = computeDerivedFields(item);
   const customValues = Object.fromEntries(item.customFieldValues.map((value) => [value.customFieldId, value.value]));
-  const { next, logs, customFieldUpdates, auditNotes } = await applyAutomationRules({ ...item, ...derived }, definitions, customValues);
+  const { next, logs, customFieldUpdates, auditNotes, actionSummaries } = await applyAutomationRules({ ...item, ...derived }, definitions, customValues);
   const automationPatch: Record<string, unknown> = {};
   for (const field of editableFields) {
     if (next[field] !== item[field]) {
@@ -539,6 +539,7 @@ async function processItem(itemId: string, options: {
           itemName: updated.itemName,
           unitNumber: updated.unitNumber,
           triggerTypes: options.triggerTypes,
+          actionSummaries: actionSummaries.get(log.ruleId) ?? [],
         },
       })),
     });
