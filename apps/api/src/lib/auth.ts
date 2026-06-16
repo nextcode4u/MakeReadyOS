@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { User, UserPropertyAccess, UserRole } from "@prisma/client";
-import { authConfig, validateTrustedOrigin } from "./config.js";
+import { authConfig, deriveRequestOrigin, validateTrustedOrigin } from "./config.js";
 import { prisma } from "./prisma.js";
 
 export const AUTH_COOKIE_NAME = authConfig.sessionCookieName;
@@ -324,7 +324,13 @@ export async function requireCsrf(request: FastifyRequest, reply: FastifyReply) 
   }
 
   const origin = request.headers.origin;
-  if (!validateTrustedOrigin(origin)) {
+  const requestOrigin = deriveRequestOrigin({
+    host: request.headers.host,
+    protocol: request.protocol,
+    forwardedHost: typeof request.headers["x-forwarded-host"] === "string" ? request.headers["x-forwarded-host"] : undefined,
+    forwardedProto: typeof request.headers["x-forwarded-proto"] === "string" ? request.headers["x-forwarded-proto"] : undefined,
+  });
+  if (!validateTrustedOrigin(origin, requestOrigin)) {
     return reply.code(403).send({
       message: "Origin not allowed",
     });

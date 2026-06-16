@@ -84,6 +84,8 @@ Admins can also open `Admin -> Uploads / NAS Storage` to inspect the active uplo
 
 Admins can also open `Admin -> Deployment updates` to confirm the installed version, release channel, optional build ref/date metadata, optional latest GitHub release visibility, and copy the preferred `./update.sh` commands without opening the shell docs first. The actual update still runs on the host server.
 
+For normal self-hosted use, MakeReadyOS now accepts the request's own effective origin when `SELF_HOSTED=true`, so LAN-IP and hostname access through the same browser origin no longer requires every alias to be prelisted in `EXTRA_ALLOWED_ORIGINS`. Keep `APP_URL` pointed at the primary URL you expect operators to use, and use `EXTRA_ALLOWED_ORIGINS` only for deliberate additional origins such as a migration hostname, alternate reverse-proxy domain, or local development port.
+
 If you want the in-app update panel to show the latest published GitHub release, leave `APP_UPDATE_RELEASES_ENABLED=true` and point `APP_UPDATE_REPO` at the public repository:
 
 ```bash

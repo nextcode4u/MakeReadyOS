@@ -4,7 +4,7 @@ import multipart from "@fastify/multipart";
 import Fastify from "fastify";
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
-import { authConfig, validateTrustedOrigin } from "./lib/config.js";
+import { authConfig, deriveRequestOrigin, validateTrustedOrigin } from "./lib/config.js";
 import { loadSessionUser, requireApiTokenRateLimit, requireApiTokenScope, requireAuthenticated, requireCsrf } from "./lib/auth.js";
 import { openApiDocument } from "./lib/openapi.js";
 import { prisma } from "./lib/prisma.js";
@@ -60,15 +60,24 @@ if (diagnosticsEnabled) {
 }
 
 await app.register(cors, {
-  origin: (origin, callback) => {
-    if (validateTrustedOrigin(origin)) {
-      callback(null, true);
-      return;
-    }
-
-    callback(new Error("Origin not allowed"), false);
+  delegator: (request, callback) => {
+    const requestOrigin = deriveRequestOrigin({
+      host: request.headers.host,
+      protocol: request.protocol,
+      forwardedHost: typeof request.headers["x-forwarded-host"] === "string" ? request.headers["x-forwarded-host"] : undefined,
+      forwardedProto: typeof request.headers["x-forwarded-proto"] === "string" ? request.headers["x-forwarded-proto"] : undefined,
+    });
+    callback(null, {
+      origin: (origin, originCallback) => {
+        if (validateTrustedOrigin(origin, requestOrigin)) {
+          originCallback(null, true);
+          return;
+        }
+        originCallback(new Error("Origin not allowed"), false);
+      },
+      credentials: true,
+    });
   },
-  credentials: true,
 });
 
 await app.register(cookie, {

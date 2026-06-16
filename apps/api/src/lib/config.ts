@@ -250,7 +250,29 @@ export const authConfig = {
   startupWarnings,
 } as const;
 
-export function validateTrustedOrigin(origin?: string) {
+export function deriveRequestOrigin(input: { host?: string; protocol?: string; forwardedHost?: string; forwardedProto?: string }) {
+  const hostHeader = authConfig.trustProxy
+    ? input.forwardedHost?.split(",")[0]?.trim() || input.host?.trim()
+    : input.host?.trim();
+  if (!hostHeader) {
+    return null;
+  }
+
+  const protocolHeader = authConfig.trustProxy
+    ? input.forwardedProto?.split(",")[0]?.trim() || input.protocol?.trim()
+    : input.protocol?.trim();
+  const protocol = (protocolHeader || (authConfig.secureCookies ? "https" : "http")).toLowerCase() === "https"
+    ? "https"
+    : "http";
+
+  try {
+    return normalizeHttpOrigin(`${protocol}://${hostHeader}`);
+  } catch {
+    return null;
+  }
+}
+
+export function validateTrustedOrigin(origin?: string, requestOrigin?: string | null) {
   if (!origin) {
     return true;
   }
@@ -260,6 +282,10 @@ export function validateTrustedOrigin(origin?: string) {
     normalized = normalizeHttpOrigin(origin);
   } catch {
     return false;
+  }
+
+  if (requestOrigin && normalized === requestOrigin && authConfig.selfHosted) {
+    return true;
   }
 
   return authConfig.corsOrigins.includes(normalized)
