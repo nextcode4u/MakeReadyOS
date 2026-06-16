@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { UserRole } from "@prisma/client";
 import { z } from "zod";
-import { authConfig, validateTrustedOrigin } from "../lib/config.js";
+import { authConfig, deriveRequestOrigin, validateTrustedOrigin } from "../lib/config.js";
 import { clearAllSessionsForUser, clearSession, clientIpAddress, createSessionForUser, requireAuthenticated, requireCsrf, sanitizeUser } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { verifyPassword } from "../lib/password.js";
@@ -53,7 +53,13 @@ export async function authRoutes(app: FastifyInstance) {
   }
 
   app.post("/login", async (request, reply) => {
-    if (!validateTrustedOrigin(request.headers.origin)) {
+    const requestOrigin = deriveRequestOrigin({
+      host: request.headers.host,
+      protocol: request.protocol,
+      forwardedHost: typeof request.headers["x-forwarded-host"] === "string" ? request.headers["x-forwarded-host"] : undefined,
+      forwardedProto: typeof request.headers["x-forwarded-proto"] === "string" ? request.headers["x-forwarded-proto"] : undefined,
+    });
+    if (!validateTrustedOrigin(request.headers.origin, requestOrigin)) {
       reply.code(403);
       return { message: "Origin not allowed" };
     }
