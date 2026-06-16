@@ -18,7 +18,7 @@ By default this script:
   2. backs up uploads
   3. runs doctor.sh
   4. runs check-migration-hygiene.sh
-  5. runs npm --prefix apps/api run db:deploy
+  5. runs Prisma db:deploy on the host or inside the api container
   6. rebuilds and restarts docker compose
 
 Options:
@@ -27,7 +27,7 @@ Options:
   --skip-backups          Skip both backup-db.sh and backup-uploads.sh.
   --skip-doctor           Skip doctor.sh.
   --skip-migration-check  Skip check-migration-hygiene.sh.
-  --skip-db-deploy        Skip npm --prefix apps/api run db:deploy.
+  --skip-db-deploy        Skip Prisma db:deploy.
   --skip-rebuild          Skip docker compose up --build -d.
   --yes                   Do not prompt for confirmation.
   -h, --help              Show this help text.
@@ -44,6 +44,21 @@ require_command() {
     echo "ERROR: required command not found: $1"
     exit 1
   }
+}
+
+have_command() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+run_db_deploy() {
+  if have_command node && have_command npm; then
+    echo "Running Prisma db:deploy on the host"
+    npm --prefix apps/api run db:deploy
+    return
+  fi
+
+  echo "Host node/npm not found. Running Prisma db:deploy inside the api container"
+  docker compose exec -T api npm run db:deploy
 }
 
 confirm() {
@@ -111,8 +126,6 @@ run_update() {
   cd "$ROOT_DIR"
 
   require_command docker
-  require_command node
-  require_command npm
 
   if [ "$pull_latest" = "true" ] || [ -n "$git_ref" ]; then
     require_command git
@@ -192,7 +205,7 @@ run_update() {
 
   if [ "$skip_db_deploy" != "true" ]; then
     echo "Running Prisma db:deploy"
-    npm --prefix apps/api run db:deploy
+    run_db_deploy
     echo
   else
     echo "Skipping Prisma db:deploy"

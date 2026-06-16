@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { makeReadyExportCsvUrl, makeReadyPdfReportUrl, type CurrentUser, type Property, type UserLanguage } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import type { ClockMode } from "../lib/dateTime";
@@ -77,22 +78,65 @@ export function FilterBar({
   onOpenOnboarding,
   onLogout,
 }: Props) {
+  const [isMobileLayout, setIsMobileLayout] = useState(() => typeof window !== "undefined" && window.innerWidth <= 860);
+  const [mobileViewsOpen, setMobileViewsOpen] = useState(false);
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
+
+  useEffect(() => {
+    const update = () => setIsMobileLayout(window.innerWidth <= 860);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileLayout) {
+      setMobileViewsOpen(false);
+      setMobileToolsOpen(false);
+    }
+  }, [isMobileLayout]);
+
+  function viewLabel(view: Props["activeView"]) {
+    switch (view) {
+      case "table": return t(language, "nav.table");
+      case "kanban": return t(language, "nav.kanban");
+      case "calendar": return t(language, "nav.schedule");
+      case "mywork": return t(language, "nav.myWork");
+      case "planning": return t(language, "nav.planning");
+      case "dashboard": return t(language, "nav.dashboard");
+      case "activity": return t(language, "nav.activity");
+      case "maps": return t(language, "nav.maps");
+      case "pond": return t(language, "nav.pond");
+      case "vendors": return t(language, "nav.vendors");
+      case "automations": return t(language, "nav.automations");
+      case "operations": return t(language, "nav.setup");
+      case "fields": return t(language, "nav.fields");
+      case "admin": return t(language, "nav.admin");
+      default: return "Workspace";
+    }
+  }
+
+  const handleMobileViewChange = (value: Props["activeView"]) => {
+    onViewChange(value);
+    setMobileViewsOpen(false);
+  };
+
   const operationViews = (
     <div className="nav-group" data-testid="nav-group-operations">
       <span className="nav-group-label">{t(language, "nav.operations")}</span>
-      <button data-testid="tab-table" className={activeView === "table" ? "tab active" : "tab"} onClick={() => onViewChange("table")} role="tab" aria-selected={activeView === "table"}>
+      <button data-testid="tab-table" className={activeView === "table" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("table") : onViewChange("table"))} role="tab" aria-selected={activeView === "table"}>
         {t(language, "nav.table")}
       </button>
-      <button data-testid="tab-kanban" className={activeView === "kanban" ? "tab active" : "tab"} onClick={() => onViewChange("kanban")} role="tab" aria-selected={activeView === "kanban"}>
+      <button data-testid="tab-kanban" className={activeView === "kanban" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("kanban") : onViewChange("kanban"))} role="tab" aria-selected={activeView === "kanban"}>
         {t(language, "nav.kanban")}
       </button>
-      <button data-testid="tab-calendar" className={activeView === "calendar" ? "tab active" : "tab"} onClick={() => onViewChange("calendar")} role="tab" aria-selected={activeView === "calendar"}>
+      <button data-testid="tab-calendar" className={activeView === "calendar" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("calendar") : onViewChange("calendar"))} role="tab" aria-selected={activeView === "calendar"}>
         {t(language, "nav.schedule")}
       </button>
-      <button data-testid="tab-my-work" className={activeView === "mywork" ? "tab active" : "tab"} onClick={() => onViewChange("mywork")} role="tab" aria-selected={activeView === "mywork"}>
+      <button data-testid="tab-my-work" className={activeView === "mywork" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("mywork") : onViewChange("mywork"))} role="tab" aria-selected={activeView === "mywork"}>
         {t(language, "nav.myWork")}
       </button>
-      <button data-testid="tab-planning" className={activeView === "planning" ? "tab active" : "tab"} onClick={() => onViewChange("planning")} role="tab" aria-selected={activeView === "planning"}>
+      <button data-testid="tab-planning" className={activeView === "planning" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("planning") : onViewChange("planning"))} role="tab" aria-selected={activeView === "planning"}>
         {t(language, "nav.planning")}
       </button>
     </div>
@@ -100,18 +144,18 @@ export function FilterBar({
   const visibilityViews = (
     <div className="nav-group" data-testid="nav-group-visibility">
       <span className="nav-group-label">{t(language, "nav.visibility")}</span>
-      <button data-testid="tab-dashboard" className={activeView === "dashboard" ? "tab active" : "tab"} onClick={() => onViewChange("dashboard")} role="tab" aria-selected={activeView === "dashboard"}>
-        {t(language, "nav.dashboard")}
-      </button>
+        <button data-testid="tab-dashboard" className={activeView === "dashboard" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("dashboard") : onViewChange("dashboard"))} role="tab" aria-selected={activeView === "dashboard"}>
+          {t(language, "nav.dashboard")}
+        </button>
       {showActivity ? (
-        <button data-testid="tab-activity" className={activeView === "activity" ? "tab active" : "tab"} onClick={() => onViewChange("activity")} role="tab" aria-selected={activeView === "activity"}>
+        <button data-testid="tab-activity" className={activeView === "activity" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("activity") : onViewChange("activity"))} role="tab" aria-selected={activeView === "activity"}>
           {t(language, "nav.activity")}
         </button>
       ) : null}
-      <button data-testid="tab-maps" className={activeView === "maps" ? "tab active" : "tab"} onClick={() => onViewChange("maps")} role="tab" aria-selected={activeView === "maps"}>
+      <button data-testid="tab-maps" className={activeView === "maps" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("maps") : onViewChange("maps"))} role="tab" aria-selected={activeView === "maps"}>
         {t(language, "nav.maps")}
       </button>
-      <button data-testid="tab-pond" className={activeView === "pond" ? "tab active" : "tab"} onClick={() => onViewChange("pond")} role="tab" aria-selected={activeView === "pond"}>
+      <button data-testid="tab-pond" className={activeView === "pond" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("pond") : onViewChange("pond"))} role="tab" aria-selected={activeView === "pond"}>
         {t(language, "nav.pond")}
       </button>
     </div>
@@ -120,12 +164,12 @@ export function FilterBar({
     <div className="nav-group" data-testid="nav-group-management">
       <span className="nav-group-label">{t(language, "nav.manage")}</span>
       {showVendors ? (
-        <button data-testid="tab-vendors" className={activeView === "vendors" ? "tab active" : "tab"} onClick={() => onViewChange("vendors")} role="tab" aria-selected={activeView === "vendors"}>
+        <button data-testid="tab-vendors" className={activeView === "vendors" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("vendors") : onViewChange("vendors"))} role="tab" aria-selected={activeView === "vendors"}>
           {t(language, "nav.vendors")}
         </button>
       ) : null}
       {showAutomations ? (
-        <button data-testid="tab-automations" className={activeView === "automations" ? "tab active" : "tab"} onClick={() => onViewChange("automations")} role="tab" aria-selected={activeView === "automations"}>
+        <button data-testid="tab-automations" className={activeView === "automations" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("automations") : onViewChange("automations"))} role="tab" aria-selected={activeView === "automations"}>
           {t(language, "nav.automations")}
         </button>
       ) : null}
@@ -135,22 +179,161 @@ export function FilterBar({
     <div className="nav-group" data-testid="nav-group-admin">
       <span className="nav-group-label">{t(language, "nav.admin")}</span>
       {showOperations ? (
-        <button data-testid="tab-operations" className={activeView === "operations" ? "tab active" : "tab"} onClick={() => onViewChange("operations")} role="tab" aria-selected={activeView === "operations"}>
+        <button data-testid="tab-operations" className={activeView === "operations" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("operations") : onViewChange("operations"))} role="tab" aria-selected={activeView === "operations"}>
           {t(language, "nav.setup")}
         </button>
       ) : null}
       {showFieldManager ? (
-        <button data-testid="tab-fields" className={activeView === "fields" ? "tab active" : "tab"} onClick={() => onViewChange("fields")} role="tab" aria-selected={activeView === "fields"}>
+        <button data-testid="tab-fields" className={activeView === "fields" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("fields") : onViewChange("fields"))} role="tab" aria-selected={activeView === "fields"}>
           {t(language, "nav.fields")}
         </button>
       ) : null}
       {showAdmin ? (
-        <button data-testid="tab-admin" className={activeView === "admin" ? "tab active" : "tab"} onClick={() => onViewChange("admin")} role="tab" aria-selected={activeView === "admin"}>
+        <button data-testid="tab-admin" className={activeView === "admin" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("admin") : onViewChange("admin"))} role="tab" aria-selected={activeView === "admin"}>
           {t(language, "nav.admin")}
         </button>
       ) : null}
     </div>
   ) : null;
+
+  if (isMobileLayout) {
+    return (
+      <header className="filterbar mobile-filterbar">
+        <div className="operations-brand mobile-operations-brand">
+          <div className="mobile-operations-brand-copy">
+            <h1>MakeReadyOS</h1>
+            <span className="operations-user">{currentUser.fullName}</span>
+          </div>
+          <span className="role-chip">{currentUser.role}</span>
+        </div>
+
+        <div className="mobile-filterbar-main" aria-label="Board essentials">
+          <select data-testid="property-filter" value={selectedPropertyId} onChange={(event) => onPropertyChange(event.target.value)} aria-label="Filter by property">
+            <option value="">{t(language, "nav.allProperties")}</option>
+            {properties.map((property) => (
+              <option key={property.id} value={property.id}>
+                {property.code} · {property.name}
+              </option>
+            ))}
+          </select>
+          <input
+            data-testid="board-search"
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder={t(language, "nav.searchPlaceholder")}
+            aria-label="Search board items"
+          />
+          <div className="mobile-filterbar-actions">
+            <button type="button" className={mobileViewsOpen ? "button mobile-filter-toggle active" : "button button-secondary mobile-filter-toggle"} onClick={() => setMobileViewsOpen((current) => !current)}>
+              View: {viewLabel(activeView)}
+            </button>
+            <button type="button" className={mobileToolsOpen ? "button mobile-filter-toggle active" : "button button-secondary mobile-filter-toggle"} onClick={() => setMobileToolsOpen((current) => !current)}>
+              Tools
+            </button>
+          </div>
+        </div>
+
+        {mobileViewsOpen ? (
+          <nav className="tabset mobile-tabset" role="tablist" aria-label="Primary workspace views">
+            {operationViews}
+            {visibilityViews}
+            {managementViews}
+            {adminViews}
+          </nav>
+        ) : null}
+
+        {mobileToolsOpen ? (
+          <div className="filters mobile-filters-panel" aria-label="Board tools">
+            <button data-testid="command-palette-button" className="button button-secondary command-button" type="button" onClick={onOpenCommandPalette} aria-label="Open quick search">
+              {t(language, "nav.search")} <kbd>Ctrl K</kbd>
+            </button>
+            {(showAdmin || showOperations) ? (
+              <button data-testid="onboarding-open" className="button button-secondary" type="button" onClick={onOpenOnboarding}>
+                {t(language, "nav.guide")}
+              </button>
+            ) : null}
+            <label className="compact-toggle" title="Reduce spacing to show more board rows">
+              <input
+                data-testid="compact-mode-toggle"
+                type="checkbox"
+                checked={compactMode}
+                onChange={(event) => onCompactModeChange(event.target.checked)}
+              />
+              {t(language, "nav.compact")}
+            </label>
+            <label className="toolbar-select" title="Choose workspace color theme">
+              <span className="sr-only">Theme</span>
+              <select data-testid="theme-mode-select" aria-label="Theme mode" value={themeMode} onChange={(event) => onThemeModeChange(event.target.value as ThemeMode)}>
+                <option value="default">{t(language, "nav.defaultTheme")}</option>
+                <option value="dark">{t(language, "nav.darkTheme")}</option>
+                <option value="light">{t(language, "nav.lightTheme")}</option>
+              </select>
+            </label>
+            <label className="toolbar-select compact-clock-select" title="Choose timestamp display">
+              <span className="sr-only">Clock</span>
+              <select data-testid="clock-mode-select" aria-label="Clock mode" value={clockMode} onChange={(event) => onClockModeChange(event.target.value as ClockMode)}>
+                <option value="12h">12 hr</option>
+                <option value="24h">24 hr</option>
+              </select>
+            </label>
+            <label className="toolbar-select compact-language-select" title="Choose interface language">
+              <span className="sr-only">{t(language, "language.label")}</span>
+              <select data-testid="language-select" aria-label={t(language, "language.label")} value={language} onChange={(event) => onLanguageChange(event.target.value as UserLanguage)}>
+                {languageOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.value === "en" ? t(language, "language.english") : t(language, "language.spanish")}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="compact-toggle" title="Soften high-contrast surfaces for extended viewing">
+              <input
+                data-testid="eye-strain-mode-toggle"
+                type="checkbox"
+                aria-label="Eye-strain mode"
+                checked={eyeStrainMode}
+                onChange={(event) => onEyeStrainModeChange(event.target.checked)}
+              />
+              {t(language, "nav.eyeStrain")}
+            </label>
+            <label className="compact-toggle" title="Use OpenDyslexic with relaxed reading spacing">
+              <input
+                data-testid="dyslexia-mode-toggle"
+                type="checkbox"
+                aria-label="Dyslexia mode"
+                checked={dyslexiaMode}
+                onChange={(event) => onDyslexiaModeChange(event.target.checked)}
+              />
+              {t(language, "nav.dyslexia")}
+            </label>
+            {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
+              <label className="toolbar-select archive-mode-select" title="Choose active turns, archive history, or both">
+                <span className="sr-only">Archive mode</span>
+                <select data-testid="top-archive-mode" aria-label="Archive mode" value={archiveMode} onChange={(event) => onArchiveModeChange(event.target.value as ArchiveMode)}>
+                  <option value="active">{t(language, "nav.activeItems")}</option>
+                  <option value="archived">{t(language, "nav.archiveOnly")}</option>
+                  <option value="occupied">{t(language, "nav.occupied")}</option>
+                  <option value="all">{t(language, "nav.activeArchive")}</option>
+                </select>
+              </label>
+            ) : null}
+            <a data-testid="export-csv" className="button button-secondary export-button" href={makeReadyExportCsvUrl({ propertyId: selectedPropertyId || undefined })}>
+              {t(language, "nav.export")}
+            </a>
+            <a data-testid="export-pdf" className="button button-secondary export-button" href={makeReadyPdfReportUrl({ propertyId: selectedPropertyId || undefined })} target="_blank" rel="noreferrer">
+              PDF
+            </a>
+            <button data-testid="notifications-button" className="button button-secondary notification-button" onClick={onOpenNotifications} aria-label={`${notificationUnreadCount} unread notifications`}>
+              {t(language, "nav.alerts")}{notificationUnreadCount > 0 ? <strong>{notificationUnreadCount}</strong> : null}
+            </button>
+            <button data-testid="logout-button" className="button button-secondary" onClick={() => void onLogout()}>
+              {t(language, "nav.logout")}
+            </button>
+          </div>
+        ) : null}
+      </header>
+    );
+  }
 
   return (
     <header className="filterbar">

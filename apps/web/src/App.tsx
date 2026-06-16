@@ -275,7 +275,7 @@ function App() {
   const [structuredFilters, setStructuredFilters] = useState<StructuredFilters>(defaultStructuredFilters);
   const [visibleColumns, setVisibleColumns] = useState<string[] | null>(null);
   const [customFieldToAdd, setCustomFieldToAdd] = useState("");
-  const [tableFiltersOpen, setTableFiltersOpen] = useState(true);
+  const [tableFiltersOpen, setTableFiltersOpen] = useState(() => typeof window !== "undefined" ? window.innerWidth > 860 : true);
   const [loginError, setLoginError] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
   const [adminError, setAdminError] = useState("");

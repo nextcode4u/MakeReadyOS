@@ -71,6 +71,19 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
+Before exposing the app beyond `localhost`, set `APP_URL` in `.env` to the real browser URL operators will use:
+
+```bash
+APP_URL=http://192.168.0.105:8080
+```
+
+Reverse-proxy / DuckDNS example:
+
+```bash
+APP_URL=https://csmros.duckdns.org
+TRUST_PROXY=true
+```
+
 Open:
 
 - Web UI: `http://localhost:8080`
@@ -156,6 +169,19 @@ Restore scripts are intentionally confirmation-gated:
 ```
 
 See [docs/BACKUP_AND_TRANSFER.md](docs/BACKUP_AND_TRANSFER.md), [docs/DISASTER_RECOVERY.md](docs/DISASTER_RECOVERY.md), and [docs/SCHEDULED_BACKUPS.md](docs/SCHEDULED_BACKUPS.md).
+
+## Updates
+
+For most self-hosted installs:
+
+```bash
+./update.sh --pull --yes
+```
+
+`update.sh` now works on both:
+
+- hosts with local `node`/`npm`
+- Docker-only hosts where Prisma migration deploy should run inside the `api` container
 
 Photo uploads are local-first. `MAX_UPLOAD_MB=0` disables MakeReadyOS' per-file API limit so high-resolution phone/HDR photos are not blocked by the app, though browsers, disk space, and external reverse proxies can still impose limits. The inspection gallery supports multi-file upload, in-app preview, markup pins, explicit per-file download, and filtered ZIP export. Use `UPLOADS_HOST_PATH` when uploads should live on a host directory, external drive, or NAS/Samba mount. The Admin storage screen can inspect the active upload path, validate a proposed NAS path, and route new uploads into property-specific subfolders, but Docker still needs the host path mounted and the stack restarted. Existing root-level upload files can be previewed and moved into property folders with `./route-existing-uploads.sh`.
 

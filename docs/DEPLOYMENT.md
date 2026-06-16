@@ -64,6 +64,43 @@ Set `TRUST_PROXY=true` when MakeReadyOS is running behind Caddy, Nginx, Traefik,
 
 `SELF_HOSTED=true` is the default deployment model and keeps origin handling centered on `APP_URL` plus `EXTRA_ALLOWED_ORIGINS`. `CORS_ORIGIN` remains as a deprecated fallback only for older installs.
 
+## Common Self-Hosted Origin Setups
+
+### Direct LAN Access
+
+If users open the app directly by LAN IP and port:
+
+```bash
+APP_URL=http://192.168.0.105:8080
+SELF_HOSTED=true
+TRUST_PROXY=false
+EXTRA_ALLOWED_ORIGINS=http://localhost:8080,http://localhost:5173
+```
+
+### DuckDNS / Reverse Proxy / HTTPS
+
+If users open the app through a public hostname and your outer proxy terminates HTTPS:
+
+```bash
+APP_URL=https://csmros.duckdns.org
+SELF_HOSTED=true
+TRUST_PROXY=true
+EXTRA_ALLOWED_ORIGINS=http://localhost:8080,http://localhost:5173
+```
+
+With `TRUST_PROXY=true`, the API trusts the forwarded scheme/host from the outer proxy and preserves HTTPS origin validation/cookie behavior correctly.
+
+### Mixed Local And Public Access
+
+If operators sometimes use a public hostname and sometimes use a LAN URL:
+
+```bash
+APP_URL=https://csmros.duckdns.org
+SELF_HOSTED=true
+TRUST_PROXY=true
+EXTRA_ALLOWED_ORIGINS=http://192.168.0.105:8080,http://localhost:8080,http://localhost:5173
+```
+
 For public deployments that allow admins to register webhook endpoints, set `WEBHOOK_ALLOW_PRIVATE_URLS=false` unless you intentionally deliver webhooks to local/LAN services. Use `WEBHOOK_ALLOWED_HOSTS` for explicit trusted exceptions.
 
 Leave demo user variables set only for evaluation environments. Remove or rotate demo credentials before real use.
@@ -111,7 +148,7 @@ This helper:
 2. runs `./backup-uploads.sh`
 3. runs `./doctor.sh`
 4. runs `./check-migration-hygiene.sh`
-5. runs `npm --prefix apps/api run db:deploy`
+5. runs Prisma `db:deploy` on the host when `node`/`npm` are installed, or inside the running `api` container for Docker-only installs
 6. runs `docker compose up --build -d`
 
 If you also want the script to pull the latest git changes first:
@@ -133,7 +170,7 @@ Manual equivalent:
 3. Pull or copy the updated source.
 4. Run `./doctor.sh`.
 5. Run `./check-migration-hygiene.sh`.
-6. Run `npm --prefix apps/api run db:deploy` for production migration deployment.
+6. Run `npm --prefix apps/api run db:deploy` for production migration deployment, or `docker compose exec -T api npm run db:deploy` on Docker-only hosts without local Node.js.
 7. Run `docker compose up --build -d`.
 
 The API container also runs `db:deploy` on start and falls back to `db:push` for early disposable environments. For production-like deployments, run `db:deploy` intentionally after a backup so schema changes are explicit.

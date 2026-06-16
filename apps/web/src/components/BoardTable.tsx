@@ -649,62 +649,80 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
       <div className="mobile-board-list" data-testid="mobile-board-list">
         {orderedItems.map((item) => (
           <article key={item.id} className={item.overdue ? "mobile-board-card overdue" : item.moveInSoon ? "mobile-board-card soon" : "mobile-board-card"}>
-            <header>
-              {canManageItems && !isOccupiedDirectoryItem(item) ? <input data-testid={`mobile-select-${slug(item.unitNumber)}`} type="checkbox" checked={selectedSet.has(item.id)} onChange={() => toggleSelected(item.id)} aria-label={`Select ${item.unitNumber}`} /> : null}
-              <div>
-                <strong>{item.unitNumber}</strong>
-                <span>{item.property.code} / {item.floorPlan ?? "No floor plan"}</span>
-              </div>
-              <LabelPill value={item.vacancyStatus} label={item.vacancyStatus ? labelsByField.vacancyStatus?.[item.vacancyStatus] : undefined} muted />
-              {!isOccupiedDirectoryItem(item) ? (
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button type="button" className="item-details-button" data-testid={`mobile-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={`Open details for ${item.unitNumber}`}>Details</button>
+            <header className="mobile-board-card-header">
+              <div className="mobile-board-card-identity-wrap">
+                {canManageItems && !isOccupiedDirectoryItem(item) ? <input data-testid={`mobile-select-${slug(item.unitNumber)}`} type="checkbox" checked={selectedSet.has(item.id)} onChange={() => toggleSelected(item.id)} aria-label={`Select ${item.unitNumber}`} /> : null}
+                <div className="mobile-board-card-identity">
+                  <div className="mobile-board-card-title-row">
+                    <strong>{item.unitNumber}</strong>
+                    <LabelPill value={item.vacancyStatus} label={item.vacancyStatus ? labelsByField.vacancyStatus?.[item.vacancyStatus] : undefined} muted />
+                  </div>
+                  <span>{item.property.code} · {item.floorPlan ?? "No floor plan"}</span>
+                  <small>{boardGroupLabel(item.boardGroup, item.propertyId, boardSections)} · {item.assignedTech || "Unassigned tech"}</small>
                 </div>
+              </div>
+              {!isOccupiedDirectoryItem(item) ? (
+                <button type="button" className="item-details-button mobile-board-open" data-testid={`mobile-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={`Open details for ${item.unitNumber}`}>Open</button>
               ) : null}
             </header>
-            <dl>
-              <div><dt>Section</dt><dd>{boardGroupLabel(item.boardGroup, item.propertyId, boardSections)}</dd></div>
-              <div><dt>Make Ready</dt><dd><LabelPill value={item.makeReadyStatus} label={item.makeReadyStatus ? labelsByField.makeReadyStatus?.[item.makeReadyStatus] : undefined} muted /></dd></div>
+            <div className="mobile-board-card-status-grid">
               <div>
-                <dt>Pest</dt>
-                <dd>
-                  {!isOccupiedDirectoryItem(item) ? (
-                    <button
-                      type="button"
-                      className="cell-button"
-                      data-testid={`mobile-pest-status-${slug(item.unitNumber)}`}
-                      onClick={() => openPestForItem(item)}
-                      aria-label={`${hasActivePestIssue(item) ? "Open" : "Create"} pest record for ${item.unitNumber}`}
-                    >
-                      <LabelPill value={item.pestStatus} label={item.pestStatus ? labelsByField.pestStatus?.[item.pestStatus] : undefined} muted />
-                    </button>
-                  ) : (
+                <span>Make Ready</span>
+                <LabelPill value={item.makeReadyStatus} label={item.makeReadyStatus ? labelsByField.makeReadyStatus?.[item.makeReadyStatus] : undefined} muted />
+              </div>
+              <div>
+                <span>Move-In</span>
+                <strong>{item.moveInDate ? formatDateDisplay(item.moveInDate) : "—"}</strong>
+              </div>
+              <div>
+                <span>Pest</span>
+                {!isOccupiedDirectoryItem(item) ? (
+                  <button
+                    type="button"
+                    className="cell-button mobile-status-button"
+                    data-testid={`mobile-pest-status-${slug(item.unitNumber)}`}
+                    onClick={() => openPestForItem(item)}
+                    aria-label={`${hasActivePestIssue(item) ? "Open" : "Create"} pest record for ${item.unitNumber}`}
+                  >
                     <LabelPill value={item.pestStatus} label={item.pestStatus ? labelsByField.pestStatus?.[item.pestStatus] : undefined} muted />
-                  )}
-                </dd>
+                  </button>
+                ) : (
+                  <LabelPill value={item.pestStatus} label={item.pestStatus ? labelsByField.pestStatus?.[item.pestStatus] : undefined} muted />
+                )}
               </div>
               <div>
-                <dt>Pest Treated</dt>
-                <dd>
-                  {!isOccupiedDirectoryItem(item) ? (
-                    <button
-                      type="button"
-                      className="cell-button"
-                      data-testid={`mobile-pest-treated-${slug(item.unitNumber)}`}
-                      onClick={() => openPestForItem(item)}
-                      aria-label={`${hasActivePestIssue(item) ? "Open" : "Create"} pest treatment record for ${item.unitNumber}`}
-                    >
-                      <LabelPill value={item.pestTreated} label={item.pestTreated ? labelsByField.pestTreated?.[item.pestTreated] : undefined} muted />
-                    </button>
-                  ) : (
+                <span>Pest Treated</span>
+                {!isOccupiedDirectoryItem(item) ? (
+                  <button
+                    type="button"
+                    className="cell-button mobile-status-button"
+                    data-testid={`mobile-pest-treated-${slug(item.unitNumber)}`}
+                    onClick={() => openPestForItem(item)}
+                    aria-label={`${hasActivePestIssue(item) ? "Open" : "Create"} pest treatment record for ${item.unitNumber}`}
+                  >
                     <LabelPill value={item.pestTreated} label={item.pestTreated ? labelsByField.pestTreated?.[item.pestTreated] : undefined} muted />
-                  )}
-                </dd>
+                  </button>
+                ) : (
+                  <LabelPill value={item.pestTreated} label={item.pestTreated ? labelsByField.pestTreated?.[item.pestTreated] : undefined} muted />
+                )}
               </div>
-              <div><dt>Move-In</dt><dd>{item.moveInDate ? formatDateDisplay(item.moveInDate) : "-"}</dd></div>
+            </div>
+            <dl className="mobile-board-card-detail-grid">
+              <div><dt>Section</dt><dd>{boardGroupLabel(item.boardGroup, item.propertyId, boardSections)}</dd></div>
               <div><dt>Tech</dt><dd>{item.assignedTech || "Unassigned"}</dd></div>
+              <div><dt>Vacated</dt><dd>{item.vacatedDate ? formatDateDisplay(item.vacatedDate) : "—"}</dd></div>
+              <div><dt>Days Vacant</dt><dd>{item.daysVacant ?? "—"}</dd></div>
             </dl>
             {item.overdue ? <p className="mobile-alert danger">Overdue make-ready</p> : item.moveInSoon ? <p className="mobile-alert warning">Move-in approaching</p> : null}
+            <details className="mobile-board-card-more">
+              <summary>More status</summary>
+              <dl>
+                <div><dt>Flooring</dt><dd>{item.flooringDate ? formatDateDisplay(item.flooringDate) : "—"}</dd></div>
+                <div><dt>Move-Out</dt><dd>{item.moveOutDate ? formatDateDisplay(item.moveOutDate) : "—"}</dd></div>
+                <div><dt>Completion</dt><dd><LabelPill value={item.completionStatus} label={item.completionStatus ? labelsByField.completionStatus?.[item.completionStatus] : undefined} muted /></dd></div>
+                <div><dt>Ready Date</dt><dd>{item.makeReadyDate ? formatDateDisplay(item.makeReadyDate) : "—"}</dd></div>
+              </dl>
+            </details>
           </article>
         ))}
       </div>
