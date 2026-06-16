@@ -28,81 +28,101 @@ enum CustomFieldType {
 }
 
 model Property {
-  id               String             @id @default(cuid())
-  name             String
-  code             String             @unique
-  occupancyGoalPercent Float?
-  uploadStorageMode String            @default("DEFAULT")
-  uploadSubdir      String?
-  isActive         Boolean            @default(true)
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
-  units            Unit[]
-  floorPlans       FloorPlan[]
-  makeReadyItems   MakeReadyItem[]
-  refrigerantLogs  RefrigerantLog[]
-  poolFacilities PoolFacility[]
-  poolChemicals PoolChemical[]
-  poolChemistryTargets PoolChemistryTarget[]
-  poolLogEntries PoolLogEntry[]
-  poolLogAttachments PoolLogAttachment[]
-  poolChemicalLogs PoolChemicalLog[]
-  pmTemplates     PreventiveMaintenanceTemplate[]
-  pmTasks         PreventiveMaintenanceTask[]
-  pmTaskAttachments PreventiveMaintenanceTaskAttachment[]
-  wikiProfile      PropertyWikiProfile?
-  wikiEntries      PropertyWikiEntry[]
-  wikiVendors      PropertyWikiVendor[]
-  wikiAssets       PropertyWikiAsset[]
-  wikiFavorites    PropertyWikiFavorite[]
-  wikiRecentViews  PropertyWikiRecentView[]
-  wikiReferences   PropertyWikiReference[]
-  pestIssues       PestIssue[]
-  notes            PropertyNote[]
-  checklistTemplates ChecklistTemplate[]
-  checklistInstances ChecklistInstance[]
-  itemComments       ItemComment[]
-  itemAttachments    ItemAttachment[]
-  chargePriceSheetItems ChargePriceSheetItem[]
-  vendorServiceAreas VendorServiceArea[]
-  vendorAssignments  VendorAssignment[]
-  workAssignmentBlocks WorkAssignmentBlock[]
-  propertyMaps     PropertyMap[]
-  propertyMapAreas PropertyMapArea[]
-  unitMapLocations UnitMapLocation[]
-  dailyMetricSnapshots PropertyDailyMetricSnapshot[]
-  userAccess       UserPropertyAccess[]
-  auditLogs        AuditLog[]
-  automationRules  AutomationRule[]
-  boardSections    BoardSection[]
-  operatingCalendar OperatingCalendar?
-  riskPolicy       PropertyRiskPolicy?
-  notifications    Notification[]
-  apiTokenScopes   ApiTokenPropertyScope[]
-  webhookScopes    WebhookPropertyScope[]
+  id                        String                                @id @default(cuid())
+  name                      String
+  code                      String                                @unique
+  occupancyGoalPercent      Float?
+  uploadStorageMode         String                                @default("DEFAULT")
+  uploadSubdir              String?
+  isActive                  Boolean                               @default(true)
+  createdAt                 DateTime                              @default(now())
+  updatedAt                 DateTime                              @updatedAt
+  units                     Unit[]
+  floorPlans                FloorPlan[]
+  makeReadyItems            MakeReadyItem[]
+  refrigerantLogs           RefrigerantLog[]
+  poolFacilities            PoolFacility[]
+  poolChemicals             PoolChemical[]
+  poolChemistryTargets      PoolChemistryTarget[]
+  poolLogEntries            PoolLogEntry[]
+  poolLogAttachments        PoolLogAttachment[]
+  poolChemicalLogs          PoolChemicalLog[]
+  pmTemplates               PreventiveMaintenanceTemplate[]
+  pmTasks                   PreventiveMaintenanceTask[]
+  pmTaskAttachments         PreventiveMaintenanceTaskAttachment[]
+  projectRecords            ProjectRecord[]
+  projectAttachments        ProjectAttachment[]
+  projectComments           ProjectComment[]
+  projectTasks              ProjectTask[]
+  projectCategories         ProjectCategory[]
+  projectWikiReferences     ProjectWikiReference[]
+  leaseComplianceIssueTypes LeaseComplianceIssueType[]
+  leaseComplianceSettings   LeaseComplianceSettings?
+  leaseComplianceIssues     LeaseComplianceIssue[]
+  leaseComplianceNotes      LeaseComplianceIssueNote[]
+  leaseCompliancePhotos     LeaseComplianceIssuePhoto[]
+  leaseComplianceNotices    LeaseComplianceNoticeAction[]
+  leaseComplianceChecks     LeaseCompliancePersistenceCheck[]
+  wikiProfile               PropertyWikiProfile?
+  wikiEntries               PropertyWikiEntry[]
+  wikiVendors               PropertyWikiVendor[]
+  wikiAssets                PropertyWikiAsset[]
+  wikiFavorites             PropertyWikiFavorite[]
+  wikiRecentViews           PropertyWikiRecentView[]
+  wikiReferences            PropertyWikiReference[]
+  pestIssues                PestIssue[]
+  pestVendors               PestVendor[]
+  pestIssueNotes            PestIssueNote[]
+  pestAttachments           PestIssueAttachment[]
+  notes                     PropertyNote[]
+  checklistTemplates        ChecklistTemplate[]
+  checklistInstances        ChecklistInstance[]
+  itemComments              ItemComment[]
+  itemAttachments           ItemAttachment[]
+  chargePriceSheetItems     ChargePriceSheetItem[]
+  vendorServiceAreas        VendorServiceArea[]
+  vendorAssignments         VendorAssignment[]
+  workAssignmentBlocks      WorkAssignmentBlock[]
+  propertyMaps              PropertyMap[]
+  propertyMapAreas          PropertyMapArea[]
+  propertyMapPins           PropertyMapPin[]
+  propertyMapPinAttachments PropertyMapPinAttachment[]
+  unitMapLocations          UnitMapLocation[]
+  dailyMetricSnapshots      PropertyDailyMetricSnapshot[]
+  userAccess                UserPropertyAccess[]
+  auditLogs                 AuditLog[]
+  automationRules           AutomationRule[]
+  boardSections             BoardSection[]
+  operatingCalendar         OperatingCalendar?
+  riskPolicy                PropertyRiskPolicy?
+  notifications             Notification[]
+  apiTokenScopes            ApiTokenPropertyScope[]
+  webhookScopes             WebhookPropertyScope[]
 }
 
 model Unit {
-  id          String          @id @default(cuid())
-  propertyId  String
-  property    Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  floorPlanId String?
-  floorPlanRecord FloorPlan?  @relation(fields: [floorPlanId], references: [id], onDelete: SetNull)
-  number      String
-  floorPlan   String?
-  squareFeet  Int?
-  bedrooms    Int?
-  bathrooms   Float?
-  occupancyStatus String          @default("OCCUPIED")
-  building    String?
-  area        String?
-  floor       String?
-  isBudgeted  Boolean             @default(true)
-  isActive    Boolean         @default(true)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  makeReadyItems MakeReadyItem[]
-  mapLocations UnitMapLocation[]
+  id              String            @id @default(cuid())
+  propertyId      String
+  property        Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  floorPlanId     String?
+  floorPlanRecord FloorPlan?        @relation(fields: [floorPlanId], references: [id], onDelete: SetNull)
+  number          String
+  floorPlan       String?
+  squareFeet      Int?
+  bedrooms        Int?
+  bathrooms       Float?
+  occupancyStatus String            @default("OCCUPIED")
+  building        String?
+  area            String?
+  floor           String?
+  isBudgeted      Boolean           @default(true)
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  makeReadyItems  MakeReadyItem[]
+  pestIssues      PestIssue[]
+  leaseComplianceIssues LeaseComplianceIssue[]
+  mapLocations    UnitMapLocation[]
 
   @@unique([propertyId, number])
   @@index([floorPlanId])
@@ -131,64 +151,65 @@ model FloorPlan {
 }
 
 model MakeReadyItem {
-  id                 String        @id @default(cuid())
-  propertyId         String
-  unitId             String?
-  property           Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  unit               Unit?         @relation(fields: [unitId], references: [id], onDelete: SetNull)
-  boardGroup         String
-  itemName           String
-  unitNumber         String
-  floorPlan          String?
-  applicant          String?
-  assignedTech       String?
-  scopeLevel         String?
-  status             String        @default("ACTIVE")
-  vacancyStatus      String?
-  moveOutDate        DateTime?
-  vacatedDate        DateTime?
-  makeReadyDate      DateTime?
-  moveInDate         DateTime?
-  daysVacant         Int           @default(0)
-  daysUntilMoveIn    Int?
-  priority           Int           @default(0)
-  overdue            Boolean       @default(false)
-  moveInSoon         Boolean       @default(false)
-  riskScore          Int           @default(0)
-  riskLevel          String        @default("NONE")
-  riskReasons        Json          @default("[]")
-  lastRiskEvaluatedAt DateTime?
-  completionStatus   String?
-  sheetrockStatus    String?
-  pestStatus         String?
-  pestTreated        String?
-  trashOutStatus     String?
-  floorsStatus       String?
-  flooringDate       DateTime?
-  makeReadyStatus    String?
-  cleaningStatus     String?
-  keysMadeStatus     String?
-  cabinetsStatus     String?
-  countertopsStatus  String?
-  appliancesStatus   String?
-  paintStatus        String?
-  doorsStatus        String?
-  newDoorCode        String?
-  notes              String?
-  isArchived         Boolean       @default(false)
-  archivedAt         DateTime?
-  lastAutomationAt   DateTime?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
-  automationRuns     AutomationRun[]
-  automationCooldowns AutomationCooldown[]
-  customFieldValues  CustomFieldValue[]
-  notifications      Notification[]
-  comments           ItemComment[]
-  attachments        ItemAttachment[]
-  checklistInstances ChecklistInstance[]
-  vendorAssignments  VendorAssignment[]
+  id                   String                @id @default(cuid())
+  propertyId           String
+  unitId               String?
+  property             Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unit                 Unit?                 @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  boardGroup           String
+  itemName             String
+  unitNumber           String
+  floorPlan            String?
+  applicant            String?
+  assignedTech         String?
+  scopeLevel           String?
+  status               String                @default("ACTIVE")
+  vacancyStatus        String?
+  moveOutDate          DateTime?
+  vacatedDate          DateTime?
+  makeReadyDate        DateTime?
+  moveInDate           DateTime?
+  daysVacant           Int                   @default(0)
+  daysUntilMoveIn      Int?
+  priority             Int                   @default(0)
+  overdue              Boolean               @default(false)
+  moveInSoon           Boolean               @default(false)
+  riskScore            Int                   @default(0)
+  riskLevel            String                @default("NONE")
+  riskReasons          Json                  @default("[]")
+  lastRiskEvaluatedAt  DateTime?
+  completionStatus     String?
+  sheetrockStatus      String?
+  pestStatus           String?
+  pestTreated          String?
+  trashOutStatus       String?
+  floorsStatus         String?
+  flooringDate         DateTime?
+  makeReadyStatus      String?
+  cleaningStatus       String?
+  keysMadeStatus       String?
+  cabinetsStatus       String?
+  countertopsStatus    String?
+  appliancesStatus     String?
+  paintStatus          String?
+  doorsStatus          String?
+  newDoorCode          String?
+  notes                String?
+  isArchived           Boolean               @default(false)
+  archivedAt           DateTime?
+  lastAutomationAt     DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  automationRuns       AutomationRun[]
+  automationCooldowns  AutomationCooldown[]
+  customFieldValues    CustomFieldValue[]
+  notifications        Notification[]
+  comments             ItemComment[]
+  attachments          ItemAttachment[]
+  checklistInstances   ChecklistInstance[]
+  vendorAssignments    VendorAssignment[]
   workAssignmentBlocks WorkAssignmentBlock[]
+  pestIssues           PestIssue[]
 
   @@index([propertyId, boardGroup])
   @@index([propertyId, isArchived, boardGroup])
@@ -204,60 +225,96 @@ model MakeReadyItem {
 }
 
 model User {
-  id             String               @id @default(cuid())
-  email          String               @unique
-  passwordHash   String
-  fullName       String
-  role           UserRole
-  language       String               @default("en")
-  isActive       Boolean              @default(true)
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-  sessions       Session[]
-  propertyAccess UserPropertyAccess[]
-  auditLogs      AuditLog[]
-  savedViews     SavedView[]
-  notifications  Notification[]
-  notificationPreferences NotificationPreference[]
-  capacity       UserCapacity?
-  workAssignments WorkAssignmentBlock[]
-  comments       ItemComment[]
-  attachments    ItemAttachment[]
-  poolLogAttachments PoolLogAttachment[]
-  wikiProfilesCreated PropertyWikiProfile[] @relation("PropertyWikiProfileCreatedBy")
-  wikiProfilesUpdated PropertyWikiProfile[] @relation("PropertyWikiProfileUpdatedBy")
-  wikiEntriesCreated  PropertyWikiEntry[]   @relation("PropertyWikiEntryCreatedBy")
-  wikiEntriesUpdated  PropertyWikiEntry[]   @relation("PropertyWikiEntryUpdatedBy")
-  wikiVendorsCreated  PropertyWikiVendor[]  @relation("PropertyWikiVendorCreatedBy")
-  wikiVendorsUpdated  PropertyWikiVendor[]  @relation("PropertyWikiVendorUpdatedBy")
-  wikiAssetsCreated   PropertyWikiAsset[]   @relation("PropertyWikiAssetCreatedBy")
-  wikiFavorites       PropertyWikiFavorite[]
-  wikiRecentViews     PropertyWikiRecentView[]
-  wikiReferencesCreated PropertyWikiReference[]
-  pmTemplatesCreated  PreventiveMaintenanceTemplate[] @relation("PreventiveMaintenanceTemplateCreatedBy")
-  pmTemplatesUpdated  PreventiveMaintenanceTemplate[] @relation("PreventiveMaintenanceTemplateUpdatedBy")
-  pmTasksCompleted    PreventiveMaintenanceTask[] @relation("PreventiveMaintenanceTaskCompletedBy")
-  pmTaskAttachments   PreventiveMaintenanceTaskAttachment[]
-  completedChecklistItems ChecklistInstanceItem[]
-  apiTokensCreated ApiToken[]
-  webhooksCreated  WebhookEndpoint[]
+  id                           String                                @id @default(cuid())
+  email                        String                                @unique
+  passwordHash                 String
+  fullName                     String
+  role                         UserRole
+  language                     String                                @default("en")
+  isActive                     Boolean                               @default(true)
+  createdAt                    DateTime                              @default(now())
+  updatedAt                    DateTime                              @updatedAt
+  sessions                     Session[]
+  propertyAccess               UserPropertyAccess[]
+  auditLogs                    AuditLog[]
+  savedViews                   SavedView[]
+  notifications                Notification[]
+  notificationPreferences      NotificationPreference[]
+  capacity                     UserCapacity?
+  workAssignments              WorkAssignmentBlock[]
+  comments                     ItemComment[]
+  attachments                  ItemAttachment[]
+  poolLogAttachments           PoolLogAttachment[]
+  wikiProfilesCreated          PropertyWikiProfile[]                 @relation("PropertyWikiProfileCreatedBy")
+  wikiProfilesUpdated          PropertyWikiProfile[]                 @relation("PropertyWikiProfileUpdatedBy")
+  wikiEntriesCreated           PropertyWikiEntry[]                   @relation("PropertyWikiEntryCreatedBy")
+  wikiEntriesUpdated           PropertyWikiEntry[]                   @relation("PropertyWikiEntryUpdatedBy")
+  wikiVendorsCreated           PropertyWikiVendor[]                  @relation("PropertyWikiVendorCreatedBy")
+  wikiVendorsUpdated           PropertyWikiVendor[]                  @relation("PropertyWikiVendorUpdatedBy")
+  wikiAssetsCreated            PropertyWikiAsset[]                   @relation("PropertyWikiAssetCreatedBy")
+  wikiFavorites                PropertyWikiFavorite[]
+  wikiRecentViews              PropertyWikiRecentView[]
+  wikiReferencesCreated        PropertyWikiReference[]
+  pmTemplatesCreated           PreventiveMaintenanceTemplate[]       @relation("PreventiveMaintenanceTemplateCreatedBy")
+  pmTemplatesUpdated           PreventiveMaintenanceTemplate[]       @relation("PreventiveMaintenanceTemplateUpdatedBy")
+  pmTasksCompleted             PreventiveMaintenanceTask[]           @relation("PreventiveMaintenanceTaskCompletedBy")
+  pmTaskAttachments            PreventiveMaintenanceTaskAttachment[]
+  projectsCreated              ProjectRecord[]                       @relation("ProjectRecordCreatedBy")
+  projectsUpdated              ProjectRecord[]                       @relation("ProjectRecordUpdatedBy")
+  projectsCompleted            ProjectRecord[]                       @relation("ProjectRecordCompletedBy")
+  projectAttachments           ProjectAttachment[]
+  projectComments              ProjectComment[]
+  projectTasksAssigned         ProjectTask[]                         @relation("ProjectTaskAssignedUser")
+  projectTasksCompleted        ProjectTask[]                         @relation("ProjectTaskCompletedBy")
+  projectWikiReferencesCreated ProjectWikiReference[]
+  propertyMapPinsCreated       PropertyMapPin[]                      @relation("PropertyMapPinCreatedBy")
+  propertyMapPinsUpdated       PropertyMapPin[]                      @relation("PropertyMapPinUpdatedBy")
+  propertyMapPinAttachments    PropertyMapPinAttachment[]
+  leaseComplianceIssueTypesCreated LeaseComplianceIssueType[]      @relation("LeaseComplianceIssueTypeCreatedBy")
+  leaseComplianceIssueTypesUpdated LeaseComplianceIssueType[]      @relation("LeaseComplianceIssueTypeUpdatedBy")
+  leaseComplianceIssuesCreated LeaseComplianceIssue[]              @relation("LeaseComplianceIssueCreatedBy")
+  leaseComplianceIssuesUpdated LeaseComplianceIssue[]              @relation("LeaseComplianceIssueUpdatedBy")
+  leaseComplianceIssuesAssigned LeaseComplianceIssue[]             @relation("LeaseComplianceIssueAssignedUser")
+  leaseComplianceIssuesResolved LeaseComplianceIssue[]             @relation("LeaseComplianceIssueResolvedBy")
+  leaseComplianceIssuesArchived LeaseComplianceIssue[]             @relation("LeaseComplianceIssueArchivedBy")
+  leaseComplianceSettingsUpdated LeaseComplianceSettings[]         @relation("LeaseComplianceSettingsUpdatedBy")
+  leaseComplianceNotes         LeaseComplianceIssueNote[]
+  leaseCompliancePhotos        LeaseComplianceIssuePhoto[]
+  leaseComplianceNoticeActions LeaseComplianceNoticeAction[]
+  leaseComplianceChecks        LeaseCompliancePersistenceCheck[]
+  pestIssuesCreated            PestIssue[]                           @relation("PestIssueCreatedBy")
+  pestIssuesUpdated            PestIssue[]                           @relation("PestIssueUpdatedBy")
+  pestIssuesAssigned           PestIssue[]                           @relation("PestIssueAssignedUser")
+  pestIssuesClosed             PestIssue[]                           @relation("PestIssueClosedBy")
+  pestIssuesArchived           PestIssue[]                           @relation("PestIssueArchivedBy")
+  pestIssueNotes               PestIssueNote[]
+  pestAttachments              PestIssueAttachment[]
+  pestVendorsCreated           PestVendor[]                          @relation("PestVendorCreatedBy")
+  pestVendorsUpdated           PestVendor[]                          @relation("PestVendorUpdatedBy")
+  completedChecklistItems      ChecklistInstanceItem[]
+  apiTokensCreated             ApiToken[]
+  webhooksCreated              WebhookEndpoint[]
 }
 
 model ApiToken {
-  id            String   @id @default(cuid())
-  name          String
-  tokenHash     String   @unique
-  tokenPrefix   String
-  tokenLastFour String
-  createdById   String
-  createdBy     User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
-  scopes        String[]
-  isActive      Boolean  @default(true)
-  revokedAt     DateTime?
-  lastUsedAt    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id             String                  @id @default(cuid())
+  name           String
+  tokenHash      String                  @unique
+  tokenPrefix    String
+  tokenLastFour  String
+  createdById    String
+  createdBy      User                    @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  scopes         String[]
+  isActive       Boolean                 @default(true)
+  revokedAt      DateTime?
+  useCount       Int                     @default(0)
+  lastUsedAt     DateTime?
+  lastUsedPath   String?
+  lastUsedMethod String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
   propertyScopes ApiTokenPropertyScope[]
+  rateLimitWindows ApiTokenRateLimitWindow[]
 
   @@index([createdById, isActive])
   @@index([tokenPrefix])
@@ -275,22 +332,35 @@ model ApiTokenPropertyScope {
   @@index([propertyId])
 }
 
+model ApiTokenRateLimitWindow {
+  id              String   @id @default(cuid())
+  apiTokenId      String
+  apiToken        ApiToken @relation(fields: [apiTokenId], references: [id], onDelete: Cascade)
+  windowStartedAt DateTime
+  requestCount    Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([apiTokenId, windowStartedAt])
+  @@index([windowStartedAt])
+}
+
 model WebhookEndpoint {
-  id             String   @id @default(cuid())
-  name           String
-  url            String
-  secretHash     String
+  id               String                   @id @default(cuid())
+  name             String
+  url              String
+  secretHash       String
   secretCiphertext String?
-  secretLastFour String
-  eventTypes     String[]
-  isEnabled      Boolean  @default(true)
-  createdById    String
-  createdBy      User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
-  lastDeliveryAt DateTime?
-  failureCount   Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  propertyScopes WebhookPropertyScope[]
+  secretLastFour   String
+  eventTypes       String[]
+  isEnabled        Boolean                  @default(true)
+  createdById      String
+  createdBy        User                     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  lastDeliveryAt   DateTime?
+  failureCount     Int                      @default(0)
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  propertyScopes   WebhookPropertyScope[]
   deliveryAttempts WebhookDeliveryAttempt[]
 
   @@index([createdById, isEnabled])
@@ -331,18 +401,18 @@ model WebhookPropertyScope {
 }
 
 model Vendor {
-  id                 String   @id @default(cuid())
+  id                 String              @id @default(cuid())
   name               String
   trade              String
   phone              String?
   email              String?
   notes              String?
-  isActive           Boolean  @default(true)
-  isPreferred        Boolean  @default(false)
+  isActive           Boolean             @default(true)
+  isPreferred        Boolean             @default(false)
   insuranceExpiresAt DateTime?
   licenseExpiresAt   DateTime?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
   contacts           VendorContact[]
   serviceAreas       VendorServiceArea[]
   assignments        VendorAssignment[]
@@ -405,14 +475,14 @@ model VendorAssignment {
 }
 
 model UserCapacity {
-  id                  String   @id @default(cuid())
-  userId              String   @unique
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  defaultDailyHours   Float    @default(8)
-  tradeCategories     String[] @default([])
-  unavailableDays     Json     @default("[]")
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultDailyHours Float    @default(8)
+  tradeCategories   String[] @default([])
+  unavailableDays   Json     @default("[]")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@index([defaultDailyHours])
 }
@@ -441,46 +511,449 @@ model WorkAssignmentBlock {
 }
 
 model PropertyMap {
-  id           String   @id @default(cuid())
-  propertyId   String
-  property     Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  name         String
-  originalName String?
-  storedName   String?
-  mimeType     String?
-  sizeBytes    Int?
-  width        Int?
-  height       Int?
-  notes        String?
-  isActive     Boolean  @default(true)
-  isArchived   Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  locations    UnitMapLocation[]
-  areas        PropertyMapArea[]
+  id             String            @id @default(cuid())
+  propertyId     String
+  property       Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name           String
+  mapType        String            @default("Custom")
+  originalName   String?
+  storedName     String?
+  mimeType       String?
+  sizeBytes      Int?
+  width          Int?
+  height         Int?
+  description    String?
+  notes          String?
+  isDefault      Boolean           @default(false)
+  isActive       Boolean           @default(true)
+  isArchived     Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  locations      UnitMapLocation[]
+  areas          PropertyMapArea[]
+  pins           PropertyMapPin[]
+  projectRecords ProjectRecord[]
+  leaseComplianceIssues LeaseComplianceIssue[]
 
   @@index([propertyId, isActive, isArchived])
+  @@index([propertyId, mapType, isArchived])
+}
+
+model LeaseComplianceIssueType {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name       String
+  color      String?  @default("#58a6de")
+  isActive   Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  createdById String?
+  createdBy   User?   @relation("LeaseComplianceIssueTypeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById String?
+  updatedBy   User?   @relation("LeaseComplianceIssueTypeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  issues     LeaseComplianceIssue[]
+
+  @@unique([propertyId, name])
+  @@index([propertyId, isActive, sortOrder])
+}
+
+model LeaseComplianceSettings {
+  id                    String   @id @default(cuid())
+  propertyId            String   @unique
+  property              Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  defaultPriority       String   @default("Normal")
+  watchDays             Int      @default(3)
+  warningDays           Int      @default(7)
+  criticalDays          Int      @default(14)
+  firstNoticeLabel      String   @default("1st Notice Sent")
+  secondNoticeLabel     String   @default("2nd Notice Sent")
+  thirdNoticeLabel      String   @default("3rd Notice Sent")
+  archiveResolvedAfterDays Int?
+  updatedById           String?
+  updatedBy             User?    @relation("LeaseComplianceSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model LeaseComplianceIssue {
+  id                    String   @id @default(cuid())
+  propertyId            String
+  property              Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitId                String?
+  unit                  Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  issueTypeId           String?
+  issueType             LeaseComplianceIssueType? @relation(fields: [issueTypeId], references: [id], onDelete: SetNull)
+  propertyMapId         String?
+  propertyMap           PropertyMap? @relation(fields: [propertyMapId], references: [id], onDelete: SetNull)
+  building              String?
+  area                  String?
+  issueTypeName         String
+  additionalIssueType   String?
+  status                String   @default("Open")
+  noticeStage           String   @default("None")
+  priority              String   @default("Normal")
+  source                String   @default("Property Walk")
+  description           String?
+  locationNotes         String?
+  tags                  String[] @default([])
+  assignedUserId        String?
+  assignedUser          User?    @relation("LeaseComplianceIssueAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  assignedUserName      String?
+  lastPersistenceCheckDate DateTime?
+  daysOpenOverride      Int?
+  persistenceCount      Int      @default(0)
+  residentNotifiedDate  DateTime?
+  notice1Date           DateTime?
+  notice2Date           DateTime?
+  notice3Date           DateTime?
+  violationNeededDate   DateTime?
+  recurringConcern      Boolean  @default(false)
+  managerReviewRequired Boolean  @default(false)
+  recurringDismissedAt  DateTime?
+  recurringDismissalNotes String?
+  resolvedDate          DateTime?
+  resolvedById          String?
+  resolvedBy            User?    @relation("LeaseComplianceIssueResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolutionNotes       String?
+  isArchived            Boolean  @default(false)
+  archiveDate           DateTime?
+  archivedById          String?
+  archivedBy            User?    @relation("LeaseComplianceIssueArchivedBy", fields: [archivedById], references: [id], onDelete: SetNull)
+  archiveNotes          String?
+  createdById           String?
+  createdBy             User?    @relation("LeaseComplianceIssueCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById           String?
+  updatedBy             User?    @relation("LeaseComplianceIssueUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  notes                 LeaseComplianceIssueNote[]
+  photos                LeaseComplianceIssuePhoto[]
+  noticeActions         LeaseComplianceNoticeAction[]
+  persistenceChecks     LeaseCompliancePersistenceCheck[]
+
+  @@index([propertyId, isArchived, status, createdAt])
+  @@index([propertyId, unitId, createdAt])
+  @@index([propertyId, noticeStage, createdAt])
+  @@index([propertyId, priority, createdAt])
+  @@index([propertyId, assignedUserId, isArchived, status])
+  @@index([propertyMapId])
+}
+
+model LeaseComplianceIssueNote {
+  id           String                @id @default(cuid())
+  issueId      String
+  issue        LeaseComplianceIssue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  propertyId   String
+  property     Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  authorUserId String?
+  author       User?                 @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  authorName   String
+  body         String
+  createdAt    DateTime              @default(now())
+
+  @@index([issueId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model LeaseComplianceIssuePhoto {
+  id           String                @id @default(cuid())
+  issueId      String
+  issue        LeaseComplianceIssue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  propertyId   String
+  property     Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  uploadedById String?
+  uploadedBy   User?                 @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploaderName String
+  photoCategory String               @default("GENERAL")
+  caption      String?
+  originalName String
+  storedName   String                @unique
+  mimeType     String
+  sizeBytes    Int
+  createdAt    DateTime              @default(now())
+
+  @@index([issueId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model LeaseComplianceNoticeAction {
+  id           String                @id @default(cuid())
+  issueId      String
+  issue        LeaseComplianceIssue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  propertyId   String
+  property     Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  actedById    String?
+  actedBy      User?                 @relation(fields: [actedById], references: [id], onDelete: SetNull)
+  actedByName  String
+  action       String
+  noticeStage  String
+  notes        String?
+  createdAt    DateTime              @default(now())
+
+  @@index([issueId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model LeaseCompliancePersistenceCheck {
+  id           String                @id @default(cuid())
+  issueId      String
+  issue        LeaseComplianceIssue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  propertyId   String
+  property     Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  checkedById  String?
+  checkedBy    User?                 @relation(fields: [checkedById], references: [id], onDelete: SetNull)
+  checkedByName String
+  stillPersists Boolean              @default(true)
+  notes        String?
+  createdAt    DateTime              @default(now())
+
+  @@index([issueId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model PropertyMapPin {
+  id               String                     @id @default(cuid())
+  propertyId       String
+  property         Property                   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  mapId            String
+  map              PropertyMap                @relation(fields: [mapId], references: [id], onDelete: Cascade)
+  title            String
+  pinType          String
+  xPercent         Float
+  yPercent         Float
+  building         String?
+  unitLabel        String?
+  area             String?
+  description      String?
+  linkedRecordType String?
+  linkedRecordId   String?
+  tags             String[]                   @default([])
+  isEmergency      Boolean                    @default(false)
+  isActive         Boolean                    @default(true)
+  isArchived       Boolean                    @default(false)
+  createdById      String?
+  updatedById      String?
+  createdBy        User?                      @relation("PropertyMapPinCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy        User?                      @relation("PropertyMapPinUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  attachments      PropertyMapPinAttachment[]
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  @@index([propertyId, mapId, isArchived, pinType])
+  @@index([propertyId, linkedRecordType, linkedRecordId])
+  @@index([propertyId, building])
+  @@index([propertyId, unitLabel])
+  @@index([propertyId, area])
+}
+
+model PropertyMapPinAttachment {
+  id           String         @id @default(cuid())
+  pinId        String
+  pin          PropertyMapPin @relation(fields: [pinId], references: [id], onDelete: Cascade)
+  propertyId   String
+  property     Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  uploadedById String?
+  uploadedBy   User?          @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploaderName String
+  caption      String?
+  originalName String
+  storedName   String         @unique
+  mimeType     String
+  sizeBytes    Int
+  createdAt    DateTime       @default(now())
+
+  @@index([pinId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model ProjectCategory {
+  id         String          @id @default(cuid())
+  propertyId String?
+  property   Property?       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name       String
+  color      String?         @default("#58a6de")
+  isActive   Boolean         @default(true)
+  sortOrder  Int             @default(0)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  records    ProjectRecord[]
+
+  @@unique([propertyId, name])
+  @@index([propertyId, isActive, sortOrder])
+}
+
+model ProjectRecord {
+  id                  String                 @id @default(cuid())
+  propertyId          String
+  property            Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  recordType          String
+  title               String
+  description         String?
+  source              String?                @default("Other")
+  sourceRecordType    String?
+  sourceRecordId      String?
+  sourceRecordLabel   String?
+  status              String
+  priority            String                 @default("Normal")
+  executionType       String                 @default("Undecided")
+  categoryId          String?
+  category            ProjectCategory?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  categoryName        String?
+  building            String?
+  area                String?
+  locationNotes       String?
+  propertyMapId       String?
+  propertyMap         PropertyMap?           @relation(fields: [propertyMapId], references: [id], onDelete: SetNull)
+  pinX                Float?
+  pinY                Float?
+  estimatedQuantity   Float?
+  quantityUnit        String?
+  estimatedCost       Float?
+  actualCost          Float?
+  totalAmount         Float?
+  deferredMaintenance Boolean                @default(false)
+  deferredReason      String?
+  targetYear          Int?
+  deferredNotes       String?
+  budgetYear          String?
+  companyName         String?
+  contactName         String?
+  contactPhone        String?
+  contactEmail        String?
+  bidStatus           String?                @default("Not Applicable")
+  bidNotes            String?
+  assignedUserId      String?
+  assignedUserName    String?
+  assignedRole        String?
+  assignedTeam        String?
+  scheduledDate       DateTime?
+  startDate           DateTime?
+  dueDate             DateTime?
+  completedDate       DateTime?
+  tags                String[]               @default([])
+  isArchived          Boolean                @default(false)
+  archivedAt          DateTime?
+  createdById         String?
+  createdBy           User?                  @relation("ProjectRecordCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById         String?
+  updatedBy           User?                  @relation("ProjectRecordUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  completedById       String?
+  completedBy         User?                  @relation("ProjectRecordCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  attachments         ProjectAttachment[]
+  comments            ProjectComment[]
+  tasks               ProjectTask[]
+  wikiReferences      ProjectWikiReference[]
+
+  @@index([propertyId, recordType, status])
+  @@index([propertyId, isArchived, updatedAt])
+  @@index([propertyId, assignedUserId])
+  @@index([propertyId, dueDate])
+  @@index([propertyId, source])
+  @@index([propertyId, budgetYear])
+  @@index([propertyId, deferredMaintenance])
+  @@index([propertyMapId])
+}
+
+model ProjectAttachment {
+  id             String        @id @default(cuid())
+  recordId       String
+  record         ProjectRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  propertyId     String
+  property       Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  uploadedById   String?
+  uploadedBy     User?         @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploaderName   String?
+  originalName   String
+  storedName     String
+  mimeType       String
+  sizeBytes      Int
+  attachmentType String        @default("GENERAL")
+  caption        String?
+  createdAt      DateTime      @default(now())
+
+  @@index([recordId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model ProjectComment {
+  id         String        @id @default(cuid())
+  recordId   String
+  record     ProjectRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  authorId   String?
+  author     User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorName String?
+  body       String
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([recordId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model ProjectTask {
+  id               String        @id @default(cuid())
+  recordId         String
+  record           ProjectRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  propertyId       String
+  property         Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  title            String
+  status           String        @default("Open")
+  assignedUserId   String?
+  assignedUser     User?         @relation("ProjectTaskAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  assignedUserName String?
+  dueDate          DateTime?
+  completedById    String?
+  completedBy      User?         @relation("ProjectTaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  completedDate    DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([recordId, status])
+  @@index([propertyId, dueDate])
+  @@index([assignedUserId, dueDate])
+}
+
+model ProjectWikiReference {
+  id          String        @id @default(cuid())
+  recordId    String
+  record      ProjectRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  propertyId  String
+  property    Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  targetType  String
+  targetId    String
+  createdById String?
+  createdBy   User?         @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime      @default(now())
+
+  @@unique([recordId, targetType, targetId])
+  @@index([propertyId, createdAt])
 }
 
 model PropertyMapArea {
-  id           String      @id @default(cuid())
-  propertyId   String
-  property     Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  mapId        String
-  map          PropertyMap @relation(fields: [mapId], references: [id], onDelete: Cascade)
-  name         String
-  areaType     String      @default("BUILDING")
-  xPercent     Float
-  yPercent     Float
-  widthPercent Float?
-  heightPercent Float?
-  color        String?
+  id                String      @id @default(cuid())
+  propertyId        String
+  property          Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  mapId             String
+  map               PropertyMap @relation(fields: [mapId], references: [id], onDelete: Cascade)
+  name              String
+  areaType          String      @default("BUILDING")
+  xPercent          Float
+  yPercent          Float
+  widthPercent      Float?
+  heightPercent     Float?
+  color             String?
   expectedUnitCount Int?
-  notes        String?
-  isActive     Boolean     @default(true)
-  isArchived   Boolean     @default(false)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  notes             String?
+  isActive          Boolean     @default(true)
+  isArchived        Boolean     @default(false)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
   @@unique([mapId, name])
   @@index([propertyId, isActive, isArchived])
@@ -488,24 +961,24 @@ model PropertyMapArea {
 }
 
 model UnitMapLocation {
-  id           String      @id @default(cuid())
-  propertyId   String
-  property     Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  unitId       String
-  unit         Unit        @relation(fields: [unitId], references: [id], onDelete: Cascade)
-  mapId        String
-  map          PropertyMap @relation(fields: [mapId], references: [id], onDelete: Cascade)
-  xPercent     Float
-  yPercent     Float
+  id            String      @id @default(cuid())
+  propertyId    String
+  property      Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitId        String
+  unit          Unit        @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  mapId         String
+  map           PropertyMap @relation(fields: [mapId], references: [id], onDelete: Cascade)
+  xPercent      Float
+  yPercent      Float
   labelXPercent Float?
   labelYPercent Float?
-  building     String?
-  area         String?
-  floor        String?
-  isActive     Boolean     @default(true)
-  isArchived   Boolean     @default(false)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  building      String?
+  area          String?
+  floor         String?
+  isActive      Boolean     @default(true)
+  isArchived    Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   @@unique([mapId, unitId])
   @@index([propertyId, isActive, isArchived])
@@ -514,22 +987,22 @@ model UnitMapLocation {
 }
 
 model PropertyDailyMetricSnapshot {
-  id                    String   @id @default(cuid())
-  propertyId            String
-  property              Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  date                  DateTime
-  activeTurns           Int      @default(0)
-  vacant                Int      @default(0)
-  ntv                   Int      @default(0)
-  ready                 Int      @default(0)
-  down                  Int      @default(0)
-  overdue               Int      @default(0)
-  highRisk              Int      @default(0)
-  averageDaysVacant     Float    @default(0)
-  moveInsNext7Days      Int      @default(0)
-  completedTurnsCount   Int      @default(0)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  propertyId          String
+  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  date                DateTime
+  activeTurns         Int      @default(0)
+  vacant              Int      @default(0)
+  ntv                 Int      @default(0)
+  ready               Int      @default(0)
+  down                Int      @default(0)
+  overdue             Int      @default(0)
+  highRisk            Int      @default(0)
+  averageDaysVacant   Float    @default(0)
+  moveInsNext7Days    Int      @default(0)
+  completedTurnsCount Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@unique([propertyId, date])
   @@index([date])
@@ -537,36 +1010,36 @@ model PropertyDailyMetricSnapshot {
 }
 
 model PropertyRiskPolicy {
-  id                    String   @id @default(cuid())
-  propertyId            String   @unique
-  property              Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  moveInCriticalDays    Int      @default(1)
-  moveInHighDays        Int      @default(3)
-  moveInMediumDays      Int      @default(7)
-  unassignedHighDays    Int      @default(7)
-  staleActivityDays     Int      @default(5)
-  agingMediumDays       Int      @default(14)
-  agingHighDays         Int      @default(21)
-  vendorNearMoveInDays  Int      @default(3)
-  checklistNearMoveInDays Int    @default(7)
-  planningNearMoveInDays Int     @default(7)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                      String   @id @default(cuid())
+  propertyId              String   @unique
+  property                Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  moveInCriticalDays      Int      @default(1)
+  moveInHighDays          Int      @default(3)
+  moveInMediumDays        Int      @default(7)
+  unassignedHighDays      Int      @default(7)
+  staleActivityDays       Int      @default(5)
+  agingMediumDays         Int      @default(14)
+  agingHighDays           Int      @default(21)
+  vendorNearMoveInDays    Int      @default(3)
+  checklistNearMoveInDays Int      @default(7)
+  planningNearMoveInDays  Int      @default(7)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
   @@index([propertyId])
 }
 
 model Session {
-  id           String   @id @default(cuid())
-  userId       String
-  tokenHash    String   @unique
-  csrfToken    String   @default("")
-  expiresAt    DateTime
-  createdAt    DateTime @default(now())
-  lastSeenAt   DateTime @default(now())
-  userAgent    String?
-  ipAddress    String?
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  csrfToken  String   @default("")
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  userAgent  String?
+  ipAddress  String?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
 }
@@ -585,7 +1058,7 @@ model UserPropertyAccess {
 }
 
 model AuditLog {
-  id          String        @id @default(cuid())
+  id          String    @id @default(cuid())
   actorUserId String?
   entityType  String
   entityId    String?
@@ -594,9 +1067,9 @@ model AuditLog {
   propertyId  String?
   metadata    Json?
   ipAddress   String?
-  createdAt   DateTime      @default(now())
-  actorUser   User?         @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
-  property    Property?     @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  actorUser   User?     @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  property    Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
 
   @@index([actorUserId, createdAt])
   @@index([entityType, entityId, createdAt])
@@ -605,15 +1078,15 @@ model AuditLog {
 }
 
 model LabelDefinition {
-  id        String   @id @default(cuid())
-  fieldKey  String
-  value     String
-  color     String
-  textColor String   @default("#0b1020")
-  sortOrder Int      @default(0)
-  isArchived Boolean @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  fieldKey   String
+  value      String
+  color      String
+  textColor  String   @default("#0b1020")
+  sortOrder  Int      @default(0)
+  isArchived Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@unique([fieldKey, value])
 }
@@ -706,20 +1179,20 @@ model SavedView {
 }
 
 model Notification {
-  id        String         @id @default(cuid())
-  userId    String
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String         @id @default(cuid())
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   propertyId String?
-  property  Property?      @relation(fields: [propertyId], references: [id], onDelete: SetNull)
-  itemId    String?
-  item      MakeReadyItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
-  category  String
-  title     String
-  message   String
-  dedupeKey String?
-  isRead    Boolean        @default(false)
-  readAt    DateTime?
-  createdAt DateTime       @default(now())
+  property   Property?      @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  itemId     String?
+  item       MakeReadyItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  category   String
+  title      String
+  message    String
+  dedupeKey  String?
+  isRead     Boolean        @default(false)
+  readAt     DateTime?
+  createdAt  DateTime       @default(now())
 
   @@unique([userId, dedupeKey])
   @@index([userId, isRead, createdAt])
@@ -739,19 +1212,19 @@ model NotificationPreference {
 }
 
 model AutomationRule {
-  id          String          @id @default(cuid())
+  id          String               @id @default(cuid())
   templateId  String?
   name        String
   description String?
   propertyId  String?
-  property    Property?       @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  property    Property?            @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   triggerType String
-  enabled     Boolean         @default(true)
-  isArchived  Boolean         @default(false)
+  enabled     Boolean              @default(true)
+  isArchived  Boolean              @default(false)
   conditions  Json
   actions     Json
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
   runs        AutomationRun[]
   cooldowns   AutomationCooldown[]
 
@@ -760,23 +1233,23 @@ model AutomationRule {
 }
 
 model AutomationRun {
-  id          String          @id @default(cuid())
-  ruleId      String
-  itemId      String?
-  success     Boolean         @default(true)
-  message     String
-  context     Json?
-  runType     String          @default("EVENT")
+  id           String         @id @default(cuid())
+  ruleId       String
+  itemId       String?
+  success      Boolean        @default(true)
+  message      String
+  context      Json?
+  runType      String         @default("EVENT")
   checkedCount Int?
   matchedCount Int?
-  actionCount Int?
-  warnings    Json?
-  errors      Json?
-  startedAt   DateTime?
-  completedAt DateTime?
-  ranAt       DateTime        @default(now())
-  rule        AutomationRule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-  item        MakeReadyItem?  @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  actionCount  Int?
+  warnings     Json?
+  errors       Json?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  ranAt        DateTime       @default(now())
+  rule         AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  item         MakeReadyItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
 
   @@index([ruleId, ranAt])
   @@index([itemId, ranAt])
@@ -796,31 +1269,31 @@ model AutomationCooldown {
 }
 
 model OperationalLibraryPack {
-  id          String   @id @default(cuid())
-  packKey     String   @unique
-  name        String
-  version     Int
-  category    String?
-  description String?
-  source      String   @default("IMPORTED")
-  manifest    Json
+  id            String                       @id @default(cuid())
+  packKey       String                       @unique
+  name          String
+  version       Int
+  category      String?
+  description   String?
+  source        String                       @default("IMPORTED")
+  manifest      Json
   installedById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  items       OperationalLibraryPackItem[]
+  createdAt     DateTime                     @default(now())
+  updatedAt     DateTime                     @updatedAt
+  items         OperationalLibraryPackItem[]
 
   @@index([source, category, name])
 }
 
 model OperationalLibraryPackItem {
-  id        String   @id @default(cuid())
+  id        String                 @id @default(cuid())
   packId    String
   pack      OperationalLibraryPack @relation(fields: [packId], references: [id], onDelete: Cascade)
   itemType  String
   itemKey   String
   targetId  String?
-  status    String   @default("INSTALLED")
-  createdAt DateTime @default(now())
+  status    String                 @default("INSTALLED")
+  createdAt DateTime               @default(now())
 
   @@unique([packId, itemType, itemKey])
   @@index([itemType, targetId])
@@ -847,18 +1320,18 @@ model PropertyTemplate {
 }
 
 model CustomField {
-  id          String            @id @default(cuid())
-  module      String            @default("make-ready")
-  fieldKey    String            @unique
+  id          String              @id @default(cuid())
+  module      String              @default("make-ready")
+  fieldKey    String              @unique
   label       String
   fieldType   CustomFieldType
   description String?
-  sortOrder   Int               @default(0)
-  isArchived  Boolean           @default(false)
+  sortOrder   Int                 @default(0)
+  isArchived  Boolean             @default(false)
   deletedAt   DateTime?
   deleteAfter DateTime?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
   options     CustomFieldOption[]
   values      CustomFieldValue[]
 
@@ -867,15 +1340,15 @@ model CustomField {
 }
 
 model CustomFieldOption {
-  id          String      @id @default(cuid())
+  id            String      @id @default(cuid())
   customFieldId String
-  customField CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
-  label       String
-  color       String
-  sortOrder   Int         @default(0)
-  isArchived  Boolean     @default(false)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  customField   CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+  label         String
+  color         String
+  sortOrder     Int         @default(0)
+  isArchived    Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   @@unique([customFieldId, label])
   @@index([customFieldId, isArchived, sortOrder])
@@ -915,40 +1388,40 @@ model RefrigerantLog {
 }
 
 model RefrigerantType {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  isActive    Boolean  @default(true)
-  notes       String?
-  createdById String?
-  updatedById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  cylinders   RefrigerantCylinder[]
+  id           String                   @id @default(cuid())
+  name         String                   @unique
+  isActive     Boolean                  @default(true)
+  notes        String?
+  createdById  String?
+  updatedById  String?
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  cylinders    RefrigerantCylinder[]
   transactions RefrigerantTransaction[]
-  leakFlags   RefrigerantLeakFlag[]
+  leakFlags    RefrigerantLeakFlag[]
 
   @@index([isActive, name])
 }
 
 model RefrigerantCylinder {
-  id             String   @id @default(cuid())
-  identifier     String   @unique
-  refrigerantTypeId String
-  refrigerantType RefrigerantType @relation(fields: [refrigerantTypeId], references: [id], onDelete: Restrict)
-  category       String
-  tankSize       Float
-  currentWeight  Float
-  status         String   @default("ACTIVE")
-  notes          String?
-  dispositionNotes String?
-  finalRecoveryCompleted Boolean @default(false)
-  archivedAt     DateTime?
-  createdById    String?
-  updatedById    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  sourceTransactions RefrigerantTransaction[] @relation("RefrigerantSourceCylinder")
-  recoveryTransactions RefrigerantTransaction[] @relation("RefrigerantRecoveryCylinder")
+  id                     String                   @id @default(cuid())
+  identifier             String                   @unique
+  refrigerantTypeId      String
+  refrigerantType        RefrigerantType          @relation(fields: [refrigerantTypeId], references: [id], onDelete: Restrict)
+  category               String
+  tankSize               Float
+  currentWeight          Float
+  status                 String                   @default("ACTIVE")
+  notes                  String?
+  dispositionNotes       String?
+  finalRecoveryCompleted Boolean                  @default(false)
+  archivedAt             DateTime?
+  createdById            String?
+  updatedById            String?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  sourceTransactions     RefrigerantTransaction[] @relation("RefrigerantSourceCylinder")
+  recoveryTransactions   RefrigerantTransaction[] @relation("RefrigerantRecoveryCylinder")
 
   @@index([category, status])
   @@index([refrigerantTypeId, category, status])
@@ -956,26 +1429,26 @@ model RefrigerantCylinder {
 }
 
 model RefrigerantTransaction {
-  id              String   @id @default(cuid())
-  transactionType String
-  propertyId      String?
-  unitId          String?
-  unitNumber      String?
-  refrigerantTypeId String
-  refrigerantType RefrigerantType @relation(fields: [refrigerantTypeId], references: [id], onDelete: Restrict)
-  sourceCylinderId String?
-  sourceCylinder RefrigerantCylinder? @relation("RefrigerantSourceCylinder", fields: [sourceCylinderId], references: [id], onDelete: SetNull)
+  id                 String               @id @default(cuid())
+  transactionType    String
+  propertyId         String?
+  unitId             String?
+  unitNumber         String?
+  refrigerantTypeId  String
+  refrigerantType    RefrigerantType      @relation(fields: [refrigerantTypeId], references: [id], onDelete: Restrict)
+  sourceCylinderId   String?
+  sourceCylinder     RefrigerantCylinder? @relation("RefrigerantSourceCylinder", fields: [sourceCylinderId], references: [id], onDelete: SetNull)
   recoveryCylinderId String?
-  recoveryCylinder RefrigerantCylinder? @relation("RefrigerantRecoveryCylinder", fields: [recoveryCylinderId], references: [id], onDelete: SetNull)
-  occurredAt      DateTime @default(now())
-  startWeight     Float
-  endWeight       Float
-  amount          Float
-  notes           String?
-  createdById     String?
-  createdByName   String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  recoveryCylinder   RefrigerantCylinder? @relation("RefrigerantRecoveryCylinder", fields: [recoveryCylinderId], references: [id], onDelete: SetNull)
+  occurredAt         DateTime             @default(now())
+  startWeight        Float
+  endWeight          Float
+  amount             Float
+  notes              String?
+  createdById        String?
+  createdByName      String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
   @@index([propertyId, unitId, occurredAt])
   @@index([propertyId, unitNumber, occurredAt])
@@ -986,22 +1459,22 @@ model RefrigerantTransaction {
 }
 
 model RefrigerantLeakFlag {
-  id              String   @id @default(cuid())
-  propertyId      String?
-  unitId          String?
-  unitNumber      String
+  id                String           @id @default(cuid())
+  propertyId        String?
+  unitId            String?
+  unitNumber        String
   refrigerantTypeId String?
-  refrigerantType RefrigerantType? @relation(fields: [refrigerantTypeId], references: [id], onDelete: SetNull)
-  level           String
-  status          String   @default("ACTIVE")
-  reason          String
-  firstDetectedAt DateTime @default(now())
-  lastDetectedAt  DateTime @default(now())
-  dismissedAt     DateTime?
-  dismissedById   String?
-  dismissalNotes  String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  refrigerantType   RefrigerantType? @relation(fields: [refrigerantTypeId], references: [id], onDelete: SetNull)
+  level             String
+  status            String           @default("ACTIVE")
+  reason            String
+  firstDetectedAt   DateTime         @default(now())
+  lastDetectedAt    DateTime         @default(now())
+  dismissedAt       DateTime?
+  dismissedById     String?
+  dismissalNotes    String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   @@index([propertyId, unitNumber, status])
   @@index([unitId, status])
@@ -1028,19 +1501,19 @@ model PoolChemicalLog {
 }
 
 model PoolFacility {
-  id              String   @id @default(cuid())
+  id              String         @id @default(cuid())
   propertyId      String
-  property        Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property        Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   name            String
-  type            String   @default("POOL")
+  type            String         @default("POOL")
   capacityGallons Float?
   surfaceType     String?
   notes           String?
-  isActive        Boolean  @default(true)
+  isActive        Boolean        @default(true)
   createdById     String?
   updatedById     String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
   entries         PoolLogEntry[]
 
   @@unique([propertyId, name])
@@ -1049,19 +1522,19 @@ model PoolFacility {
 }
 
 model PoolChemical {
-  id                   String   @id @default(cuid())
+  id                   String                 @id @default(cuid())
   propertyId           String
-  property             Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property             Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   name                 String
   category             String
   concentrationPercent Float?
   unit                 String
   notes                String?
-  isActive             Boolean  @default(true)
+  isActive             Boolean                @default(true)
   createdById          String?
   updatedById          String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
   additions            PoolChemicalAddition[]
 
   @@unique([propertyId, name])
@@ -1069,64 +1542,64 @@ model PoolChemical {
 }
 
 model PoolChemistryTarget {
-  id                  String   @id @default(cuid())
+  id                  String    @id @default(cuid())
   propertyId          String?
   property            Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   facilityType        String
-  phMin               Float    @default(7.2)
-  phMax               Float    @default(7.8)
-  freeChlorineMin     Float    @default(1)
-  freeChlorineMax     Float    @default(4)
-  combinedChlorineMax Float    @default(0.2)
-  totalAlkalinityMin  Float    @default(80)
-  totalAlkalinityMax  Float    @default(120)
-  cyaMin              Float    @default(30)
-  cyaMax              Float    @default(50)
-  calciumHardnessMin  Float    @default(200)
-  calciumHardnessMax  Float    @default(400)
+  phMin               Float     @default(7.2)
+  phMax               Float     @default(7.8)
+  freeChlorineMin     Float     @default(1)
+  freeChlorineMax     Float     @default(4)
+  combinedChlorineMax Float     @default(0.2)
+  totalAlkalinityMin  Float     @default(80)
+  totalAlkalinityMax  Float     @default(120)
+  cyaMin              Float     @default(30)
+  cyaMax              Float     @default(50)
+  calciumHardnessMin  Float     @default(200)
+  calciumHardnessMax  Float     @default(400)
   updatedById         String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@unique([propertyId, facilityType])
   @@index([facilityType])
 }
 
 model PoolLogEntry {
-  id                 String   @id @default(cuid())
-  propertyId         String
-  property           Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  facilityId         String
-  facility           PoolFacility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
-  technicianId       String?
-  technicianName     String?
-  logDate            DateTime
-  logTime            String?
-  ph                 Float?
-  freeChlorine       Float?
-  combinedChlorine   Float?
-  totalChlorine      Float?
-  totalAlkalinity    Float?
-  cyanuricAcid       Float?
-  calciumHardness    Float?
-  waterTemperature   Float?
-  vacuumed           Boolean  @default(false)
-  backwashed         Boolean  @default(false)
-  skimmerCleaned     Boolean  @default(false)
-  pumpRunning        Boolean  @default(false)
-  filterOperating    Boolean  @default(false)
-  waterClear         Boolean  @default(false)
-  waterCloudy        Boolean  @default(false)
-  algaePresent       Boolean  @default(false)
-  notes              String?
-  evaluationJson     Json?
-  createdById        String?
-  updatedById        String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  safetyChecks       PoolSafetyCheck[]
-  chemicalAdditions  PoolChemicalAddition[]
-  attachments        PoolLogAttachment[]
+  id                String                 @id @default(cuid())
+  propertyId        String
+  property          Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  facilityId        String
+  facility          PoolFacility           @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  technicianId      String?
+  technicianName    String?
+  logDate           DateTime
+  logTime           String?
+  ph                Float?
+  freeChlorine      Float?
+  combinedChlorine  Float?
+  totalChlorine     Float?
+  totalAlkalinity   Float?
+  cyanuricAcid      Float?
+  calciumHardness   Float?
+  waterTemperature  Float?
+  vacuumed          Boolean                @default(false)
+  backwashed        Boolean                @default(false)
+  skimmerCleaned    Boolean                @default(false)
+  pumpRunning       Boolean                @default(false)
+  filterOperating   Boolean                @default(false)
+  waterClear        Boolean                @default(false)
+  waterCloudy       Boolean                @default(false)
+  algaePresent      Boolean                @default(false)
+  notes             String?
+  evaluationJson    Json?
+  createdById       String?
+  updatedById       String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  safetyChecks      PoolSafetyCheck[]
+  chemicalAdditions PoolChemicalAddition[]
+  attachments       PoolLogAttachment[]
 
   @@index([propertyId, logDate])
   @@index([facilityId, logDate])
@@ -1155,30 +1628,30 @@ model PoolLogAttachment {
 }
 
 model PoolSafetyCheck {
-  id        String   @id @default(cuid())
+  id        String       @id @default(cuid())
   entryId   String
   entry     PoolLogEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
   label     String
-  value     String   @default("PASS")
+  value     String       @default("PASS")
   notes     String?
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  sortOrder Int          @default(0)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 
   @@index([entryId, value])
 }
 
 model PoolChemicalAddition {
-  id           String   @id @default(cuid())
+  id           String        @id @default(cuid())
   entryId      String
-  entry        PoolLogEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  entry        PoolLogEntry  @relation(fields: [entryId], references: [id], onDelete: Cascade)
   chemicalId   String?
   chemical     PoolChemical? @relation(fields: [chemicalId], references: [id], onDelete: SetNull)
   chemicalName String
   amount       Float
   unit         String
   notes        String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime      @default(now())
 
   @@index([entryId])
   @@index([chemicalId])
@@ -1208,9 +1681,9 @@ model PropertyWikiProfile {
 }
 
 model PropertyWikiEntry {
-  id                  String   @id @default(cuid())
+  id                  String              @id @default(cuid())
   propertyId          String
-  property            Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property            Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   section             String
   title               String
   category            String?
@@ -1235,13 +1708,13 @@ model PropertyWikiEntry {
   contactTitle        String?
   phone               String?
   email               String?
-  isEmergencyContact  Boolean  @default(false)
-  relatedEntryIds     String[] @default([])
-  relatedVendorIds    String[] @default([])
+  isEmergencyContact  Boolean             @default(false)
+  relatedEntryIds     String[]            @default([])
+  relatedVendorIds    String[]            @default([])
   notes               String?
   content             String?
   issueStatus         String?
-  tags                String[] @default([])
+  tags                String[]            @default([])
   contacts            String?
   situation           String?
   poolCapacity        String?
@@ -1252,16 +1725,16 @@ model PropertyWikiEntry {
   heaterModels        String?
   controllerNotes     String?
   chemicalTargetNotes String?
-  isPinned            Boolean  @default(false)
-  isEmergency         Boolean  @default(false)
-  isActive            Boolean  @default(true)
+  isPinned            Boolean             @default(false)
+  isEmergency         Boolean             @default(false)
+  isActive            Boolean             @default(true)
   createdById         String?
   updatedById         String?
-  createdBy           User?    @relation("PropertyWikiEntryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedBy           User?    @relation("PropertyWikiEntryUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdBy           User?               @relation("PropertyWikiEntryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy           User?               @relation("PropertyWikiEntryUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   assets              PropertyWikiAsset[]
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
   @@index([propertyId, section, isActive, updatedAt])
   @@index([propertyId, category])
@@ -1271,9 +1744,9 @@ model PropertyWikiEntry {
 }
 
 model PropertyWikiVendor {
-  id             String   @id @default(cuid())
+  id             String              @id @default(cuid())
   propertyId     String
-  property       Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property       Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   vendorType     String
   companyName    String
   contactName    String?
@@ -1281,25 +1754,25 @@ model PropertyWikiVendor {
   email          String?
   emergencyPhone String?
   notes          String?
-  isActive       Boolean  @default(true)
+  isActive       Boolean             @default(true)
   createdById    String?
   updatedById    String?
-  createdBy      User?    @relation("PropertyWikiVendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedBy      User?    @relation("PropertyWikiVendorUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdBy      User?               @relation("PropertyWikiVendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy      User?               @relation("PropertyWikiVendorUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   assets         PropertyWikiAsset[]
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   @@index([propertyId, vendorType, isActive])
   @@index([propertyId, companyName])
 }
 
 model PropertyWikiAsset {
-  id           String   @id @default(cuid())
+  id           String              @id @default(cuid())
   propertyId   String
-  property     Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property     Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   entryId      String?
-  entry        PropertyWikiEntry? @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  entry        PropertyWikiEntry?  @relation(fields: [entryId], references: [id], onDelete: Cascade)
   vendorId     String?
   vendor       PropertyWikiVendor? @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   kind         String
@@ -1307,15 +1780,15 @@ model PropertyWikiAsset {
   category     String?
   building     String?
   description  String?
-  tags         String[] @default([])
-  isEmergency  Boolean  @default(false)
-  storedName   String   @unique
+  tags         String[]            @default([])
+  isEmergency  Boolean             @default(false)
+  storedName   String              @unique
   originalName String
   mimeType     String
   sizeBytes    Int
   createdById  String?
-  createdBy    User?    @relation("PropertyWikiAssetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt    DateTime @default(now())
+  createdBy    User?               @relation("PropertyWikiAssetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime            @default(now())
 
   @@index([propertyId, kind, createdAt])
   @@index([entryId, kind])
@@ -1352,16 +1825,16 @@ model PropertyWikiRecentView {
 }
 
 model PropertyWikiReference {
-  id             String   @id @default(cuid())
-  propertyId     String
-  recordType     String
-  recordId       String
-  targetType     String
-  targetId       String
-  createdById    String?
-  property       Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  createdBy      User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt      DateTime @default(now())
+  id          String   @id @default(cuid())
+  propertyId  String
+  recordType  String
+  recordId    String
+  targetType  String
+  targetId    String
+  createdById String?
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
 
   @@unique([recordType, recordId, targetType, targetId])
   @@index([propertyId, recordType, recordId, createdAt])
@@ -1369,9 +1842,9 @@ model PropertyWikiReference {
 }
 
 model PreventiveMaintenanceTemplate {
-  id               String   @id @default(cuid())
+  id               String                      @id @default(cuid())
   propertyId       String
-  property         Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property         Property                    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   name             String
   category         String
   description      String?
@@ -1383,18 +1856,18 @@ model PreventiveMaintenanceTemplate {
   assignedRole     String
   assignedUserId   String?
   assignedUserName String?
-  photosRequired   Boolean  @default(false)
-  notesRequired    Boolean  @default(false)
-  passFailRequired Boolean  @default(false)
-  priority         String   @default("Normal")
-  isActive         Boolean  @default(true)
-  isArchived       Boolean  @default(false)
+  photosRequired   Boolean                     @default(false)
+  notesRequired    Boolean                     @default(false)
+  passFailRequired Boolean                     @default(false)
+  priority         String                      @default("Normal")
+  isActive         Boolean                     @default(true)
+  isArchived       Boolean                     @default(false)
   createdById      String?
   updatedById      String?
-  createdBy        User?    @relation("PreventiveMaintenanceTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedBy        User?    @relation("PreventiveMaintenanceTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdBy        User?                       @relation("PreventiveMaintenanceTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy        User?                       @relation("PreventiveMaintenanceTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
   tasks            PreventiveMaintenanceTask[]
 
   @@index([propertyId, isArchived, isActive])
@@ -1404,11 +1877,11 @@ model PreventiveMaintenanceTemplate {
 }
 
 model PreventiveMaintenanceTask {
-  id                String   @id @default(cuid())
+  id                String                                @id @default(cuid())
   propertyId        String
-  property          Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property          Property                              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   templateId        String
-  template          PreventiveMaintenanceTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  template          PreventiveMaintenanceTemplate         @relation(fields: [templateId], references: [id], onDelete: Restrict)
   taskName          String
   category          String
   description       String?
@@ -1417,19 +1890,19 @@ model PreventiveMaintenanceTask {
   assignedUserId    String?
   assignedUserName  String?
   dueDate           DateTime
-  status            String   @default("UPCOMING")
-  priority          String   @default("Normal")
-  photosRequired    Boolean  @default(false)
-  notesRequired     Boolean  @default(false)
-  passFailRequired  Boolean  @default(false)
+  status            String                                @default("UPCOMING")
+  priority          String                                @default("Normal")
+  photosRequired    Boolean                               @default(false)
+  notesRequired     Boolean                               @default(false)
+  passFailRequired  Boolean                               @default(false)
   completionOutcome String?
   completionNotes   String?
   completedById     String?
   completedByName   String?
   completedAt       DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  completedBy       User?    @relation("PreventiveMaintenanceTaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  createdAt         DateTime                              @default(now())
+  updatedAt         DateTime                              @updatedAt
+  completedBy       User?                                 @relation("PreventiveMaintenanceTaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
   attachments       PreventiveMaintenanceTaskAttachment[]
 
   @@index([propertyId, dueDate, status])
@@ -1441,39 +1914,143 @@ model PreventiveMaintenanceTask {
 }
 
 model PreventiveMaintenanceTaskAttachment {
-  id           String   @id @default(cuid())
+  id           String                    @id @default(cuid())
   taskId       String
   task         PreventiveMaintenanceTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
   propertyId   String
-  property     Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property     Property                  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   uploadedById String?
-  uploadedBy   User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploadedBy   User?                     @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
   uploaderName String
   originalName String
-  storedName   String   @unique
+  storedName   String                    @unique
   mimeType     String
   sizeBytes    Int
   note         String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime                  @default(now())
 
   @@index([taskId, createdAt])
   @@index([propertyId, createdAt])
 }
 
 model PestIssue {
-  id            String   @id @default(cuid())
-  propertyId    String
-  property      Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  location      String
-  issueType     String
-  reportedAt    DateTime
-  treatmentDate DateTime?
-  followUpDate  DateTime?
-  vendor        String?
-  status        String
-  notes         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                        String                @id @default(cuid())
+  propertyId                String
+  property                  Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitId                    String?
+  unit                      Unit?                 @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  makeReadyItemId           String?
+  makeReadyItem             MakeReadyItem?        @relation(fields: [makeReadyItemId], references: [id], onDelete: SetNull)
+  building                  String?
+  area                      String?
+  requestDate               DateTime              @default(now())
+  pestType                  String
+  additionalPestType        String?
+  status                    String                @default("Open")
+  priority                  String                @default("Normal")
+  source                    String                @default("Third Party Work Order")
+  vendorId                  String?
+  vendor                    PestVendor?           @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  thirdPartyWorkOrderNumber String?
+  reportedBy                String?
+  assignedUserId            String?
+  assignedUser              User?                 @relation("PestIssueAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  treatmentDate             DateTime?
+  followUpRequired          Boolean               @default(false)
+  followUpDate              DateTime?
+  followUpNotes             String?
+  description               String?
+  closedNotes               String?
+  recurringConcern          Boolean               @default(false)
+  managerReviewRequired     Boolean               @default(false)
+  recurringDismissedAt      DateTime?
+  recurringDismissalNotes   String?
+  createdById               String?
+  createdBy                 User?                 @relation("PestIssueCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById               String?
+  updatedBy                 User?                 @relation("PestIssueUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  closedById                String?
+  closedBy                  User?                 @relation("PestIssueClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  closedAt                  DateTime?
+  isArchived                Boolean               @default(false)
+  archivedById              String?
+  archivedBy                User?                 @relation("PestIssueArchivedBy", fields: [archivedById], references: [id], onDelete: SetNull)
+  archivedAt                DateTime?
+  archiveNotes              String?
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @updatedAt
+  notes                     PestIssueNote[]
+  attachments               PestIssueAttachment[]
+
+  @@index([propertyId, isArchived, status, requestDate])
+  @@index([propertyId, unitId, requestDate])
+  @@index([propertyId, makeReadyItemId, requestDate])
+  @@index([propertyId, followUpDate])
+  @@index([propertyId, vendorId, requestDate])
+  @@index([assignedUserId, isArchived, status])
+}
+
+model PestVendor {
+  id               String      @id @default(cuid())
+  propertyId       String
+  property         Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  vendorName       String
+  primaryContact   String?
+  phone            String?
+  email            String?
+  emergencyPhone   String?
+  serviceDay       String?
+  serviceFrequency String?
+  notes            String?
+  isActive         Boolean     @default(true)
+  isDefault        Boolean     @default(false)
+  createdById      String?
+  createdBy        User?       @relation("PestVendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById      String?
+  updatedBy        User?       @relation("PestVendorUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  pestIssues       PestIssue[]
+
+  @@index([propertyId, isActive, vendorName])
+  @@index([propertyId, isDefault])
+}
+
+model PestIssueNote {
+  id           String    @id @default(cuid())
+  issueId      String
+  issue        PestIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  propertyId   String
+  property     Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  authorUserId String?
+  author       User?     @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  authorName   String
+  body         String
+  createdAt    DateTime  @default(now())
+
+  @@index([issueId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model PestIssueAttachment {
+  id           String    @id @default(cuid())
+  issueId      String
+  issue        PestIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  propertyId   String
+  property     Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  uploadedById String?
+  uploadedBy   User?     @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploaderName String
+  photoType    String    @default("GENERAL")
+  caption      String?
+  originalName String
+  storedName   String    @unique
+  mimeType     String
+  sizeBytes    Int
+  createdAt    DateTime  @default(now())
+
+  @@index([issueId, createdAt])
+  @@index([propertyId, createdAt])
 }
 
 model PropertyNote {
@@ -1488,13 +2065,13 @@ model PropertyNote {
 }
 
 model ChecklistTemplate {
-  id         String          @id @default(cuid())
+  id         String              @id @default(cuid())
   propertyId String?
-  property   Property?       @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  property   Property?           @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   name       String
   scope      String?
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
   items      ChecklistItem[]
   instances  ChecklistInstance[]
 
@@ -1502,33 +2079,33 @@ model ChecklistTemplate {
 }
 
 model ChecklistItem {
-  id          String            @id @default(cuid())
-  templateId  String
-  template    ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  label       String
-  notes       String?
-  sortOrder   Int               @default(0)
-  required    Boolean           @default(true)
+  id            String            @id @default(cuid())
+  templateId    String
+  template      ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  label         String
+  notes         String?
+  sortOrder     Int               @default(0)
+  required      Boolean           @default(true)
   dueOffsetDays Int?
   tradeCategory String?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 }
 
 model ItemComment {
-  id           String          @id @default(cuid())
+  id           String           @id @default(cuid())
   itemId       String
-  item         MakeReadyItem   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item         MakeReadyItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
   propertyId   String
-  property     Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property     Property         @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   authorUserId String?
-  author       User?           @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  author       User?            @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
   authorName   String
   body         String
-  category     String          @default("UPDATE")
-  isDeleted    Boolean         @default(false)
+  category     String           @default("UPDATE")
+  isDeleted    Boolean          @default(false)
   editedAt     DateTime?
-  createdAt    DateTime        @default(now())
+  createdAt    DateTime         @default(now())
   attachments  ItemAttachment[]
 
   @@index([itemId, createdAt])
@@ -1537,31 +2114,31 @@ model ItemComment {
 }
 
 model ItemAttachment {
-  id           String        @id @default(cuid())
-  itemId       String
-  item         MakeReadyItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  propertyId   String
-  property     Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  commentId    String?
-  comment      ItemComment?  @relation(fields: [commentId], references: [id], onDelete: SetNull)
-  uploadedById String?
-  uploadedBy   User?         @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
-  uploaderName String
-  originalName String
-  storedName   String        @unique
-  mimeType     String
-  sizeBytes    Int
-  note         String?
-  inspectionStage String      @default("GENERAL")
-  category     String?
-  chargeCandidate Boolean    @default(false)
-  chargeNote   String?
+  id                     String                @id @default(cuid())
+  itemId                 String
+  item                   MakeReadyItem         @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  propertyId             String
+  property               Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  commentId              String?
+  comment                ItemComment?          @relation(fields: [commentId], references: [id], onDelete: SetNull)
+  uploadedById           String?
+  uploadedBy             User?                 @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploaderName           String
+  originalName           String
+  storedName             String                @unique
+  mimeType               String
+  sizeBytes              Int
+  note                   String?
+  inspectionStage        String                @default("GENERAL")
+  category               String?
+  chargeCandidate        Boolean               @default(false)
+  chargeNote             String?
   chargePriceSheetItemId String?
-  chargePriceSheetItem ChargePriceSheetItem? @relation(fields: [chargePriceSheetItemId], references: [id], onDelete: SetNull)
-  chargeQuantity Float?
-  chargeEstimatedCents Int?
-  markupAnnotations Json?
-  createdAt    DateTime      @default(now())
+  chargePriceSheetItem   ChargePriceSheetItem? @relation(fields: [chargePriceSheetItemId], references: [id], onDelete: SetNull)
+  chargeQuantity         Float?
+  chargeEstimatedCents   Int?
+  markupAnnotations      Json?
+  createdAt              DateTime              @default(now())
 
   @@index([itemId, createdAt])
   @@index([itemId, commentId, createdAt])
@@ -1573,36 +2150,36 @@ model ItemAttachment {
 }
 
 model ChargePriceSheetItem {
-  id          String   @id @default(cuid())
-  propertyId  String
-  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  name        String
-  category    String?
-  unitLabel   String?
+  id           String           @id @default(cuid())
+  propertyId   String
+  property     Property         @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name         String
+  category     String?
+  unitLabel    String?
   defaultCents Int?
-  description String?
-  isActive    Boolean  @default(true)
-  isArchived  Boolean  @default(false)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  attachments ItemAttachment[]
+  description  String?
+  isActive     Boolean          @default(true)
+  isArchived   Boolean          @default(false)
+  sortOrder    Int              @default(0)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  attachments  ItemAttachment[]
 
   @@unique([propertyId, name])
   @@index([propertyId, isArchived, sortOrder])
 }
 
 model ChecklistInstance {
-  id         String                 @id @default(cuid())
+  id         String                  @id @default(cuid())
   itemId     String
-  item       MakeReadyItem          @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item       MakeReadyItem           @relation(fields: [itemId], references: [id], onDelete: Cascade)
   propertyId String
-  property   Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property   Property                @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   templateId String?
-  template   ChecklistTemplate?     @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  template   ChecklistTemplate?      @relation(fields: [templateId], references: [id], onDelete: SetNull)
   name       String
-  createdAt  DateTime               @default(now())
-  updatedAt  DateTime               @updatedAt
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
   items      ChecklistInstanceItem[]
 
   @@index([itemId, createdAt])
@@ -1610,21 +2187,21 @@ model ChecklistInstance {
 }
 
 model ChecklistInstanceItem {
-  id            String             @id @default(cuid())
+  id            String            @id @default(cuid())
   instanceId    String
-  instance      ChecklistInstance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  instance      ChecklistInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
   title         String
   notes         String?
-  sortOrder     Int                @default(0)
-  required      Boolean            @default(true)
+  sortOrder     Int               @default(0)
+  required      Boolean           @default(true)
   dueOffsetDays Int?
   tradeCategory String?
-  completed     Boolean            @default(false)
+  completed     Boolean           @default(false)
   completedAt   DateTime?
   completedById String?
-  completedBy   User?              @relation(fields: [completedById], references: [id], onDelete: SetNull)
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  completedBy   User?             @relation(fields: [completedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
   @@index([instanceId, sortOrder])
   @@index([instanceId, completed, sortOrder])

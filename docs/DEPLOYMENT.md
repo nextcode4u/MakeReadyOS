@@ -54,12 +54,42 @@ Admins can also open `Admin -> Uploads / NAS Storage` to inspect the active uplo
 
 Before updating:
 
+Preferred update path:
+
+```bash
+./update.sh --yes
+```
+
+This helper:
+
+1. runs `./backup-db.sh`
+2. runs `./backup-uploads.sh`
+3. runs `./doctor.sh`
+4. runs `./check-migration-hygiene.sh`
+5. runs `npm --prefix apps/api run db:deploy`
+6. runs `docker compose up --build -d`
+
+If you also want the script to pull the latest git changes first:
+
+```bash
+./update.sh --pull --yes
+```
+
+If you need to move to a specific branch/tag/commit:
+
+```bash
+./update.sh --ref v0.1.0-rc1 --yes
+```
+
+Manual equivalent:
+
 1. Run `./backup-db.sh`.
 2. Run `./backup-uploads.sh` if attachments or map uploads are used.
 3. Pull or copy the updated source.
 4. Run `./doctor.sh`.
-5. Run `npm --prefix apps/api run db:deploy` for production migration deployment.
-6. Run `docker compose up --build -d`.
+5. Run `./check-migration-hygiene.sh`.
+6. Run `npm --prefix apps/api run db:deploy` for production migration deployment.
+7. Run `docker compose up --build -d`.
 
 The API container also runs `db:deploy` on start and falls back to `db:push` for early disposable environments. For production-like deployments, run `db:deploy` intentionally after a backup so schema changes are explicit.
 

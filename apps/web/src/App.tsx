@@ -136,6 +136,8 @@ import { configuredScheduleTracks, kanbanGroupOptions, labelMap, normalizeVisibl
 import { clockModeStorageKey, type ClockMode } from "./lib/dateTime";
 import { customFieldFilterChipLabel, customOperatorsByType, defaultCustomFilterFor, defaultStructuredFilters, itemMatchesStructuredFilters, normalizeCustomFieldFilters, type CustomFieldFilter, type StructuredFilters } from "./lib/structuredFilters";
 import { openWikiRecordEventName, type OpenWikiRecordRequest } from "./lib/wikiNavigation";
+import { openProjectCreateEventName, openProjectRecordEventName, type OpenProjectCreateRequest, type OpenProjectRecordRequest } from "./lib/projectNavigation";
+import { openPestQuickAddEventName, openPestWorkspaceEventName, type OpenPestQuickAddRequest, type OpenPestWorkspaceRequest } from "./lib/pestNavigation";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel").then((module) => ({ default: module.AdminPanel })));
 const ActivityPanel = lazy(() => import("./components/ActivityPanel").then((module) => ({ default: module.ActivityPanel })));
@@ -152,12 +154,15 @@ const OperationsPanel = lazy(() => import("./components/OperationsPanel").then((
 const PlanningPanel = lazy(() => import("./components/PlanningPanel").then((module) => ({ default: module.PlanningPanel })));
 const PreventiveMaintenancePanel = lazy(() => import("./components/PreventiveMaintenancePanel").then((module) => ({ default: module.PreventiveMaintenancePanel })));
 const PoolLogPanel = lazy(() => import("./components/PoolLogPanel").then((module) => ({ default: module.PoolLogPanel })));
+const PestControlPanel = lazy(() => import("./components/PestControlPanel").then((module) => ({ default: module.PestControlPanel })));
+const LeaseCompliancePanel = lazy(() => import("./components/LeaseCompliancePanel").then((module) => ({ default: module.LeaseCompliancePanel })));
 const PropertyWikiPanel = lazy(() => import("./components/PropertyWikiPanel").then((module) => ({ default: module.PropertyWikiPanel })));
 const PropertyMapsPanel = lazy(() => import("./components/PropertyMapsPanel").then((module) => ({ default: module.PropertyMapsPanel })));
+const ProjectsPanel = lazy(() => import("./components/ProjectsPanel").then((module) => ({ default: module.ProjectsPanel })));
 const RefrigerantPanel = lazy(() => import("./components/RefrigerantPanel").then((module) => ({ default: module.RefrigerantPanel })));
 const VendorsPanel = lazy(() => import("./components/VendorsPanel").then((module) => ({ default: module.VendorsPanel })));
 
-type AppView = "dashboard" | "mywork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pm" | "wiki" | "fields" | "automations" | "activity" | "admin";
+type AppView = "dashboard" | "mywork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "fields" | "automations" | "activity" | "admin";
 type KanbanGroupKey = string;
 const compactModeStorageKey = "makereadyos.compactMode";
 const themeModeStorageKey = "makereadyos.themeMode";
@@ -312,6 +317,10 @@ function App() {
   const [apiDegraded, setApiDegraded] = useState(false);
   const [lastConnectionIssueAt, setLastConnectionIssueAt] = useState<string | null>(null);
   const [wikiRecordRequest, setWikiRecordRequest] = useState<(OpenWikiRecordRequest & { nonce: number }) | null>(null);
+  const [projectRecordRequest, setProjectRecordRequest] = useState<(OpenProjectRecordRequest & { nonce: number }) | null>(null);
+  const [projectCreateRequest, setProjectCreateRequest] = useState<(OpenProjectCreateRequest & { nonce: number }) | null>(null);
+  const [pestQuickAddRequest, setPestQuickAddRequest] = useState<(OpenPestQuickAddRequest & { nonce: number }) | null>(null);
+  const [pestWorkspaceRequest, setPestWorkspaceRequest] = useState<(OpenPestWorkspaceRequest & { nonce: number }) | null>(null);
   const queryClient = useQueryClient();
 
   const pushToast = (title: string, message: string | undefined, tone: ToastItem["tone"]) => {
@@ -352,6 +361,65 @@ function App() {
     };
     window.addEventListener(openWikiRecordEventName, handleOpenWikiRecord as EventListener);
     return () => window.removeEventListener(openWikiRecordEventName, handleOpenWikiRecord as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const handleOpenProjectRecord = (event: Event) => {
+      const detail = (event as CustomEvent<OpenProjectRecordRequest>).detail;
+      if (!detail?.id) return;
+      if (detail.propertyId) setPropertyId(detail.propertyId);
+      setProjectRecordRequest({ ...detail, nonce: Date.now() });
+      setActiveView("projects");
+    };
+    window.addEventListener(openProjectRecordEventName, handleOpenProjectRecord as EventListener);
+    return () => window.removeEventListener(openProjectRecordEventName, handleOpenProjectRecord as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const handleOpenProjectCreate = (event: Event) => {
+      const detail = (event as CustomEvent<OpenProjectCreateRequest>).detail;
+      if (!detail?.propertyId) return;
+      setPropertyId(detail.propertyId);
+      setProjectCreateRequest({ ...detail, nonce: Date.now() });
+      setActiveView("projects");
+    };
+    window.addEventListener(openProjectCreateEventName, handleOpenProjectCreate as EventListener);
+    return () => window.removeEventListener(openProjectCreateEventName, handleOpenProjectCreate as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const handleOpenPestQuickAdd = (event: Event) => {
+      const detail = (event as CustomEvent<OpenPestQuickAddRequest>).detail;
+      if (!detail?.propertyId) return;
+      setPropertyId(detail.propertyId);
+      setPestQuickAddRequest({ ...detail, nonce: Date.now() });
+      setActiveView("pest");
+    };
+    window.addEventListener(openPestQuickAddEventName, handleOpenPestQuickAdd as EventListener);
+    return () => window.removeEventListener(openPestQuickAddEventName, handleOpenPestQuickAdd as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const handleOpenPestWorkspace = (event: Event) => {
+      const detail = (event as CustomEvent<OpenPestWorkspaceRequest>).detail;
+      if (!detail?.propertyId) return;
+      setPropertyId(detail.propertyId);
+      setPestWorkspaceRequest({ ...detail, nonce: Date.now() });
+      setActiveView("pest");
+    };
+    window.addEventListener(openPestWorkspaceEventName, handleOpenPestWorkspace as EventListener);
+    return () => window.removeEventListener(openPestWorkspaceEventName, handleOpenPestWorkspace as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const handleSetActiveView = (event: Event) => {
+      const detail = (event as CustomEvent<{ view?: AppView; propertyId?: string }>).detail;
+      if (!detail?.view) return;
+      if (detail.propertyId) setPropertyId(detail.propertyId);
+      setActiveView(detail.view);
+    };
+    window.addEventListener("makereadyos:set-active-view", handleSetActiveView as EventListener);
+    return () => window.removeEventListener("makereadyos:set-active-view", handleSetActiveView as EventListener);
   }, []);
 
   const meQuery = useQuery({
@@ -809,6 +877,10 @@ function App() {
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Availability import failed");
+      if (isApiError(error) && error.status === 409) {
+        pushToast("Availability import blocked", error.message, "info");
+        return;
+      }
       pushToast("Availability import failed", error instanceof Error ? error.message : undefined, "error");
     },
   });
@@ -2101,7 +2173,7 @@ function App() {
       <main className="workspace module-rail-layout">
         <aside className="module-rail" aria-label="MakeReadyOS modules">
           <button
-            className={activeView === "refrigerant" || activeView === "pool" || activeView === "pm" || activeView === "wiki" ? "module-rail-button" : "module-rail-button active"}
+            className={activeView === "refrigerant" || activeView === "pool" || activeView === "pest" || activeView === "lease" || activeView === "pm" || activeView === "projects" || activeView === "wiki" ? "module-rail-button" : "module-rail-button active"}
             type="button"
             title="MakeReadyOS board"
             aria-label="MakeReadyOS board"
@@ -2132,6 +2204,26 @@ function App() {
             <span className="module-rail-icon" style={moduleRailMask("/icons/fontawesome/pool.svg")} aria-hidden="true" />
           </button>
           <button
+            className={activeView === "pest" ? "module-rail-button active" : "module-rail-button"}
+            type="button"
+            title="Pest Control"
+            aria-label="Open Pest Control"
+            data-testid="module-rail-pest"
+            onClick={() => setActiveView("pest")}
+          >
+            <span className="module-rail-icon" style={moduleRailMask("/icons/fontawesome/pest.svg")} aria-hidden="true" />
+          </button>
+          <button
+            className={activeView === "lease" ? "module-rail-button active" : "module-rail-button"}
+            type="button"
+            title="Lease Compliance"
+            aria-label="Open Lease Compliance"
+            data-testid="module-rail-lease-compliance"
+            onClick={() => setActiveView("lease")}
+          >
+            <span className="module-rail-icon" style={moduleRailMask("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm2 4v2h6V8H9Zm0 4v2h6v-2H9Zm-2-8v16H5V4h2Z'/%3E%3C/svg%3E")} aria-hidden="true" />
+          </button>
+          <button
             className={activeView === "pm" ? "module-rail-button active" : "module-rail-button"}
             type="button"
             title="Preventive Maintenance"
@@ -2141,6 +2233,18 @@ function App() {
           >
             <span className="module-rail-icon" style={moduleRailMask("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 7.5 16.5 3l-2.1 2.1 1.5 1.5-3.9 3.9-1.5-1.5L3 16.5 7.5 21l7.5-7.5-1.5-1.5 3.9-3.9 1.5 1.5L21 7.5Z'/%3E%3C/svg%3E")} aria-hidden="true" />
           </button>
+          {currentUser.role !== "CLEANER" ? (
+            <button
+              className={activeView === "projects" ? "module-rail-button active" : "module-rail-button"}
+              type="button"
+              title="Projects"
+              aria-label="Open Projects"
+              data-testid="module-rail-projects"
+              onClick={() => setActiveView("projects")}
+            >
+              <span className="module-rail-icon" style={moduleRailMask("/icons/fontawesome/projects.svg")} aria-hidden="true" />
+            </button>
+          ) : null}
           <button
             className={activeView === "wiki" ? "module-rail-button active" : "module-rail-button"}
             type="button"
@@ -2247,7 +2351,7 @@ function App() {
               onPropertyChange={setPropertyId}
               loading={planningQuery.isLoading || itemsQuery.isLoading}
               error={planningQuery.isError}
-              canManage={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
+              canManage={currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "TECH"}
               onCreateBlock={async (input) => { await workBlockCreateMutation.mutateAsync(input); }}
               onUpdateBlock={async (id, input) => { await workBlockUpdateMutation.mutateAsync({ id, data: input }); }}
               onOpenItem={setSelectedItemId}
@@ -2304,16 +2408,18 @@ function App() {
               />
               <BoardConfigurationPanel
                 properties={operationsPropertiesQuery.data?.properties ?? []}
+                boardSections={metaQuery.data?.boardSections ?? []}
                 options={operationsOptionsQuery.data?.options ?? []}
                 floorPlans={floorPlansQuery.data?.floorPlans ?? []}
                 columns={metaQuery.data?.columns ?? []}
                 scheduleTracks={scheduleTracksQuery.data?.tracks ?? []}
                 customFields={metaQuery.data?.customFields ?? []}
-                loading={optionCreateMutation.isPending || optionUpdateMutation.isPending || optionArchiveMutation.isPending || floorPlanCreateMutation.isPending || floorPlanUpdateMutation.isPending || floorPlanArchiveMutation.isPending || columnUpdateMutation.isPending || scheduleTrackCreateMutation.isPending || scheduleTrackUpdateMutation.isPending || scheduleTrackReorderMutation.isPending || scheduleTrackArchiveMutation.isPending}
+                loading={optionCreateMutation.isPending || optionUpdateMutation.isPending || optionArchiveMutation.isPending || renameSectionMutation.isPending || floorPlanCreateMutation.isPending || floorPlanUpdateMutation.isPending || floorPlanArchiveMutation.isPending || columnUpdateMutation.isPending || scheduleTrackCreateMutation.isPending || scheduleTrackUpdateMutation.isPending || scheduleTrackReorderMutation.isPending || scheduleTrackArchiveMutation.isPending}
                 onCreateOption={async (input) => { await optionCreateMutation.mutateAsync(input); }}
                 onUpdateOption={async (id, input) => { await optionUpdateMutation.mutateAsync({ id, data: input }); }}
                 onArchiveOption={async (id, restore) => { await optionArchiveMutation.mutateAsync({ id, restore }); }}
                 onReorderOptions={async (ids) => { await optionReorderMutation.mutateAsync(ids); }}
+                onUpdateBoardSection={async (id, displayName) => { await renameSectionMutation.mutateAsync({ id, displayName }); }}
                 onCreateFloorPlan={async (input) => { await floorPlanCreateMutation.mutateAsync(input); }}
                 onUpdateFloorPlan={async (id, input) => { await floorPlanUpdateMutation.mutateAsync({ id, data: input }); }}
                 onArchiveFloorPlan={async (id, restore) => { await floorPlanArchiveMutation.mutateAsync({ id, restore }); }}
@@ -2401,11 +2507,38 @@ function App() {
               selectedPropertyId={propertyId}
               userRole={currentUser.role}
             />
+          ) : activeView === "pest" ? (
+            <PestControlPanel
+              properties={metaQuery.data?.properties ?? []}
+              units={metaQuery.data?.units ?? []}
+              users={adminUsersQuery.data?.users?.map((user) => ({ id: user.id, fullName: user.fullName, role: user.role })) ?? []}
+              selectedPropertyId={propertyId}
+              userRole={currentUser.role}
+              openQuickAddRequest={pestQuickAddRequest}
+              workspaceRequest={pestWorkspaceRequest}
+            />
+          ) : activeView === "lease" ? (
+            <LeaseCompliancePanel
+              properties={metaQuery.data?.properties ?? []}
+              units={metaQuery.data?.units ?? []}
+              users={adminUsersQuery.data?.users?.map((user) => ({ id: user.id, fullName: user.fullName, role: user.role })) ?? []}
+              selectedPropertyId={propertyId}
+              userRole={currentUser.role}
+            />
           ) : activeView === "pm" ? (
             <PreventiveMaintenancePanel
               properties={metaQuery.data?.properties ?? []}
               selectedPropertyId={propertyId}
               userRole={currentUser.role}
+            />
+          ) : activeView === "projects" && currentUser.role !== "CLEANER" ? (
+            <ProjectsPanel
+              properties={metaQuery.data?.properties ?? []}
+              users={adminUsersQuery.data?.users?.map((user) => ({ id: user.id, fullName: user.fullName, role: user.role })) ?? []}
+              selectedPropertyId={propertyId}
+              userRole={currentUser.role}
+              openRecordRequest={projectRecordRequest}
+              openCreateRequest={projectCreateRequest}
             />
           ) : activeView === "wiki" ? (
             <PropertyWikiPanel

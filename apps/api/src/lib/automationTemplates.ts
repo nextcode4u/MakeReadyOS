@@ -351,7 +351,7 @@ const templates: TemplateDefinition[] = [
     ],
     setupNotes: [
       "Install disabled first and adjust the upstream readiness conditions to match the property workflow.",
-      "This starter adds an assignment review note. True automatic cleaner selection needs the future balanced-assignment action so it can pick an active cleaner safely.",
+      "This starter stays review-first by default. If a property wants controlled auto-assignment, scheduled rules can now use assignLeastLoadedStaff to pick an active eligible cleaner safely.",
     ],
   },
   {
@@ -372,8 +372,39 @@ const templates: TemplateDefinition[] = [
       { source: "BUILT_IN", key: "makeReadyDate", label: "Make Ready Date", purpose: "Limits review to upcoming make-ready work." },
     ],
     setupNotes: [
-      "Use this to make unassigned upcoming work visible until automatic least-loaded assignment is implemented.",
-      "Future parameters should include eligible roles/users, property scope, look-ahead days, daily assignment cap, and whether cleaners/leasing should be excluded.",
+      "Use this to keep unassigned upcoming work visible before enabling automatic balancing on a live property.",
+      "Scheduled rules can now swap this review note for assignLeastLoadedStaff with eligible roles/users, look-ahead days, planned-day caps, and planning-aware balancing.",
+    ],
+  },
+  {
+    id: "balanced-tech-auto-assignment",
+    name: "Balanced Tech Auto-Assignment",
+    description: "Automatically assign unassigned upcoming turns to the least-loaded eligible make-ready tech.",
+    category: "Assignment",
+    triggerType: "SCHEDULED_CHECK",
+    conditions: { all: [
+      { field: "assignedTech", operator: "isEmpty" },
+      { field: "makeReadyDate", operator: "dateWithinNextDays", value: 14 },
+      { field: "completionStatus", operator: "notEquals", value: "DONE" },
+      { field: "completionStatus", operator: "notEquals", value: "YES" },
+    ] },
+    actions: [{
+      type: "assignLeastLoadedStaff",
+      eligibleRoles: ["TECH"],
+      lookAheadDays: 14,
+      includePlannedWork: true,
+      onlyWhenUnassigned: true,
+      dailyAssignmentCap: 4,
+      targetDateField: "makeReadyDate",
+    }],
+    requiredFields: [
+      { source: "BUILT_IN", key: "assignedTech", label: "Assigned Tech", purpose: "Only auto-assigns turns without an existing owner." },
+      { source: "BUILT_IN", key: "makeReadyDate", label: "Make Ready Date", purpose: "Balances upcoming work against the scheduled make-ready date." },
+    ],
+    setupNotes: [
+      "Install disabled first and preview against a live property before enabling.",
+      "Adjust the look-ahead window and planned-day cap to match how far ahead the property schedules in-house work.",
+      "This starter uses TECH-only balancing and includes planned work in the workload score.",
     ],
   },
   {
@@ -394,7 +425,45 @@ const templates: TemplateDefinition[] = [
     ],
     setupNotes: [
       "Change the 21-day look-ahead window after install if your property schedules closer to move-in.",
-      "This starter does not assign users automatically. It prepares the workflow for a future balanced assignment action that can account for assigned count, planned work, sections, and property access.",
+      "This starter remains advisory by default. Properties can now replace it with assignLeastLoadedStaff once they are ready for planning-aware automatic balancing.",
+    ],
+  },
+  {
+    id: "auto-assign-cleaner-balanced",
+    name: "Auto-Assign Cleaner",
+    description: "Automatically assign ready-for-cleaning turns to the least-loaded eligible cleaner.",
+    category: "Assignment",
+    triggerType: "SCHEDULED_CHECK",
+    conditions: { all: [
+      { field: "assignedTech", operator: "isEmpty" },
+      { field: "makeReadyStatus", operator: "notEquals", value: "DONE" },
+      { field: "cleaningStatus", operator: "notEquals", value: "DONE" },
+      { field: "completionStatus", operator: "notEquals", value: "DONE" },
+      { field: "completionStatus", operator: "notEquals", value: "YES" },
+    ], any: [
+      { field: "trashOutStatus", operator: "equals", value: "DONE" },
+      { field: "paintStatus", operator: "equals", value: "GOOD" },
+      { field: "doorsStatus", operator: "equals", value: "GOOD" },
+      { field: "floorsStatus", operator: "equals", value: "GOOD" },
+    ] },
+    actions: [{
+      type: "assignLeastLoadedStaff",
+      eligibleRoles: ["CLEANER"],
+      lookAheadDays: 7,
+      includePlannedWork: true,
+      onlyWhenUnassigned: true,
+      dailyAssignmentCap: 6,
+      targetDateField: "makeReadyDate",
+    }],
+    requiredFields: [
+      { source: "BUILT_IN", key: "assignedTech", label: "Assigned Tech", purpose: "Prevents overwriting an existing assignee." },
+      { source: "BUILT_IN", key: "cleaningStatus", label: "Cleaning Status", purpose: "Limits auto-assignment to turns that still need cleaning." },
+      { source: "BUILT_IN", key: "trashOutStatus", label: "Trash Out", purpose: "One signal that upstream work is ready for cleaning." },
+    ],
+    setupNotes: [
+      "Install disabled first and preview against a live property before enabling.",
+      "Review the readiness conditions carefully so cleaners are not assigned before upstream trade work is truly ready.",
+      "This starter uses CLEANER-only balancing and includes planned work in the workload score.",
     ],
   },
 ];

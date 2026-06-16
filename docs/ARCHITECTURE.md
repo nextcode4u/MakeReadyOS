@@ -24,7 +24,7 @@ The API is intentionally thin and operational:
 - CRUD for make-ready items
 - metadata endpoints for labels, properties, units, and views
 - calendar feed by board date field
-- CSV export
+- CSV and PDF reporting export
 - automation evaluation on item changes
 - custom-field definition, option, and make-ready value endpoints
 - read-only activity query endpoints over recorded audit events
@@ -179,6 +179,8 @@ Template definitions are application-owned, fixed structured inputs rather than 
 
 The structured `setDateFromField` action can set one built-in date field from another using an integer operating-day offset. When configured to respect operating calendars, it skips weekends and optional Monday/Friday blocked days for the item's property. This is intentionally limited to known date fields and does not execute scripts.
 
+The scheduled-only `assignLeastLoadedStaff` action can auto-fill `assignedTech` using active eligible users within the item's property scope. It supports role filtering, optional user allow/deny lists, planning-aware balancing, planned-day caps, deterministic tie-breaking, preview visibility, and assignment notifications without introducing arbitrary scripting or a separate dispatcher subsystem.
+
 Operational library packs are versioned JSON envelopes (`makereadyos.libraryPack`, version `1`) that can install multiple normal MakeReadyOS records at once: custom fields, built-in option choices, checklist templates, schedule tracks, shared saved views, and disabled automation rules. Packs are previewed/dry-run first, duplicate-safe by stable keys/natural keys, and rejected if executable-code-like keys or JavaScript syntax are present. Installed pack history is tracked in `OperationalLibraryPack` and `OperationalLibraryPackItem`; generated automations use `templateId` provenance in the `pack:<packKey>:<itemKey>` form and are always disabled until reviewed.
 
 ## Native Backup Transfer
@@ -324,7 +326,7 @@ Initial conditions support equality, inequality, empty/not-empty checks, date be
 
 The evaluator is deliberately non-executable: rule inputs are schema validated against fixed operators/actions, and no JavaScript source, expression evaluation, or legacy automation script is run. The same validation boundary is used by preview, event evaluation, manual scheduled execution, and the scheduled runner; archived/missing custom fields, unavailable select options, incompatible operators, and unsupported actions are rejected before evaluation. Local legacy reference material informs future structured conversion only.
 
-The bundled template catalog initially includes overdue make-ready, move-in within seven days, missing make-ready date, date fail-safe/schedule warning, pest follow-up, flooring-date requirement, major-scope priority, weekend schedule guards, Monday/Friday schedule guards, vendor lead-time review, scope-day planning, date-sequence review, daily schedule load review, in-house/vendor routing review, cleaner-assignment review, balanced tech-assignment review, ready-unit stock expectation definitions, and a disabled-by-default flooring-date auto-population template. Date-sequence, load-review, and assignment-balancing templates remain safe review scaffolds; daily load caps, multi-step date distribution, and automatic least-loaded staff selection are still future work.
+The bundled template catalog initially includes overdue make-ready, move-in within seven days, missing make-ready date, date fail-safe/schedule warning, pest follow-up, flooring-date requirement, major-scope priority, weekend schedule guards, Monday/Friday schedule guards, vendor lead-time review, scope-day planning, date-sequence review, daily schedule load review, in-house/vendor routing review, cleaner-assignment review, balanced tech-assignment review, ready-unit stock expectation definitions, disabled opt-in least-loaded auto-assignment starters, and a disabled-by-default flooring-date auto-population template. Date-sequence and load-review templates remain safe review scaffolds; automatic least-loaded staff selection now exists as a scheduled structured action, while broader multi-step date distribution is still future work.
 
 ## Data Design
 
@@ -340,13 +342,15 @@ The core table is `MakeReadyItem`, linked to:
 
 Configurable board metadata is represented by `CustomField` and `CustomFieldOption`.
 
-The active refrigerant module uses `RefrigerantType`, `RefrigerantCylinder`, `RefrigerantTransaction`, and `RefrigerantLeakFlag` for EPA 608-friendly tank and unit history. Pool Log uses `PoolFacility`, `PoolChemical`, `PoolChemistryTarget`, `PoolLogEntry`, `PoolSafetyCheck`, `PoolChemicalAddition`, and `PoolLogAttachment` for daily water-feature checks and scoped pool photos/PDFs. Preventive Maintenance uses `PreventiveMaintenanceTemplate`, `PreventiveMaintenanceTask`, and `PreventiveMaintenanceTaskAttachment` for recurring property routines, generated due work, completion outcomes, and PM evidence uploads. The older `PoolChemicalLog` placeholder remains for compatibility. Pest issues and notes are still lightweight future surfaces. Operational collaboration now uses `ItemComment`, `ItemAttachment`, `ChecklistTemplate`, `ChecklistInstance`, and `ChecklistInstanceItem`; checklist instances snapshot template tasks so execution history remains stable when templates evolve.
+The active refrigerant module uses `RefrigerantType`, `RefrigerantCylinder`, `RefrigerantTransaction`, and `RefrigerantLeakFlag` for EPA 608-friendly tank and unit history. Pool Log uses `PoolFacility`, `PoolChemical`, `PoolChemistryTarget`, `PoolLogEntry`, `PoolSafetyCheck`, `PoolChemicalAddition`, and `PoolLogAttachment` for daily water-feature checks and scoped pool photos/PDFs. Preventive Maintenance uses `PreventiveMaintenanceTemplate`, `PreventiveMaintenanceTask`, and `PreventiveMaintenanceTaskAttachment` for recurring property routines, generated due work, completion outcomes, and PM evidence uploads. Projects uses `ProjectCategory`, `ProjectRecord`, `ProjectAttachment`, `ProjectComment`, `ProjectTask`, and `ProjectWikiReference` for property-scoped recommendations, projects, simple execution follow-up, attached files, and wiki-linked context. The older `PoolChemicalLog` placeholder remains for compatibility. Pest issues and notes are still lightweight future surfaces. Operational collaboration now uses `ItemComment`, `ItemAttachment`, `ChecklistTemplate`, `ChecklistInstance`, and `ChecklistInstanceItem`; checklist instances snapshot template tasks so execution history remains stable when templates evolve.
 
 ## Refrigerant Tracking
 
 The Refrigerant workspace is a first-class operational module, not a generic attachment to the make-ready table. API routes under `/api/refrigerant` are protected by role and property scope. `ADMIN` users can manage refrigerant types; `ADMIN`, `MANAGER`, and `TECH` users can record tank and unit work; `VIEWER` users can read scoped data; `LEASING` and `CLEANER` users are denied.
 
 Virgin-cylinder charge amount is calculated as `startWeight - endWeight`. Recovery amount is calculated as `endWeight - startWeight`. Empty virgin cylinders move to `EMPTY_PENDING_RECOVERY` until a final recovery transaction is logged into a clean or dirty recovery tank. Recovery tanks expose fill warnings at 80, 90, and 95 percent of capacity. Repeated refrigerant additions on the same unit and type create active leak-review flags that managers/admins can dismiss with notes. All mutations write audit records, and leak/compliance events can create in-app notifications through the existing notification infrastructure.
+
+Reporting now follows the shared lightweight module pattern: CSV export, Excel-compatible tab export, printable HTML, and direct PDF output are all served from `/api/refrigerant` without introducing a separate reporting service.
 
 ## Pool Log
 
@@ -376,7 +380,22 @@ The PM setup/execution split is:
 
 Recurring generation is intentionally lightweight. Active templates ensure an open task exists when PM views load, and completing or skipping a task immediately creates the next occurrence. This avoids requiring a permanently running background scheduler while still keeping recurring work visible. CSV export, Excel-compatible export, browser-printable reports, audit records, and in-app notifications are built on the same shared infrastructure used by the rest of the application.
 
-PM also reuses the Property Wiki workflow-reference model so templates and tasks can attach SOPs, equipment notes, known issues, emergency context, photos, and documents without duplicating knowledge data. Native JSON transfer does not yet include PM templates, tasks, PM attachments, or PM Wiki references. Uploaded file bytes still require upload-volume backup.
+PM also reuses the Property Wiki workflow-reference model so templates and tasks can attach SOPs, equipment notes, known issues, emergency context, photos, and documents without duplicating knowledge data. Native JSON transfer now includes PM templates, tasks, PM attachment metadata, and PM Wiki references. Uploaded file bytes still require upload-volume backup.
+
+## Projects
+
+Projects is a first-class side-rail module for property-scoped recommendations and project execution follow-up. API routes under `/api/projects` are protected by the existing session/API-token, CSRF, role, and property-scope layers. `ADMIN` and `MANAGER` users have scoped management access, `TECH` users have scoped operational edit access, `LEASING` and `VIEWER` users are read-only, and `CLEANER` users are denied.
+
+The first-pass setup/execution split is:
+
+- `ProjectCategory`: optional global or property-scoped categorization metadata
+- `ProjectRecord`: the primary recommendation/project record including status, building/area, map pin, assignment, scheduling, and vendor/bid context
+- `ProjectAttachment`: per-record image/file metadata stored in PostgreSQL while file bytes live in the local upload volume
+- `ProjectComment`: auditable human discussion on a project record
+- `ProjectTask`: lightweight actionable follow-up linked to a project record
+- `ProjectWikiReference`: reusable links from project records into Property Wiki content without duplicating the wiki data
+
+The current frontend intentionally favors operational speed over deep workflow complexity. Dashboard counts, source/budget/deferred planning fields, aging buckets, report/export links, recommendation conversion, categorized attachments, lifecycle history from audit logs, comments, simple tasks, and My Work surfacing are in place. The current map view is intentionally lightweight and grouped by property map rather than exposing a full image-backed editor. Create-from-anywhere recommendation actions and native backup/transfer coverage for Projects are still follow-up work. Uploaded project file bytes still require upload-volume backup.
 
 ## Deployment
 
@@ -438,11 +457,11 @@ The frontend memoizes material grouped/list derivations, defers board text filte
 
 External integrations use `Authorization: Bearer <token>` with admin-created API tokens. The database stores only token hashes plus prefix/last-four metadata for identification. Scope checks run after authentication and before CSRF handling; token requests bypass CSRF because they do not use browser cookies. Property-scoped tokens further restrict the creator's normal property access and do not grant additional permissions.
 
-API-token traffic has a basic in-memory per-token limiter controlled by `API_TOKEN_RATE_LIMIT_MAX` and `API_TOKEN_RATE_LIMIT_WINDOW_MINUTES`. This is sufficient for single-node self-hosted deployments, but multi-node or public deployments should move enforcement to shared infrastructure or a reverse proxy.
+API-token traffic uses a database-backed per-token limiter controlled by `API_TOKEN_RATE_LIMIT_MAX` and `API_TOKEN_RATE_LIMIT_WINDOW_MINUTES`. Because the active window counters live in PostgreSQL, the cap is shared across API replicas instead of being node-local. Public deployments should still keep a reverse proxy or edge rate limiter in front of the app for broader abuse control.
 
 The API serves an OpenAPI 3.1 contract at `GET /api/openapi.json`. The path surface remains conservative, but request/query component schemas are generated from exported Zod route validators where available, and major response envelopes are documented as reusable schemas. Handwritten docs remain the deeper workflow reference while the OpenAPI contract gives external collaborators a machine-readable starting point.
 
-Webhook endpoints are modeled and configurable from Admin -> Integrations. New endpoint secrets are stored as a one-way hash plus encrypted signing material derived from `WEBHOOK_SECRET_ENCRYPTION_KEY` or, if unset, the session secret. Admins can generate signed dry-run payloads, queue signed test payloads, inspect `WebhookDeliveryAttempt` history, and see delivery-health status, last-delivered time, attempt counts, and failure counts in the UI. Core item/comment/checklist/vendor/risk writes queue subscribed events as `PENDING` delivery attempts. Delivery is still script-driven through `./run-webhooks.sh` rather than a long-running API worker, so operational writes do not block on external services. Public deployments can set `WEBHOOK_ALLOW_PRIVATE_URLS=false` to reject localhost/private/link-local webhook targets and DNS names that resolve to private addresses, with explicit exceptions through `WEBHOOK_ALLOWED_HOSTS`.
+Webhook endpoints are modeled and configurable from Admin -> Integrations. New endpoint secrets are stored as a one-way hash plus encrypted signing material derived from `WEBHOOK_SECRET_ENCRYPTION_KEY` or, if unset, the session secret. Admins can generate signed dry-run payloads, queue signed test payloads, inspect `WebhookDeliveryAttempt` history, and see delivery-health status, last-delivered time, attempt counts, and failure counts in the UI. Core make-ready, Projects, Pest Control, Preventive Maintenance, Pool Log, Lease Compliance, comment, attachment, checklist, vendor, and risk writes queue subscribed events as `PENDING` delivery attempts. Delivery is still script-driven through `./run-webhooks.sh` rather than a long-running API worker, so operational writes do not block on external services. Public deployments can set `WEBHOOK_ALLOW_PRIVATE_URLS=false` to reject localhost/private/link-local webhook targets and DNS names that resolve to private addresses, with explicit exceptions through `WEBHOOK_ALLOWED_HOSTS`.
 
 MakeReadyOS extension points are JSON contracts only: operational library packs, native backup files, API integrations, and future dashboard/widget definitions. The app does not execute arbitrary plugin JavaScript.
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AvailabilityImportInput, AvailabilityImportResult, BoardSection, FloorPlan, LabelDefinition, MakeReadyItem, OperatingCalendar, OperatingCalendarInput, Property, RiskPolicy, StaffOption, Unit, UserRole } from "../lib/api";
+import { isApiError, type AvailabilityImportConflict, type AvailabilityImportConflictResponse, type AvailabilityImportInput, type AvailabilityImportResult, type BoardSection, type FloorPlan, type LabelDefinition, type MakeReadyItem, type OperatingCalendar, type OperatingCalendarInput, type Property, type RiskPolicy, type StaffOption, type Unit, type UserRole } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusState } from "./StatusState";
@@ -30,7 +30,7 @@ type Props = {
   onCreateUnit: (input: UnitInput) => Promise<void>;
   onUpdateUnit: (id: string, input: UnitInput) => Promise<void>;
   onImportUnits: (input: { propertyId: string; units: UnitImportInput[]; updateExisting: boolean }) => Promise<UnitImportResult>;
-  onImportAvailability: (input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting: boolean; createTurns: boolean }) => Promise<AvailabilityImportResult>;
+  onImportAvailability: (input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting: boolean; createTurns: boolean; overrideConflicts?: boolean }) => Promise<AvailabilityImportResult>;
   onRevertUnitImport: (input: { propertyId: string; createdUnitIds: string[] }) => Promise<void>;
   onArchiveUnit: (id: string, restore: boolean) => Promise<void>;
   onDeleteUnit: (id: string) => Promise<void>;
@@ -344,6 +344,7 @@ export function OperationsPanel({
   const [availabilityImportError, setAvailabilityImportError] = useState("");
   const [showAvailabilityImportHelp, setShowAvailabilityImportHelp] = useState(false);
   const [lastAvailabilityImport, setLastAvailabilityImport] = useState<AvailabilityImportResult | null>(null);
+  const [availabilityImportConflicts, setAvailabilityImportConflicts] = useState<AvailabilityImportConflict[] | null>(null);
   const [newItem, setNewItem] = useState({
     propertyId: "",
     unitId: "",
@@ -406,6 +407,11 @@ export function OperationsPanel({
       setSelectedUnitId("");
     }
   }, [selectedPropertyId, selectedUnitId, units]);
+
+  useEffect(() => {
+    setAvailabilityImportConflicts(null);
+    setAvailabilityImportError("");
+  }, [availabilityImportText, selectedPropertyId]);
   const visibleItems = useMemo(
     () => items
       .filter((item) => !selectedPropertyId || item.propertyId === selectedPropertyId)
@@ -762,7 +768,7 @@ export function OperationsPanel({
     setLastImport(null);
   };
 
-  const importAvailabilityReport = async () => {
+  const importAvailabilityReport = async (overrideConflicts = false) => {
     if (!properties.length) {
       setAvailabilityImportError("Create a property before importing availability.");
       return;
@@ -773,11 +779,17 @@ export function OperationsPanel({
     }
     try {
       setAvailabilityImportError("");
+      if (!overrideConflicts) setAvailabilityImportConflicts(null);
       const parsedRows = parseAvailabilityRows();
-      const result = await onImportAvailability({ propertyId: selectedPropertyId, rows: parsedRows, updateExisting: true, createTurns: true });
+      const result = await onImportAvailability({ propertyId: selectedPropertyId, rows: parsedRows, updateExisting: true, createTurns: true, overrideConflicts });
       setLastAvailabilityImport(result);
       setAvailabilityImportText("");
+      setAvailabilityImportConflicts(null);
     } catch (error) {
+      if (isApiError(error) && error.status === 409 && error.details && typeof error.details === "object" && "conflicts" in (error.details as Record<string, unknown>)) {
+        const payload = error.details as AvailabilityImportConflictResponse;
+        setAvailabilityImportConflicts(payload.conflicts);
+      }
       setAvailabilityImportError(error instanceof Error ? error.message : "Could not parse availability CSV.");
     }
   };
@@ -1064,6 +1076,27 @@ export function OperationsPanel({
                   ))}
                   {availabilityImportPreview.changes.length > 6 ? <li>+{availabilityImportPreview.changes.length - 6} more changed units</li> : null}
                 </ul>
+              </div>
+            ) : null}
+            {availabilityImportConflicts?.length ? (
+              <div className="admin-message warning" data-testid="availability-import-conflicts">
+                <strong>{availabilityImportConflicts.length}</strong> turn{availabilityImportConflicts.length === 1 ? "" : "s"} have newer or more advanced local board changes than this report. MakeReadyOS blocked the import so the stale report cannot silently overwrite local progress.
+                <ul className="compact-list">
+                  {availabilityImportConflicts.slice(0, 6).map((conflict) => (
+                    <li key={conflict.itemId}>
+                      <strong>{conflict.unitNumber}</strong>: {conflict.reason} {conflict.fieldChanges.slice(0, 2).join("; ")}{conflict.fieldChanges.length > 2 ? `; +${conflict.fieldChanges.length - 2} more` : ""}
+                    </li>
+                  ))}
+                  {availabilityImportConflicts.length > 6 ? <li>+{availabilityImportConflicts.length - 6} more conflicting units</li> : null}
+                </ul>
+                <div className="unit-import-actions">
+                  <button type="button" className="button button-primary" onClick={() => void importAvailabilityReport(true)}>
+                    Override And Import Report Values
+                  </button>
+                  <button type="button" className="button button-secondary" onClick={() => setAvailabilityImportConflicts(null)}>
+                    Keep Local Board Values
+                  </button>
+                </div>
               </div>
             ) : null}
             {availabilityImportParseError ? <p className="admin-message error">{availabilityImportParseError}</p> : null}

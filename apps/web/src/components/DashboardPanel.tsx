@@ -184,6 +184,57 @@ function DashboardWikiWidget({ propertyId }: { propertyId?: string }) {
   );
 }
 
+function openMapsView(propertyId?: string) {
+  window.dispatchEvent(new CustomEvent("makereadyos:set-active-view", { detail: { view: "maps", propertyId } }));
+}
+
+function DashboardMapsWidget({ data, propertyId }: { data?: DashboardResponse["propertyMaps"]; propertyId?: string }) {
+  if (!propertyId) {
+    return (
+      <section className="dashboard-chart dashboard-maps-widget">
+        <h3>Property Maps</h3>
+        <p className="muted">Select a property to surface default maps, critical pins, and setup gaps.</p>
+      </section>
+    );
+  }
+  if (!data) {
+    return (
+      <section className="dashboard-chart dashboard-maps-widget">
+        <h3>Property Maps</h3>
+        <p className="muted">Map visibility is unavailable for this property.</p>
+      </section>
+    );
+  }
+  return (
+    <section className="dashboard-chart dashboard-maps-widget" data-testid="dashboard-maps-widget">
+      <div className="drawer-section-title">
+        <h3>Property Maps</h3>
+        <button type="button" className="button button-secondary" onClick={() => openMapsView(propertyId)}>
+          Open Maps
+        </button>
+      </div>
+      <div className="dashboard-map-metrics">
+        <span><strong>{data.totalMaps}</strong> maps</span>
+        <span><strong>{data.totalPins}</strong> pins</span>
+        <span><strong>{data.emergencyPins}</strong> emergency</span>
+        <span><strong>{data.unmappedUnits}</strong> unmapped units</span>
+      </div>
+      <div className="dashboard-wiki-actions">
+        <button type="button" className="dashboard-row-action" onClick={() => openMapsView(propertyId)}>
+          <strong>{data.defaultMapName ?? "No default map"}</strong>
+          <span>{data.activeMaps} active map{data.activeMaps === 1 ? "" : "s"} / {data.utilityPins} utility-style pin{data.utilityPins === 1 ? "" : "s"}</span>
+        </button>
+        {data.recentPins.map((pin) => (
+          <button key={pin.id} type="button" className="dashboard-row-action" onClick={() => openMapsView(propertyId)}>
+            <strong>{pin.title}{pin.isEmergency ? " / Emergency" : ""}</strong>
+            <span>{[pin.pinType, pin.mapName, pin.building, pin.unitLabel, pin.area].filter(Boolean).join(" / ")}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function DashboardPanel({ data, analytics, loading, analyticsLoading, error, onOpenItem, onDrillDown, onOpenPond, layout, onLayoutChange, propertyId }: Props) {
   if (loading) return <StatusState title="Loading dashboard" description="Calculating operational risk and workload totals." />;
   if (error || !data) return <StatusState title="Dashboard unavailable" description="Refresh to recalculate dashboard summaries." tone="error" />;
@@ -213,6 +264,7 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
         <Breakdown title="Property Comparison" data={data.propertyComparison} type="property" onDrillDown={onDrillDown} />
         {Object.keys(data.downUnitsByArea ?? {}).length ? <Breakdown title="Down Units By Area" data={data.downUnitsByArea} type="property" onDrillDown={onDrillDown} /> : null}
         <AnalyticsPanel data={analytics} loading={analyticsLoading} />
+        <DashboardMapsWidget data={data.propertyMaps} propertyId={propertyId} />
         <DashboardWikiWidget propertyId={propertyId} />
       </div>
       <RatioStrip data={data} />
@@ -237,6 +289,21 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
                 <strong>{displayUnitNumber(item.property.code, item.unitNumber)}</strong>
                 {item.riskLevel ? <em className={`risk-level-badge ${item.riskLevel.toLowerCase()}`}>{item.riskLevel} / {item.riskScore}</em> : null}
                 <span>{item.reasons.join(" / ")}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+      <section className="attention-panel" data-testid="recent-status-changes-panel">
+        <h3>Recent Status Changes</h3>
+        <p className="muted">Last 24 hours of vacancy, ready, move-in/archive, and availability-driven board changes.</p>
+        {data.recentStatusChanges.length === 0 ? <p className="empty-copy">No status changes recorded in the last 24 hours for this scope.</p> : (
+          <div className="attention-list">
+            {data.recentStatusChanges.map((entry) => (
+              <button type="button" key={entry.key} onClick={() => onOpenItem(entry.itemId)}>
+                <strong>{displayUnitNumber(entry.property.code, entry.unitNumber)}</strong>
+                <em className={`risk-level-badge ${entry.source === "availability" ? "medium" : "low"}`}>{entry.title}</em>
+                <span>{entry.detail} / {formatDateTime(entry.changedAt)}</span>
               </button>
             ))}
           </div>

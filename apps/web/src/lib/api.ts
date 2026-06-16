@@ -12,11 +12,13 @@ function notifyApiUnreachable(path: string, method: string) {
 
 export class ApiError extends Error {
   status: number;
+  details?: unknown;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, details?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -161,7 +163,10 @@ export type ApiTokenRecord = {
   scopes: ApiTokenScope[];
   isActive: boolean;
   revokedAt: string | null;
+  useCount: number;
   lastUsedAt: string | null;
+  lastUsedPath: string | null;
+  lastUsedMethod: string | null;
   createdAt: string;
   updatedAt: string;
   createdBy: { id: string; fullName: string; email: string };
@@ -179,7 +184,18 @@ export type WebhookEventType =
   | "attachment.created"
   | "attachment.deleted"
   | "vendor.assignment.updated"
-  | "checklist.completed";
+  | "checklist.completed"
+  | "project.record.created"
+  | "project.record.updated"
+  | "project.record.archived"
+  | "pest.issue.created"
+  | "pest.issue.updated"
+  | "pest.issue.archived"
+  | "pm.template.created"
+  | "pm.template.updated"
+  | "pm.task.completed"
+  | "pm.task.skipped"
+  | "pool.entry.created";
 
 export type WebhookEndpointRecord = {
   id: string;
@@ -232,6 +248,11 @@ export type WebhookHealthResponse = {
 
 export type IntegrationsResponse = {
   scopes: ApiTokenScope[];
+  apiTokenRateLimit: {
+    max: number;
+    windowMinutes: number;
+    storage: "database-shared";
+  };
   webhookEvents: WebhookEventType[];
   apiTokens: ApiTokenRecord[];
   webhooks: WebhookEndpointRecord[];
@@ -309,6 +330,27 @@ export type DashboardResponse = {
   riskTrend: { available: boolean; message: string };
   longestVacant: Array<{ itemId: string; unitNumber: string; property: Property; daysVacant: number }>;
   needsAttention: Array<{ itemId: string; unitNumber: string; property: Property; reasons: string[]; riskLevel?: string; riskScore?: number }>;
+  recentStatusChanges: Array<{
+    key: string;
+    itemId: string;
+    unitNumber: string;
+    property: Property;
+    changeType: "VACATED" | "NOTICE" | "READY" | "MOVED_IN" | "AVAILABILITY";
+    title: string;
+    detail: string;
+    changedAt: string;
+    source: "board" | "availability";
+  }>;
+  propertyMaps?: {
+    totalMaps: number;
+    activeMaps: number;
+    defaultMapName: string | null;
+    totalPins: number;
+    emergencyPins: number;
+    utilityPins: number;
+    unmappedUnits: number;
+    recentPins: Array<{ id: string; title: string; pinType: string; mapName: string; isEmergency: boolean; building: string | null; unitLabel: string | null; area: string | null }>;
+  };
 };
 
 export type AnalyticsSummaryResponse = {
@@ -975,6 +1017,8 @@ export type PropertyWikiWorkflowRecordType =
   | "POOL_LOG_ENTRY"
   | "PM_TEMPLATE"
   | "PM_TASK"
+  | "PROJECT_RECORD"
+  | "LEASE_COMPLIANCE_ISSUE"
   | "FUTURE_WORK_ORDER";
 
 export type PropertyWikiWorkflowModule =
@@ -983,6 +1027,8 @@ export type PropertyWikiWorkflowModule =
   | "REFRIGERANT"
   | "POOL_LOG"
   | "PREVENTIVE_MAINTENANCE"
+  | "PROJECTS"
+  | "LEASE_COMPLIANCE"
   | "FUTURE_WORK_ORDER";
 
 export type PropertyWikiReference = {
@@ -1197,6 +1243,445 @@ export type MyWorkResponse = {
   target: { id: string; fullName: string };
   stats: { total: number; overdue: number; dueSoon: number; openChecklistTasks: number };
   items: Array<MakeReadyItem & { checklistInstances: ChecklistInstance[]; workAssignmentBlocks?: WorkAssignmentBlock[] }>;
+  projectItems?: ProjectRecord[];
+  pestItems?: PestIssue[];
+  leaseComplianceItems?: LeaseComplianceIssue[];
+};
+
+export type LeaseComplianceStatus = "Open" | "Resident Notified" | "Notice Sent" | "Violation Needed" | "Resolved" | "Archived";
+export type LeaseComplianceNoticeStage = "None" | "Resident Notified" | "1st Notice" | "2nd Notice" | "3rd Notice" | "Violation Needed";
+export type LeaseCompliancePriority = "Low" | "Normal" | "High" | "Critical";
+export type LeaseComplianceSource = "Property Walk" | "Grounds Walk" | "Inspection" | "Leasing Follow Up" | "Manager Review" | "Resident Complaint" | "Other";
+export type LeaseCompliancePhotoCategory = "INITIAL_ISSUE" | "STILL_PERSISTS" | "RESOLUTION" | "GENERAL";
+
+export type LeaseComplianceIssueType = {
+  id: string;
+  propertyId: string;
+  name: string;
+  color: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdById?: string | null;
+  updatedById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LeaseComplianceSettings = {
+  id: string;
+  propertyId: string;
+  defaultPriority: LeaseCompliancePriority;
+  watchDays: number;
+  warningDays: number;
+  criticalDays: number;
+  firstNoticeLabel: string;
+  secondNoticeLabel: string;
+  thirdNoticeLabel: string;
+  archiveResolvedAfterDays: number | null;
+  updatedById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LeaseComplianceIssueNote = {
+  id: string;
+  issueId: string;
+  propertyId: string;
+  authorUserId: string | null;
+  authorName: string;
+  body: string;
+  createdAt: string;
+};
+
+export type LeaseComplianceIssuePhoto = {
+  id: string;
+  issueId: string;
+  propertyId: string;
+  uploadedById: string | null;
+  uploaderName: string;
+  photoCategory: LeaseCompliancePhotoCategory;
+  caption: string | null;
+  originalName: string;
+  storedName: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+
+export type LeaseComplianceNoticeAction = {
+  id: string;
+  issueId: string;
+  propertyId: string;
+  actedById: string | null;
+  actedByName: string;
+  action: "RESIDENT_NOTIFIED" | "NOTICE_1_SENT" | "NOTICE_2_SENT" | "NOTICE_3_SENT" | "VIOLATION_NEEDED";
+  noticeStage: LeaseComplianceNoticeStage;
+  notes: string | null;
+  createdAt: string;
+};
+
+export type LeaseCompliancePersistenceCheck = {
+  id: string;
+  issueId: string;
+  propertyId: string;
+  checkedById: string | null;
+  checkedByName: string;
+  stillPersists: boolean;
+  notes: string | null;
+  createdAt: string;
+};
+
+export type LeaseComplianceIssue = {
+  id: string;
+  propertyId: string;
+  property: Property;
+  unitId: string | null;
+  unit: Unit | null;
+  issueTypeId: string | null;
+  issueType?: LeaseComplianceIssueType | null;
+  propertyMapId: string | null;
+  propertyMap?: { id: string; name: string } | null;
+  building: string | null;
+  area: string | null;
+  issueTypeName: string;
+  additionalIssueType: string | null;
+  status: LeaseComplianceStatus;
+  noticeStage: LeaseComplianceNoticeStage;
+  priority: LeaseCompliancePriority;
+  source: LeaseComplianceSource;
+  description: string | null;
+  locationNotes: string | null;
+  tags: string[];
+  assignedUserId: string | null;
+  assignedUserName: string | null;
+  assignedUser?: Pick<CurrentUser, "id" | "fullName" | "role"> | null;
+  lastPersistenceCheckDate: string | null;
+  daysOpenOverride?: number | null;
+  persistenceCount: number;
+  residentNotifiedDate: string | null;
+  notice1Date: string | null;
+  notice2Date: string | null;
+  notice3Date: string | null;
+  violationNeededDate: string | null;
+  recurringConcern: boolean;
+  managerReviewRequired: boolean;
+  recurringDismissedAt: string | null;
+  recurringDismissalNotes: string | null;
+  resolvedDate: string | null;
+  resolvedById: string | null;
+  resolutionNotes: string | null;
+  isArchived: boolean;
+  archiveDate: string | null;
+  archivedById: string | null;
+  archiveNotes: string | null;
+  createdById: string | null;
+  updatedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  notes: LeaseComplianceIssueNote[];
+  photos: LeaseComplianceIssuePhoto[];
+  noticeActions: LeaseComplianceNoticeAction[];
+  persistenceChecks: LeaseCompliancePersistenceCheck[];
+};
+
+export type LeaseComplianceOverviewResponse = {
+  permissions: { view: boolean; edit: boolean; notice: boolean; admin: boolean };
+  summary: {
+    openIssues: number;
+    needsNotice: number;
+    violationNeeded: number;
+    resolvedThisMonth: number;
+    recurringConcerns: number;
+    managerReviewRequired: number;
+    overdueOpen: number;
+  };
+  issueTypes: LeaseComplianceIssueType[];
+  settings: LeaseComplianceSettings | null;
+  recentIssues: LeaseComplianceIssue[];
+  needsNotice: LeaseComplianceIssue[];
+  violationNeeded: LeaseComplianceIssue[];
+  recentResolved: LeaseComplianceIssue[];
+};
+
+export type PestStatus = "Open" | "Scheduled" | "Treated" | "Needs Follow Up" | "Closed" | "Cancelled" | "Archived";
+export type PestPriority = "Low" | "Normal" | "High" | "Critical";
+export type PestSource = "Third Party Work Order" | "Leasing" | "Resident Request" | "Maintenance" | "Manager" | "Inspection" | "Preventive Maintenance" | "Make Ready" | "Property Walk" | "Other";
+export type PestPhotoType = "ISSUE" | "TREATMENT" | "ACCESS_ISSUE" | "GENERAL";
+export type PestType = "Pest Not Stated" | "Roaches" | "Ants" | "Spiders" | "Rats" | "Mice" | "Rodents" | "Fleas" | "Bed Bugs" | "Wasps" | "Bees" | "Gnats" | "Flies" | "Termites" | "Other";
+
+export type PestVendor = {
+  id: string;
+  propertyId: string;
+  vendorName: string;
+  primaryContact: string | null;
+  phone: string | null;
+  email: string | null;
+  emergencyPhone: string | null;
+  serviceDay: string | null;
+  serviceFrequency: string | null;
+  notes: string | null;
+  isActive: boolean;
+  isDefault: boolean;
+  createdById: string | null;
+  updatedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PestIssueNote = {
+  id: string;
+  issueId: string;
+  propertyId: string;
+  authorUserId: string | null;
+  authorName: string;
+  body: string;
+  createdAt: string;
+};
+
+export type PestIssueAttachment = {
+  id: string;
+  issueId: string;
+  propertyId: string;
+  uploadedById: string | null;
+  uploaderName: string;
+  photoType: PestPhotoType;
+  caption: string | null;
+  originalName: string;
+  storedName: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+
+export type PestIssue = {
+  id: string;
+  propertyId: string;
+  property: Property;
+  unitId: string | null;
+  unit: Unit | null;
+  makeReadyItemId: string | null;
+  makeReadyItem: Pick<MakeReadyItem, "id" | "unitNumber" | "moveInDate" | "makeReadyDate"> | null;
+  building: string | null;
+  area: string | null;
+  requestDate: string;
+  pestType: PestType;
+  additionalPestType: string | null;
+  status: PestStatus;
+  priority: PestPriority;
+  source: PestSource;
+  vendorId: string | null;
+  vendor: PestVendor | null;
+  thirdPartyWorkOrderNumber: string | null;
+  reportedBy: string | null;
+  assignedUserId: string | null;
+  assignedUser: Pick<CurrentUser, "id" | "fullName"> | null;
+  treatmentDate: string | null;
+  followUpRequired: boolean;
+  followUpDate: string | null;
+  followUpNotes: string | null;
+  description: string | null;
+  closedNotes: string | null;
+  recurringConcern: boolean;
+  managerReviewRequired: boolean;
+  recurringDismissedAt: string | null;
+  recurringDismissalNotes: string | null;
+  createdById: string | null;
+  updatedById: string | null;
+  closedById: string | null;
+  closedAt: string | null;
+  isArchived: boolean;
+  archivedById: string | null;
+  archivedAt: string | null;
+  archiveNotes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  notes: PestIssueNote[];
+  attachments: PestIssueAttachment[];
+};
+
+export type PestOverviewResponse = {
+  summary: {
+    openRequests: number;
+    scheduled: number;
+    needsFollowUp: number;
+    overdueFollowUps: number;
+    dueFollowUps: number;
+    makeReadyPending: number;
+    closedThisMonth: number;
+    recurringUnits: number;
+  };
+  recentRequests: PestIssue[];
+  recentTreatments: PestIssue[];
+  upcomingFollowUps: PestIssue[];
+  vendors: PestVendor[];
+  defaultVendor: PestVendor | null;
+  pestTypes: PestType[];
+  statuses: PestStatus[];
+  priorities: PestPriority[];
+  sources: PestSource[];
+};
+
+export type ProjectRecordType = "Recommendation" | "Project";
+export type ProjectExecutionType = "In-House" | "Vendor" | "Hybrid" | "Undecided";
+export type ProjectPriority = "Low" | "Normal" | "High" | "Critical";
+export type ProjectTaskStatus = "Open" | "In Progress" | "Completed" | "Skipped";
+export type ProjectAttachmentType = "GENERAL" | "BEFORE" | "PROGRESS" | "AFTER" | "BID" | "LOCATION";
+export type ProjectBidStatus = "Needed" | "Requested" | "Received" | "Approved" | "Denied" | "Warranty" | "Not Applicable";
+export type ProjectSource = "Quick Capture" | "Inspection" | "Preventive Maintenance" | "Pool Log" | "Manager Walk" | "Property Walk" | "Resident Feedback" | "Vendor Recommendation" | "Regional Request" | "Ownership Request" | "Property Wiki" | "Map Finding" | "Other";
+
+export type ProjectCategory = {
+  id: string;
+  propertyId: string | null;
+  name: string;
+  color: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectAttachment = {
+  id: string;
+  recordId: string;
+  propertyId: string;
+  uploadedById: string | null;
+  uploaderName: string | null;
+  originalName: string;
+  storedName: string;
+  mimeType: string;
+  sizeBytes: number;
+  attachmentType: ProjectAttachmentType;
+  caption: string | null;
+  createdAt: string;
+};
+
+export type ProjectComment = {
+  id: string;
+  recordId: string;
+  propertyId: string;
+  authorId: string | null;
+  authorName: string | null;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectTask = {
+  id: string;
+  recordId: string;
+  propertyId: string;
+  title: string;
+  status: ProjectTaskStatus;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
+  dueDate: string | null;
+  completedById: string | null;
+  completedDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectWikiReference = {
+  id: string;
+  recordId: string;
+  propertyId: string;
+  targetType: "ENTRY" | "VENDOR" | "ASSET";
+  targetId: string;
+  createdById: string | null;
+  createdAt: string;
+};
+
+export type ProjectRecord = {
+  id: string;
+  propertyId: string;
+  property: Property;
+  recordType: ProjectRecordType;
+  title: string;
+  description: string | null;
+  source: ProjectSource | null;
+  sourceRecordType: string | null;
+  sourceRecordId: string | null;
+  sourceRecordLabel: string | null;
+  status: string;
+  priority: ProjectPriority;
+  executionType: ProjectExecutionType;
+  categoryId: string | null;
+  categoryName: string | null;
+  category?: ProjectCategory | null;
+  building: string | null;
+  area: string | null;
+  locationNotes: string | null;
+  propertyMapId: string | null;
+  pinX: number | null;
+  pinY: number | null;
+  estimatedQuantity: number | null;
+  quantityUnit: string | null;
+  estimatedCost: number | null;
+  actualCost: number | null;
+  totalAmount: number | null;
+  deferredMaintenance: boolean;
+  deferredReason: string | null;
+  targetYear: number | null;
+  deferredNotes: string | null;
+  budgetYear: string | null;
+  companyName: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  bidStatus: ProjectBidStatus | null;
+  bidNotes: string | null;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
+  assignedRole: UserRole | null;
+  assignedTeam: string | null;
+  scheduledDate: string | null;
+  startDate: string | null;
+  dueDate: string | null;
+  completedDate: string | null;
+  tags: string[];
+  isArchived: boolean;
+  archivedAt: string | null;
+  createdById: string | null;
+  updatedById: string | null;
+  completedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  daysOpen?: number;
+  agingBucket?: "0-30" | "31-90" | "91-180" | "180+";
+  attachments: ProjectAttachment[];
+  comments: ProjectComment[];
+  tasks: ProjectTask[];
+  wikiReferences: ProjectWikiReference[];
+};
+
+export type ProjectsOverviewResponse = {
+  permissions: { view: boolean; edit: boolean; admin: boolean };
+  summary: {
+    openRecommendations: number;
+    needsBid: number;
+    approvedProjects: number;
+    inProgress: number;
+    waiting: number;
+    completedThisMonth: number;
+    overdue: number;
+    deferredMaintenance: number;
+    estimatedProjectValue: number;
+    actualCompletedCostThisYear: number;
+  };
+  recommendationsByAge: Array<{ label: string; value: number }>;
+  projectsByBudgetYear: Array<{ label: string; value: number }>;
+  projectsBySource: Array<{ label: string; value: number }>;
+  recentActivity: ProjectRecord[];
+  recentPhotoActivity: ProjectRecord[];
+  upcomingScheduledProjects: ProjectRecord[];
+  highPriorityItems: ProjectRecord[];
+};
+
+export type ProjectHistoryEntry = {
+  id: string;
+  user: string;
+  date: string;
+  action: string;
 };
 
 export type ActivityRecord = {
@@ -1279,6 +1764,7 @@ export type AutomationAction =
   | { type: "setCustomField"; fieldId: string; value: string | number | boolean | string[] | null }
   | { type: "addAuditNote"; value: string }
   | { type: "setDateFromField"; sourceField: string; targetField: string; offsetDays: number; respectOperatingCalendar?: boolean }
+  | { type: "assignLeastLoadedStaff"; eligibleRoles: Array<"ADMIN" | "MANAGER" | "TECH" | "CLEANER">; eligibleUserIds?: string[]; excludedUserIds?: string[]; lookAheadDays: number; includePlannedWork?: boolean; onlyWhenUnassigned?: boolean; dailyAssignmentCap?: number | null; targetDateField: "makeReadyDate" | "moveInDate" | "vacatedDate" }
   | { type: "setPriority"; value: number }
   | { type: "appendNote"; value: string };
 export type AutomationRule = {
@@ -1533,16 +2019,51 @@ export type PropertyMap = {
   id: string;
   propertyId: string;
   name: string;
+  mapType: string;
   originalName: string | null;
   mimeType: string | null;
   sizeBytes: number | null;
   width: number | null;
   height: number | null;
+  description: string | null;
   notes: string | null;
+  isDefault: boolean;
   isActive: boolean;
   isArchived: boolean;
   property: Property;
   _count?: { locations: number };
+};
+
+export type PropertyMapPin = {
+  id: string;
+  propertyId: string;
+  mapId: string;
+  title: string;
+  pinType: string;
+  xPercent: number;
+  yPercent: number;
+  building: string | null;
+  unitLabel: string | null;
+  area: string | null;
+  description: string | null;
+  linkedRecordType: string | null;
+  linkedRecordId: string | null;
+  tags: string[];
+  isEmergency: boolean;
+  isActive: boolean;
+  isArchived: boolean;
+  property: Property;
+  map: PropertyMap;
+  attachments: Array<{
+    id: string;
+    caption: string | null;
+    originalName: string;
+    mimeType: string;
+    sizeBytes: number;
+    uploaderName: string | null;
+    createdAt: string;
+  }>;
+  linkedRecord?: { targetType: string; id: string; title: string; subtitle: string | null; status: string | null } | null;
 };
 
 export type UnitMapLocation = {
@@ -1675,8 +2196,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     let message = `Request failed: ${response.status}`;
+    let details: unknown;
     try {
       const body = (await response.json()) as { message?: string };
+      details = body;
       if (body.message) {
         message = body.message;
       }
@@ -1688,7 +2211,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       csrfToken = null;
     }
 
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, message, details);
   }
 
   if (response.headers.get("content-type")?.includes("application/json")) {
@@ -1879,6 +2402,516 @@ export function updateChecklistItem(id: string, input: { completed?: boolean; no
 export function getMyWork(userId?: string) {
   const params = userId ? `?userId=${encodeURIComponent(userId)}` : "";
   return request<MyWorkResponse>(`/my-work${params}`);
+}
+
+export function getLeaseComplianceOverview(propertyId?: string) {
+  const params = new URLSearchParams();
+  if (propertyId) params.set("propertyId", propertyId);
+  return request<LeaseComplianceOverviewResponse>(`/lease-compliance/overview${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function getLeaseComplianceSettings(propertyId: string) {
+  const params = new URLSearchParams({ propertyId });
+  return request<{ settings: LeaseComplianceSettings }>(`/lease-compliance/settings?${params.toString()}`);
+}
+
+export function updateLeaseComplianceSettings(input: { propertyId: string } & Partial<LeaseComplianceSettings>) {
+  return request<{ settings: LeaseComplianceSettings }>("/lease-compliance/settings", { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function getLeaseComplianceIssueTypes(propertyId: string) {
+  const params = new URLSearchParams({ propertyId });
+  return request<{ issueTypes: LeaseComplianceIssueType[] }>(`/lease-compliance/issue-types?${params.toString()}`);
+}
+
+export function createLeaseComplianceIssueType(input: {
+  propertyId: string;
+  name: string;
+  color?: string | null;
+  isActive?: boolean;
+  sortOrder?: number;
+}) {
+  return request<{ issueType: LeaseComplianceIssueType }>("/lease-compliance/issue-types", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateLeaseComplianceIssueType(id: string, input: Partial<Parameters<typeof createLeaseComplianceIssueType>[0]>) {
+  return request<{ issueType: LeaseComplianceIssueType }>(`/lease-compliance/issue-types/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function getLeaseComplianceIssues(filters: {
+  propertyId?: string;
+  unitId?: string;
+  status?: LeaseComplianceStatus;
+  noticeStage?: LeaseComplianceNoticeStage;
+  priority?: LeaseCompliancePriority;
+  assignedUserId?: string;
+  includeArchived?: boolean;
+  recurringOnly?: boolean;
+  q?: string;
+  limit?: number;
+  offset?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<{ issues: LeaseComplianceIssue[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>(`/lease-compliance/issues${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createLeaseComplianceIssue(input: {
+  propertyId: string;
+  unitId?: string | null;
+  issueTypeId?: string | null;
+  propertyMapId?: string | null;
+  building?: string | null;
+  area?: string | null;
+  issueTypeName: string;
+  additionalIssueType?: string | null;
+  status?: LeaseComplianceStatus;
+  noticeStage?: LeaseComplianceNoticeStage;
+  priority?: LeaseCompliancePriority;
+  source?: LeaseComplianceSource;
+  description?: string | null;
+  locationNotes?: string | null;
+  tags?: string[];
+  assignedUserId?: string | null;
+}) {
+  return request<{ issue: LeaseComplianceIssue }>("/lease-compliance/issues", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateLeaseComplianceIssue(id: string, input: Partial<Parameters<typeof createLeaseComplianceIssue>[0]>) {
+  return request<{ issue: LeaseComplianceIssue }>(`/lease-compliance/issues/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function addLeaseComplianceIssueNote(id: string, body: string) {
+  return request<{ note: LeaseComplianceIssueNote }>(`/lease-compliance/issues/${encodeURIComponent(id)}/notes`, { method: "POST", body: JSON.stringify({ body }) });
+}
+
+export function markLeaseComplianceStillPersists(id: string, notes?: string | null) {
+  return request<{ issue: LeaseComplianceIssue; check: LeaseCompliancePersistenceCheck }>(`/lease-compliance/issues/${encodeURIComponent(id)}/persist`, { method: "POST", body: JSON.stringify({ notes: notes ?? null }) });
+}
+
+export function markLeaseComplianceNotice(id: string, input: { action: LeaseComplianceNoticeAction["action"]; notes?: string | null }) {
+  return request<{ issue: LeaseComplianceIssue; noticeAction: LeaseComplianceNoticeAction }>(`/lease-compliance/issues/${encodeURIComponent(id)}/notice`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function resolveLeaseComplianceIssue(id: string, resolutionNotes: string) {
+  return request<{ issue: LeaseComplianceIssue }>(`/lease-compliance/issues/${encodeURIComponent(id)}/resolve`, { method: "POST", body: JSON.stringify({ resolutionNotes }) });
+}
+
+export function archiveLeaseComplianceIssue(id: string, archiveNotes?: string | null) {
+  return request<{ issue: LeaseComplianceIssue }>(`/lease-compliance/issues/${encodeURIComponent(id)}/archive`, { method: "POST", body: JSON.stringify({ archiveNotes: archiveNotes ?? null }) });
+}
+
+export function dismissLeaseComplianceRecurringFlag(id: string, notes: string) {
+  return request<{ issue: LeaseComplianceIssue }>(`/lease-compliance/issues/${encodeURIComponent(id)}/dismiss-recurring`, { method: "POST", body: JSON.stringify({ notes }) });
+}
+
+export async function uploadLeaseComplianceIssuePhoto(issueId: string, file: File, options?: { photoCategory?: LeaseCompliancePhotoCategory; caption?: string }) {
+  const form = new FormData();
+  form.append("file", file);
+  if (options?.photoCategory) form.append("photoCategory", options.photoCategory);
+  if (options?.caption) form.append("caption", options.caption);
+  return request<{ photo: LeaseComplianceIssuePhoto }>(`/lease-compliance/issues/${encodeURIComponent(issueId)}/photos`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export function deleteLeaseComplianceIssuePhoto(id: string) {
+  return request<{ ok: true }>(`/lease-compliance/photos/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function leaseComplianceIssuePhotoDownloadUrl(id: string) {
+  return `${apiBaseUrl}/lease-compliance/photos/${encodeURIComponent(id)}/download`;
+}
+
+export function leaseComplianceExportCsvUrl(filters: Parameters<typeof getLeaseComplianceIssues>[0] = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return `${apiBaseUrl}/lease-compliance/export.csv${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function leaseCompliancePrintableHtmlReportUrl(filters: Parameters<typeof getLeaseComplianceIssues>[0] = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return `${apiBaseUrl}/lease-compliance/report.html${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function leaseCompliancePrintableReportUrl(filters: Parameters<typeof getLeaseComplianceIssues>[0] = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return `${apiBaseUrl}/lease-compliance/report.pdf${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function getPestOverview(propertyId?: string) {
+  const params = new URLSearchParams();
+  if (propertyId) params.set("propertyId", propertyId);
+  return request<PestOverviewResponse>(`/pest/overview${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function getPestIssues(filters: {
+  propertyId?: string;
+  unitId?: string;
+  makeReadyItemId?: string;
+  status?: PestStatus;
+  pestType?: PestType;
+  vendorId?: string;
+  assignedUserId?: string;
+  source?: PestSource;
+  includeArchived?: boolean;
+  makeReadyOnly?: boolean;
+  recurringOnly?: boolean;
+  q?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<{ issues: PestIssue[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>(`/pest/issues${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createPestIssue(input: {
+  propertyId: string;
+  unitId?: string | null;
+  makeReadyItemId?: string | null;
+  building?: string | null;
+  area?: string | null;
+  requestDate?: string;
+  pestType: PestType;
+  additionalPestType?: string | null;
+  status?: PestStatus;
+  priority?: PestPriority;
+  source?: PestSource;
+  vendorId?: string | null;
+  thirdPartyWorkOrderNumber?: string | null;
+  reportedBy?: string | null;
+  assignedUserId?: string | null;
+  treatmentDate?: string | null;
+  followUpRequired?: boolean;
+  followUpDate?: string | null;
+  followUpNotes?: string | null;
+  description?: string | null;
+}) {
+  return request<{ issue: PestIssue }>("/pest/issues", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updatePestIssue(id: string, input: Partial<Parameters<typeof createPestIssue>[0]>) {
+  return request<{ issue: PestIssue }>(`/pest/issues/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function addPestIssueNote(id: string, body: string) {
+  return request<{ note: PestIssueNote }>(`/pest/issues/${id}/notes`, { method: "POST", body: JSON.stringify({ body }) });
+}
+
+export function closePestIssue(id: string, input: { closingNotes: string; treatmentDate?: string | null; followUpDate?: string | null }) {
+  return request<{ issue: PestIssue }>(`/pest/issues/${id}/close`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function archivePestIssue(id: string, archiveNotes?: string | null) {
+  return request<{ issue: PestIssue }>(`/pest/issues/${id}/archive`, { method: "POST", body: JSON.stringify({ archiveNotes: archiveNotes ?? null }) });
+}
+
+export function dismissPestRecurringFlag(id: string, notes: string) {
+  return request<{ issue: PestIssue }>(`/pest/issues/${id}/dismiss-recurring`, { method: "POST", body: JSON.stringify({ notes }) });
+}
+
+export function getPestVendors(propertyId?: string) {
+  const params = new URLSearchParams();
+  if (propertyId) params.set("propertyId", propertyId);
+  return request<{ vendors: PestVendor[] }>(`/pest/vendors${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createPestVendor(input: {
+  propertyId: string;
+  vendorName: string;
+  primaryContact?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  emergencyPhone?: string | null;
+  serviceDay?: string | null;
+  serviceFrequency?: string | null;
+  notes?: string | null;
+  isActive?: boolean;
+  isDefault?: boolean;
+}) {
+  return request<{ vendor: PestVendor }>("/pest/vendors", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updatePestVendor(id: string, input: Partial<Parameters<typeof createPestVendor>[0]>) {
+  return request<{ vendor: PestVendor }>(`/pest/vendors/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export async function uploadPestIssueAttachment(issueId: string, file: File, options?: { photoType?: PestPhotoType; caption?: string }) {
+  const form = new FormData();
+  form.append("file", file);
+  if (options?.photoType) form.append("photoType", options.photoType);
+  if (options?.caption) form.append("caption", options.caption);
+  return request<{ attachment: PestIssueAttachment }>(`/pest/issues/${issueId}/attachments`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export function deletePestIssueAttachment(id: string) {
+  return request<{ ok: true }>(`/pest/attachments/${id}`, { method: "DELETE" });
+}
+
+export function pestIssueAttachmentDownloadUrl(id: string) {
+  return `${apiBaseUrl}/pest/attachments/${id}/download`;
+}
+
+export function pestExportCsvUrl(filters: Parameters<typeof getPestIssues>[0] = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return `${apiBaseUrl}/pest/export.csv${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function pestExportXlsUrl(filters: Parameters<typeof getPestIssues>[0] = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return `${apiBaseUrl}/pest/export.xls${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function pestPrintableHtmlReportUrl(filters: Parameters<typeof getPestIssues>[0] = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return `${apiBaseUrl}/pest/report.html${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function pestPrintableReportUrl(filters: Parameters<typeof getPestIssues>[0] = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return `${apiBaseUrl}/pest/report.pdf${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function getProjectsOverview(propertyId?: string) {
+  const params = new URLSearchParams();
+  if (propertyId) params.set("propertyId", propertyId);
+  return request<ProjectsOverviewResponse>(`/projects/overview${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function getProjectCategories(propertyId?: string) {
+  const params = new URLSearchParams();
+  if (propertyId) params.set("propertyId", propertyId);
+  return request<{ categories: ProjectCategory[] }>(`/projects/categories${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createProjectCategory(input: {
+  propertyId?: string | null;
+  name: string;
+  color?: string | null;
+  isActive?: boolean;
+  sortOrder?: number;
+}) {
+  return request<{ category: ProjectCategory }>("/projects/categories", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateProjectCategory(id: string, input: {
+  propertyId?: string | null;
+  name?: string;
+  color?: string | null;
+  isActive?: boolean;
+  sortOrder?: number;
+}) {
+  return request<{ category: ProjectCategory }>(`/projects/categories/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function getProjectRecords(filters: {
+  propertyId?: string;
+  recordType?: ProjectRecordType;
+  source?: ProjectSource;
+  status?: string;
+  priority?: ProjectPriority;
+  categoryId?: string;
+  executionType?: ProjectExecutionType;
+  assignedUserId?: string;
+  budgetYear?: string;
+  deferredMaintenance?: boolean;
+  attachmentType?: ProjectAttachmentType;
+  agingBucket?: "0-30" | "31-90" | "91-180" | "180+";
+  includeArchived?: boolean;
+  q?: string;
+  limit?: number;
+  offset?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<{ records: ProjectRecord[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>(`/projects/records${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function getProjectMapRecords(filters: Parameters<typeof getProjectRecords>[0] = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  });
+  return request<{ records: ProjectRecord[] }>(`/projects/map${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function getProjectRecord(id: string) {
+  return request<{ record: ProjectRecord; history: ProjectHistoryEntry[] }>(`/projects/records/${encodeURIComponent(id)}`);
+}
+
+export function projectPrintableRecordReportUrl(id: string) {
+  return `${apiBaseUrl}/projects/records/${encodeURIComponent(id)}/report.pdf`;
+}
+
+export function createProjectRecord(input: {
+  propertyId: string;
+  recordType: ProjectRecordType;
+  title: string;
+  description?: string | null;
+  source?: ProjectSource | null;
+  sourceRecordType?: string | null;
+  sourceRecordId?: string | null;
+  sourceRecordLabel?: string | null;
+  status: string;
+  priority?: ProjectPriority;
+  executionType?: ProjectExecutionType;
+  categoryId?: string | null;
+  building?: string | null;
+  area?: string | null;
+  locationNotes?: string | null;
+  propertyMapId?: string | null;
+  pinX?: number | null;
+  pinY?: number | null;
+  estimatedQuantity?: number | null;
+  quantityUnit?: string | null;
+  estimatedCost?: number | null;
+  actualCost?: number | null;
+  totalAmount?: number | null;
+  deferredMaintenance?: boolean;
+  deferredReason?: string | null;
+  targetYear?: number | null;
+  deferredNotes?: string | null;
+  budgetYear?: string | null;
+  companyName?: string | null;
+  contactName?: string | null;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
+  bidStatus?: ProjectBidStatus | null;
+  bidNotes?: string | null;
+  assignedUserId?: string | null;
+  assignedRole?: UserRole | null;
+  assignedTeam?: string | null;
+  scheduledDate?: string | null;
+  startDate?: string | null;
+  dueDate?: string | null;
+  completedDate?: string | null;
+  tags?: string[];
+}) {
+  return request<{ record: ProjectRecord }>("/projects/records", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateProjectRecord(id: string, input: Partial<Parameters<typeof createProjectRecord>[0]>) {
+  return request<{ record: ProjectRecord }>(`/projects/records/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function convertProjectRecommendation(id: string) {
+  return request<{ record: ProjectRecord }>(`/projects/records/${encodeURIComponent(id)}/convert`, { method: "POST" });
+}
+
+export function createProjectComment(id: string, input: { body: string }) {
+  return request<{ comment: ProjectComment }>(`/projects/records/${encodeURIComponent(id)}/comments`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function createProjectTask(id: string, input: { title: string; status?: ProjectTaskStatus; assignedUserId?: string | null; dueDate?: string | null }) {
+  return request<{ task: ProjectTask }>(`/projects/records/${encodeURIComponent(id)}/tasks`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateProjectTask(id: string, input: { title?: string; status?: ProjectTaskStatus; assignedUserId?: string | null; dueDate?: string | null; completedDate?: string | null }) {
+  return request<{ task: ProjectTask }>(`/projects/tasks/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function uploadProjectAttachment(id: string, file: File, attachmentType?: ProjectAttachmentType, caption?: string) {
+  const data = new FormData();
+  data.append("file", file);
+  if (attachmentType) data.append("attachmentType", attachmentType);
+  if (caption) data.append("caption", caption);
+  return request<{ attachment: ProjectAttachment }>(`/projects/records/${encodeURIComponent(id)}/attachments`, { method: "POST", body: data });
+}
+
+export function updateProjectAttachment(id: string, input: {
+  attachmentType?: ProjectAttachmentType;
+  caption?: string | null;
+}) {
+  return request<{ attachment: ProjectAttachment }>(`/projects/attachments/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function projectAttachmentDownloadUrl(id: string) {
+  return `${apiBaseUrl}/projects/attachments/${encodeURIComponent(id)}/download`;
+}
+
+export function createProjectWikiReference(id: string, input: { targetType: "ENTRY" | "VENDOR" | "ASSET"; targetId: string }) {
+  return request<{ reference: ProjectWikiReference }>(`/projects/records/${encodeURIComponent(id)}/wiki-references`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function deleteProjectWikiReference(id: string) {
+  return request<{ ok: boolean }>(`/projects/wiki-references/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function projectsExportCsvUrl(filters: Record<string, string | undefined> = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  return `${apiBaseUrl}/projects/export.csv${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function projectsExportExcelUrl(filters: Record<string, string | undefined> = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  return `${apiBaseUrl}/projects/export.xls${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function projectsPrintableReportUrl(filters: Record<string, string | undefined> = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  return `${apiBaseUrl}/projects/report.html${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function projectsPdfReportUrl(filters: Record<string, string | undefined> = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  return `${apiBaseUrl}/projects/report.pdf${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function makeReadyExportCsvUrl(filters: { propertyId?: string } = {}) {
+  const params = new URLSearchParams();
+  if (filters.propertyId) params.set("propertyId", filters.propertyId);
+  return `${apiBaseUrl}/export/make-ready.csv${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function makeReadyPdfReportUrl(filters: { propertyId?: string } = {}) {
+  const params = new URLSearchParams();
+  if (filters.propertyId) params.set("propertyId", filters.propertyId);
+  return `${apiBaseUrl}/export/make-ready.pdf${params.toString() ? `?${params.toString()}` : ""}`;
 }
 
 export function getCurrentUser() {
@@ -2571,6 +3604,21 @@ export type AvailabilityImportResult = {
   updatedItemIds: string[];
 };
 
+export type AvailabilityImportConflict = {
+  itemId: string;
+  unitNumber: string;
+  updatedAt: string;
+  reportDate: string | null;
+  reason: string;
+  fieldChanges: string[];
+};
+
+export type AvailabilityImportConflictResponse = {
+  message: string;
+  property: Pick<Property, "id" | "code" | "name">;
+  conflicts: AvailabilityImportConflict[];
+};
+
 export function createUnit(input: UnitWriteInput) {
   return request<{ unit: Unit }>("/operations/units", {
     method: "POST",
@@ -2592,7 +3640,7 @@ export function importUnits(input: { propertyId: string; units: UnitImportInput[
   });
 }
 
-export function importAvailability(input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting?: boolean; createTurns?: boolean }) {
+export function importAvailability(input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting?: boolean; createTurns?: boolean; overrideConflicts?: boolean }) {
   return request<AvailabilityImportResult>("/operations/availability/import", {
     method: "POST",
     body: JSON.stringify(input),
@@ -2843,6 +3891,18 @@ export function refrigerantExportCsvUrl(report: "usage" | "recovery" | "cylinder
   return `${apiBaseUrl}/refrigerant/export.csv?report=${encodeURIComponent(report)}`;
 }
 
+export function refrigerantExportExcelUrl(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit") {
+  return `${apiBaseUrl}/refrigerant/export.xls?report=${encodeURIComponent(report)}`;
+}
+
+export function refrigerantPrintableHtmlReportUrl(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit") {
+  return `${apiBaseUrl}/refrigerant/report.html?report=${encodeURIComponent(report)}`;
+}
+
+export function refrigerantPrintableReportUrl(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit") {
+  return `${apiBaseUrl}/refrigerant/report.pdf?report=${encodeURIComponent(report)}`;
+}
+
 export type RefrigerantTransactionInput = {
   propertyId?: string;
   unitId?: string;
@@ -2957,7 +4017,7 @@ export function poolLogPrintableReportUrl(filters: { propertyId?: string; from?:
   Object.entries(filters).forEach(([key, value]) => {
     if (value) params.set(key, String(value));
   });
-  return `${apiBaseUrl}/pool/report.html${params.toString() ? `?${params.toString()}` : ""}`;
+  return `${apiBaseUrl}/pool/report.pdf${params.toString() ? `?${params.toString()}` : ""}`;
 }
 
 export function uploadPoolLogAttachment(entryId: string, file: File) {
@@ -3100,7 +4160,7 @@ export function preventiveMaintenancePrintableReportUrl(filters: Record<string, 
   Object.entries(filters).forEach(([key, value]) => {
     if (value) params.set(key, value);
   });
-  return `${apiBaseUrl}/pm/report.html${params.toString() ? `?${params.toString()}` : ""}`;
+  return `${apiBaseUrl}/pm/report.pdf${params.toString() ? `?${params.toString()}` : ""}`;
 }
 
 export function getPropertyWikiOverview(propertyId?: string) {
@@ -3381,11 +4441,11 @@ export function getPropertyMaps(filters: { propertyId?: string; includeArchived?
   return request<{ maps: PropertyMap[] }>(`/property-maps${params.toString() ? `?${params.toString()}` : ""}`);
 }
 
-export function createPropertyMap(input: { propertyId: string; name: string; notes?: string | null; width?: number | null; height?: number | null }) {
+export function createPropertyMap(input: { propertyId: string; name: string; mapType?: string; description?: string | null; notes?: string | null; width?: number | null; height?: number | null; isDefault?: boolean }) {
   return request<{ map: PropertyMap }>("/property-maps", { method: "POST", body: JSON.stringify(input) });
 }
 
-export function updatePropertyMap(id: string, input: Partial<{ name: string; notes: string | null; width: number | null; height: number | null; isActive: boolean }>) {
+export function updatePropertyMap(id: string, input: Partial<{ name: string; mapType: string; description: string | null; notes: string | null; width: number | null; height: number | null; isDefault: boolean; isActive: boolean }>) {
   return request<{ map: PropertyMap }>(`/property-maps/${id}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
@@ -3401,6 +4461,71 @@ export function uploadPropertyMap(id: string, file: File) {
 
 export function propertyMapFileUrl(id: string) {
   return `${apiBaseUrl}/property-maps/${encodeURIComponent(id)}/file`;
+}
+
+export function getPropertyMapPins(filters: { propertyId?: string; mapId?: string; includeArchived?: boolean; emergencyOnly?: boolean; q?: string; pinTypes?: string[] } = {}) {
+  const params = new URLSearchParams();
+  if (filters.propertyId) params.set("propertyId", filters.propertyId);
+  if (filters.mapId) params.set("mapId", filters.mapId);
+  if (filters.includeArchived !== undefined) params.set("includeArchived", String(filters.includeArchived));
+  if (filters.emergencyOnly !== undefined) params.set("emergencyOnly", String(filters.emergencyOnly));
+  if (filters.q) params.set("q", filters.q);
+  if (filters.pinTypes?.length) params.set("pinTypes", filters.pinTypes.join(","));
+  return request<{ pins: PropertyMapPin[] }>(`/property-map-pins${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function createPropertyMapPin(input: {
+  propertyId: string;
+  mapId: string;
+  title: string;
+  pinType: string;
+  xPercent: number;
+  yPercent: number;
+  building?: string | null;
+  unitLabel?: string | null;
+  area?: string | null;
+  description?: string | null;
+  linkedRecordType?: string | null;
+  linkedRecordId?: string | null;
+  tags?: string[];
+  isEmergency?: boolean;
+}) {
+  return request<{ pin: PropertyMapPin }>("/property-map-pins", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updatePropertyMapPin(id: string, input: Partial<Omit<Parameters<typeof createPropertyMapPin>[0], "propertyId" | "mapId">> & { isActive?: boolean; isArchived?: boolean }) {
+  return request<{ pin: PropertyMapPin }>(`/property-map-pins/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function removePropertyMapPin(id: string) {
+  return request<{ pin: PropertyMapPin }>(`/property-map-pins/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function uploadPropertyMapPinAttachment(pinId: string, file: File, caption?: string) {
+  const data = new FormData();
+  data.append("file", file);
+  if (caption) data.append("caption", caption);
+  return request<{ attachment: PropertyMapPin["attachments"][number] }>(`/property-map-pins/${encodeURIComponent(pinId)}/attachments`, { method: "POST", body: data });
+}
+
+export function propertyMapPinAttachmentDownloadUrl(id: string) {
+  return `${apiBaseUrl}/property-map-pin-attachments/${encodeURIComponent(id)}/download`;
+}
+
+export function deletePropertyMapPinAttachment(id: string) {
+  return request<{ ok: true }>(`/property-map-pin-attachments/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function propertyMapExportCsvUrl(id: string) {
+  return `${apiBaseUrl}/property-maps/${encodeURIComponent(id)}/export.csv`;
+}
+
+export function propertyMapExportXlsUrl(id: string) {
+  return `${apiBaseUrl}/property-maps/${encodeURIComponent(id)}/export.xls`;
+}
+
+export function propertyMapPrintableReportUrl(id: string) {
+  return `${apiBaseUrl}/property-maps/${encodeURIComponent(id)}/report.pdf`;
 }
 
 export function getUnitMapLocations(filters: { propertyId?: string; mapId?: string; includeArchived?: boolean } = {}) {

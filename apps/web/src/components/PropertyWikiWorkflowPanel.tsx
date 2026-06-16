@@ -11,6 +11,7 @@ import {
   type PropertyWikiWorkflowRecordType,
 } from "../lib/api";
 import { openWikiRecord } from "../lib/wikiNavigation";
+import { openProjectCreate } from "../lib/projectNavigation";
 
 type Props = {
   title: string;
@@ -32,11 +33,13 @@ function SummaryLinks({
   attachLabel,
   onAttach,
   showAttach,
+  showRecommend,
 }: {
   items: PropertyWikiRecordSummary[];
   attachLabel?: string;
   onAttach?: (targetType: PropertyWikiTargetType, id: string) => void;
   showAttach?: boolean;
+  showRecommend?: boolean;
 }) {
   if (!items.length) return <p className="muted">No matching wiki records.</p>;
   return (
@@ -50,6 +53,26 @@ function SummaryLinks({
           </div>
           <div className="pool-entry-actions">
             {showAttach && onAttach ? <button type="button" className="button button-secondary" onClick={() => onAttach(item.targetType, item.id)}>{attachLabel ?? "Attach"}</button> : null}
+            {showRecommend ? (
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={() => openProjectCreate({
+                  propertyId: item.propertyId,
+                  source: "Property Wiki",
+                  recordType: "Recommendation",
+                  title: item.title,
+                  description: item.snippet || "",
+                  sourceRecordType: item.targetType,
+                  sourceRecordId: item.id,
+                  sourceRecordLabel: item.title,
+                  building: item.building ?? "",
+                  tags: ["property-wiki", item.section.toLowerCase()],
+                })}
+              >
+                Create Recommendation
+              </button>
+            ) : null}
             <button type="button" className="button button-secondary" onClick={() => openWikiRecord({ targetType: item.targetType, id: item.id, propertyId: item.propertyId })}>Open Wiki</button>
           </div>
         </article>
@@ -130,6 +153,7 @@ export function PropertyWikiWorkflowPanel({
   }
 
   const attachable = Boolean(canEdit && recordType && recordId);
+  const recommendable = Boolean(canEdit);
 
   return (
     <section className="pool-card wiki-workflow-panel" data-testid={`wiki-workflow-${module.toLowerCase()}`}>
@@ -204,6 +228,7 @@ export function PropertyWikiWorkflowPanel({
               items={searchQuery.data.results}
               attachLabel="Attach"
               showAttach
+              showRecommend={recommendable}
               onAttach={(targetType, id) => attachMutation.mutate({ recordType: recordType!, recordId: recordId!, targetType, targetId: id })}
             />
           ) : attachQuery.trim().length >= 2 ? <p className="muted">No wiki matches for this search.</p> : null}
@@ -213,7 +238,7 @@ export function PropertyWikiWorkflowPanel({
       {contextQuery.data.makeReadyStandards.length ? (
         <div className="wiki-workflow-block">
           <div className="drawer-section-title"><h3>Operational Standards</h3></div>
-          <SummaryLinks items={contextQuery.data.makeReadyStandards} />
+          <SummaryLinks items={contextQuery.data.makeReadyStandards} showRecommend={recommendable} />
         </div>
       ) : null}
 
@@ -242,26 +267,26 @@ export function PropertyWikiWorkflowPanel({
       {contextQuery.data.emergencyRecords.length ? (
         <div className="wiki-workflow-block">
           <div className="drawer-section-title"><h3>Emergency Access</h3></div>
-          <SummaryLinks items={contextQuery.data.emergencyRecords} />
+          <SummaryLinks items={contextQuery.data.emergencyRecords} showRecommend={recommendable} />
         </div>
       ) : null}
 
       <div className="wiki-workflow-related-grid">
         <div className="wiki-workflow-block">
           <div className="drawer-section-title"><h3>Related SOPs</h3></div>
-          <SummaryLinks items={contextQuery.data.related.sops} />
+          <SummaryLinks items={contextQuery.data.related.sops} showRecommend={recommendable} />
         </div>
         <div className="wiki-workflow-block">
           <div className="drawer-section-title"><h3>Related Vendors</h3></div>
-          <SummaryLinks items={contextQuery.data.related.vendors} />
+          <SummaryLinks items={contextQuery.data.related.vendors} showRecommend={recommendable} />
         </div>
         <div className="wiki-workflow-block">
           <div className="drawer-section-title"><h3>Related Equipment</h3></div>
-          <SummaryLinks items={contextQuery.data.related.equipment} />
+          <SummaryLinks items={contextQuery.data.related.equipment} showRecommend={recommendable} />
         </div>
         <div className="wiki-workflow-block">
           <div className="drawer-section-title"><h3>Related Documents</h3></div>
-          <SummaryLinks items={contextQuery.data.related.documents} />
+          <SummaryLinks items={contextQuery.data.related.documents} showRecommend={recommendable} />
         </div>
       </div>
     </section>

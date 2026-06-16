@@ -48,7 +48,11 @@ The bundled starter pack includes data-only scheduling and readiness helpers suc
 
 Date sequencing is intentionally conservative. Current templates can warn that paint, cleaning, final walk, and vendor dates need review around operating-day rules, but they do not automatically rewrite dates. Property operating calendars now store no-weekend, Monday/Friday avoidance, operating-hours, vendor lead-time, daily-limit, scope-day, and work-start preferences. A future business-day offset action can safely support patterns such as make-ready on day 0, paint on day 1, cleaning on day 2, and final walk on day 3 while respecting those property rules.
 
-Assignment templates are also conservative. The current library can flag turns that appear ready for cleaner assignment and unassigned upcoming turns that should be balanced across technicians. It does not yet choose a staff member automatically because that needs a deterministic engine action that can evaluate eligible roles, property access, active status, existing workload, planned work, and per-day caps before mutating `assignedTech`.
+Assignment templates are still conservative by default, but the automation engine now includes a scheduled `assignLeastLoadedStaff` action for properties that want controlled auto-assignment. The action is property-scoped, only considers active eligible users, can filter to specific roles or user IDs, can include planned work in the balancing score, can enforce a planned-day cap, uses deterministic tie-breaking, and is visible in dry-run preview before it mutates `assignedTech`. The bundled starter rules remain review-first until field validation confirms which scenarios should safely auto-assign out of the box.
+
+The bundled library now also includes disabled opt-in auto-assignment starters for balanced tech assignment and cleaner assignment. These do not replace the advisory review-note starters; they sit beside them so operators can choose between review-first and automation-first rollout per property.
+
+Browser smoke coverage now verifies that the balanced tech auto-assignment starter remains disabled by default, previews cleanly, and installs as an editable structured rule without forcing enablement during install.
 
 ## Install Behavior
 

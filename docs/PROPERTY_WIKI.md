@@ -187,7 +187,7 @@ The integration layer uses lightweight references rather than duplicated content
 
 ### Smart Suggestions
 
-Workflow suggestions are intentionally lightweight and property-scoped.
+Workflow suggestions are intentionally lightweight and property-scoped. Related-content ranking now prefers direct links, exact building/category matches, shared tags, and strong title/company/model token overlap before falling back to looser text matches.
 
 They rank Wiki content using available context such as:
 
@@ -258,13 +258,16 @@ Property Wiki documents and photos use the same routed local upload storage syst
 - Property-specific subdirectory routing is respected.
 - The current implementation accepts common image formats, PDFs, office docs, plain text, and markdown/plain-text notes.
 
+## API Surface
+
+The OpenAPI contract at `GET /api/openapi.json` now includes the main Property Wiki integration surface, including overview, profile, entries, vendors, assets, search, workflow context, workflow references, and record-detail endpoints.
+
 ## Current Limits
 
-- Native backup export/import does not yet include Property Wiki profile, entries, vendors, or asset metadata.
-- Native backup export/import does not yet include the newer favorites/recent-view state or emergency/building metadata either.
-- Workflow references are not yet included in native backup/export import.
-- Inspection workflow integration currently uses the make-ready drawer/inspection-gallery context because there is no separate inspection record model yet.
-- Refrigerant Wiki context currently follows saved transaction history context rather than binding directly to in-progress quick-form field selections.
+- Native backup export/import now includes Property Wiki entries, vendors, asset metadata, emergency/building fields, related-entry/vendor links, and workflow references.
+- Per-user favorites/recent-view state remains intentionally local to each instance because native transfer excludes users and other personal state.
+- Inspection workflow integration intentionally uses the make-ready drawer and inspection-gallery context. MakeReadyOS keeps inspection evidence attached to the turn record instead of introducing a separate persisted inspection entity.
+- Refrigerant Wiki context now surfaces directly from the live Quick Charge / Quick Recovery form selections while still remaining available on saved refrigerant history views.
 - Uploaded file bytes are not embedded in native JSON transfer, consistent with the rest of MakeReadyOS uploads.
 - There is no page-tree hierarchy, version-history browser, approval flow, or external publishing surface.
 - Search is intentionally simple and optimized for operational lookup rather than full-text indexing at enterprise scale.

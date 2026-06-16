@@ -11,7 +11,7 @@ Webhook endpoints can be registered in the Admin Integrations area. Delivery is 
 - `GET /api/admin/integrations/webhooks/:id/health` returns endpoint state, status counts, event counts, pending work, and latest failure metadata.
 - Admins can queue a signed test payload with `POST /api/admin/integrations/webhooks/:id/test-payload` and `{"enqueue": true}`.
 - `./run-webhooks.sh` processes queued attempts from inside the API container, signs payloads, applies an HTTP timeout, records responses, and retries failures with bounded backoff.
-- Core application writes now queue subscribed webhook events for item create/update/assignment/archive/restore, risk-level changes, comment creation, attachment create/delete, checklist item completion, and vendor assignment changes.
+- Core application writes now queue subscribed webhook events for item create/update/assignment/archive/restore, risk-level changes, comment creation, attachment create/delete, checklist item completion, vendor assignment changes, project record lifecycle, pest issue lifecycle, PM template/task lifecycle, and pool log entry creation.
 
 ## Runner Configuration
 
@@ -33,6 +33,42 @@ Run manually:
 
 The script writes `logs/webhooks-run-<timestamp>.txt` and exits nonzero only for runner-level failures. Individual endpoint failures are recorded on the delivery attempt and do not corrupt board data. If `WEBHOOK_AUTO_DISABLE_FAILURES` is positive, the runner disables an endpoint after that many consecutive failures; a later successful delivery resets the counter to zero. When private URL blocking is enabled, delivery re-checks DNS so a hostname that resolves to a private/local address is rejected before outbound HTTP is attempted.
 
+## Scheduling Examples
+
+Cron every minute:
+
+```cron
+* * * * * cd /opt/makereadyos && ./run-webhooks.sh >> /opt/makereadyos/logs/webhooks-cron.log 2>&1
+```
+
+Systemd service:
+
+```ini
+[Unit]
+Description=MakeReadyOS webhook delivery runner
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/makereadyos
+ExecStart=/opt/makereadyos/run-webhooks.sh
+```
+
+Systemd timer:
+
+```ini
+[Unit]
+Description=Run MakeReadyOS webhook delivery every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=makereadyos-webhooks.service
+
+[Install]
+WantedBy=timers.target
+```
+
 ## Delivery Statuses
 
 - `DRY_RUN`: signed payload was generated for inspection only.
@@ -43,8 +79,7 @@ The script writes `logs/webhooks-run-<timestamp>.txt` and exits nonzero only for
 
 ## Remaining Work
 
-- Add optional cron/systemd example for webhook delivery.
-- Add optional per-event delivery trend charts if public integrations need deeper diagnostics than the health endpoint.
+- Add optional per-event delivery trend charts only if public integrations need more than the current health endpoint plus Integrations UI status/event/failure diagnostics.
 
 ## Safety Rules
 

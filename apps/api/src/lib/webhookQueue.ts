@@ -15,6 +15,21 @@ export const webhookEventTypes = [
   "attachment.deleted",
   "vendor.assignment.updated",
   "checklist.completed",
+  "project.record.created",
+  "project.record.updated",
+  "project.record.archived",
+  "pest.issue.created",
+  "pest.issue.updated",
+  "pest.issue.archived",
+  "pm.template.created",
+  "pm.template.updated",
+  "pm.task.completed",
+  "pm.task.skipped",
+  "pool.entry.created",
+  "lease.issue.created",
+  "lease.issue.updated",
+  "lease.issue.resolved",
+  "lease.issue.archived",
 ] as const;
 
 export type WebhookEventType = (typeof webhookEventTypes)[number];

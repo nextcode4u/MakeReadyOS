@@ -108,6 +108,17 @@ export type RuleAction =
       targetField: DateOffsetField;
       offsetDays: number;
       respectOperatingCalendar?: boolean;
+    }
+  | {
+      type: "assignLeastLoadedStaff";
+      eligibleRoles: string[];
+      eligibleUserIds?: string[];
+      excludedUserIds?: string[];
+      lookAheadDays: number;
+      includePlannedWork?: boolean;
+      onlyWhenUnassigned?: boolean;
+      dailyAssignmentCap?: number | null;
+      targetDateField: "makeReadyDate" | "moveInDate" | "vacatedDate";
     };
 
 export type RuleConfig = {

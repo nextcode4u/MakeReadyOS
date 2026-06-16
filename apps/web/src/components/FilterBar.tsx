@@ -1,4 +1,4 @@
-import type { CurrentUser, Property, UserLanguage } from "../lib/api";
+import { makeReadyExportCsvUrl, makeReadyPdfReportUrl, type CurrentUser, type Property, type UserLanguage } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import type { ClockMode } from "../lib/dateTime";
 import { languageOptions, t } from "../lib/i18n";
@@ -13,8 +13,8 @@ type Props = {
   search: string;
   onPropertyChange: (value: string) => void;
   onSearchChange: (value: string) => void;
-  activeView: "dashboard" | "mywork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pm" | "wiki" | "fields" | "automations" | "activity" | "admin";
-  onViewChange: (value: "dashboard" | "mywork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pm" | "wiki" | "fields" | "automations" | "activity" | "admin") => void;
+  activeView: "dashboard" | "mywork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "fields" | "automations" | "activity" | "admin";
+  onViewChange: (value: "dashboard" | "mywork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "fields" | "automations" | "activity" | "admin") => void;
   showAdmin: boolean;
   showFieldManager: boolean;
   showAutomations: boolean;
@@ -256,8 +256,11 @@ export function FilterBar({
             </select>
           </label>
         ) : null}
-        <a data-testid="export-csv" className="button button-secondary export-button" href="/api/export/make-ready.csv">
+        <a data-testid="export-csv" className="button button-secondary export-button" href={makeReadyExportCsvUrl({ propertyId: selectedPropertyId || undefined })}>
           {t(language, "nav.export")}
+        </a>
+        <a data-testid="export-pdf" className="button button-secondary export-button" href={makeReadyPdfReportUrl({ propertyId: selectedPropertyId || undefined })} target="_blank" rel="noreferrer">
+          PDF
         </a>
         <button data-testid="notifications-button" className="button button-secondary notification-button" onClick={onOpenNotifications} aria-label={`${notificationUnreadCount} unread notifications`}>
           {t(language, "nav.alerts")}{notificationUnreadCount > 0 ? <strong>{notificationUnreadCount}</strong> : null}

@@ -285,6 +285,37 @@ const propertyMapAreaSchema = z.object({
   isArchived: z.boolean().optional().default(false),
 });
 
+const propertyMapPinSchema = z.object({
+  propertyCode: z.string().min(1),
+  mapName: z.string().min(1),
+  title: z.string().min(1),
+  pinType: z.string().min(1),
+  xPercent: z.number().min(0).max(100),
+  yPercent: z.number().min(0).max(100),
+  building: z.string().nullable().optional().default(null),
+  unitLabel: z.string().nullable().optional().default(null),
+  area: z.string().nullable().optional().default(null),
+  description: z.string().nullable().optional().default(null),
+  linkedRecordType: z.string().nullable().optional().default(null),
+  linkedRecordId: z.string().nullable().optional().default(null),
+  tags: z.array(z.string()).optional().default([]),
+  isEmergency: z.boolean().optional().default(false),
+  isActive: z.boolean().optional().default(true),
+  isArchived: z.boolean().optional().default(false),
+});
+
+const propertyMapPinAttachmentBackupSchema = z.object({
+  pinKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  uploaderName: z.string().nullable().optional().default(null),
+  originalName: z.string().min(1),
+  storedName: z.string().min(1),
+  mimeType: z.string().min(1),
+  sizeBytes: z.number().int(),
+  caption: z.string().nullable().optional().default(null),
+  createdAt: z.string().datetime(),
+});
+
 const unitMapLocationSchema = z.object({
   propertyCode: z.string().min(1),
   mapName: z.string().min(1),
@@ -473,6 +504,440 @@ const poolChemicalAdditionBackupSchema = z.object({
   notes: z.string().nullable().optional().default(null),
 });
 
+const propertyWikiEntryBackupSchema = z.object({
+  portableKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  section: z.string().min(1),
+  title: z.string().min(1),
+  category: z.string().nullable().optional().default(null),
+  building: z.string().nullable().optional().default(null),
+  locationDescription: z.string().nullable().optional().default(null),
+  equipmentModel: z.string().nullable().optional().default(null),
+  manufacturer: z.string().nullable().optional().default(null),
+  serialNumber: z.string().nullable().optional().default(null),
+  installDate: nullableDate.optional().default(null),
+  warrantyExpiresAt: nullableDate.optional().default(null),
+  floorPlan: z.string().nullable().optional().default(null),
+  unitType: z.string().nullable().optional().default(null),
+  blindSizes: z.string().nullable().optional().default(null),
+  hvacNotes: z.string().nullable().optional().default(null),
+  waterHeaterNotes: z.string().nullable().optional().default(null),
+  applianceNotes: z.string().nullable().optional().default(null),
+  paintStandards: z.string().nullable().optional().default(null),
+  countertopNotes: z.string().nullable().optional().default(null),
+  cabinetNotes: z.string().nullable().optional().default(null),
+  flooringNotes: z.string().nullable().optional().default(null),
+  contactType: z.string().nullable().optional().default(null),
+  contactTitle: z.string().nullable().optional().default(null),
+  phone: z.string().nullable().optional().default(null),
+  email: z.string().nullable().optional().default(null),
+  isEmergencyContact: z.boolean().optional().default(false),
+  relatedEntryKeys: z.array(z.string()).optional().default([]),
+  relatedVendorKeys: z.array(z.string()).optional().default([]),
+  notes: z.string().nullable().optional().default(null),
+  content: z.string().nullable().optional().default(null),
+  issueStatus: z.string().nullable().optional().default(null),
+  tags: z.array(z.string()).optional().default([]),
+  contacts: z.string().nullable().optional().default(null),
+  situation: z.string().nullable().optional().default(null),
+  poolCapacity: z.string().nullable().optional().default(null),
+  spaCapacity: z.string().nullable().optional().default(null),
+  pumpModels: z.string().nullable().optional().default(null),
+  filterModels: z.string().nullable().optional().default(null),
+  filterSizes: z.string().nullable().optional().default(null),
+  heaterModels: z.string().nullable().optional().default(null),
+  controllerNotes: z.string().nullable().optional().default(null),
+  chemicalTargetNotes: z.string().nullable().optional().default(null),
+  isPinned: z.boolean().optional().default(false),
+  isEmergency: z.boolean().optional().default(false),
+  isActive: z.boolean().optional().default(true),
+});
+
+const propertyWikiVendorBackupSchema = z.object({
+  portableKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  vendorType: z.string().min(1),
+  companyName: z.string().min(1),
+  contactName: z.string().nullable().optional().default(null),
+  phone: z.string().nullable().optional().default(null),
+  email: z.string().nullable().optional().default(null),
+  emergencyPhone: z.string().nullable().optional().default(null),
+  notes: z.string().nullable().optional().default(null),
+  isActive: z.boolean().optional().default(true),
+});
+
+const propertyWikiAssetBackupSchema = z.object({
+  portableKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  kind: z.string().min(1),
+  title: z.string().min(1),
+  category: z.string().nullable().optional().default(null),
+  building: z.string().nullable().optional().default(null),
+  description: z.string().nullable().optional().default(null),
+  tags: z.array(z.string()).optional().default([]),
+  isEmergency: z.boolean().optional().default(false),
+  entryKey: z.string().nullable().optional().default(null),
+  vendorKey: z.string().nullable().optional().default(null),
+  storedName: z.string().min(1),
+  originalName: z.string().min(1),
+  mimeType: z.string().min(1),
+  sizeBytes: z.number().int(),
+  createdAt: z.string().datetime(),
+});
+
+const propertyWikiReferenceBackupSchema = z.object({
+  propertyCode: z.string().min(1),
+  recordType: z.enum(["MAKE_READY_ITEM", "REFRIGERANT_TRANSACTION", "POOL_LOG_ENTRY", "LEASE_COMPLIANCE_ISSUE"]),
+  recordKey: z.string().min(1),
+  targetType: z.enum(["ENTRY", "VENDOR", "ASSET"]),
+  targetKey: z.string().min(1),
+  createdAt: z.string().datetime().nullable().optional().default(null),
+});
+
+const preventiveMaintenanceTemplateBackupSchema = z.object({
+  portableKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  name: z.string().min(1),
+  category: z.string().min(1),
+  description: z.string().nullable().optional().default(null),
+  instructions: z.string().nullable().optional().default(null),
+  frequency: z.string().min(1),
+  customEveryDays: z.number().int().nullable().optional().default(null),
+  annualMonth: z.number().int().nullable().optional().default(null),
+  annualDay: z.number().int().nullable().optional().default(null),
+  assignedRole: z.string().min(1),
+  assignedUserName: z.string().nullable().optional().default(null),
+  priority: z.string().min(1),
+  photosRequired: z.boolean().optional().default(false),
+  notesRequired: z.boolean().optional().default(false),
+  passFailRequired: z.boolean().optional().default(false),
+  isActive: z.boolean().optional().default(true),
+  isArchived: z.boolean().optional().default(false),
+});
+
+const preventiveMaintenanceTaskBackupSchema = z.object({
+  portableKey: z.string().min(1),
+  templateKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  taskName: z.string().min(1),
+  category: z.string().min(1),
+  description: z.string().nullable().optional().default(null),
+  instructions: z.string().nullable().optional().default(null),
+  assignedRole: z.string().min(1),
+  assignedUserName: z.string().nullable().optional().default(null),
+  dueDate: z.string().datetime(),
+  status: z.string().min(1),
+  priority: z.string().min(1),
+  photosRequired: z.boolean().optional().default(false),
+  notesRequired: z.boolean().optional().default(false),
+  passFailRequired: z.boolean().optional().default(false),
+  completionOutcome: z.string().nullable().optional().default(null),
+  completionNotes: z.string().nullable().optional().default(null),
+  completedByName: z.string().nullable().optional().default(null),
+  completedAt: nullableDate.optional().default(null),
+});
+
+const preventiveMaintenanceTaskAttachmentBackupSchema = z.object({
+  taskKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  uploaderName: z.string().nullable().optional().default(null),
+  originalName: z.string().min(1),
+  storedName: z.string().min(1),
+  mimeType: z.string().min(1),
+  sizeBytes: z.number().int(),
+  note: z.string().nullable().optional().default(null),
+  createdAt: z.string().datetime(),
+});
+
+const preventiveMaintenanceWikiReferenceBackupSchema = z.object({
+  propertyCode: z.string().min(1),
+  recordType: z.enum(["PM_TEMPLATE", "PM_TASK"]),
+  recordKey: z.string().min(1),
+  targetType: z.enum(["ENTRY", "VENDOR", "ASSET"]),
+  entrySection: z.string().nullable().optional().default(null),
+  targetTitle: z.string().nullable().optional().default(null),
+  vendorType: z.string().nullable().optional().default(null),
+  companyName: z.string().nullable().optional().default(null),
+  assetKind: z.string().nullable().optional().default(null),
+  originalName: z.string().nullable().optional().default(null),
+  createdAt: z.string().datetime().nullable().optional().default(null),
+});
+
+const projectCategoryBackupSchema = z.object({
+  propertyCode: z.string().nullable().optional().default(null),
+  name: z.string().min(1),
+  color: z.string().nullable().optional().default(null),
+  isActive: z.boolean().optional().default(true),
+  sortOrder: z.number().int().optional().default(0),
+});
+
+const projectRecordBackupSchema = z.object({
+  portableKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  recordType: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string().nullable().optional().default(null),
+  source: z.string().nullable().optional().default(null),
+  sourceRecordType: z.string().nullable().optional().default(null),
+  sourceRecordId: z.string().nullable().optional().default(null),
+  sourceRecordLabel: z.string().nullable().optional().default(null),
+  status: z.string().min(1),
+  priority: z.string().min(1),
+  executionType: z.string().min(1),
+  categoryName: z.string().nullable().optional().default(null),
+  building: z.string().nullable().optional().default(null),
+  area: z.string().nullable().optional().default(null),
+  locationNotes: z.string().nullable().optional().default(null),
+  propertyMapName: z.string().nullable().optional().default(null),
+  pinX: z.number().min(0).max(100).nullable().optional().default(null),
+  pinY: z.number().min(0).max(100).nullable().optional().default(null),
+  estimatedQuantity: z.number().nullable().optional().default(null),
+  quantityUnit: z.string().nullable().optional().default(null),
+  estimatedCost: z.number().nullable().optional().default(null),
+  actualCost: z.number().nullable().optional().default(null),
+  totalAmount: z.number().nullable().optional().default(null),
+  deferredMaintenance: z.boolean().optional().default(false),
+  deferredReason: z.string().nullable().optional().default(null),
+  targetYear: z.number().int().nullable().optional().default(null),
+  deferredNotes: z.string().nullable().optional().default(null),
+  budgetYear: z.string().nullable().optional().default(null),
+  companyName: z.string().nullable().optional().default(null),
+  contactName: z.string().nullable().optional().default(null),
+  contactPhone: z.string().nullable().optional().default(null),
+  contactEmail: z.string().nullable().optional().default(null),
+  bidStatus: z.string().nullable().optional().default(null),
+  bidNotes: z.string().nullable().optional().default(null),
+  assignedUserName: z.string().nullable().optional().default(null),
+  assignedRole: z.string().nullable().optional().default(null),
+  assignedTeam: z.string().nullable().optional().default(null),
+  scheduledDate: nullableDate.optional().default(null),
+  startDate: nullableDate.optional().default(null),
+  dueDate: nullableDate.optional().default(null),
+  completedDate: nullableDate.optional().default(null),
+  tags: z.array(z.string()).optional().default([]),
+  isArchived: z.boolean().optional().default(false),
+  archivedAt: nullableDate.optional().default(null),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+const projectCommentBackupSchema = z.object({
+  recordKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  authorName: z.string().nullable().optional().default(null),
+  body: z.string().min(1),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+const projectTaskBackupSchema = z.object({
+  recordKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  title: z.string().min(1),
+  status: z.string().min(1),
+  assignedUserName: z.string().nullable().optional().default(null),
+  dueDate: nullableDate.optional().default(null),
+  completedByName: z.string().nullable().optional().default(null),
+  completedDate: nullableDate.optional().default(null),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+const projectAttachmentBackupSchema = z.object({
+  recordKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  uploaderName: z.string().nullable().optional().default(null),
+  originalName: z.string().min(1),
+  storedName: z.string().min(1),
+  mimeType: z.string().min(1),
+  sizeBytes: z.number().int(),
+  attachmentType: z.string().min(1),
+  caption: z.string().nullable().optional().default(null),
+  createdAt: z.string().datetime(),
+});
+
+const projectWikiReferenceBackupSchema = z.object({
+  propertyCode: z.string().min(1),
+  recordKey: z.string().min(1),
+  targetType: z.enum(["ENTRY", "VENDOR", "ASSET"]),
+  targetKey: z.string().min(1),
+  createdAt: z.string().datetime().nullable().optional().default(null),
+});
+
+const pestVendorBackupSchema = z.object({
+  portableKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  vendorName: z.string().min(1),
+  primaryContact: z.string().nullable().optional().default(null),
+  phone: z.string().nullable().optional().default(null),
+  email: z.string().nullable().optional().default(null),
+  emergencyPhone: z.string().nullable().optional().default(null),
+  serviceDay: z.string().nullable().optional().default(null),
+  serviceFrequency: z.string().nullable().optional().default(null),
+  notes: z.string().nullable().optional().default(null),
+  isActive: z.boolean().optional().default(true),
+  isDefault: z.boolean().optional().default(false),
+});
+
+const pestIssueBackupSchema = z.object({
+  portableKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  unitNumber: z.string().nullable().optional().default(null),
+  makeReadyItemKey: z.string().nullable().optional().default(null),
+  building: z.string().nullable().optional().default(null),
+  area: z.string().nullable().optional().default(null),
+  requestDate: z.string().datetime(),
+  pestType: z.string().min(1),
+  additionalPestType: z.string().nullable().optional().default(null),
+  status: z.string().min(1),
+  priority: z.string().min(1),
+  source: z.string().min(1),
+  vendorKey: z.string().nullable().optional().default(null),
+  thirdPartyWorkOrderNumber: z.string().nullable().optional().default(null),
+  reportedBy: z.string().nullable().optional().default(null),
+  assignedUserName: z.string().nullable().optional().default(null),
+  treatmentDate: nullableDate.optional().default(null),
+  followUpRequired: z.boolean().optional().default(false),
+  followUpDate: nullableDate.optional().default(null),
+  followUpNotes: z.string().nullable().optional().default(null),
+  description: z.string().nullable().optional().default(null),
+  closedNotes: z.string().nullable().optional().default(null),
+  recurringConcern: z.boolean().optional().default(false),
+  managerReviewRequired: z.boolean().optional().default(false),
+  recurringDismissedAt: nullableDate.optional().default(null),
+  recurringDismissalNotes: z.string().nullable().optional().default(null),
+  closedAt: nullableDate.optional().default(null),
+  isArchived: z.boolean().optional().default(false),
+  archivedAt: nullableDate.optional().default(null),
+  archiveNotes: z.string().nullable().optional().default(null),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+const pestIssueNoteBackupSchema = z.object({
+  issueKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  authorName: z.string().nullable().optional().default(null),
+  body: z.string().min(1),
+  createdAt: z.string().datetime(),
+});
+
+const pestAttachmentBackupSchema = z.object({
+  issueKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  uploaderName: z.string().nullable().optional().default(null),
+  photoType: z.string().min(1),
+  caption: z.string().nullable().optional().default(null),
+  originalName: z.string().min(1),
+  storedName: z.string().min(1),
+  mimeType: z.string().min(1),
+  sizeBytes: z.number().int(),
+  createdAt: z.string().datetime(),
+});
+
+const leaseComplianceIssueTypeBackupSchema = z.object({
+  propertyCode: z.string().min(1),
+  name: z.string().min(1),
+  color: z.string().nullable().optional().default(null),
+  isActive: z.boolean().default(true),
+  sortOrder: z.number().int().default(0),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+const leaseComplianceSettingsBackupSchema = z.object({
+  propertyCode: z.string().min(1),
+  defaultPriority: z.string().min(1),
+  watchDays: z.number().int(),
+  warningDays: z.number().int(),
+  criticalDays: z.number().int(),
+  firstNoticeLabel: z.string().min(1),
+  secondNoticeLabel: z.string().min(1),
+  thirdNoticeLabel: z.string().min(1),
+  archiveResolvedAfterDays: z.number().int().nullable().optional().default(null),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+const leaseComplianceIssueBackupSchema = z.object({
+  portableKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  unitNumber: z.string().nullable().optional().default(null),
+  issueTypeKey: z.string().nullable().optional().default(null),
+  propertyMapName: z.string().nullable().optional().default(null),
+  building: z.string().nullable().optional().default(null),
+  area: z.string().nullable().optional().default(null),
+  issueTypeName: z.string().min(1),
+  additionalIssueType: z.string().nullable().optional().default(null),
+  status: z.string().min(1),
+  noticeStage: z.string().min(1),
+  priority: z.string().min(1),
+  source: z.string().min(1),
+  description: z.string().nullable().optional().default(null),
+  locationNotes: z.string().nullable().optional().default(null),
+  tags: z.array(z.string()).optional().default([]),
+  assignedUserName: z.string().nullable().optional().default(null),
+  lastPersistenceCheckDate: z.string().datetime().nullable().optional().default(null),
+  daysOpenOverride: z.number().int().nullable().optional().default(null),
+  persistenceCount: z.number().int().default(0),
+  residentNotifiedDate: z.string().datetime().nullable().optional().default(null),
+  notice1Date: z.string().datetime().nullable().optional().default(null),
+  notice2Date: z.string().datetime().nullable().optional().default(null),
+  notice3Date: z.string().datetime().nullable().optional().default(null),
+  violationNeededDate: z.string().datetime().nullable().optional().default(null),
+  recurringConcern: z.boolean().default(false),
+  managerReviewRequired: z.boolean().default(false),
+  recurringDismissedAt: z.string().datetime().nullable().optional().default(null),
+  recurringDismissalNotes: z.string().nullable().optional().default(null),
+  resolvedDate: z.string().datetime().nullable().optional().default(null),
+  resolutionNotes: z.string().nullable().optional().default(null),
+  isArchived: z.boolean().default(false),
+  archiveDate: z.string().datetime().nullable().optional().default(null),
+  archiveNotes: z.string().nullable().optional().default(null),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+const leaseComplianceIssueNoteBackupSchema = z.object({
+  issueKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  authorName: z.string().nullable().optional().default(null),
+  body: z.string().min(1),
+  createdAt: z.string().datetime(),
+});
+
+const leaseComplianceIssuePhotoBackupSchema = z.object({
+  issueKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  uploaderName: z.string().nullable().optional().default(null),
+  photoCategory: z.string().min(1),
+  caption: z.string().nullable().optional().default(null),
+  originalName: z.string().min(1),
+  storedName: z.string().min(1),
+  mimeType: z.string().min(1),
+  sizeBytes: z.number().int(),
+  createdAt: z.string().datetime(),
+});
+
+const leaseComplianceNoticeActionBackupSchema = z.object({
+  issueKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  actedByName: z.string().nullable().optional().default(null),
+  action: z.string().min(1),
+  noticeStage: z.string().min(1),
+  notes: z.string().nullable().optional().default(null),
+  createdAt: z.string().datetime(),
+});
+
+const leaseCompliancePersistenceCheckBackupSchema = z.object({
+  issueKey: z.string().min(1),
+  propertyCode: z.string().min(1),
+  checkedByName: z.string().nullable().optional().default(null),
+  stillPersists: z.boolean().default(true),
+  notes: z.string().nullable().optional().default(null),
+  createdAt: z.string().datetime(),
+});
+
 const backupSchema = z.object({
   format: z.literal(backupFormat),
   version: z.literal(backupVersion),
@@ -504,6 +969,8 @@ const backupSchema = z.object({
     vendorAssignments: z.array(vendorAssignmentSchema).optional().default([]),
     propertyMaps: z.array(propertyMapSchema).optional().default([]),
     propertyMapAreas: z.array(propertyMapAreaSchema).optional().default([]),
+    propertyMapPins: z.array(propertyMapPinSchema).optional().default([]),
+    propertyMapPinAttachments: z.array(propertyMapPinAttachmentBackupSchema).optional().default([]),
     unitMapLocations: z.array(unitMapLocationSchema).optional().default([]),
     checklistInstances: z.array(checklistInstanceSchema).optional().default([]),
     notes: z.array(propertyNoteSchema),
@@ -518,6 +985,31 @@ const backupSchema = z.object({
     poolLogEntries: z.array(poolLogEntryBackupSchema).optional().default([]),
     poolSafetyChecks: z.array(poolSafetyCheckBackupSchema).optional().default([]),
     poolChemicalAdditions: z.array(poolChemicalAdditionBackupSchema).optional().default([]),
+    propertyWikiEntries: z.array(propertyWikiEntryBackupSchema).optional().default([]),
+    propertyWikiVendors: z.array(propertyWikiVendorBackupSchema).optional().default([]),
+    propertyWikiAssets: z.array(propertyWikiAssetBackupSchema).optional().default([]),
+    propertyWikiReferences: z.array(propertyWikiReferenceBackupSchema).optional().default([]),
+    preventiveMaintenanceTemplates: z.array(preventiveMaintenanceTemplateBackupSchema).optional().default([]),
+    preventiveMaintenanceTasks: z.array(preventiveMaintenanceTaskBackupSchema).optional().default([]),
+    preventiveMaintenanceTaskAttachments: z.array(preventiveMaintenanceTaskAttachmentBackupSchema).optional().default([]),
+    preventiveMaintenanceWikiReferences: z.array(preventiveMaintenanceWikiReferenceBackupSchema).optional().default([]),
+    projectCategories: z.array(projectCategoryBackupSchema).optional().default([]),
+    projectRecords: z.array(projectRecordBackupSchema).optional().default([]),
+    projectComments: z.array(projectCommentBackupSchema).optional().default([]),
+    projectTasks: z.array(projectTaskBackupSchema).optional().default([]),
+    projectAttachments: z.array(projectAttachmentBackupSchema).optional().default([]),
+    projectWikiReferences: z.array(projectWikiReferenceBackupSchema).optional().default([]),
+    pestVendors: z.array(pestVendorBackupSchema).optional().default([]),
+    pestIssues: z.array(pestIssueBackupSchema).optional().default([]),
+    pestIssueNotes: z.array(pestIssueNoteBackupSchema).optional().default([]),
+    pestAttachments: z.array(pestAttachmentBackupSchema).optional().default([]),
+    leaseComplianceIssueTypes: z.array(leaseComplianceIssueTypeBackupSchema).optional().default([]),
+    leaseComplianceSettings: z.array(leaseComplianceSettingsBackupSchema).optional().default([]),
+    leaseComplianceIssues: z.array(leaseComplianceIssueBackupSchema).optional().default([]),
+    leaseComplianceIssueNotes: z.array(leaseComplianceIssueNoteBackupSchema).optional().default([]),
+    leaseComplianceIssuePhotos: z.array(leaseComplianceIssuePhotoBackupSchema).optional().default([]),
+    leaseComplianceNoticeActions: z.array(leaseComplianceNoticeActionBackupSchema).optional().default([]),
+    leaseCompliancePersistenceChecks: z.array(leaseCompliancePersistenceCheckBackupSchema).optional().default([]),
   }),
 });
 
@@ -539,6 +1031,17 @@ function itemPortableKey(item: {
   moveInDate: Date | null;
 }) {
   return [item.property.code, item.boardGroup, item.unitNumber, item.moveOutDate?.toISOString() ?? "", item.moveInDate?.toISOString() ?? ""].join("|");
+}
+
+function propertyMapPinPortableKey(pin: {
+  propertyCode: string;
+  mapName: string;
+  title: string;
+  pinType: string;
+  xPercent: number;
+  yPercent: number;
+}) {
+  return [pin.propertyCode, pin.mapName, pin.title, pin.pinType, pin.xPercent, pin.yPercent].join("|");
 }
 
 function emptySummary(): ImportSummary {
@@ -566,6 +1069,8 @@ function emptySummary(): ImportSummary {
     vendorAssignments: bucket(),
     propertyMaps: bucket(),
     propertyMapAreas: bucket(),
+    propertyMapPins: bucket(),
+    propertyMapPinAttachments: bucket(),
     unitMapLocations: bucket(),
     checklistInstances: bucket(),
     notes: bucket(),
@@ -580,6 +1085,31 @@ function emptySummary(): ImportSummary {
     poolLogEntries: bucket(),
     poolSafetyChecks: bucket(),
     poolChemicalAdditions: bucket(),
+    propertyWikiEntries: bucket(),
+    propertyWikiVendors: bucket(),
+    propertyWikiAssets: bucket(),
+    propertyWikiReferences: bucket(),
+    preventiveMaintenanceTemplates: bucket(),
+    preventiveMaintenanceTasks: bucket(),
+    preventiveMaintenanceTaskAttachments: bucket(),
+    preventiveMaintenanceWikiReferences: bucket(),
+    projectCategories: bucket(),
+    projectRecords: bucket(),
+    projectComments: bucket(),
+    projectTasks: bucket(),
+    projectAttachments: bucket(),
+    projectWikiReferences: bucket(),
+    pestVendors: bucket(),
+    pestIssues: bucket(),
+    pestIssueNotes: bucket(),
+    pestAttachments: bucket(),
+    leaseComplianceIssueTypes: bucket(),
+    leaseComplianceSettings: bucket(),
+    leaseComplianceIssues: bucket(),
+    leaseComplianceIssueNotes: bucket(),
+    leaseComplianceIssuePhotos: bucket(),
+    leaseComplianceNoticeActions: bucket(),
+    leaseCompliancePersistenceChecks: bucket(),
   };
 }
 
@@ -616,13 +1146,127 @@ function defaultBoardSections(propertyCode: string) {
   }));
 }
 
+function preventiveMaintenanceTemplatePortableKey(template: {
+  propertyCode: string;
+  name: string;
+  category: string;
+  frequency: string;
+  customEveryDays: number | null;
+  annualMonth: number | null;
+  annualDay: number | null;
+}) {
+  return [
+    template.propertyCode,
+    template.name,
+    template.category,
+    template.frequency,
+    template.customEveryDays ?? "",
+    template.annualMonth ?? "",
+    template.annualDay ?? "",
+  ].join("|");
+}
+
+function preventiveMaintenanceTaskPortableKey(task: {
+  templateKey: string;
+  taskName: string;
+  dueDate: string;
+}) {
+  return [task.templateKey, task.taskName, task.dueDate].join("|");
+}
+
+function refrigerantTransactionPortableKey(entry: {
+  transactionType: string;
+  propertyCode: string | null;
+  unitNumber: string | null;
+  refrigerantTypeName: string;
+  occurredAt: string;
+  amount: number;
+}) {
+  return [entry.transactionType, entry.propertyCode ?? "", entry.unitNumber ?? "", entry.refrigerantTypeName, entry.occurredAt, entry.amount].join("|");
+}
+
+function propertyWikiEntryPortableKey(entry: {
+  propertyCode: string;
+  section: string;
+  title: string;
+}) {
+  return [entry.propertyCode, entry.section, entry.title].join("|");
+}
+
+function propertyWikiVendorPortableKey(vendor: {
+  propertyCode: string;
+  vendorType: string;
+  companyName: string;
+}) {
+  return [vendor.propertyCode, vendor.vendorType, vendor.companyName].join("|");
+}
+
+function propertyWikiAssetPortableKey(asset: {
+  propertyCode: string;
+  kind: string;
+  storedName: string;
+}) {
+  return [asset.propertyCode, asset.kind, asset.storedName].join("|");
+}
+
+function projectCategoryPortableKey(category: {
+  propertyCode: string | null;
+  name: string;
+}) {
+  return [category.propertyCode ?? "global", category.name].join("|");
+}
+
+function projectRecordPortableKey(record: {
+  propertyCode: string;
+  recordType: string;
+  title: string;
+  createdAt: string;
+}) {
+  return [record.propertyCode, record.recordType, record.title, record.createdAt].join("|");
+}
+
+function pestVendorPortableKey(vendor: {
+  propertyCode: string;
+  vendorName: string;
+}) {
+  return [vendor.propertyCode, vendor.vendorName].join("|");
+}
+
+function pestIssuePortableKey(issue: {
+  propertyCode: string;
+  unitNumber: string | null;
+  area: string | null;
+  pestType: string;
+  requestDate: string;
+}) {
+  return [issue.propertyCode, issue.unitNumber ?? "", issue.area ?? "", issue.pestType, issue.requestDate].join("|");
+}
+
+function leaseComplianceIssueTypePortableKey(issueType: {
+  propertyCode: string;
+  name: string;
+}) {
+  return [issueType.propertyCode, issueType.name].join("|");
+}
+
+function leaseComplianceIssuePortableKey(issue: {
+  propertyCode: string;
+  unitNumber: string | null;
+  building: string | null;
+  area: string | null;
+  issueTypeName: string;
+  createdAt: string;
+}) {
+  return [issue.propertyCode, issue.unitNumber ?? "", issue.building ?? "", issue.area ?? "", issue.issueTypeName, issue.createdAt].join("|");
+}
+
 async function ensureAdmin(request: FastifyRequest, reply: FastifyReply) {
   if (await requireAdmin(request, reply)) return false;
   return true;
 }
 
 async function buildExport(): Promise<NativeBackup> {
-  const [properties, floorPlans, boardOptions, boardColumns, boardSections, scheduleTracks, operatingCalendars, riskPolicies, units, items, fields, savedViews, rules, templates, chargePriceSheetItems, comments, vendors, vendorAssignments, propertyMaps, propertyMapAreas, unitMapLocations, checklistInstances, notes, propertyTemplates, refrigerantTypes, refrigerantCylinders, refrigerantTransactions, refrigerantLeakFlags, poolFacilities, poolChemicals, poolChemistryTargets, poolLogEntries, poolSafetyChecks, poolChemicalAdditions] = await Promise.all([
+  const [properties, floorPlans, boardOptions, boardColumns, boardSections, scheduleTracks, operatingCalendars, riskPolicies, units, items, fields, savedViews, rules, templates, chargePriceSheetItems, comments, vendors, vendorAssignments, propertyMaps, propertyMapAreas, propertyMapPins, propertyMapPinAttachments, unitMapLocations, checklistInstances, notes, propertyTemplates, refrigerantTypes, refrigerantCylinders, refrigerantTransactions, refrigerantLeakFlags, poolFacilities, poolChemicals, poolChemistryTargets, poolLogEntries, poolSafetyChecks, poolChemicalAdditions, propertyWikiReferences, preventiveMaintenanceTemplates, preventiveMaintenanceTasks, preventiveMaintenanceWikiReferences, wikiEntries, wikiVendors, wikiAssets, projectCategories, projectRecords, pestVendors, pestIssues, leaseComplianceIssueTypes, leaseComplianceSettings, leaseComplianceIssues] = await Promise.all([
     prisma.property.findMany({ orderBy: { code: "asc" } }),
     prisma.floorPlan.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { code: "asc" }] }),
     prisma.labelDefinition.findMany({ orderBy: [{ fieldKey: "asc" }, { sortOrder: "asc" }] }),
@@ -643,6 +1287,8 @@ async function buildExport(): Promise<NativeBackup> {
     prisma.vendorAssignment.findMany({ include: { vendor: true, property: true, item: { include: { property: true } } }, orderBy: { createdAt: "asc" } }),
     prisma.propertyMap.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { name: "asc" }] }),
     prisma.propertyMapArea.findMany({ include: { property: true, map: true }, orderBy: [{ property: { code: "asc" } }, { areaType: "asc" }, { name: "asc" }] }),
+    prisma.propertyMapPin.findMany({ include: { property: true, map: true }, orderBy: [{ property: { code: "asc" } }, { createdAt: "asc" }] }),
+    prisma.propertyMapPinAttachment.findMany({ include: { property: true, pin: { include: { property: true, map: true } } }, orderBy: [{ createdAt: "asc" }] }),
     prisma.unitMapLocation.findMany({ include: { property: true, map: true, unit: true }, orderBy: [{ property: { code: "asc" } }, { area: "asc" }, { floor: "asc" }] }),
     prisma.checklistInstance.findMany({ include: { template: true, items: { orderBy: { sortOrder: "asc" } } }, orderBy: { createdAt: "asc" } }),
     prisma.propertyNote.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { title: "asc" }] }),
@@ -657,14 +1303,296 @@ async function buildExport(): Promise<NativeBackup> {
     prisma.poolLogEntry.findMany({ include: { property: true, facility: true }, orderBy: [{ logDate: "asc" }, { logTime: "asc" }] }),
     prisma.poolSafetyCheck.findMany({ include: { entry: { include: { property: true, facility: true } } }, orderBy: [{ entryId: "asc" }, { sortOrder: "asc" }] }),
     prisma.poolChemicalAddition.findMany({ include: { entry: { include: { property: true, facility: true } } }, orderBy: { createdAt: "asc" } }),
+    prisma.propertyWikiReference.findMany({
+      where: { recordType: { in: ["MAKE_READY_ITEM", "REFRIGERANT_TRANSACTION", "POOL_LOG_ENTRY", "LEASE_COMPLIANCE_ISSUE"] } },
+      include: { property: true },
+      orderBy: [{ createdAt: "asc" }],
+    }),
+    prisma.preventiveMaintenanceTemplate.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { category: "asc" }, { name: "asc" }] }),
+    prisma.preventiveMaintenanceTask.findMany({
+      include: {
+        property: true,
+        template: { include: { property: true } },
+        attachments: { orderBy: [{ createdAt: "asc" }, { originalName: "asc" }] },
+      },
+      orderBy: [{ dueDate: "asc" }, { taskName: "asc" }],
+    }),
+    prisma.propertyWikiReference.findMany({
+      where: { recordType: { in: ["PM_TEMPLATE", "PM_TASK"] } },
+      include: { property: true },
+      orderBy: [{ createdAt: "asc" }],
+    }),
+    prisma.propertyWikiEntry.findMany({ orderBy: [{ createdAt: "asc" }] }),
+    prisma.propertyWikiVendor.findMany({ orderBy: [{ createdAt: "asc" }] }),
+    prisma.propertyWikiAsset.findMany({ orderBy: [{ createdAt: "asc" }] }),
+    prisma.projectCategory.findMany({ include: { property: true }, orderBy: [{ propertyId: "asc" }, { sortOrder: "asc" }, { name: "asc" }] }),
+    prisma.projectRecord.findMany({
+      include: {
+        property: true,
+        propertyMap: true,
+        attachments: { orderBy: { createdAt: "asc" } },
+        comments: { orderBy: { createdAt: "asc" } },
+        tasks: { orderBy: { createdAt: "asc" } },
+        wikiReferences: { orderBy: { createdAt: "asc" } },
+      },
+      orderBy: [{ createdAt: "asc" }],
+    }),
+    prisma.pestVendor.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { vendorName: "asc" }] }),
+    prisma.pestIssue.findMany({
+      include: {
+        property: true,
+        unit: true,
+        vendor: { include: { property: true } },
+        makeReadyItem: { include: { property: true } },
+        notes: { orderBy: { createdAt: "asc" } },
+        attachments: { orderBy: { createdAt: "asc" } },
+      },
+      orderBy: [{ createdAt: "asc" }],
+    }),
+    prisma.leaseComplianceIssueType.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { sortOrder: "asc" }, { name: "asc" }] }),
+    prisma.leaseComplianceSettings.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }] }),
+    prisma.leaseComplianceIssue.findMany({
+      include: {
+        property: true,
+        unit: true,
+        issueType: { include: { property: true } },
+        propertyMap: true,
+        notes: { orderBy: { createdAt: "asc" } },
+        photos: { orderBy: { createdAt: "asc" } },
+        noticeActions: { orderBy: { createdAt: "asc" } },
+        persistenceChecks: { orderBy: { createdAt: "asc" } },
+      },
+      orderBy: [{ createdAt: "asc" }],
+    }),
   ]);
   const fieldKeysById = new Map(fields.map((field) => [field.id, field.fieldKey]));
   const itemKeysById = new Map(items.map((item) => [item.id, itemPortableKey(item)]));
+  const refrigerantTransactionKeysById = new Map(
+    refrigerantTransactions.map((entry) => [entry.id, refrigerantTransactionPortableKey({
+      transactionType: entry.transactionType,
+      propertyCode: properties.find((candidate) => candidate.id === entry.propertyId)?.code ?? null,
+      unitNumber: entry.unitNumber,
+      refrigerantTypeName: entry.refrigerantType.name,
+      occurredAt: entry.occurredAt.toISOString(),
+      amount: entry.amount,
+    })]),
+  );
+  const wikiEntryKeysById = new Map(
+    wikiEntries.map((entry) => [entry.id, propertyWikiEntryPortableKey({
+      propertyCode: properties.find((candidate) => candidate.id === entry.propertyId)?.code ?? "",
+      section: entry.section,
+      title: entry.title,
+    })]),
+  );
+  const wikiVendorKeysById = new Map(
+    wikiVendors.map((vendor) => [vendor.id, propertyWikiVendorPortableKey({
+      propertyCode: properties.find((candidate) => candidate.id === vendor.propertyId)?.code ?? "",
+      vendorType: vendor.vendorType,
+      companyName: vendor.companyName,
+    })]),
+  );
+  const wikiAssetKeysById = new Map(
+    wikiAssets.map((asset) => [asset.id, propertyWikiAssetPortableKey({
+      propertyCode: properties.find((candidate) => candidate.id === asset.propertyId)?.code ?? "",
+      kind: asset.kind,
+      storedName: asset.storedName,
+    })]),
+  );
+  const projectRecordKeysById = new Map(
+    projectRecords.map((record) => [record.id, projectRecordPortableKey({
+      propertyCode: record.property.code,
+      recordType: record.recordType,
+      title: record.title,
+      createdAt: record.createdAt.toISOString(),
+    })]),
+  );
+  const pestVendorKeysById = new Map(
+    pestVendors.map((vendor) => [vendor.id, pestVendorPortableKey({
+      propertyCode: vendor.property.code,
+      vendorName: vendor.vendorName,
+    })]),
+  );
+  const pestIssueKeysById = new Map(
+    pestIssues.map((issue) => [issue.id, pestIssuePortableKey({
+      propertyCode: issue.property.code,
+      unitNumber: issue.unit?.number ?? null,
+      area: issue.area,
+      pestType: issue.pestType,
+      requestDate: issue.requestDate.toISOString(),
+    })]),
+  );
+  const leaseComplianceIssueTypeKeysById = new Map(
+    leaseComplianceIssueTypes.map((issueType) => [issueType.id, leaseComplianceIssueTypePortableKey({
+      propertyCode: issueType.property.code,
+      name: issueType.name,
+    })]),
+  );
+  const leaseComplianceIssueKeysById = new Map(
+    leaseComplianceIssues.map((issue) => [issue.id, leaseComplianceIssuePortableKey({
+      propertyCode: issue.property.code,
+      unitNumber: issue.unit?.number ?? null,
+      building: issue.building,
+      area: issue.area,
+      issueTypeName: issue.issueTypeName,
+      createdAt: issue.createdAt.toISOString(),
+    })]),
+  );
+  const preventiveMaintenanceTemplateKeysById = new Map(
+    preventiveMaintenanceTemplates.map((template) => [template.id, preventiveMaintenanceTemplatePortableKey({
+      propertyCode: template.property.code,
+      name: template.name,
+      category: template.category,
+      frequency: template.frequency,
+      customEveryDays: template.customEveryDays,
+      annualMonth: template.annualMonth,
+      annualDay: template.annualDay,
+    })]),
+  );
+  const preventiveMaintenanceTaskKeysById = new Map(
+    preventiveMaintenanceTasks
+      .map((task) => {
+        const templateKey = preventiveMaintenanceTemplateKeysById.get(task.templateId);
+        return templateKey ? [task.id, preventiveMaintenanceTaskPortableKey({
+          templateKey,
+          taskName: task.taskName,
+          dueDate: task.dueDate.toISOString(),
+        })] : null;
+      })
+      .filter((entry): entry is [string, string] => Boolean(entry)),
+  );
+  const wikiEntriesById = new Map(wikiEntries.map((entry) => [entry.id, entry]));
+  const wikiVendorsById = new Map(wikiVendors.map((vendor) => [vendor.id, vendor]));
+  const wikiAssetsById = new Map(wikiAssets.map((asset) => [asset.id, asset]));
   const portableColumns = (columns: unknown) => Array.isArray(columns)
     ? columns.map((column) => typeof column === "string" && column.startsWith("custom:")
       ? `custom-field:${fieldKeysById.get(column.slice(7)) ?? column.slice(7)}`
       : String(column))
     : null;
+  const portablePreventiveMaintenanceTemplates: z.infer<typeof preventiveMaintenanceTemplateBackupSchema>[] = preventiveMaintenanceTemplates.map((template) => ({
+    portableKey: preventiveMaintenanceTemplateKeysById.get(template.id) ?? preventiveMaintenanceTemplatePortableKey({
+      propertyCode: template.property.code,
+      name: template.name,
+      category: template.category,
+      frequency: template.frequency,
+      customEveryDays: template.customEveryDays,
+      annualMonth: template.annualMonth,
+      annualDay: template.annualDay,
+    }),
+    propertyCode: template.property.code,
+    name: template.name,
+    category: template.category,
+    description: template.description,
+    instructions: template.instructions,
+    frequency: template.frequency,
+    customEveryDays: template.customEveryDays,
+    annualMonth: template.annualMonth,
+    annualDay: template.annualDay,
+    assignedRole: template.assignedRole,
+    assignedUserName: template.assignedUserName,
+    photosRequired: template.photosRequired,
+    notesRequired: template.notesRequired,
+    passFailRequired: template.passFailRequired,
+    priority: template.priority,
+    isActive: template.isActive,
+    isArchived: template.isArchived,
+  }));
+  const portablePreventiveMaintenanceTasks: z.infer<typeof preventiveMaintenanceTaskBackupSchema>[] = preventiveMaintenanceTasks.flatMap((task) => {
+    const templateKey = preventiveMaintenanceTemplateKeysById.get(task.templateId);
+    const portableKey = preventiveMaintenanceTaskKeysById.get(task.id);
+    return templateKey && portableKey ? [{
+      portableKey,
+      templateKey,
+      propertyCode: task.property.code,
+      taskName: task.taskName,
+      category: task.category,
+      description: task.description,
+      instructions: task.instructions,
+      assignedRole: task.assignedRole,
+      assignedUserName: task.assignedUserName,
+      dueDate: task.dueDate.toISOString(),
+      status: task.status,
+      priority: task.priority,
+      photosRequired: task.photosRequired,
+      notesRequired: task.notesRequired,
+      passFailRequired: task.passFailRequired,
+      completionOutcome: task.completionOutcome,
+      completionNotes: task.completionNotes,
+      completedByName: task.completedByName,
+      completedAt: task.completedAt?.toISOString() ?? null,
+    }] : [];
+  });
+  const portablePreventiveMaintenanceTaskAttachments: z.infer<typeof preventiveMaintenanceTaskAttachmentBackupSchema>[] = preventiveMaintenanceTasks.flatMap((task) => {
+    const taskKey = preventiveMaintenanceTaskKeysById.get(task.id);
+    return taskKey ? task.attachments.map((attachment) => ({
+      taskKey,
+      propertyCode: task.property.code,
+      uploaderName: attachment.uploaderName,
+      originalName: attachment.originalName,
+      storedName: attachment.storedName,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      note: attachment.note,
+      createdAt: attachment.createdAt.toISOString(),
+    })) : [];
+  });
+  const portablePreventiveMaintenanceWikiReferences: z.infer<typeof preventiveMaintenanceWikiReferenceBackupSchema>[] = [];
+  for (const reference of preventiveMaintenanceWikiReferences) {
+    const recordKey = reference.recordType === "PM_TEMPLATE"
+      ? preventiveMaintenanceTemplateKeysById.get(reference.recordId)
+      : preventiveMaintenanceTaskKeysById.get(reference.recordId);
+    if (!recordKey) continue;
+    if (reference.targetType === "ENTRY") {
+      const target = wikiEntriesById.get(reference.targetId);
+      if (!target) continue;
+      portablePreventiveMaintenanceWikiReferences.push({
+        propertyCode: reference.property.code,
+        recordType: reference.recordType as "PM_TEMPLATE" | "PM_TASK",
+        recordKey,
+        targetType: "ENTRY",
+        entrySection: target.section,
+        targetTitle: target.title,
+        vendorType: null,
+        companyName: null,
+        assetKind: null,
+        originalName: null,
+        createdAt: reference.createdAt.toISOString(),
+      });
+      continue;
+    }
+    if (reference.targetType === "VENDOR") {
+      const target = wikiVendorsById.get(reference.targetId);
+      if (!target) continue;
+      portablePreventiveMaintenanceWikiReferences.push({
+        propertyCode: reference.property.code,
+        recordType: reference.recordType as "PM_TEMPLATE" | "PM_TASK",
+        recordKey,
+        targetType: "VENDOR",
+        entrySection: null,
+        targetTitle: null,
+        vendorType: target.vendorType,
+        companyName: target.companyName,
+        assetKind: null,
+        originalName: null,
+        createdAt: reference.createdAt.toISOString(),
+      });
+      continue;
+    }
+    const target = wikiAssetsById.get(reference.targetId);
+    if (!target) continue;
+    portablePreventiveMaintenanceWikiReferences.push({
+      propertyCode: reference.property.code,
+      recordType: reference.recordType as "PM_TEMPLATE" | "PM_TASK",
+      recordKey,
+      targetType: "ASSET",
+      entrySection: null,
+      targetTitle: target.title,
+      vendorType: null,
+      companyName: null,
+      assetKind: target.kind,
+      originalName: target.originalName,
+      createdAt: reference.createdAt.toISOString(),
+    });
+  }
 
   return {
     format: backupFormat,
@@ -939,6 +1867,42 @@ async function buildExport(): Promise<NativeBackup> {
         isActive: area.isActive,
         isArchived: area.isArchived,
       })),
+      propertyMapPins: propertyMapPins.map((pin) => ({
+        propertyCode: pin.property.code,
+        mapName: pin.map.name,
+        title: pin.title,
+        pinType: pin.pinType,
+        xPercent: pin.xPercent,
+        yPercent: pin.yPercent,
+        building: pin.building,
+        unitLabel: pin.unitLabel,
+        area: pin.area,
+        description: pin.description,
+        linkedRecordType: pin.linkedRecordType,
+        linkedRecordId: pin.linkedRecordId,
+        tags: pin.tags,
+        isEmergency: pin.isEmergency,
+        isActive: pin.isActive,
+        isArchived: pin.isArchived,
+      })),
+      propertyMapPinAttachments: propertyMapPinAttachments.map((attachment) => ({
+        pinKey: propertyMapPinPortableKey({
+          propertyCode: attachment.pin.property.code,
+          mapName: attachment.pin.map.name,
+          title: attachment.pin.title,
+          pinType: attachment.pin.pinType,
+          xPercent: attachment.pin.xPercent,
+          yPercent: attachment.pin.yPercent,
+        }),
+        propertyCode: attachment.property.code,
+        uploaderName: attachment.uploaderName,
+        originalName: attachment.originalName,
+        storedName: attachment.storedName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        caption: attachment.caption,
+        createdAt: attachment.createdAt.toISOString(),
+      })),
       unitMapLocations: unitMapLocations.map((location) => ({
         propertyCode: location.property.code,
         mapName: location.map.name,
@@ -1108,6 +2072,411 @@ async function buildExport(): Promise<NativeBackup> {
         unit: addition.unit,
         notes: addition.notes,
       })),
+      propertyWikiEntries: wikiEntries.map((entry) => ({
+        portableKey: wikiEntryKeysById.get(entry.id) ?? propertyWikiEntryPortableKey({
+          propertyCode: properties.find((candidate) => candidate.id === entry.propertyId)?.code ?? "",
+          section: entry.section,
+          title: entry.title,
+        }),
+        propertyCode: properties.find((candidate) => candidate.id === entry.propertyId)?.code ?? "",
+        section: entry.section,
+        title: entry.title,
+        category: entry.category,
+        building: entry.building,
+        locationDescription: entry.locationDescription,
+        equipmentModel: entry.equipmentModel,
+        manufacturer: entry.manufacturer,
+        serialNumber: entry.serialNumber,
+        installDate: entry.installDate?.toISOString() ?? null,
+        warrantyExpiresAt: entry.warrantyExpiresAt?.toISOString() ?? null,
+        floorPlan: entry.floorPlan,
+        unitType: entry.unitType,
+        blindSizes: entry.blindSizes,
+        hvacNotes: entry.hvacNotes,
+        waterHeaterNotes: entry.waterHeaterNotes,
+        applianceNotes: entry.applianceNotes,
+        paintStandards: entry.paintStandards,
+        countertopNotes: entry.countertopNotes,
+        cabinetNotes: entry.cabinetNotes,
+        flooringNotes: entry.flooringNotes,
+        contactType: entry.contactType,
+        contactTitle: entry.contactTitle,
+        phone: entry.phone,
+        email: entry.email,
+        isEmergencyContact: entry.isEmergencyContact,
+        relatedEntryKeys: entry.relatedEntryIds.map((id) => wikiEntryKeysById.get(id)).filter((value): value is string => Boolean(value)),
+        relatedVendorKeys: entry.relatedVendorIds.map((id) => wikiVendorKeysById.get(id)).filter((value): value is string => Boolean(value)),
+        notes: entry.notes,
+        content: entry.content,
+        issueStatus: entry.issueStatus,
+        tags: entry.tags,
+        contacts: entry.contacts,
+        situation: entry.situation,
+        poolCapacity: entry.poolCapacity,
+        spaCapacity: entry.spaCapacity,
+        pumpModels: entry.pumpModels,
+        filterModels: entry.filterModels,
+        filterSizes: entry.filterSizes,
+        heaterModels: entry.heaterModels,
+        controllerNotes: entry.controllerNotes,
+        chemicalTargetNotes: entry.chemicalTargetNotes,
+        isPinned: entry.isPinned,
+        isEmergency: entry.isEmergency,
+        isActive: entry.isActive,
+      })),
+      propertyWikiVendors: wikiVendors.map((vendor) => ({
+        portableKey: wikiVendorKeysById.get(vendor.id) ?? propertyWikiVendorPortableKey({
+          propertyCode: properties.find((candidate) => candidate.id === vendor.propertyId)?.code ?? "",
+          vendorType: vendor.vendorType,
+          companyName: vendor.companyName,
+        }),
+        propertyCode: properties.find((candidate) => candidate.id === vendor.propertyId)?.code ?? "",
+        vendorType: vendor.vendorType,
+        companyName: vendor.companyName,
+        contactName: vendor.contactName,
+        phone: vendor.phone,
+        email: vendor.email,
+        emergencyPhone: vendor.emergencyPhone,
+        notes: vendor.notes,
+        isActive: vendor.isActive,
+      })),
+      propertyWikiAssets: wikiAssets.map((asset) => ({
+        portableKey: wikiAssetKeysById.get(asset.id) ?? propertyWikiAssetPortableKey({
+          propertyCode: properties.find((candidate) => candidate.id === asset.propertyId)?.code ?? "",
+          kind: asset.kind,
+          storedName: asset.storedName,
+        }),
+        propertyCode: properties.find((candidate) => candidate.id === asset.propertyId)?.code ?? "",
+        kind: asset.kind,
+        title: asset.title,
+        category: asset.category,
+        building: asset.building,
+        description: asset.description,
+        tags: asset.tags,
+        isEmergency: asset.isEmergency,
+        entryKey: asset.entryId ? wikiEntryKeysById.get(asset.entryId) ?? null : null,
+        vendorKey: asset.vendorId ? wikiVendorKeysById.get(asset.vendorId) ?? null : null,
+        storedName: asset.storedName,
+        originalName: asset.originalName,
+        mimeType: asset.mimeType,
+        sizeBytes: asset.sizeBytes,
+        createdAt: asset.createdAt.toISOString(),
+      })),
+      propertyWikiReferences: propertyWikiReferences.flatMap((reference) => {
+        const recordKey = reference.recordType === "MAKE_READY_ITEM"
+          ? itemKeysById.get(reference.recordId)
+          : reference.recordType === "REFRIGERANT_TRANSACTION"
+            ? refrigerantTransactionKeysById.get(reference.recordId)
+            : reference.recordType === "POOL_LOG_ENTRY"
+              ? poolLogEntries.find((entry) => entry.id === reference.recordId)
+                ? poolEntryPortableKey(poolLogEntries.find((entry) => entry.id === reference.recordId)!)
+                : null
+              : leaseComplianceIssueKeysById.get(reference.recordId) ?? null;
+        const targetKey = reference.targetType === "ENTRY"
+          ? wikiEntryKeysById.get(reference.targetId)
+          : reference.targetType === "VENDOR"
+            ? wikiVendorKeysById.get(reference.targetId)
+            : wikiAssetKeysById.get(reference.targetId);
+        return recordKey && targetKey ? [{
+          propertyCode: reference.property.code,
+          recordType: reference.recordType as "MAKE_READY_ITEM" | "REFRIGERANT_TRANSACTION" | "POOL_LOG_ENTRY" | "LEASE_COMPLIANCE_ISSUE",
+          recordKey,
+          targetType: reference.targetType as "ENTRY" | "VENDOR" | "ASSET",
+          targetKey,
+          createdAt: reference.createdAt.toISOString(),
+        }] : [];
+      }),
+      preventiveMaintenanceTemplates: portablePreventiveMaintenanceTemplates,
+      preventiveMaintenanceTasks: portablePreventiveMaintenanceTasks,
+      preventiveMaintenanceTaskAttachments: portablePreventiveMaintenanceTaskAttachments,
+      preventiveMaintenanceWikiReferences: portablePreventiveMaintenanceWikiReferences,
+      projectCategories: projectCategories.map((category) => ({
+        propertyCode: category.property?.code ?? null,
+        name: category.name,
+        color: category.color,
+        isActive: category.isActive,
+        sortOrder: category.sortOrder,
+      })),
+      projectRecords: projectRecords.map((record) => ({
+        portableKey: projectRecordKeysById.get(record.id) ?? projectRecordPortableKey({
+          propertyCode: record.property.code,
+          recordType: record.recordType,
+          title: record.title,
+          createdAt: record.createdAt.toISOString(),
+        }),
+        propertyCode: record.property.code,
+        recordType: record.recordType,
+        title: record.title,
+        description: record.description,
+        source: record.source,
+        sourceRecordType: record.sourceRecordType,
+        sourceRecordId: record.sourceRecordId,
+        sourceRecordLabel: record.sourceRecordLabel,
+        status: record.status,
+        priority: record.priority,
+        executionType: record.executionType,
+        categoryName: record.categoryName,
+        building: record.building,
+        area: record.area,
+        locationNotes: record.locationNotes,
+        propertyMapName: record.propertyMap?.name ?? null,
+        pinX: record.pinX,
+        pinY: record.pinY,
+        estimatedQuantity: record.estimatedQuantity,
+        quantityUnit: record.quantityUnit,
+        estimatedCost: record.estimatedCost,
+        actualCost: record.actualCost,
+        totalAmount: record.totalAmount,
+        deferredMaintenance: record.deferredMaintenance,
+        deferredReason: record.deferredReason,
+        targetYear: record.targetYear,
+        deferredNotes: record.deferredNotes,
+        budgetYear: record.budgetYear,
+        companyName: record.companyName,
+        contactName: record.contactName,
+        contactPhone: record.contactPhone,
+        contactEmail: record.contactEmail,
+        bidStatus: record.bidStatus,
+        bidNotes: record.bidNotes,
+        assignedUserName: record.assignedUserName,
+        assignedRole: record.assignedRole,
+        assignedTeam: record.assignedTeam,
+        scheduledDate: record.scheduledDate?.toISOString() ?? null,
+        startDate: record.startDate?.toISOString() ?? null,
+        dueDate: record.dueDate?.toISOString() ?? null,
+        completedDate: record.completedDate?.toISOString() ?? null,
+        tags: record.tags,
+        isArchived: record.isArchived,
+        archivedAt: record.archivedAt?.toISOString() ?? null,
+        createdAt: record.createdAt.toISOString(),
+        updatedAt: record.updatedAt.toISOString(),
+      })),
+      projectComments: projectRecords.flatMap((record) => record.comments.map((comment) => ({
+        recordKey: projectRecordKeysById.get(record.id) ?? "",
+        propertyCode: record.property.code,
+        authorName: comment.authorName,
+        body: comment.body,
+        createdAt: comment.createdAt.toISOString(),
+        updatedAt: comment.updatedAt.toISOString(),
+      }))).filter((comment) => comment.recordKey),
+      projectTasks: projectRecords.flatMap((record) => record.tasks.map((task) => ({
+        recordKey: projectRecordKeysById.get(record.id) ?? "",
+        propertyCode: record.property.code,
+        title: task.title,
+        status: task.status,
+        assignedUserName: task.assignedUserName,
+        dueDate: task.dueDate?.toISOString() ?? null,
+        completedByName: null,
+        completedDate: task.completedDate?.toISOString() ?? null,
+        createdAt: task.createdAt.toISOString(),
+        updatedAt: task.updatedAt.toISOString(),
+      }))).filter((task) => task.recordKey),
+      projectAttachments: projectRecords.flatMap((record) => record.attachments.map((attachment) => ({
+        recordKey: projectRecordKeysById.get(record.id) ?? "",
+        propertyCode: record.property.code,
+        uploaderName: attachment.uploaderName,
+        originalName: attachment.originalName,
+        storedName: attachment.storedName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        attachmentType: attachment.attachmentType,
+        caption: attachment.caption,
+        createdAt: attachment.createdAt.toISOString(),
+      }))).filter((attachment) => attachment.recordKey),
+      projectWikiReferences: projectRecords.flatMap((record) => record.wikiReferences.flatMap((reference) => {
+        const targetKey = reference.targetType === "ENTRY"
+          ? wikiEntryKeysById.get(reference.targetId)
+          : reference.targetType === "VENDOR"
+            ? wikiVendorKeysById.get(reference.targetId)
+            : wikiAssetKeysById.get(reference.targetId);
+        const recordKey = projectRecordKeysById.get(record.id);
+        return recordKey && targetKey ? [{
+          propertyCode: record.property.code,
+          recordKey,
+          targetType: reference.targetType as "ENTRY" | "VENDOR" | "ASSET",
+          targetKey,
+          createdAt: reference.createdAt.toISOString(),
+        }] : [];
+      })),
+      pestVendors: pestVendors.map((vendor) => ({
+        portableKey: pestVendorKeysById.get(vendor.id) ?? pestVendorPortableKey({
+          propertyCode: vendor.property.code,
+          vendorName: vendor.vendorName,
+        }),
+        propertyCode: vendor.property.code,
+        vendorName: vendor.vendorName,
+        primaryContact: vendor.primaryContact,
+        phone: vendor.phone,
+        email: vendor.email,
+        emergencyPhone: vendor.emergencyPhone,
+        serviceDay: vendor.serviceDay,
+        serviceFrequency: vendor.serviceFrequency,
+        notes: vendor.notes,
+        isActive: vendor.isActive,
+        isDefault: vendor.isDefault,
+      })),
+      pestIssues: pestIssues.map((issue) => ({
+        portableKey: pestIssueKeysById.get(issue.id) ?? pestIssuePortableKey({
+          propertyCode: issue.property.code,
+          unitNumber: issue.unit?.number ?? null,
+          area: issue.area,
+          pestType: issue.pestType,
+          requestDate: issue.requestDate.toISOString(),
+        }),
+        propertyCode: issue.property.code,
+        unitNumber: issue.unit?.number ?? null,
+        makeReadyItemKey: issue.makeReadyItem ? itemPortableKey(issue.makeReadyItem) : null,
+        building: issue.building,
+        area: issue.area,
+        requestDate: issue.requestDate.toISOString(),
+        pestType: issue.pestType,
+        additionalPestType: issue.additionalPestType,
+        status: issue.status,
+        priority: issue.priority,
+        source: issue.source,
+        vendorKey: issue.vendor ? pestVendorKeysById.get(issue.vendor.id) ?? null : null,
+        thirdPartyWorkOrderNumber: issue.thirdPartyWorkOrderNumber,
+        reportedBy: issue.reportedBy,
+        assignedUserName: issue.assignedUserId ? null : null,
+        treatmentDate: issue.treatmentDate?.toISOString() ?? null,
+        followUpRequired: issue.followUpRequired,
+        followUpDate: issue.followUpDate?.toISOString() ?? null,
+        followUpNotes: issue.followUpNotes,
+        description: issue.description,
+        closedNotes: issue.closedNotes,
+        recurringConcern: issue.recurringConcern,
+        managerReviewRequired: issue.managerReviewRequired,
+        recurringDismissedAt: issue.recurringDismissedAt?.toISOString() ?? null,
+        recurringDismissalNotes: issue.recurringDismissalNotes,
+        closedAt: issue.closedAt?.toISOString() ?? null,
+        isArchived: issue.isArchived,
+        archivedAt: issue.archivedAt?.toISOString() ?? null,
+        archiveNotes: issue.archiveNotes,
+        createdAt: issue.createdAt.toISOString(),
+        updatedAt: issue.updatedAt.toISOString(),
+      })),
+      pestIssueNotes: pestIssues.flatMap((issue) => issue.notes.map((note) => ({
+        issueKey: pestIssueKeysById.get(issue.id) ?? "",
+        propertyCode: issue.property.code,
+        authorName: note.authorName,
+        body: note.body,
+        createdAt: note.createdAt.toISOString(),
+      }))).filter((note) => note.issueKey),
+      pestAttachments: pestIssues.flatMap((issue) => issue.attachments.map((attachment) => ({
+        issueKey: pestIssueKeysById.get(issue.id) ?? "",
+        propertyCode: issue.property.code,
+        uploaderName: attachment.uploaderName,
+        photoType: attachment.photoType,
+        caption: attachment.caption,
+        originalName: attachment.originalName,
+        storedName: attachment.storedName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        createdAt: attachment.createdAt.toISOString(),
+      }))).filter((attachment) => attachment.issueKey),
+      leaseComplianceIssueTypes: leaseComplianceIssueTypes.map((issueType) => ({
+        propertyCode: issueType.property.code,
+        name: issueType.name,
+        color: issueType.color,
+        isActive: issueType.isActive,
+        sortOrder: issueType.sortOrder,
+        createdAt: issueType.createdAt.toISOString(),
+        updatedAt: issueType.updatedAt.toISOString(),
+      })),
+      leaseComplianceSettings: leaseComplianceSettings.map((settings) => ({
+        propertyCode: settings.property.code,
+        defaultPriority: settings.defaultPriority,
+        watchDays: settings.watchDays,
+        warningDays: settings.warningDays,
+        criticalDays: settings.criticalDays,
+        firstNoticeLabel: settings.firstNoticeLabel,
+        secondNoticeLabel: settings.secondNoticeLabel,
+        thirdNoticeLabel: settings.thirdNoticeLabel,
+        archiveResolvedAfterDays: settings.archiveResolvedAfterDays,
+        createdAt: settings.createdAt.toISOString(),
+        updatedAt: settings.updatedAt.toISOString(),
+      })),
+      leaseComplianceIssues: leaseComplianceIssues.map((issue) => ({
+        portableKey: leaseComplianceIssueKeysById.get(issue.id) ?? leaseComplianceIssuePortableKey({
+          propertyCode: issue.property.code,
+          unitNumber: issue.unit?.number ?? null,
+          building: issue.building,
+          area: issue.area,
+          issueTypeName: issue.issueTypeName,
+          createdAt: issue.createdAt.toISOString(),
+        }),
+        propertyCode: issue.property.code,
+        unitNumber: issue.unit?.number ?? null,
+        issueTypeKey: issue.issueType ? leaseComplianceIssueTypeKeysById.get(issue.issueType.id) ?? null : null,
+        propertyMapName: issue.propertyMap?.name ?? null,
+        building: issue.building,
+        area: issue.area,
+        issueTypeName: issue.issueTypeName,
+        additionalIssueType: issue.additionalIssueType,
+        status: issue.status,
+        noticeStage: issue.noticeStage,
+        priority: issue.priority,
+        source: issue.source,
+        description: issue.description,
+        locationNotes: issue.locationNotes,
+        tags: issue.tags,
+        assignedUserName: issue.assignedUserName,
+        lastPersistenceCheckDate: issue.lastPersistenceCheckDate?.toISOString() ?? null,
+        daysOpenOverride: issue.daysOpenOverride,
+        persistenceCount: issue.persistenceCount,
+        residentNotifiedDate: issue.residentNotifiedDate?.toISOString() ?? null,
+        notice1Date: issue.notice1Date?.toISOString() ?? null,
+        notice2Date: issue.notice2Date?.toISOString() ?? null,
+        notice3Date: issue.notice3Date?.toISOString() ?? null,
+        violationNeededDate: issue.violationNeededDate?.toISOString() ?? null,
+        recurringConcern: issue.recurringConcern,
+        managerReviewRequired: issue.managerReviewRequired,
+        recurringDismissedAt: issue.recurringDismissedAt?.toISOString() ?? null,
+        recurringDismissalNotes: issue.recurringDismissalNotes,
+        resolvedDate: issue.resolvedDate?.toISOString() ?? null,
+        resolutionNotes: issue.resolutionNotes,
+        isArchived: issue.isArchived,
+        archiveDate: issue.archiveDate?.toISOString() ?? null,
+        archiveNotes: issue.archiveNotes,
+        createdAt: issue.createdAt.toISOString(),
+        updatedAt: issue.updatedAt.toISOString(),
+      })),
+      leaseComplianceIssueNotes: leaseComplianceIssues.flatMap((issue) => issue.notes.map((note) => ({
+        issueKey: leaseComplianceIssueKeysById.get(issue.id) ?? "",
+        propertyCode: issue.property.code,
+        authorName: note.authorName,
+        body: note.body,
+        createdAt: note.createdAt.toISOString(),
+      }))).filter((note) => note.issueKey),
+      leaseComplianceIssuePhotos: leaseComplianceIssues.flatMap((issue) => issue.photos.map((photo) => ({
+        issueKey: leaseComplianceIssueKeysById.get(issue.id) ?? "",
+        propertyCode: issue.property.code,
+        uploaderName: photo.uploaderName,
+        photoCategory: photo.photoCategory,
+        caption: photo.caption,
+        originalName: photo.originalName,
+        storedName: photo.storedName,
+        mimeType: photo.mimeType,
+        sizeBytes: photo.sizeBytes,
+        createdAt: photo.createdAt.toISOString(),
+      }))).filter((photo) => photo.issueKey),
+      leaseComplianceNoticeActions: leaseComplianceIssues.flatMap((issue) => issue.noticeActions.map((action) => ({
+        issueKey: leaseComplianceIssueKeysById.get(issue.id) ?? "",
+        propertyCode: issue.property.code,
+        actedByName: action.actedByName,
+        action: action.action,
+        noticeStage: action.noticeStage,
+        notes: action.notes,
+        createdAt: action.createdAt.toISOString(),
+      }))).filter((action) => action.issueKey),
+      leaseCompliancePersistenceChecks: leaseComplianceIssues.flatMap((issue) => issue.persistenceChecks.map((check) => ({
+        issueKey: leaseComplianceIssueKeysById.get(issue.id) ?? "",
+        propertyCode: issue.property.code,
+        checkedByName: check.checkedByName,
+        stillPersists: check.stillPersists,
+        notes: check.notes,
+        createdAt: check.createdAt.toISOString(),
+      }))).filter((check) => check.issueKey),
     },
   };
 }
@@ -1162,6 +2531,8 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
   rejectDuplicates("vendorAssignments", backup.data.vendorAssignments.map((assignment) => `${assignment.vendorTrade}|${assignment.vendorName}|${assignment.itemKey}|${assignment.trade}|${assignment.scheduledDate ?? ""}|${assignment.dueDate ?? ""}`));
   rejectDuplicates("propertyMaps", backup.data.propertyMaps.map((map) => `${map.propertyCode}|${map.name}`));
   rejectDuplicates("propertyMapAreas", backup.data.propertyMapAreas.map((area) => `${area.propertyCode}|${area.mapName}|${area.name}`));
+  rejectDuplicates("propertyMapPins", backup.data.propertyMapPins.map((pin) => propertyMapPinPortableKey(pin)));
+  rejectDuplicates("propertyMapPinAttachments", backup.data.propertyMapPinAttachments.map((attachment) => `${attachment.pinKey}|${attachment.storedName}`));
   rejectDuplicates("unitMapLocations", backup.data.unitMapLocations.map((location) => `${location.propertyCode}|${location.mapName}|${location.unitNumber}`));
   rejectDuplicates("checklistInstances", backup.data.checklistInstances.map((instance) => `${instance.itemKey}|${instance.name}`));
   rejectDuplicates("notes", backup.data.notes.map((note) => `${note.propertyCode}|${note.noteType}|${note.title}`));
@@ -1176,6 +2547,31 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
   rejectDuplicates("poolLogEntries", backup.data.poolLogEntries.map((entry) => `${entry.propertyCode}|${entry.facilityName}|${entry.logDate}|${entry.logTime ?? ""}`));
   rejectDuplicates("poolSafetyChecks", backup.data.poolSafetyChecks.map((check) => `${check.entryKey}|${check.label}`));
   rejectDuplicates("poolChemicalAdditions", backup.data.poolChemicalAdditions.map((addition) => `${addition.entryKey}|${addition.chemicalName}|${addition.amount}|${addition.unit}|${addition.notes ?? ""}`));
+  rejectDuplicates("propertyWikiEntries", backup.data.propertyWikiEntries.map((entry) => entry.portableKey));
+  rejectDuplicates("propertyWikiVendors", backup.data.propertyWikiVendors.map((vendor) => vendor.portableKey));
+  rejectDuplicates("propertyWikiAssets", backup.data.propertyWikiAssets.map((asset) => asset.portableKey));
+  rejectDuplicates("propertyWikiReferences", backup.data.propertyWikiReferences.map((reference) => `${reference.recordType}|${reference.recordKey}|${reference.targetType}|${reference.targetKey}`));
+  rejectDuplicates("preventiveMaintenanceTemplates", backup.data.preventiveMaintenanceTemplates.map((template) => preventiveMaintenanceTemplatePortableKey(template)));
+  rejectDuplicates("preventiveMaintenanceTasks", backup.data.preventiveMaintenanceTasks.map((task) => preventiveMaintenanceTaskPortableKey(task)));
+  rejectDuplicates("preventiveMaintenanceTaskAttachments", backup.data.preventiveMaintenanceTaskAttachments.map((attachment) => `${attachment.taskKey}|${attachment.storedName}`));
+  rejectDuplicates("preventiveMaintenanceWikiReferences", backup.data.preventiveMaintenanceWikiReferences.map((reference) => `${reference.recordType}|${reference.recordKey}|${reference.targetType}|${reference.entrySection ?? ""}|${reference.targetTitle ?? ""}|${reference.vendorType ?? ""}|${reference.companyName ?? ""}|${reference.assetKind ?? ""}|${reference.originalName ?? ""}`));
+  rejectDuplicates("projectCategories", backup.data.projectCategories.map((category) => projectCategoryPortableKey(category)));
+  rejectDuplicates("projectRecords", backup.data.projectRecords.map((record) => record.portableKey));
+  rejectDuplicates("projectComments", backup.data.projectComments.map((comment) => `${comment.recordKey}|${comment.authorName ?? ""}|${comment.createdAt}`));
+  rejectDuplicates("projectTasks", backup.data.projectTasks.map((task) => `${task.recordKey}|${task.title}|${task.createdAt}`));
+  rejectDuplicates("projectAttachments", backup.data.projectAttachments.map((attachment) => `${attachment.recordKey}|${attachment.storedName}`));
+  rejectDuplicates("projectWikiReferences", backup.data.projectWikiReferences.map((reference) => `${reference.recordKey}|${reference.targetType}|${reference.targetKey}`));
+  rejectDuplicates("pestVendors", backup.data.pestVendors.map((vendor) => vendor.portableKey));
+  rejectDuplicates("pestIssues", backup.data.pestIssues.map((issue) => issue.portableKey));
+  rejectDuplicates("pestIssueNotes", backup.data.pestIssueNotes.map((note) => `${note.issueKey}|${note.authorName ?? ""}|${note.createdAt}`));
+  rejectDuplicates("pestAttachments", backup.data.pestAttachments.map((attachment) => `${attachment.issueKey}|${attachment.storedName}`));
+  rejectDuplicates("leaseComplianceIssueTypes", backup.data.leaseComplianceIssueTypes.map((issueType) => leaseComplianceIssueTypePortableKey(issueType)));
+  rejectDuplicates("leaseComplianceSettings", backup.data.leaseComplianceSettings.map((settings) => settings.propertyCode));
+  rejectDuplicates("leaseComplianceIssues", backup.data.leaseComplianceIssues.map((issue) => issue.portableKey));
+  rejectDuplicates("leaseComplianceIssueNotes", backup.data.leaseComplianceIssueNotes.map((note) => `${note.issueKey}|${note.authorName ?? ""}|${note.createdAt}`));
+  rejectDuplicates("leaseComplianceIssuePhotos", backup.data.leaseComplianceIssuePhotos.map((photo) => `${photo.issueKey}|${photo.storedName}`));
+  rejectDuplicates("leaseComplianceNoticeActions", backup.data.leaseComplianceNoticeActions.map((action) => `${action.issueKey}|${action.action}|${action.createdAt}`));
+  rejectDuplicates("leaseCompliancePersistenceChecks", backup.data.leaseCompliancePersistenceChecks.map((check) => `${check.issueKey}|${check.stillPersists}|${check.createdAt}`));
 
   for (const unit of backup.data.units) {
     if (!propertyCodes.has(unit.propertyCode) && !(await prisma.property.findUnique({ where: { code: unit.propertyCode } }))) {
@@ -1245,6 +2641,21 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
       if (!existingMap) summary.propertyMapAreas.errors.push(`Property map ${area.mapName} is missing for area ${area.name}`);
     }
   }
+  for (const pin of backup.data.propertyMapPins) {
+    if (!propertyCodes.has(pin.propertyCode) && !(await prisma.property.findUnique({ where: { code: pin.propertyCode } }))) {
+      summary.propertyMapPins.errors.push(`Property ${pin.propertyCode} is missing for map pin ${pin.title}`);
+    }
+    const mapInBackup = backup.data.propertyMaps.some((map) => map.propertyCode === pin.propertyCode && map.name === pin.mapName);
+    if (!mapInBackup) {
+      const property = await prisma.property.findUnique({ where: { code: pin.propertyCode } });
+      const existingMap = property ? await prisma.propertyMap.findFirst({ where: { propertyId: property.id, name: pin.mapName } }) : null;
+      if (!existingMap) summary.propertyMapPins.errors.push(`Property map ${pin.mapName} is missing for map pin ${pin.title}`);
+    }
+  }
+  const propertyMapPinKeys = new Set(backup.data.propertyMapPins.map((pin) => propertyMapPinPortableKey(pin)));
+  for (const attachment of backup.data.propertyMapPinAttachments) {
+    if (!propertyMapPinKeys.has(attachment.pinKey)) summary.propertyMapPinAttachments.errors.push(`Property map pin ${attachment.pinKey} is missing for attachment ${attachment.originalName}`);
+  }
   for (const location of backup.data.unitMapLocations) {
     if (!propertyCodes.has(location.propertyCode) && !(await prisma.property.findUnique({ where: { code: location.propertyCode } }))) {
       summary.unitMapLocations.errors.push(`Property ${location.propertyCode} is missing for map location ${location.unitNumber}`);
@@ -1277,6 +2688,17 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
   }
   const poolFacilityKeys = new Set(backup.data.poolFacilities.map((facility) => `${facility.propertyCode}|${facility.name}`));
   const poolEntryKeys = new Set(backup.data.poolLogEntries.map((entry) => `${entry.propertyCode}|${entry.facilityName}|${entry.logDate}|${entry.logTime ?? ""}`));
+  const propertyWikiEntryKeys = new Set(backup.data.propertyWikiEntries.map((entry) => entry.portableKey));
+  const propertyWikiVendorKeys = new Set(backup.data.propertyWikiVendors.map((vendor) => vendor.portableKey));
+  const propertyWikiAssetKeys = new Set(backup.data.propertyWikiAssets.map((asset) => asset.portableKey));
+  const leaseComplianceIssueTypeKeys = new Set(backup.data.leaseComplianceIssueTypes.map((issueType) => leaseComplianceIssueTypePortableKey(issueType)));
+  const leaseComplianceIssueKeys = new Set(backup.data.leaseComplianceIssues.map((issue) => issue.portableKey));
+  const preventiveMaintenanceTemplateKeys = new Set(
+    backup.data.preventiveMaintenanceTemplates.map((template) => preventiveMaintenanceTemplatePortableKey(template)),
+  );
+  const preventiveMaintenanceTaskKeys = new Set(
+    backup.data.preventiveMaintenanceTasks.map((task) => preventiveMaintenanceTaskPortableKey(task)),
+  );
   for (const facility of backup.data.poolFacilities) {
     if (!propertyCodes.has(facility.propertyCode) && !(await prisma.property.findUnique({ where: { code: facility.propertyCode } }))) {
       summary.poolFacilities.errors.push(`Property ${facility.propertyCode} is missing for pool facility ${facility.name}`);
@@ -1307,6 +2729,265 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
   }
   for (const addition of backup.data.poolChemicalAdditions) {
     if (!poolEntryKeys.has(addition.entryKey)) summary.poolChemicalAdditions.errors.push(`Pool log entry ${addition.entryKey} is missing for chemical addition ${addition.chemicalName}`);
+  }
+  for (const entry of backup.data.propertyWikiEntries) {
+    if (!propertyCodes.has(entry.propertyCode) && !(await prisma.property.findUnique({ where: { code: entry.propertyCode } }))) {
+      summary.propertyWikiEntries.errors.push(`Property ${entry.propertyCode} is missing for Property Wiki entry ${entry.title}`);
+    }
+    for (const relatedEntryKey of entry.relatedEntryKeys) {
+      if (!propertyWikiEntryKeys.has(relatedEntryKey)) {
+        const [propertyCode, section, title] = relatedEntryKey.split("|");
+        const property = await prisma.property.findUnique({ where: { code: propertyCode } });
+        const existingEntry = property ? await prisma.propertyWikiEntry.findFirst({ where: { propertyId: property.id, section, title } }) : null;
+        if (!existingEntry) summary.propertyWikiEntries.errors.push(`Related Property Wiki entry ${relatedEntryKey} is missing for ${entry.title}`);
+      }
+    }
+    for (const relatedVendorKey of entry.relatedVendorKeys) {
+      if (!propertyWikiVendorKeys.has(relatedVendorKey)) {
+        const [propertyCode, vendorType, companyName] = relatedVendorKey.split("|");
+        const property = await prisma.property.findUnique({ where: { code: propertyCode } });
+        const existingVendor = property ? await prisma.propertyWikiVendor.findFirst({ where: { propertyId: property.id, vendorType, companyName } }) : null;
+        if (!existingVendor) summary.propertyWikiEntries.errors.push(`Related Property Wiki vendor ${relatedVendorKey} is missing for ${entry.title}`);
+      }
+    }
+  }
+  for (const vendor of backup.data.propertyWikiVendors) {
+    if (!propertyCodes.has(vendor.propertyCode) && !(await prisma.property.findUnique({ where: { code: vendor.propertyCode } }))) {
+      summary.propertyWikiVendors.errors.push(`Property ${vendor.propertyCode} is missing for Property Wiki vendor ${vendor.companyName}`);
+    }
+  }
+  for (const asset of backup.data.propertyWikiAssets) {
+    if (!propertyCodes.has(asset.propertyCode) && !(await prisma.property.findUnique({ where: { code: asset.propertyCode } }))) {
+      summary.propertyWikiAssets.errors.push(`Property ${asset.propertyCode} is missing for Property Wiki asset ${asset.title}`);
+    }
+    if (asset.entryKey && !propertyWikiEntryKeys.has(asset.entryKey)) {
+      const [propertyCode, section, title] = asset.entryKey.split("|");
+      const property = await prisma.property.findUnique({ where: { code: propertyCode } });
+      const existingEntry = property ? await prisma.propertyWikiEntry.findFirst({ where: { propertyId: property.id, section, title } }) : null;
+      if (!existingEntry) summary.propertyWikiAssets.errors.push(`Linked Property Wiki entry ${asset.entryKey} is missing for asset ${asset.title}`);
+    }
+    if (asset.vendorKey && !propertyWikiVendorKeys.has(asset.vendorKey)) {
+      const [propertyCode, vendorType, companyName] = asset.vendorKey.split("|");
+      const property = await prisma.property.findUnique({ where: { code: propertyCode } });
+      const existingVendor = property ? await prisma.propertyWikiVendor.findFirst({ where: { propertyId: property.id, vendorType, companyName } }) : null;
+      if (!existingVendor) summary.propertyWikiAssets.errors.push(`Linked Property Wiki vendor ${asset.vendorKey} is missing for asset ${asset.title}`);
+    }
+  }
+  for (const reference of backup.data.propertyWikiReferences) {
+    if (reference.recordType === "MAKE_READY_ITEM" && !itemKeys.has(reference.recordKey)) {
+      summary.propertyWikiReferences.errors.push(`Make-ready item ${reference.recordKey} is missing for Property Wiki reference`);
+    }
+    if (reference.recordType === "REFRIGERANT_TRANSACTION"
+      && !backup.data.refrigerantTransactions.some((entry) => refrigerantTransactionPortableKey(entry) === reference.recordKey)) {
+      const [transactionType, propertyCode, unitNumber, refrigerantTypeName, occurredAt, amount] = reference.recordKey.split("|");
+      const property = propertyCode ? await prisma.property.findUnique({ where: { code: propertyCode } }) : null;
+      const refrigerantType = await prisma.refrigerantType.findUnique({ where: { name: refrigerantTypeName } });
+      const existingTransaction = refrigerantType ? await prisma.refrigerantTransaction.findFirst({
+        where: {
+          transactionType,
+          propertyId: property?.id ?? null,
+          unitNumber: unitNumber || null,
+          refrigerantTypeId: refrigerantType.id,
+          occurredAt: new Date(occurredAt),
+          amount: Number(amount),
+        },
+      }) : null;
+      if (!existingTransaction) summary.propertyWikiReferences.errors.push(`Refrigerant transaction ${reference.recordKey} is missing for Property Wiki reference`);
+    }
+    if (reference.recordType === "POOL_LOG_ENTRY" && !poolEntryKeys.has(reference.recordKey)) {
+      const [propertyCode, facilityName, logDate, logTime] = reference.recordKey.split("|");
+      const property = await prisma.property.findUnique({ where: { code: propertyCode } });
+      const facility = property ? await prisma.poolFacility.findUnique({ where: { propertyId_name: { propertyId: property.id, name: facilityName } } }) : null;
+      const existingEntry = facility ? await prisma.poolLogEntry.findFirst({ where: { propertyId: property!.id, facilityId: facility.id, logDate: new Date(logDate), logTime: logTime || null } }) : null;
+      if (!existingEntry) summary.propertyWikiReferences.errors.push(`Pool log entry ${reference.recordKey} is missing for Property Wiki reference`);
+    }
+    if (reference.recordType === "LEASE_COMPLIANCE_ISSUE" && !leaseComplianceIssueKeys.has(reference.recordKey)) {
+      const [propertyCode, unitNumber, building, area, issueTypeName, createdAt] = reference.recordKey.split("|");
+      const property = await prisma.property.findUnique({ where: { code: propertyCode } });
+      const unit = property && unitNumber ? await prisma.unit.findUnique({ where: { propertyId_number: { propertyId: property.id, number: unitNumber } } }) : null;
+      const existingIssue = property ? await prisma.leaseComplianceIssue.findFirst({
+        where: {
+          propertyId: property.id,
+          unitId: unit?.id ?? null,
+          building: building || null,
+          area: area || null,
+          issueTypeName,
+          createdAt: new Date(createdAt),
+        },
+      }) : null;
+      if (!existingIssue) summary.propertyWikiReferences.errors.push(`Lease Compliance issue ${reference.recordKey} is missing for Property Wiki reference`);
+    }
+    if (reference.targetType === "ENTRY" && !propertyWikiEntryKeys.has(reference.targetKey)) {
+      const [propertyCode, section, title] = reference.targetKey.split("|");
+      const property = await prisma.property.findUnique({ where: { code: propertyCode } });
+      const existingEntry = property ? await prisma.propertyWikiEntry.findFirst({ where: { propertyId: property.id, section, title } }) : null;
+      if (!existingEntry) summary.propertyWikiReferences.errors.push(`Property Wiki entry ${reference.targetKey} is missing for workflow reference`);
+    }
+    if (reference.targetType === "VENDOR" && !propertyWikiVendorKeys.has(reference.targetKey)) {
+      const [propertyCode, vendorType, companyName] = reference.targetKey.split("|");
+      const property = await prisma.property.findUnique({ where: { code: propertyCode } });
+      const existingVendor = property ? await prisma.propertyWikiVendor.findFirst({ where: { propertyId: property.id, vendorType, companyName } }) : null;
+      if (!existingVendor) summary.propertyWikiReferences.errors.push(`Property Wiki vendor ${reference.targetKey} is missing for workflow reference`);
+    }
+    if (reference.targetType === "ASSET" && !propertyWikiAssetKeys.has(reference.targetKey)) {
+      const [propertyCode, kind, storedName] = reference.targetKey.split("|");
+      const property = await prisma.property.findUnique({ where: { code: propertyCode } });
+      const existingAsset = property ? await prisma.propertyWikiAsset.findFirst({ where: { propertyId: property.id, kind, storedName } }) : null;
+      if (!existingAsset) summary.propertyWikiReferences.errors.push(`Property Wiki asset ${reference.targetKey} is missing for workflow reference`);
+    }
+  }
+  for (const template of backup.data.preventiveMaintenanceTemplates) {
+    if (!propertyCodes.has(template.propertyCode) && !(await prisma.property.findUnique({ where: { code: template.propertyCode } }))) {
+      summary.preventiveMaintenanceTemplates.errors.push(`Property ${template.propertyCode} is missing for PM template ${template.name}`);
+    }
+  }
+  for (const task of backup.data.preventiveMaintenanceTasks) {
+    if (!propertyCodes.has(task.propertyCode) && !(await prisma.property.findUnique({ where: { code: task.propertyCode } }))) {
+      summary.preventiveMaintenanceTasks.errors.push(`Property ${task.propertyCode} is missing for PM task ${task.taskName}`);
+    }
+    if (!preventiveMaintenanceTemplateKeys.has(task.templateKey)) {
+      const [propertyCode, name, category, frequency, customEveryDays, annualMonth, annualDay] = task.templateKey.split("|");
+      const property = await prisma.property.findUnique({ where: { code: propertyCode } });
+      const existingTemplate = property ? await prisma.preventiveMaintenanceTemplate.findFirst({
+        where: {
+          propertyId: property.id,
+          name,
+          category,
+          frequency,
+          customEveryDays: customEveryDays ? Number(customEveryDays) : null,
+          annualMonth: annualMonth ? Number(annualMonth) : null,
+          annualDay: annualDay ? Number(annualDay) : null,
+        },
+      }) : null;
+      if (!existingTemplate) summary.preventiveMaintenanceTasks.errors.push(`PM template ${task.templateKey} is missing for PM task ${task.taskName}`);
+    }
+  }
+  for (const attachment of backup.data.preventiveMaintenanceTaskAttachments) {
+    if (!preventiveMaintenanceTaskKeys.has(attachment.taskKey)) summary.preventiveMaintenanceTaskAttachments.errors.push(`PM task ${attachment.taskKey} is missing for attachment ${attachment.originalName}`);
+  }
+  const projectCategoryKeys = new Set(backup.data.projectCategories.map((category) => projectCategoryPortableKey(category)));
+  const projectRecordKeys = new Set(backup.data.projectRecords.map((record) => record.portableKey));
+  const pestVendorKeys = new Set(backup.data.pestVendors.map((vendor) => vendor.portableKey));
+  const pestIssueKeys = new Set(backup.data.pestIssues.map((issue) => issue.portableKey));
+  for (const category of backup.data.projectCategories) {
+    if (category.propertyCode && !propertyCodes.has(category.propertyCode) && !(await prisma.property.findUnique({ where: { code: category.propertyCode } }))) {
+      summary.projectCategories.errors.push(`Property ${category.propertyCode} is missing for project category ${category.name}`);
+    }
+  }
+  for (const record of backup.data.projectRecords) {
+    if (!propertyCodes.has(record.propertyCode) && !(await prisma.property.findUnique({ where: { code: record.propertyCode } }))) {
+      summary.projectRecords.errors.push(`Property ${record.propertyCode} is missing for project record ${record.title}`);
+    }
+    if (record.categoryName && !projectCategoryKeys.has(projectCategoryPortableKey({ propertyCode: record.propertyCode, name: record.categoryName })) && !projectCategoryKeys.has(projectCategoryPortableKey({ propertyCode: null, name: record.categoryName }))) {
+      const property = await prisma.property.findUnique({ where: { code: record.propertyCode } });
+      const existingCategory = property ? await prisma.projectCategory.findFirst({ where: { OR: [{ propertyId: property.id }, { propertyId: null }], name: record.categoryName } }) : null;
+      if (!existingCategory) summary.projectRecords.errors.push(`Project category ${record.categoryName} is missing for record ${record.title}`);
+    }
+    if (record.propertyMapName) {
+      const mapInBackup = backup.data.propertyMaps.some((map) => map.propertyCode === record.propertyCode && map.name === record.propertyMapName);
+      if (!mapInBackup) {
+        const property = await prisma.property.findUnique({ where: { code: record.propertyCode } });
+        const existingMap = property ? await prisma.propertyMap.findFirst({ where: { propertyId: property.id, name: record.propertyMapName } }) : null;
+        if (!existingMap) summary.projectRecords.errors.push(`Property map ${record.propertyMapName} is missing for project record ${record.title}`);
+      }
+    }
+  }
+  for (const comment of backup.data.projectComments) {
+    if (!projectRecordKeys.has(comment.recordKey)) summary.projectComments.errors.push(`Project record ${comment.recordKey} is missing for comment`);
+  }
+  for (const task of backup.data.projectTasks) {
+    if (!projectRecordKeys.has(task.recordKey)) summary.projectTasks.errors.push(`Project record ${task.recordKey} is missing for task ${task.title}`);
+  }
+  for (const attachment of backup.data.projectAttachments) {
+    if (!projectRecordKeys.has(attachment.recordKey)) summary.projectAttachments.errors.push(`Project record ${attachment.recordKey} is missing for attachment ${attachment.originalName}`);
+  }
+  for (const reference of backup.data.projectWikiReferences) {
+    if (!projectRecordKeys.has(reference.recordKey)) summary.projectWikiReferences.errors.push(`Project record ${reference.recordKey} is missing for wiki reference`);
+    if (reference.targetType === "ENTRY" && !backup.data.propertyWikiEntries.some((entry) => entry.portableKey === reference.targetKey)) {
+      const existingEntry = await prisma.propertyWikiEntry.findFirst({ where: { title: reference.targetKey } }).catch(() => null);
+      if (!existingEntry) summary.projectWikiReferences.errors.push(`Property Wiki entry ${reference.targetKey} is missing for project wiki reference`);
+    }
+    if (reference.targetType === "VENDOR" && !backup.data.propertyWikiVendors.some((vendor) => vendor.portableKey === reference.targetKey)) {
+      const existingVendor = await prisma.propertyWikiVendor.findFirst({ where: { companyName: reference.targetKey } }).catch(() => null);
+      if (!existingVendor) summary.projectWikiReferences.errors.push(`Property Wiki vendor ${reference.targetKey} is missing for project wiki reference`);
+    }
+    if (reference.targetType === "ASSET" && !backup.data.propertyWikiAssets.some((asset) => asset.portableKey === reference.targetKey)) {
+      const existingAsset = await prisma.propertyWikiAsset.findFirst({ where: { storedName: reference.targetKey } }).catch(() => null);
+      if (!existingAsset) summary.projectWikiReferences.errors.push(`Property Wiki asset ${reference.targetKey} is missing for project wiki reference`);
+    }
+  }
+  for (const vendor of backup.data.pestVendors) {
+    if (!propertyCodes.has(vendor.propertyCode) && !(await prisma.property.findUnique({ where: { code: vendor.propertyCode } }))) {
+      summary.pestVendors.errors.push(`Property ${vendor.propertyCode} is missing for pest vendor ${vendor.vendorName}`);
+    }
+  }
+  for (const issue of backup.data.pestIssues) {
+    if (!propertyCodes.has(issue.propertyCode) && !(await prisma.property.findUnique({ where: { code: issue.propertyCode } }))) {
+      summary.pestIssues.errors.push(`Property ${issue.propertyCode} is missing for pest issue ${issue.pestType}`);
+    }
+    if (issue.vendorKey && !pestVendorKeys.has(issue.vendorKey)) {
+      const property = await prisma.property.findUnique({ where: { code: issue.propertyCode } });
+      const existingVendor = property ? await prisma.pestVendor.findFirst({ where: { propertyId: property.id, vendorName: issue.vendorKey.split("|")[1] ?? issue.vendorKey } }) : null;
+      if (!existingVendor) summary.pestIssues.errors.push(`Pest vendor ${issue.vendorKey} is missing for issue ${issue.pestType}`);
+    }
+    if (issue.makeReadyItemKey && !itemKeys.has(issue.makeReadyItemKey)) {
+      summary.pestIssues.errors.push(`Make-ready item ${issue.makeReadyItemKey} is missing for pest issue ${issue.pestType}`);
+    }
+  }
+  for (const note of backup.data.pestIssueNotes) {
+    if (!pestIssueKeys.has(note.issueKey)) summary.pestIssueNotes.errors.push(`Pest issue ${note.issueKey} is missing for note`);
+  }
+  for (const attachment of backup.data.pestAttachments) {
+    if (!pestIssueKeys.has(attachment.issueKey)) summary.pestAttachments.errors.push(`Pest issue ${attachment.issueKey} is missing for attachment ${attachment.originalName}`);
+  }
+  for (const issueType of backup.data.leaseComplianceIssueTypes) {
+    if (!propertyCodes.has(issueType.propertyCode) && !(await prisma.property.findUnique({ where: { code: issueType.propertyCode } }))) {
+      summary.leaseComplianceIssueTypes.errors.push(`Property ${issueType.propertyCode} is missing for lease issue type ${issueType.name}`);
+    }
+  }
+  for (const settings of backup.data.leaseComplianceSettings) {
+    if (!propertyCodes.has(settings.propertyCode) && !(await prisma.property.findUnique({ where: { code: settings.propertyCode } }))) {
+      summary.leaseComplianceSettings.errors.push(`Property ${settings.propertyCode} is missing for lease settings`);
+    }
+  }
+  for (const issue of backup.data.leaseComplianceIssues) {
+    if (!propertyCodes.has(issue.propertyCode) && !(await prisma.property.findUnique({ where: { code: issue.propertyCode } }))) {
+      summary.leaseComplianceIssues.errors.push(`Property ${issue.propertyCode} is missing for lease issue ${issue.issueTypeName}`);
+    }
+    if (issue.issueTypeKey && !leaseComplianceIssueTypeKeys.has(issue.issueTypeKey)) {
+      const [propertyCode, name] = issue.issueTypeKey.split("|");
+      const property = await prisma.property.findUnique({ where: { code: propertyCode } });
+      const existingIssueType = property ? await prisma.leaseComplianceIssueType.findFirst({ where: { propertyId: property.id, name } }) : null;
+      if (!existingIssueType) summary.leaseComplianceIssues.errors.push(`Lease issue type ${issue.issueTypeKey} is missing for issue ${issue.issueTypeName}`);
+    }
+    if (issue.propertyMapName) {
+      const mapInBackup = backup.data.propertyMaps.some((map) => map.propertyCode === issue.propertyCode && map.name === issue.propertyMapName);
+      if (!mapInBackup) {
+        const property = await prisma.property.findUnique({ where: { code: issue.propertyCode } });
+        const existingMap = property ? await prisma.propertyMap.findFirst({ where: { propertyId: property.id, name: issue.propertyMapName } }) : null;
+        if (!existingMap) summary.leaseComplianceIssues.errors.push(`Property map ${issue.propertyMapName} is missing for lease issue ${issue.issueTypeName}`);
+      }
+    }
+  }
+  for (const note of backup.data.leaseComplianceIssueNotes) {
+    if (!leaseComplianceIssueKeys.has(note.issueKey)) summary.leaseComplianceIssueNotes.errors.push(`Lease issue ${note.issueKey} is missing for note`);
+  }
+  for (const photo of backup.data.leaseComplianceIssuePhotos) {
+    if (!leaseComplianceIssueKeys.has(photo.issueKey)) summary.leaseComplianceIssuePhotos.errors.push(`Lease issue ${photo.issueKey} is missing for photo ${photo.originalName}`);
+  }
+  for (const action of backup.data.leaseComplianceNoticeActions) {
+    if (!leaseComplianceIssueKeys.has(action.issueKey)) summary.leaseComplianceNoticeActions.errors.push(`Lease issue ${action.issueKey} is missing for notice action ${action.action}`);
+  }
+  for (const check of backup.data.leaseCompliancePersistenceChecks) {
+    if (!leaseComplianceIssueKeys.has(check.issueKey)) summary.leaseCompliancePersistenceChecks.errors.push(`Lease issue ${check.issueKey} is missing for persistence check`);
+  }
+  for (const reference of backup.data.preventiveMaintenanceWikiReferences) {
+    if (reference.recordType === "PM_TEMPLATE" && !preventiveMaintenanceTemplateKeys.has(reference.recordKey)) {
+      summary.preventiveMaintenanceWikiReferences.errors.push(`PM template ${reference.recordKey} is missing for wiki reference`);
+    }
+    if (reference.recordType === "PM_TASK" && !preventiveMaintenanceTaskKeys.has(reference.recordKey)) {
+      summary.preventiveMaintenanceWikiReferences.errors.push(`PM task ${reference.recordKey} is missing for wiki reference`);
+    }
   }
   if (Object.values(summary).some((bucket) => bucket.errors.length > 0)) return summary;
 
@@ -1727,6 +3408,65 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
       }
     }
 
+    for (const pin of backup.data.propertyMapPins) {
+      const propertyId = propertyMap.get(pin.propertyCode);
+      const mapId = propertyMapMap.get(`${pin.propertyCode}|${pin.mapName}`);
+      const existing = mapId ? await tx.propertyMapPin.findFirst({
+        where: {
+          propertyId,
+          mapId,
+          title: pin.title,
+          pinType: pin.pinType,
+          xPercent: pin.xPercent,
+          yPercent: pin.yPercent,
+        },
+      }) : null;
+      if (existing) summary.propertyMapPins.skipped += 1;
+      else {
+        summary.propertyMapPins.created += 1;
+        if (!dryRun && propertyId && mapId) {
+          const { propertyCode: _propertyCode, mapName: _mapName, ...pinData } = pin;
+          await tx.propertyMapPin.create({ data: { ...pinData, propertyId, mapId, createdById: null, updatedById: null } });
+        }
+      }
+    }
+
+    for (const attachment of backup.data.propertyMapPinAttachments) {
+      const pin = backup.data.propertyMapPins.find((entry) => propertyMapPinPortableKey(entry) === attachment.pinKey);
+      const propertyId = pin ? propertyMap.get(pin.propertyCode) : undefined;
+      const mapId = pin ? propertyMapMap.get(`${pin.propertyCode}|${pin.mapName}`) : undefined;
+      const pinId = pin && propertyId && mapId
+        ? (await tx.propertyMapPin.findFirst({
+          where: {
+            propertyId,
+            mapId,
+            title: pin.title,
+            pinType: pin.pinType,
+            xPercent: pin.xPercent,
+            yPercent: pin.yPercent,
+          },
+        }))?.id
+        : undefined;
+      const existing = await tx.propertyMapPinAttachment.findUnique({ where: { storedName: attachment.storedName } });
+      if (existing) summary.propertyMapPinAttachments.skipped += 1;
+      else {
+        summary.propertyMapPinAttachments.created += 1;
+        if (!dryRun && propertyId && pinId) {
+          const { pinKey: _pinKey, propertyCode: _propertyCode, ...attachmentData } = attachment;
+          await tx.propertyMapPinAttachment.create({
+            data: {
+              ...attachmentData,
+              propertyId,
+              pinId,
+              uploadedById: null,
+              uploaderName: attachmentData.uploaderName ?? "Imported backup",
+              createdAt: new Date(attachmentData.createdAt),
+            },
+          });
+        }
+      }
+    }
+
     for (const location of backup.data.unitMapLocations) {
       const propertyId = propertyMap.get(location.propertyCode);
       const mapId = propertyMapMap.get(`${location.propertyCode}|${location.mapName}`);
@@ -1889,6 +3629,7 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
       existingCylinders.forEach((cylinder) => refrigerantCylinderMap.set(cylinder.identifier, cylinder.id));
     }
 
+    const refrigerantTransactionMap = new Map<string, string>();
     for (const entry of backup.data.refrigerantTransactions) {
       const propertyId = entry.propertyCode ? propertyMap.get(entry.propertyCode) ?? null : null;
       const refrigerantTypeId = refrigerantTypeMap.get(entry.refrigerantTypeName);
@@ -1904,12 +3645,16 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
           amount: entry.amount,
         },
       }) : null;
-      if (existing) summary.refrigerantTransactions.skipped += 1;
+      const portableKey = refrigerantTransactionPortableKey(entry);
+      if (existing) {
+        refrigerantTransactionMap.set(portableKey, existing.id);
+        summary.refrigerantTransactions.skipped += 1;
+      }
       else {
         summary.refrigerantTransactions.created += 1;
         if (!dryRun && refrigerantTypeId) {
           const unitId = entry.propertyCode && entry.unitNumber ? unitMap.get(`${entry.propertyCode}|${entry.unitNumber}`) ?? null : null;
-          await tx.refrigerantTransaction.create({
+          const created = await tx.refrigerantTransaction.create({
             data: {
               transactionType: entry.transactionType,
               propertyId,
@@ -1926,8 +3671,36 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
               createdByName: entry.createdByName,
             },
           });
+          refrigerantTransactionMap.set(portableKey, created.id);
         }
       }
+    }
+    if (dryRun && backup.data.refrigerantTransactions.length > 0) {
+      const existingTransactions = await tx.refrigerantTransaction.findMany({
+        include: { refrigerantType: true },
+        where: {
+          OR: backup.data.refrigerantTransactions.flatMap((entry) => {
+            const propertyId = entry.propertyCode ? propertyMap.get(entry.propertyCode) ?? null : null;
+            const refrigerantTypeId = refrigerantTypeMap.get(entry.refrigerantTypeName);
+            return refrigerantTypeId ? [{
+              transactionType: entry.transactionType,
+              propertyId,
+              unitNumber: entry.unitNumber,
+              refrigerantTypeId,
+              occurredAt: new Date(entry.occurredAt),
+              amount: entry.amount,
+            }] : [];
+          }),
+        },
+      });
+      existingTransactions.forEach((entry) => refrigerantTransactionMap.set(refrigerantTransactionPortableKey({
+        transactionType: entry.transactionType,
+        propertyCode: [...propertyMap.entries()].find(([, id]) => id === entry.propertyId)?.[0] ?? null,
+        unitNumber: entry.unitNumber,
+        refrigerantTypeName: entry.refrigerantType.name,
+        occurredAt: entry.occurredAt.toISOString(),
+        amount: entry.amount,
+      }), entry.id));
     }
 
     for (const flag of backup.data.refrigerantLeakFlags) {
@@ -2115,6 +3888,1174 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
           const chemicalId = entry ? poolChemicalMap.get(`${entry.property.code}|${addition.chemicalName}`) ?? null : null;
           const { entryKey: _entryKey, ...data } = addition;
           await tx.poolChemicalAddition.create({ data: { ...data, entryId, chemicalId } });
+        }
+      }
+    }
+
+    const propertyWikiEntryMap = new Map<string, string>();
+    for (const entry of backup.data.propertyWikiEntries) {
+      const propertyId = propertyMap.get(entry.propertyCode);
+      const existing = propertyId ? await tx.propertyWikiEntry.findFirst({
+        where: {
+          propertyId,
+          section: entry.section,
+          title: entry.title,
+        },
+      }) : null;
+      if (existing) {
+        propertyWikiEntryMap.set(entry.portableKey, existing.id);
+        summary.propertyWikiEntries.skipped += 1;
+      } else {
+        summary.propertyWikiEntries.created += 1;
+        if (!dryRun && propertyId) {
+          const {
+            portableKey: _portableKey,
+            propertyCode: _propertyCode,
+            relatedEntryKeys: _relatedEntryKeys,
+            relatedVendorKeys: _relatedVendorKeys,
+            installDate,
+            warrantyExpiresAt,
+            ...data
+          } = entry;
+          const created = await tx.propertyWikiEntry.create({
+            data: {
+              ...data,
+              propertyId,
+              installDate: dateValue(installDate),
+              warrantyExpiresAt: dateValue(warrantyExpiresAt),
+              relatedEntryIds: [],
+              relatedVendorIds: [],
+              createdById: null,
+              updatedById: null,
+            },
+          });
+          propertyWikiEntryMap.set(entry.portableKey, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.propertyWikiEntries.length > 0) {
+      const existingEntries = await tx.propertyWikiEntry.findMany({
+        include: { property: true },
+        where: {
+          OR: backup.data.propertyWikiEntries.flatMap((entry) => {
+            const propertyId = propertyMap.get(entry.propertyCode);
+            return propertyId ? [{ propertyId, section: entry.section, title: entry.title }] : [];
+          }),
+        },
+      });
+      existingEntries.forEach((entry) => propertyWikiEntryMap.set(propertyWikiEntryPortableKey({
+        propertyCode: entry.property.code,
+        section: entry.section,
+        title: entry.title,
+      }), entry.id));
+    }
+
+    const propertyWikiVendorMap = new Map<string, string>();
+    for (const vendor of backup.data.propertyWikiVendors) {
+      const propertyId = propertyMap.get(vendor.propertyCode);
+      const existing = propertyId ? await tx.propertyWikiVendor.findFirst({
+        where: {
+          propertyId,
+          vendorType: vendor.vendorType,
+          companyName: vendor.companyName,
+        },
+      }) : null;
+      if (existing) {
+        propertyWikiVendorMap.set(vendor.portableKey, existing.id);
+        summary.propertyWikiVendors.skipped += 1;
+      } else {
+        summary.propertyWikiVendors.created += 1;
+        if (!dryRun && propertyId) {
+          const { portableKey: _portableKey, propertyCode: _propertyCode, ...data } = vendor;
+          const created = await tx.propertyWikiVendor.create({
+            data: {
+              ...data,
+              propertyId,
+              createdById: null,
+              updatedById: null,
+            },
+          });
+          propertyWikiVendorMap.set(vendor.portableKey, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.propertyWikiVendors.length > 0) {
+      const existingVendors = await tx.propertyWikiVendor.findMany({
+        include: { property: true },
+        where: {
+          OR: backup.data.propertyWikiVendors.flatMap((vendor) => {
+            const propertyId = propertyMap.get(vendor.propertyCode);
+            return propertyId ? [{ propertyId, vendorType: vendor.vendorType, companyName: vendor.companyName }] : [];
+          }),
+        },
+      });
+      existingVendors.forEach((vendor) => propertyWikiVendorMap.set(propertyWikiVendorPortableKey({
+        propertyCode: vendor.property.code,
+        vendorType: vendor.vendorType,
+        companyName: vendor.companyName,
+      }), vendor.id));
+    }
+
+    const propertyWikiAssetMap = new Map<string, string>();
+    for (const asset of backup.data.propertyWikiAssets) {
+      const propertyId = propertyMap.get(asset.propertyCode);
+      const entryId = asset.entryKey ? propertyWikiEntryMap.get(asset.entryKey) ?? null : null;
+      const vendorId = asset.vendorKey ? propertyWikiVendorMap.get(asset.vendorKey) ?? null : null;
+      const existing = await tx.propertyWikiAsset.findUnique({ where: { storedName: asset.storedName } }).catch(() => null);
+      if (existing) {
+        propertyWikiAssetMap.set(asset.portableKey, existing.id);
+        summary.propertyWikiAssets.skipped += 1;
+      } else {
+        summary.propertyWikiAssets.created += 1;
+        if (!dryRun && propertyId) {
+          const { portableKey: _portableKey, propertyCode: _propertyCode, entryKey: _entryKey, vendorKey: _vendorKey, createdAt, ...data } = asset;
+          const created = await tx.propertyWikiAsset.create({
+            data: {
+              ...data,
+              propertyId,
+              entryId,
+              vendorId,
+              createdAt: new Date(createdAt),
+              createdById: null,
+            },
+          });
+          propertyWikiAssetMap.set(asset.portableKey, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.propertyWikiAssets.length > 0) {
+      const existingAssets = await tx.propertyWikiAsset.findMany({
+        include: { property: true },
+        where: { storedName: { in: backup.data.propertyWikiAssets.map((asset) => asset.storedName) } },
+      });
+      existingAssets.forEach((asset) => propertyWikiAssetMap.set(propertyWikiAssetPortableKey({
+        propertyCode: asset.property.code,
+        kind: asset.kind,
+        storedName: asset.storedName,
+      }), asset.id));
+    }
+
+    for (const entry of backup.data.propertyWikiEntries) {
+      const entryId = propertyWikiEntryMap.get(entry.portableKey);
+      if (!entryId || dryRun) continue;
+      await tx.propertyWikiEntry.update({
+        where: { id: entryId },
+        data: {
+          relatedEntryIds: entry.relatedEntryKeys.flatMap((key) => propertyWikiEntryMap.get(key) ? [propertyWikiEntryMap.get(key)!] : []),
+          relatedVendorIds: entry.relatedVendorKeys.flatMap((key) => propertyWikiVendorMap.get(key) ? [propertyWikiVendorMap.get(key)!] : []),
+        },
+      });
+    }
+
+    for (const reference of backup.data.propertyWikiReferences) {
+      if (reference.recordType === "LEASE_COMPLIANCE_ISSUE") continue;
+      const propertyId = propertyMap.get(reference.propertyCode);
+      const recordId = reference.recordType === "MAKE_READY_ITEM"
+        ? itemMap.get(reference.recordKey)
+        : reference.recordType === "REFRIGERANT_TRANSACTION"
+          ? refrigerantTransactionMap.get(reference.recordKey)
+          : poolEntryMap.get(reference.recordKey);
+      const targetId = reference.targetType === "ENTRY"
+        ? propertyWikiEntryMap.get(reference.targetKey)
+        : reference.targetType === "VENDOR"
+          ? propertyWikiVendorMap.get(reference.targetKey)
+          : propertyWikiAssetMap.get(reference.targetKey);
+      if (!propertyId || !recordId || !targetId) {
+        summary.propertyWikiReferences.skipped += 1;
+        summary.propertyWikiReferences.errors.push(`Property Wiki workflow reference could not be resolved for ${reference.recordType}:${reference.recordKey}`);
+        continue;
+      }
+      const existing = await tx.propertyWikiReference.findUnique({
+        where: {
+          recordType_recordId_targetType_targetId: {
+            recordType: reference.recordType,
+            recordId,
+            targetType: reference.targetType,
+            targetId,
+          },
+        },
+      });
+      if (existing) summary.propertyWikiReferences.skipped += 1;
+      else {
+        summary.propertyWikiReferences.created += 1;
+        if (!dryRun) {
+          await tx.propertyWikiReference.create({
+            data: {
+              propertyId,
+              recordType: reference.recordType,
+              recordId,
+              targetType: reference.targetType,
+              targetId,
+              createdById: null,
+              createdAt: dateValue(reference.createdAt) ?? new Date(),
+            },
+          });
+        }
+      }
+    }
+
+    const preventiveMaintenanceTemplateMap = new Map<string, string>();
+    for (const template of backup.data.preventiveMaintenanceTemplates) {
+      const propertyId = propertyMap.get(template.propertyCode);
+      const portableKey = preventiveMaintenanceTemplatePortableKey(template);
+      const existing = propertyId ? await tx.preventiveMaintenanceTemplate.findFirst({
+        where: {
+          propertyId,
+          name: template.name,
+          category: template.category,
+          frequency: template.frequency,
+          customEveryDays: template.customEveryDays,
+          annualMonth: template.annualMonth,
+          annualDay: template.annualDay,
+        },
+      }) : null;
+      if (existing) {
+        preventiveMaintenanceTemplateMap.set(portableKey, existing.id);
+        summary.preventiveMaintenanceTemplates.skipped += 1;
+      } else {
+        summary.preventiveMaintenanceTemplates.created += 1;
+        if (!dryRun && propertyId) {
+          const { propertyCode: _propertyCode, ...data } = template;
+          const created = await tx.preventiveMaintenanceTemplate.create({
+            data: {
+              ...data,
+              propertyId,
+              assignedUserId: null,
+            },
+          });
+          preventiveMaintenanceTemplateMap.set(portableKey, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.preventiveMaintenanceTemplates.length > 0) {
+      const existingTemplates = await tx.preventiveMaintenanceTemplate.findMany({
+        include: { property: true },
+        where: {
+          OR: backup.data.preventiveMaintenanceTemplates.flatMap((template) => {
+            const propertyId = propertyMap.get(template.propertyCode);
+            return propertyId ? [{
+              propertyId,
+              name: template.name,
+              category: template.category,
+              frequency: template.frequency,
+              customEveryDays: template.customEveryDays,
+              annualMonth: template.annualMonth,
+              annualDay: template.annualDay,
+            }] : [];
+          }),
+        },
+      });
+      existingTemplates.forEach((template) => preventiveMaintenanceTemplateMap.set(preventiveMaintenanceTemplatePortableKey({
+        propertyCode: template.property.code,
+        name: template.name,
+        category: template.category,
+        frequency: template.frequency,
+        customEveryDays: template.customEveryDays,
+        annualMonth: template.annualMonth,
+        annualDay: template.annualDay,
+      }), template.id));
+    }
+
+    const preventiveMaintenanceTaskMap = new Map<string, string>();
+    for (const task of backup.data.preventiveMaintenanceTasks) {
+      const propertyId = propertyMap.get(task.propertyCode);
+      const templateId = preventiveMaintenanceTemplateMap.get(task.templateKey);
+      const portableKey = preventiveMaintenanceTaskPortableKey(task);
+      const dueDate = new Date(task.dueDate);
+      const existing = propertyId && templateId ? await tx.preventiveMaintenanceTask.findFirst({
+        where: {
+          propertyId,
+          templateId,
+          taskName: task.taskName,
+          dueDate,
+        },
+      }) : null;
+      if (existing) {
+        preventiveMaintenanceTaskMap.set(portableKey, existing.id);
+        summary.preventiveMaintenanceTasks.skipped += 1;
+      } else {
+        summary.preventiveMaintenanceTasks.created += 1;
+        if (!dryRun && propertyId && templateId) {
+          const { propertyCode: _propertyCode, templateKey: _templateKey, dueDate: _dueDate, ...data } = task;
+          const created = await tx.preventiveMaintenanceTask.create({
+            data: {
+              ...data,
+              propertyId,
+              templateId,
+              dueDate,
+              assignedUserId: null,
+              completedById: null,
+            },
+          });
+          preventiveMaintenanceTaskMap.set(portableKey, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.preventiveMaintenanceTasks.length > 0) {
+      const existingTasks = await tx.preventiveMaintenanceTask.findMany({
+        include: {
+          property: true,
+          template: { include: { property: true } },
+        },
+        where: {
+          OR: backup.data.preventiveMaintenanceTasks.flatMap((task) => {
+            const propertyId = propertyMap.get(task.propertyCode);
+            const templateId = preventiveMaintenanceTemplateMap.get(task.templateKey);
+            return propertyId && templateId ? [{
+              propertyId,
+              templateId,
+              taskName: task.taskName,
+              dueDate: new Date(task.dueDate),
+            }] : [];
+          }),
+        },
+      });
+      existingTasks.forEach((task) => {
+        const templateKey = preventiveMaintenanceTemplatePortableKey({
+          propertyCode: task.template.property.code,
+          name: task.template.name,
+          category: task.template.category,
+          frequency: task.template.frequency,
+          customEveryDays: task.template.customEveryDays,
+          annualMonth: task.template.annualMonth,
+          annualDay: task.template.annualDay,
+        });
+        preventiveMaintenanceTaskMap.set(preventiveMaintenanceTaskPortableKey({
+          templateKey,
+          taskName: task.taskName,
+          dueDate: task.dueDate.toISOString(),
+        }), task.id);
+      });
+    }
+
+    for (const attachment of backup.data.preventiveMaintenanceTaskAttachments) {
+      const propertyId = propertyMap.get(attachment.propertyCode);
+      const taskId = preventiveMaintenanceTaskMap.get(attachment.taskKey);
+      const existing = await tx.preventiveMaintenanceTaskAttachment.findUnique({ where: { storedName: attachment.storedName } }).catch(() => null);
+      if (existing) summary.preventiveMaintenanceTaskAttachments.skipped += 1;
+      else {
+        summary.preventiveMaintenanceTaskAttachments.created += 1;
+        if (!dryRun && propertyId && taskId) {
+          const { taskKey: _taskKey, propertyCode: _propertyCode, createdAt: _createdAt, uploaderName, ...data } = attachment;
+          await tx.preventiveMaintenanceTaskAttachment.create({
+            data: {
+              ...data,
+              propertyId,
+              taskId,
+              uploaderName: uploaderName ?? "Imported backup",
+              uploadedById: null,
+              createdAt: new Date(_createdAt),
+            },
+          });
+        }
+      }
+    }
+
+    for (const reference of backup.data.preventiveMaintenanceWikiReferences) {
+      const propertyId = propertyMap.get(reference.propertyCode);
+      const recordId = reference.recordType === "PM_TEMPLATE"
+        ? preventiveMaintenanceTemplateMap.get(reference.recordKey)
+        : preventiveMaintenanceTaskMap.get(reference.recordKey);
+      if (!propertyId || !recordId) {
+        summary.preventiveMaintenanceWikiReferences.conflicts += 1;
+        summary.preventiveMaintenanceWikiReferences.errors.push(`Record ${reference.recordType}:${reference.recordKey} was not available for wiki reference import`);
+        continue;
+      }
+
+      let targetId: string | null = null;
+      if (reference.targetType === "ENTRY" && reference.entrySection && reference.targetTitle) {
+        const entry = await tx.propertyWikiEntry.findFirst({
+          where: {
+            propertyId,
+            section: reference.entrySection,
+            title: reference.targetTitle,
+          },
+        });
+        targetId = entry?.id ?? null;
+      } else if (reference.targetType === "VENDOR" && reference.vendorType && reference.companyName) {
+        const vendor = await tx.propertyWikiVendor.findFirst({
+          where: {
+            propertyId,
+            vendorType: reference.vendorType,
+            companyName: reference.companyName,
+          },
+        });
+        targetId = vendor?.id ?? null;
+      } else if (reference.targetType === "ASSET" && reference.assetKind && reference.targetTitle && reference.originalName) {
+        const asset = await tx.propertyWikiAsset.findFirst({
+          where: {
+            propertyId,
+            kind: reference.assetKind,
+            title: reference.targetTitle,
+            originalName: reference.originalName,
+          },
+        });
+        targetId = asset?.id ?? null;
+      }
+
+      if (!targetId) {
+        summary.preventiveMaintenanceWikiReferences.skipped += 1;
+        summary.preventiveMaintenanceWikiReferences.errors.push(`Wiki target ${reference.targetType} could not be resolved for ${reference.recordType}:${reference.recordKey}`);
+        continue;
+      }
+
+      const existing = await tx.propertyWikiReference.findUnique({
+        where: {
+          recordType_recordId_targetType_targetId: {
+            recordType: reference.recordType,
+            recordId,
+            targetType: reference.targetType,
+            targetId,
+          },
+        },
+      });
+      if (existing) summary.preventiveMaintenanceWikiReferences.skipped += 1;
+      else {
+        summary.preventiveMaintenanceWikiReferences.created += 1;
+        if (!dryRun) {
+          await tx.propertyWikiReference.create({
+            data: {
+              propertyId,
+              recordType: reference.recordType,
+              recordId,
+              targetType: reference.targetType,
+              targetId,
+              createdById: null,
+              createdAt: dateValue(reference.createdAt) ?? new Date(),
+            },
+          });
+        }
+      }
+    }
+
+    const projectCategoryMap = new Map<string, string>();
+    for (const category of backup.data.projectCategories) {
+      const propertyId = category.propertyCode ? propertyMap.get(category.propertyCode) ?? null : null;
+      const portableKey = projectCategoryPortableKey(category);
+      const existing = await tx.projectCategory.findFirst({
+        where: {
+          propertyId,
+          name: category.name,
+        },
+      });
+      if (existing) {
+        projectCategoryMap.set(portableKey, existing.id);
+        summary.projectCategories.skipped += 1;
+      } else {
+        summary.projectCategories.created += 1;
+        if (!dryRun) {
+          const created = await tx.projectCategory.create({
+            data: {
+              propertyId,
+              name: category.name,
+              color: category.color,
+              isActive: category.isActive,
+              sortOrder: category.sortOrder,
+            },
+          });
+          projectCategoryMap.set(portableKey, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.projectCategories.length > 0) {
+      const existingCategories = await tx.projectCategory.findMany({
+        include: { property: true },
+        where: {
+          OR: backup.data.projectCategories.map((category) => ({
+            propertyId: category.propertyCode ? propertyMap.get(category.propertyCode) ?? null : null,
+            name: category.name,
+          })),
+        },
+      });
+      existingCategories.forEach((category) => projectCategoryMap.set(projectCategoryPortableKey({
+        propertyCode: category.property?.code ?? null,
+        name: category.name,
+      }), category.id));
+    }
+
+    const projectRecordMap = new Map<string, string>();
+    for (const record of backup.data.projectRecords) {
+      const propertyId = propertyMap.get(record.propertyCode);
+      const categoryId = record.categoryName
+        ? projectCategoryMap.get(projectCategoryPortableKey({ propertyCode: record.propertyCode, name: record.categoryName }))
+          ?? projectCategoryMap.get(projectCategoryPortableKey({ propertyCode: null, name: record.categoryName }))
+          ?? null
+        : null;
+      const propertyMapId = record.propertyMapName ? propertyMapMap.get(`${record.propertyCode}|${record.propertyMapName}`) ?? null : null;
+      const existing = propertyId ? await tx.projectRecord.findFirst({
+        where: {
+          propertyId,
+          recordType: record.recordType,
+          title: record.title,
+          createdAt: new Date(record.createdAt),
+        },
+      }) : null;
+      if (existing) {
+        projectRecordMap.set(record.portableKey, existing.id);
+        summary.projectRecords.skipped += 1;
+      } else {
+        summary.projectRecords.created += 1;
+        if (!dryRun && propertyId) {
+          const { portableKey: _portableKey, propertyCode: _propertyCode, categoryName: _categoryName, propertyMapName: _propertyMapName, ...data } = record;
+          const created = await tx.projectRecord.create({
+            data: {
+              ...data,
+              propertyId,
+              categoryId,
+              propertyMapId,
+              categoryName: record.categoryName,
+              createdById: null,
+              updatedById: null,
+              completedById: null,
+              createdAt: new Date(record.createdAt),
+              updatedAt: new Date(record.updatedAt),
+              archivedAt: dateValue(record.archivedAt),
+              scheduledDate: dateValue(record.scheduledDate),
+              startDate: dateValue(record.startDate),
+              dueDate: dateValue(record.dueDate),
+              completedDate: dateValue(record.completedDate),
+            },
+          });
+          projectRecordMap.set(record.portableKey, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.projectRecords.length > 0) {
+      const existingRecords = await tx.projectRecord.findMany({
+        include: { property: true },
+        where: {
+          OR: backup.data.projectRecords.flatMap((record) => {
+            const propertyId = propertyMap.get(record.propertyCode);
+            return propertyId ? [{
+              propertyId,
+              recordType: record.recordType,
+              title: record.title,
+              createdAt: new Date(record.createdAt),
+            }] : [];
+          }),
+        },
+      });
+      existingRecords.forEach((record) => projectRecordMap.set(projectRecordPortableKey({
+        propertyCode: record.property.code,
+        recordType: record.recordType,
+        title: record.title,
+        createdAt: record.createdAt.toISOString(),
+      }), record.id));
+    }
+
+    for (const comment of backup.data.projectComments) {
+      const recordId = projectRecordMap.get(comment.recordKey);
+      const propertyId = propertyMap.get(comment.propertyCode);
+      const existing = recordId ? await tx.projectComment.findFirst({
+        where: {
+          recordId,
+          authorName: comment.authorName,
+          body: comment.body,
+          createdAt: new Date(comment.createdAt),
+        },
+      }) : null;
+      if (existing) summary.projectComments.skipped += 1;
+      else {
+        summary.projectComments.created += 1;
+        if (!dryRun && recordId && propertyId) {
+          await tx.projectComment.create({
+            data: {
+              recordId,
+              propertyId,
+              authorId: null,
+              authorName: comment.authorName,
+              body: comment.body,
+              createdAt: new Date(comment.createdAt),
+              updatedAt: new Date(comment.updatedAt),
+            },
+          });
+        }
+      }
+    }
+
+    for (const task of backup.data.projectTasks) {
+      const recordId = projectRecordMap.get(task.recordKey);
+      const propertyId = propertyMap.get(task.propertyCode);
+      const existing = recordId ? await tx.projectTask.findFirst({
+        where: {
+          recordId,
+          title: task.title,
+          createdAt: new Date(task.createdAt),
+        },
+      }) : null;
+      if (existing) summary.projectTasks.skipped += 1;
+      else {
+        summary.projectTasks.created += 1;
+        if (!dryRun && recordId && propertyId) {
+          await tx.projectTask.create({
+            data: {
+              recordId,
+              propertyId,
+              title: task.title,
+              status: task.status,
+              assignedUserId: null,
+              assignedUserName: task.assignedUserName,
+              dueDate: dateValue(task.dueDate),
+              completedById: null,
+              completedDate: dateValue(task.completedDate),
+              createdAt: new Date(task.createdAt),
+              updatedAt: new Date(task.updatedAt),
+            },
+          });
+        }
+      }
+    }
+
+    for (const attachment of backup.data.projectAttachments) {
+      const recordId = projectRecordMap.get(attachment.recordKey);
+      const propertyId = propertyMap.get(attachment.propertyCode);
+      const existing = await tx.projectAttachment.findFirst({ where: { storedName: attachment.storedName } });
+      if (existing) summary.projectAttachments.skipped += 1;
+      else {
+        summary.projectAttachments.created += 1;
+        if (!dryRun && recordId && propertyId) {
+          await tx.projectAttachment.create({
+            data: {
+              recordId,
+              propertyId,
+              uploadedById: null,
+              uploaderName: attachment.uploaderName,
+              originalName: attachment.originalName,
+              storedName: attachment.storedName,
+              mimeType: attachment.mimeType,
+              sizeBytes: attachment.sizeBytes,
+              attachmentType: attachment.attachmentType,
+              caption: attachment.caption,
+              createdAt: new Date(attachment.createdAt),
+            },
+          });
+        }
+      }
+    }
+
+    for (const reference of backup.data.projectWikiReferences) {
+      const propertyId = propertyMap.get(reference.propertyCode);
+      const recordId = projectRecordMap.get(reference.recordKey);
+      const targetId = reference.targetType === "ENTRY"
+        ? propertyWikiEntryMap.get(reference.targetKey)
+        : reference.targetType === "VENDOR"
+          ? propertyWikiVendorMap.get(reference.targetKey)
+          : propertyWikiAssetMap.get(reference.targetKey);
+      if (!propertyId || !recordId || !targetId) {
+        summary.projectWikiReferences.skipped += 1;
+        summary.projectWikiReferences.errors.push(`Project Wiki reference could not be resolved for ${reference.recordKey}`);
+        continue;
+      }
+      const existing = await tx.projectWikiReference.findUnique({
+        where: {
+          recordId_targetType_targetId: {
+            recordId,
+            targetType: reference.targetType,
+            targetId,
+          },
+        },
+      }).catch(() => null);
+      if (existing) summary.projectWikiReferences.skipped += 1;
+      else {
+        summary.projectWikiReferences.created += 1;
+        if (!dryRun) {
+          await tx.projectWikiReference.create({
+            data: {
+              recordId,
+              propertyId,
+              targetType: reference.targetType,
+              targetId,
+              createdById: null,
+              createdAt: dateValue(reference.createdAt) ?? new Date(),
+            },
+          });
+        }
+      }
+    }
+
+    const pestVendorMap = new Map<string, string>();
+    for (const vendor of backup.data.pestVendors) {
+      const propertyId = propertyMap.get(vendor.propertyCode);
+      const existing = propertyId ? await tx.pestVendor.findFirst({
+        where: {
+          propertyId,
+          vendorName: vendor.vendorName,
+        },
+      }) : null;
+      if (existing) {
+        pestVendorMap.set(vendor.portableKey, existing.id);
+        summary.pestVendors.skipped += 1;
+      } else {
+        summary.pestVendors.created += 1;
+        if (!dryRun && propertyId) {
+          const { portableKey: _portableKey, propertyCode: _propertyCode, ...data } = vendor;
+          const created = await tx.pestVendor.create({
+            data: {
+              ...data,
+              propertyId,
+              createdById: null,
+              updatedById: null,
+            },
+          });
+          pestVendorMap.set(vendor.portableKey, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.pestVendors.length > 0) {
+      const existingVendors = await tx.pestVendor.findMany({
+        include: { property: true },
+        where: {
+          OR: backup.data.pestVendors.flatMap((vendor) => {
+            const propertyId = propertyMap.get(vendor.propertyCode);
+            return propertyId ? [{ propertyId, vendorName: vendor.vendorName }] : [];
+          }),
+        },
+      });
+      existingVendors.forEach((vendor) => pestVendorMap.set(pestVendorPortableKey({
+        propertyCode: vendor.property.code,
+        vendorName: vendor.vendorName,
+      }), vendor.id));
+    }
+
+    const pestIssueMap = new Map<string, string>();
+    for (const issue of backup.data.pestIssues) {
+      const propertyId = propertyMap.get(issue.propertyCode);
+      const unitId = issue.unitNumber ? unitMap.get(`${issue.propertyCode}|${issue.unitNumber}`) ?? null : null;
+      const makeReadyItemId = issue.makeReadyItemKey ? itemMap.get(issue.makeReadyItemKey) ?? null : null;
+      const vendorId = issue.vendorKey ? pestVendorMap.get(issue.vendorKey) ?? null : null;
+      const existing = propertyId ? await tx.pestIssue.findFirst({
+        where: {
+          propertyId,
+          pestType: issue.pestType,
+          requestDate: new Date(issue.requestDate),
+          area: issue.area,
+          unitId,
+        },
+      }) : null;
+      if (existing) {
+        pestIssueMap.set(issue.portableKey, existing.id);
+        summary.pestIssues.skipped += 1;
+      } else {
+        summary.pestIssues.created += 1;
+        if (!dryRun && propertyId) {
+          const { portableKey: _portableKey, propertyCode: _propertyCode, unitNumber: _unitNumber, makeReadyItemKey: _makeReadyItemKey, vendorKey: _vendorKey, ...data } = issue;
+          const created = await tx.pestIssue.create({
+            data: {
+              ...data,
+              propertyId,
+              unitId,
+              makeReadyItemId,
+              vendorId,
+              assignedUserId: null,
+              createdById: null,
+              updatedById: null,
+              closedById: null,
+              archivedById: null,
+              requestDate: new Date(issue.requestDate),
+              treatmentDate: dateValue(issue.treatmentDate),
+              followUpDate: dateValue(issue.followUpDate),
+              recurringDismissedAt: dateValue(issue.recurringDismissedAt),
+              closedAt: dateValue(issue.closedAt),
+              archivedAt: dateValue(issue.archivedAt),
+              createdAt: new Date(issue.createdAt),
+              updatedAt: new Date(issue.updatedAt),
+            },
+          });
+          pestIssueMap.set(issue.portableKey, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.pestIssues.length > 0) {
+      const existingIssues = await tx.pestIssue.findMany({
+        include: { property: true, unit: true },
+        where: {
+          OR: backup.data.pestIssues.flatMap((issue) => {
+            const propertyId = propertyMap.get(issue.propertyCode);
+            const unitId = issue.unitNumber ? unitMap.get(`${issue.propertyCode}|${issue.unitNumber}`) ?? null : null;
+            return propertyId ? [{
+              propertyId,
+              pestType: issue.pestType,
+              requestDate: new Date(issue.requestDate),
+              area: issue.area,
+              unitId,
+            }] : [];
+          }),
+        },
+      });
+      existingIssues.forEach((issue) => pestIssueMap.set(pestIssuePortableKey({
+        propertyCode: issue.property.code,
+        unitNumber: issue.unit?.number ?? null,
+        area: issue.area,
+        pestType: issue.pestType,
+        requestDate: issue.requestDate.toISOString(),
+      }), issue.id));
+    }
+
+    for (const note of backup.data.pestIssueNotes) {
+      const issueId = pestIssueMap.get(note.issueKey);
+      const propertyId = propertyMap.get(note.propertyCode);
+      const existing = issueId ? await tx.pestIssueNote.findFirst({
+        where: {
+          issueId,
+          authorName: note.authorName ?? "Imported backup",
+          body: note.body,
+          createdAt: new Date(note.createdAt),
+        },
+      }) : null;
+      if (existing) summary.pestIssueNotes.skipped += 1;
+      else {
+        summary.pestIssueNotes.created += 1;
+        if (!dryRun && issueId && propertyId) {
+          await tx.pestIssueNote.create({
+            data: {
+              issueId,
+              propertyId,
+              authorUserId: null,
+              authorName: note.authorName ?? "Imported backup",
+              body: note.body,
+              createdAt: new Date(note.createdAt),
+            },
+          });
+        }
+      }
+    }
+
+    for (const attachment of backup.data.pestAttachments) {
+      const issueId = pestIssueMap.get(attachment.issueKey);
+      const propertyId = propertyMap.get(attachment.propertyCode);
+      const existing = await tx.pestIssueAttachment.findUnique({ where: { storedName: attachment.storedName } }).catch(() => null);
+      if (existing) summary.pestAttachments.skipped += 1;
+      else {
+        summary.pestAttachments.created += 1;
+        if (!dryRun && issueId && propertyId) {
+          await tx.pestIssueAttachment.create({
+            data: {
+              issueId,
+              propertyId,
+              uploadedById: null,
+              uploaderName: attachment.uploaderName ?? "Imported backup",
+              photoType: attachment.photoType,
+              caption: attachment.caption,
+              originalName: attachment.originalName,
+              storedName: attachment.storedName,
+              mimeType: attachment.mimeType,
+              sizeBytes: attachment.sizeBytes,
+              createdAt: new Date(attachment.createdAt),
+            },
+          });
+        }
+      }
+    }
+
+    const leaseComplianceIssueTypeMap = new Map<string, string>();
+    for (const issueType of backup.data.leaseComplianceIssueTypes) {
+      const propertyId = propertyMap.get(issueType.propertyCode);
+      const existing = propertyId ? await tx.leaseComplianceIssueType.findFirst({
+        where: {
+          propertyId,
+          name: issueType.name,
+        },
+      }) : null;
+      const portableKey = leaseComplianceIssueTypePortableKey(issueType);
+      if (existing) {
+        leaseComplianceIssueTypeMap.set(portableKey, existing.id);
+        summary.leaseComplianceIssueTypes.skipped += 1;
+      } else {
+        summary.leaseComplianceIssueTypes.created += 1;
+        if (!dryRun && propertyId) {
+          const { propertyCode: _propertyCode, ...data } = issueType;
+          const created = await tx.leaseComplianceIssueType.create({
+            data: {
+              ...data,
+              propertyId,
+              createdById: null,
+              updatedById: null,
+              color: issueType.color ?? undefined,
+              createdAt: new Date(issueType.createdAt),
+              updatedAt: new Date(issueType.updatedAt),
+            },
+          });
+          leaseComplianceIssueTypeMap.set(portableKey, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.leaseComplianceIssueTypes.length > 0) {
+      const existingIssueTypes = await tx.leaseComplianceIssueType.findMany({
+        include: { property: true },
+        where: {
+          OR: backup.data.leaseComplianceIssueTypes.flatMap((issueType) => {
+            const propertyId = propertyMap.get(issueType.propertyCode);
+            return propertyId ? [{ propertyId, name: issueType.name }] : [];
+          }),
+        },
+      });
+      existingIssueTypes.forEach((issueType) => leaseComplianceIssueTypeMap.set(leaseComplianceIssueTypePortableKey({
+        propertyCode: issueType.property.code,
+        name: issueType.name,
+      }), issueType.id));
+    }
+
+    for (const settings of backup.data.leaseComplianceSettings) {
+      const propertyId = propertyMap.get(settings.propertyCode);
+      const existing = propertyId ? await tx.leaseComplianceSettings.findUnique({ where: { propertyId } }) : null;
+      if (existing) summary.leaseComplianceSettings.skipped += 1;
+      else {
+        summary.leaseComplianceSettings.created += 1;
+        if (!dryRun && propertyId) {
+          const { propertyCode: _propertyCode, ...data } = settings;
+          await tx.leaseComplianceSettings.create({
+            data: {
+              ...data,
+              propertyId,
+              updatedById: null,
+              createdAt: new Date(settings.createdAt),
+              updatedAt: new Date(settings.updatedAt),
+            },
+          });
+        }
+      }
+    }
+
+    const leaseComplianceIssueMap = new Map<string, string>();
+    for (const issue of backup.data.leaseComplianceIssues) {
+      const propertyId = propertyMap.get(issue.propertyCode);
+      const unitId = issue.unitNumber ? unitMap.get(`${issue.propertyCode}|${issue.unitNumber}`) ?? null : null;
+      const issueTypeId = issue.issueTypeKey ? leaseComplianceIssueTypeMap.get(issue.issueTypeKey) ?? null : null;
+      const propertyMapId = issue.propertyMapName ? propertyMapMap.get(`${issue.propertyCode}|${issue.propertyMapName}`) ?? null : null;
+      const existing = propertyId ? await tx.leaseComplianceIssue.findFirst({
+        where: {
+          propertyId,
+          unitId,
+          building: issue.building,
+          area: issue.area,
+          issueTypeName: issue.issueTypeName,
+          createdAt: new Date(issue.createdAt),
+        },
+      }) : null;
+      if (existing) {
+        leaseComplianceIssueMap.set(issue.portableKey, existing.id);
+        summary.leaseComplianceIssues.skipped += 1;
+      } else {
+        summary.leaseComplianceIssues.created += 1;
+        if (!dryRun && propertyId) {
+          const {
+            portableKey: _portableKey,
+            propertyCode: _propertyCode,
+            unitNumber: _unitNumber,
+            issueTypeKey: _issueTypeKey,
+            propertyMapName: _propertyMapName,
+            ...data
+          } = issue;
+          const created = await tx.leaseComplianceIssue.create({
+            data: {
+              ...data,
+              propertyId,
+              unitId,
+              issueTypeId,
+              propertyMapId,
+              assignedUserId: null,
+              resolvedById: null,
+              archivedById: null,
+              createdById: null,
+              updatedById: null,
+              lastPersistenceCheckDate: dateValue(issue.lastPersistenceCheckDate),
+              residentNotifiedDate: dateValue(issue.residentNotifiedDate),
+              notice1Date: dateValue(issue.notice1Date),
+              notice2Date: dateValue(issue.notice2Date),
+              notice3Date: dateValue(issue.notice3Date),
+              violationNeededDate: dateValue(issue.violationNeededDate),
+              recurringDismissedAt: dateValue(issue.recurringDismissedAt),
+              resolvedDate: dateValue(issue.resolvedDate),
+              archiveDate: dateValue(issue.archiveDate),
+              createdAt: new Date(issue.createdAt),
+              updatedAt: new Date(issue.updatedAt),
+            },
+          });
+          leaseComplianceIssueMap.set(issue.portableKey, created.id);
+        }
+      }
+    }
+    if (dryRun && backup.data.leaseComplianceIssues.length > 0) {
+      const existingIssues = await tx.leaseComplianceIssue.findMany({
+        include: { property: true, unit: true },
+        where: {
+          OR: backup.data.leaseComplianceIssues.flatMap((issue) => {
+            const propertyId = propertyMap.get(issue.propertyCode);
+            const unitId = issue.unitNumber ? unitMap.get(`${issue.propertyCode}|${issue.unitNumber}`) ?? null : null;
+            return propertyId ? [{
+              propertyId,
+              unitId,
+              building: issue.building,
+              area: issue.area,
+              issueTypeName: issue.issueTypeName,
+              createdAt: new Date(issue.createdAt),
+            }] : [];
+          }),
+        },
+      });
+      existingIssues.forEach((issue) => leaseComplianceIssueMap.set(leaseComplianceIssuePortableKey({
+        propertyCode: issue.property.code,
+        unitNumber: issue.unit?.number ?? null,
+        building: issue.building,
+        area: issue.area,
+        issueTypeName: issue.issueTypeName,
+        createdAt: issue.createdAt.toISOString(),
+      }), issue.id));
+    }
+
+    for (const note of backup.data.leaseComplianceIssueNotes) {
+      const issueId = leaseComplianceIssueMap.get(note.issueKey);
+      const propertyId = propertyMap.get(note.propertyCode);
+      const existing = issueId ? await tx.leaseComplianceIssueNote.findFirst({
+        where: {
+          issueId,
+          authorName: note.authorName ?? "Imported backup",
+          body: note.body,
+          createdAt: new Date(note.createdAt),
+        },
+      }) : null;
+      if (existing) summary.leaseComplianceIssueNotes.skipped += 1;
+      else {
+        summary.leaseComplianceIssueNotes.created += 1;
+        if (!dryRun && issueId && propertyId) {
+          await tx.leaseComplianceIssueNote.create({
+            data: {
+              issueId,
+              propertyId,
+              authorUserId: null,
+              authorName: note.authorName ?? "Imported backup",
+              body: note.body,
+              createdAt: new Date(note.createdAt),
+            },
+          });
+        }
+      }
+    }
+
+    for (const photo of backup.data.leaseComplianceIssuePhotos) {
+      const issueId = leaseComplianceIssueMap.get(photo.issueKey);
+      const propertyId = propertyMap.get(photo.propertyCode);
+      const existing = await tx.leaseComplianceIssuePhoto.findUnique({ where: { storedName: photo.storedName } }).catch(() => null);
+      if (existing) summary.leaseComplianceIssuePhotos.skipped += 1;
+      else {
+        summary.leaseComplianceIssuePhotos.created += 1;
+        if (!dryRun && issueId && propertyId) {
+          await tx.leaseComplianceIssuePhoto.create({
+            data: {
+              issueId,
+              propertyId,
+              uploadedById: null,
+              uploaderName: photo.uploaderName ?? "Imported backup",
+              photoCategory: photo.photoCategory,
+              caption: photo.caption,
+              originalName: photo.originalName,
+              storedName: photo.storedName,
+              mimeType: photo.mimeType,
+              sizeBytes: photo.sizeBytes,
+              createdAt: new Date(photo.createdAt),
+            },
+          });
+        }
+      }
+    }
+
+    for (const action of backup.data.leaseComplianceNoticeActions) {
+      const issueId = leaseComplianceIssueMap.get(action.issueKey);
+      const propertyId = propertyMap.get(action.propertyCode);
+      const existing = issueId ? await tx.leaseComplianceNoticeAction.findFirst({
+        where: {
+          issueId,
+          action: action.action,
+          createdAt: new Date(action.createdAt),
+        },
+      }) : null;
+      if (existing) summary.leaseComplianceNoticeActions.skipped += 1;
+      else {
+        summary.leaseComplianceNoticeActions.created += 1;
+        if (!dryRun && issueId && propertyId) {
+          await tx.leaseComplianceNoticeAction.create({
+            data: {
+              issueId,
+              propertyId,
+              actedById: null,
+              actedByName: action.actedByName ?? "Imported backup",
+              action: action.action,
+              noticeStage: action.noticeStage,
+              notes: action.notes,
+              createdAt: new Date(action.createdAt),
+            },
+          });
+        }
+      }
+    }
+
+    for (const check of backup.data.leaseCompliancePersistenceChecks) {
+      const issueId = leaseComplianceIssueMap.get(check.issueKey);
+      const propertyId = propertyMap.get(check.propertyCode);
+      const existing = issueId ? await tx.leaseCompliancePersistenceCheck.findFirst({
+        where: {
+          issueId,
+          stillPersists: check.stillPersists,
+          createdAt: new Date(check.createdAt),
+        },
+      }) : null;
+      if (existing) summary.leaseCompliancePersistenceChecks.skipped += 1;
+      else {
+        summary.leaseCompliancePersistenceChecks.created += 1;
+        if (!dryRun && issueId && propertyId) {
+          await tx.leaseCompliancePersistenceCheck.create({
+            data: {
+              issueId,
+              propertyId,
+              checkedById: null,
+              checkedByName: check.checkedByName ?? "Imported backup",
+              stillPersists: check.stillPersists,
+              notes: check.notes,
+              createdAt: new Date(check.createdAt),
+            },
+          });
+        }
+      }
+    }
+
+    for (const reference of backup.data.propertyWikiReferences.filter((entry) => entry.recordType === "LEASE_COMPLIANCE_ISSUE")) {
+      const propertyId = propertyMap.get(reference.propertyCode);
+      const recordId = leaseComplianceIssueMap.get(reference.recordKey);
+      const targetId = reference.targetType === "ENTRY"
+        ? propertyWikiEntryMap.get(reference.targetKey)
+        : reference.targetType === "VENDOR"
+          ? propertyWikiVendorMap.get(reference.targetKey)
+          : propertyWikiAssetMap.get(reference.targetKey);
+      if (!propertyId || !recordId || !targetId) {
+        summary.propertyWikiReferences.skipped += 1;
+        summary.propertyWikiReferences.errors.push(`Property Wiki workflow reference could not be resolved for ${reference.recordType}:${reference.recordKey}`);
+        continue;
+      }
+      const existing = await tx.propertyWikiReference.findUnique({
+        where: {
+          recordType_recordId_targetType_targetId: {
+            recordType: reference.recordType,
+            recordId,
+            targetType: reference.targetType,
+            targetId,
+          },
+        },
+      });
+      if (existing) summary.propertyWikiReferences.skipped += 1;
+      else {
+        summary.propertyWikiReferences.created += 1;
+        if (!dryRun) {
+          await tx.propertyWikiReference.create({
+            data: {
+              propertyId,
+              recordType: reference.recordType,
+              recordId,
+              targetType: reference.targetType,
+              targetId,
+              createdById: null,
+              createdAt: dateValue(reference.createdAt) ?? new Date(),
+            },
+          });
         }
       }
     }

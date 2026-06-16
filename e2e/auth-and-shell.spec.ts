@@ -1015,6 +1015,10 @@ test.describe("MakeReadyOS browser flows", () => {
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-admin").click();
     await expect(page.getByTestId("integrations-panel")).toBeVisible();
+    await expect(page.getByTestId("webhook-event-lease-issue-created")).toBeVisible();
+    await expect(page.getByTestId("webhook-event-lease-issue-updated")).toBeVisible();
+    await expect(page.getByTestId("webhook-event-lease-issue-resolved")).toBeVisible();
+    await expect(page.getByTestId("webhook-event-lease-issue-archived")).toBeVisible();
     await page.getByTestId("webhook-name").fill(webhookName);
     await page.getByTestId("webhook-url").fill("https://example.com/makereadyos/webhook");
     const createResponse = page.waitForResponse((response) =>
@@ -1189,6 +1193,34 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("automation-run-history").getByText("MANUAL").first()).toBeVisible();
   });
 
+  test("admin can preview and install least-loaded staff automation starters as review-first rules", async ({ page }) => {
+    await login(page, adminEmail, adminPassword);
+    await page.getByTestId("tab-automations").click();
+    await expect(page.getByTestId("automation-panel")).toBeVisible();
+
+    await page.getByTestId("automation-template-category").selectOption("Assignment");
+    await expect(page.getByTestId("automation-template-balanced-tech-auto-assignment")).toBeVisible();
+    await expect(page.getByTestId("automation-template-auto-assign-cleaner-balanced")).toBeVisible();
+    await expect(page.getByTestId("automation-template-enable")).not.toBeChecked();
+
+    const previewResponse = page.waitForResponse((response) =>
+      response.url().includes("/api/automations/preview") && response.request().method() === "POST",
+    );
+    await page.getByTestId("automation-template-preview-balanced-tech-auto-assignment").click();
+    await expect((await previewResponse).status()).toBe(200);
+    await expect(page.getByTestId("automation-preview-panel")).toBeVisible();
+    await expect(page.getByTestId("automation-preview-panel")).toContainText("This rule is disabled. Preview evaluates it as if enabled.");
+    await expect(page.getByTestId("automation-preview-panel")).toContainText("No active eligible staff were available for this property.");
+
+    const installResponse = page.waitForResponse((response) =>
+      response.url().includes("/api/automations/templates/balanced-tech-auto-assignment/install") && response.request().method() === "POST",
+    );
+    await page.getByTestId("automation-template-install-balanced-tech-auto-assignment").click();
+    await expect((await installResponse).status()).toBe(201);
+    await expect(page.getByTestId("automation-template-balanced-tech-auto-assignment")).toContainText("Installed");
+    await expect(page.getByTestId("automation-template-enable")).not.toBeChecked();
+  });
+
   test("admin can open planning and create a work block", async ({ page }) => {
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-planning").click();
@@ -1271,6 +1303,46 @@ test.describe("MakeReadyOS browser flows", () => {
     });
     await expect((await uploadResponse).status()).toBe(201);
     await expect(page.getByTestId("pool-history-row").first()).toContainText("pool-check-photo.png");
+  });
+
+  test("admin can launch pest control from board cells and drawer actions with make-ready context", async ({ page }) => {
+    await login(page, adminEmail, adminPassword);
+
+    const pestCell = page.locator("[data-testid^='builtin-cell-pestStatus-']").first();
+    await expect(pestCell).toBeVisible();
+    await pestCell.click();
+    await expect(page.locator(".pest-control-panel")).toBeVisible();
+    await expect(page.getByText("Showing pest requests linked to the selected make-ready item only.")).toBeVisible();
+
+    await page.getByTestId("tab-table").click();
+    await expect(page.getByTestId("board-table-view")).toBeVisible();
+    await page.locator("[data-testid^='item-details-']").first().click();
+    await expect(page.getByTestId("item-drawer")).toBeVisible();
+    await expect(page.getByTestId("drawer-pest-context")).toBeVisible();
+    await page.getByRole("button", { name: "Create Pest Request" }).click();
+    await page.getByTestId("item-drawer-close").click();
+    await expect(page.getByTestId("item-drawer")).toHaveCount(0);
+    await expect(page.locator(".pest-control-panel")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Quick Add Pest Request" })).toBeVisible();
+    await expect(page.getByText("Showing pest requests linked to the selected make-ready item only.")).toBeVisible();
+    const quickAddForm = page.locator(".pest-control-panel form").first();
+    await expect(quickAddForm.locator("select[name='source']")).toHaveValue("Make Ready");
+
+    const pestTag = uniqueTag("QA Pest Link");
+    await quickAddForm.locator("input[name='area']").fill(`${pestTag} Area`);
+    await quickAddForm.locator("select[name='pestType']").selectOption("Roaches");
+    await quickAddForm.locator("input[name='additionalPestType']").fill(pestTag);
+    await quickAddForm.locator("textarea[name='description']").fill(`${pestTag} notes`);
+    const createResponse = page.waitForResponse((response) =>
+      response.url().includes("/api/pest/issues") && response.request().method() === "POST",
+    );
+    await quickAddForm.getByRole("button", { name: "Quick Add Pest Request" }).click();
+    await expect((await createResponse).status()).toBe(201);
+
+    await page.getByRole("button", { name: "Make Ready" }).click();
+    const linkedIssue = page.locator("[data-testid^='pest-issue-']").filter({ hasText: pestTag }).first();
+    await expect(linkedIssue).toBeVisible();
+    await expect(linkedIssue).toContainText("Make Ready linked");
   });
 
   test("admin can create and search property wiki content", async ({ page }) => {

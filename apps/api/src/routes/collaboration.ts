@@ -748,15 +748,87 @@ export async function collaborationRoutes(app: FastifyInstance) {
       },
       orderBy: [{ overdue: "desc" }, { moveInDate: "asc" }, { updatedAt: "desc" }],
     });
+    const projectItems = await prisma.projectRecord.findMany({
+      where: {
+        isArchived: false,
+        ...(scopedProperties ? { propertyId: { in: scopedProperties } } : {}),
+        OR: [
+          { assignedUserId: target.id },
+          { tasks: { some: { assignedUserId: target.id, status: { in: ["Open", "In Progress"] } } } },
+        ],
+      },
+      include: {
+        property: true,
+        attachments: true,
+        comments: true,
+        tasks: { orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }] },
+        wikiReferences: true,
+      },
+      orderBy: [{ dueDate: "asc" }, { scheduledDate: "asc" }, { updatedAt: "desc" }],
+    });
+    const pestItems = await prisma.pestIssue.findMany({
+      where: {
+        isArchived: false,
+        ...(scopedProperties ? { propertyId: { in: scopedProperties } } : {}),
+        assignedUserId: target.id,
+        status: { notIn: ["Closed", "Cancelled", "Archived"] },
+      },
+      include: {
+        property: true,
+        unit: true,
+        vendor: true,
+        makeReadyItem: { select: { id: true, unitNumber: true, moveInDate: true } },
+        attachments: true,
+        notes: { orderBy: { createdAt: "desc" }, take: 3 },
+      },
+      orderBy: [{ followUpDate: "asc" }, { requestDate: "desc" }, { updatedAt: "desc" }],
+    });
+    const leaseComplianceItems = await prisma.leaseComplianceIssue.findMany({
+      where: {
+        isArchived: false,
+        ...(scopedProperties ? { propertyId: { in: scopedProperties } } : {}),
+        assignedUserId: target.id,
+        status: { notIn: ["Resolved", "Archived"] },
+      },
+      include: {
+        property: true,
+        unit: true,
+        issueType: true,
+        propertyMap: { select: { id: true, name: true } },
+        assignedUser: { select: { id: true, fullName: true, role: true } },
+        createdBy: { select: { id: true, fullName: true } },
+        updatedBy: { select: { id: true, fullName: true } },
+        resolvedBy: { select: { id: true, fullName: true } },
+        archivedBy: { select: { id: true, fullName: true } },
+        notes: { orderBy: { createdAt: "desc" }, take: 3 },
+        photos: { orderBy: { createdAt: "desc" }, take: 3 },
+        noticeActions: { orderBy: { createdAt: "desc" }, take: 3 },
+        persistenceChecks: { orderBy: { createdAt: "desc" }, take: 3 },
+      },
+      orderBy: [{ createdAt: "desc" }, { updatedAt: "desc" }],
+    });
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const soonCutoff = new Date(today);
+    soonCutoff.setDate(soonCutoff.getDate() + 7);
     return {
       target: { id: target.id, fullName: target.fullName },
       stats: {
-        total: items.length,
-        overdue: items.filter((entry) => entry.overdue).length,
-        dueSoon: items.filter((entry) => entry.moveInSoon).length,
+        total: items.length + projectItems.length + pestItems.length + leaseComplianceItems.length,
+        overdue: items.filter((entry) => entry.overdue).length
+          + projectItems.filter((entry) => entry.dueDate && entry.dueDate < today && !["Completed", "Cancelled", "Archived", "Denied"].includes(entry.status)).length
+          + pestItems.filter((entry) => entry.followUpDate && entry.followUpDate < today && entry.status === "Needs Follow Up").length
+          + leaseComplianceItems.filter((entry) => ["Violation Needed"].includes(entry.status) || (entry.notice3Date && !entry.violationNeededDate)).length,
+        dueSoon: items.filter((entry) => entry.moveInSoon).length
+          + projectItems.filter((entry) => ((entry.scheduledDate && entry.scheduledDate >= today && entry.scheduledDate <= soonCutoff) || (entry.dueDate && entry.dueDate >= today && entry.dueDate <= soonCutoff))).length
+          + pestItems.filter((entry) => ((entry.followUpDate && entry.followUpDate >= today && entry.followUpDate <= soonCutoff) || (entry.treatmentDate && entry.treatmentDate >= today && entry.treatmentDate <= soonCutoff))).length
+          + leaseComplianceItems.filter((entry) => entry.noticeStage !== "None" || entry.recurringConcern).length,
         openChecklistTasks: items.flatMap((entry) => entry.checklistInstances.flatMap((instance) => instance.items)).filter((entry) => !entry.completed).length,
       },
       items,
+      projectItems,
+      pestItems,
+      leaseComplianceItems,
     };
   });
 }

@@ -5,19 +5,20 @@ import { z } from "zod";
 import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { createNotification } from "../lib/notifications.js";
+import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
 
 const cylinderCategories = ["VIRGIN", "CLEAN_RECOVERY", "DIRTY_RECOVERY"] as const;
 const cylinderStatuses = ["ACTIVE", "EMPTY_PENDING_RECOVERY", "ARCHIVED"] as const;
 const transactionTypes = ["VIRGIN_CHARGE", "CLEAN_RECOVERY", "DIRTY_RECOVERY", "FINAL_RECOVERY"] as const;
 
-const typeSchema = z.object({
+export const refrigerantTypeSchema = z.object({
   name: z.string().trim().min(2).max(40),
   notes: z.string().trim().max(1000).nullable().optional(),
   isActive: z.boolean().optional(),
 });
 
-const cylinderSchema = z.object({
+export const refrigerantCylinderSchema = z.object({
   identifier: z.string().trim().min(1).max(120),
   refrigerantTypeId: z.string(),
   category: z.enum(cylinderCategories),
@@ -29,11 +30,11 @@ const cylinderSchema = z.object({
   overrideActiveVirgin: z.boolean().optional().default(false),
 });
 
-const cylinderPatchSchema = cylinderSchema.partial().extend({
+export const refrigerantCylinderPatchSchema = refrigerantCylinderSchema.partial().extend({
   finalRecoveryCompleted: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: "Provide cylinder fields to update" });
 
-const transactionSchema = z.object({
+export const refrigerantTransactionSchema = z.object({
   propertyId: z.string().optional(),
   unitId: z.string().optional(),
   unitNumber: z.string().trim().max(80).optional(),
@@ -46,7 +47,7 @@ const transactionSchema = z.object({
   notes: z.string().trim().max(2000).nullable().optional(),
 });
 
-const historyQuerySchema = z.object({
+export const refrigerantHistoryQuerySchema = z.object({
   propertyId: z.string().optional(),
   unitId: z.string().optional(),
   unitNumber: z.string().optional(),
@@ -56,6 +57,10 @@ const historyQuerySchema = z.object({
   to: z.coerce.date().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
   offset: z.coerce.number().int().min(0).default(0),
+});
+
+export const refrigerantLeakFlagDismissSchema = z.object({
+  notes: z.string().trim().min(1).max(1000),
 });
 
 function accessFor(role: UserRole) {
@@ -104,6 +109,61 @@ function leakLevel(count90: number, count365: number) {
   if (count365 >= 3) return "MANAGER_REVIEW_REQUIRED";
   if (count90 >= 2) return "POTENTIAL_REFRIGERANT_LEAK";
   return null;
+}
+
+function htmlEscape(value: unknown) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+async function refrigerantExportRows(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit", propertyIds: string[] | null) {
+  let rows: Array<Record<string, unknown>> = [];
+  if (report === "cylinders") {
+    const tanks = await prisma.refrigerantCylinder.findMany({ include: { refrigerantType: true }, orderBy: { identifier: "asc" } });
+    rows = tanks.map((tank) => ({
+      identifier: tank.identifier,
+      type: tank.refrigerantType.name,
+      category: tank.category,
+      status: tank.status,
+      tankSize: tank.tankSize,
+      currentWeight: tank.currentWeight,
+      fillPercent: fillPercent(tank.tankSize, tank.currentWeight),
+      finalRecoveryCompleted: tank.finalRecoveryCompleted,
+      notes: tank.notes ?? "",
+    }));
+  } else if (report === "compliance") {
+    const result = await complianceIssues(propertyIds);
+    rows = result.issues.map((issue) => ({ severity: issue.severity, type: issue.type, message: issue.message }));
+  } else {
+    const txWhere = {
+      propertyId: propertyIds === null ? undefined : { in: propertyIds },
+      transactionType: report === "usage" ? "VIRGIN_CHARGE" : report === "recovery" ? { in: ["CLEAN_RECOVERY", "DIRTY_RECOVERY", "FINAL_RECOVERY"] } : undefined,
+    };
+    const transactions = await prisma.refrigerantTransaction.findMany({
+      where: txWhere,
+      include: { refrigerantType: true, sourceCylinder: true, recoveryCylinder: true },
+      orderBy: { occurredAt: "desc" },
+    });
+    rows = transactions.map((entry) => ({
+      date: entry.occurredAt.toISOString(),
+      property: entry.propertyId ?? "",
+      transactionType: entry.transactionType,
+      unitNumber: entry.unitNumber ?? "",
+      refrigerantType: entry.refrigerantType.name,
+      sourceCylinder: entry.sourceCylinder?.identifier ?? "",
+      recoveryCylinder: entry.recoveryCylinder?.identifier ?? "",
+      startWeight: entry.startWeight,
+      endWeight: entry.endWeight,
+      amount: entry.amount,
+      user: entry.createdByName ?? "",
+      notes: entry.notes ?? "",
+    }));
+  }
+  return rows;
 }
 
 async function evaluateLeakFlag(input: {
@@ -259,7 +319,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
 
   app.post("/refrigerant/types", async (request, reply) => {
     if (!requireRefrigerantAccess(request, reply, "admin")) return;
-    const input = typeSchema.parse(request.body);
+    const input = refrigerantTypeSchema.parse(request.body);
     const type = await prisma.refrigerantType.create({ data: { name: input.name, notes: input.notes ?? null, createdById: request.currentUser!.id, updatedById: request.currentUser!.id } });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, entityType: "REFRIGERANT_TYPE", entityId: type.id, action: "REFRIGERANT_TYPE_CREATED", message: `Created refrigerant type ${type.name}` });
     reply.code(201);
@@ -269,7 +329,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
   app.patch("/refrigerant/types/:id", async (request, reply) => {
     if (!requireRefrigerantAccess(request, reply, "admin")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = typeSchema.partial().parse(request.body);
+    const input = refrigerantTypeSchema.partial().parse(request.body);
     const type = await prisma.refrigerantType.update({ where: { id }, data: { name: input.name, notes: input.notes, isActive: input.isActive, updatedById: request.currentUser!.id } });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, entityType: "REFRIGERANT_TYPE", entityId: type.id, action: "REFRIGERANT_TYPE_UPDATED", message: `Updated refrigerant type ${type.name}` });
     return { type };
@@ -295,7 +355,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
 
   app.post("/refrigerant/cylinders", async (request, reply) => {
     if (!requireRefrigerantAccess(request, reply, "edit")) return;
-    const input = cylinderSchema.parse(request.body);
+    const input = refrigerantCylinderSchema.parse(request.body);
     if (input.category === "VIRGIN" && input.status === "ACTIVE" && input.overrideActiveVirgin && request.currentUser!.role !== "ADMIN" && request.currentUser!.role !== "MANAGER") {
       return reply.code(403).send({ message: "Only managers and admins can override the one-active-virgin-tank rule." });
     }
@@ -326,7 +386,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
   app.patch("/refrigerant/cylinders/:id", async (request, reply) => {
     if (!requireRefrigerantAccess(request, reply, "edit")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = cylinderPatchSchema.parse(request.body);
+    const input = refrigerantCylinderPatchSchema.parse(request.body);
     const existing = await prisma.refrigerantCylinder.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ message: "Cylinder not found" });
     if (input.status === "ARCHIVED" && existing.category === "VIRGIN" && !existing.finalRecoveryCompleted && !input.finalRecoveryCompleted) {
@@ -356,7 +416,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
 
   async function createTransaction(request: FastifyRequest, reply: FastifyReply, transactionType: (typeof transactionTypes)[number]) {
     if (!requireRefrigerantAccess(request, reply, "edit")) return;
-    const input = transactionSchema.parse(request.body);
+    const input = refrigerantTransactionSchema.parse(request.body);
     if (!(await assertPropertyScope(request, reply, input.propertyId))) return;
     const amount = weightAmount(transactionType, input.startWeight, input.endWeight);
     if (amount < 0) {
@@ -414,15 +474,15 @@ export async function refrigerantRoutes(app: FastifyInstance) {
 
   app.post("/refrigerant/transactions/charge", async (request, reply) => createTransaction(request, reply, "VIRGIN_CHARGE"));
   app.post("/refrigerant/transactions/recovery", async (request, reply) => {
-    const body = transactionSchema.extend({ recoveryType: z.enum(["CLEAN", "DIRTY"]).default("CLEAN") }).parse(request.body);
-    request.body = body satisfies z.infer<typeof transactionSchema>;
+    const body = refrigerantTransactionSchema.extend({ recoveryType: z.enum(["CLEAN", "DIRTY"]).default("CLEAN") }).parse(request.body);
+    request.body = body satisfies z.infer<typeof refrigerantTransactionSchema>;
     return createTransaction(request, reply, body.recoveryType === "DIRTY" ? "DIRTY_RECOVERY" : "CLEAN_RECOVERY");
   });
   app.post("/refrigerant/transactions/final-recovery", async (request, reply) => createTransaction(request, reply, "FINAL_RECOVERY"));
 
   app.get("/refrigerant/history", async (request, reply) => {
     if (!requireRefrigerantAccess(request, reply, "view")) return;
-    const query = historyQuerySchema.parse(request.query);
+    const query = refrigerantHistoryQuerySchema.parse(request.query);
     const scope = scopedPropertyWhere(request, query.propertyId);
     if (scope.denied) return reply.code(403).send({ message: "Property access denied" });
     const where = {
@@ -457,7 +517,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
     if (!requireRefrigerantAccess(request, reply, "edit")) return;
     if (request.currentUser!.role !== "ADMIN" && request.currentUser!.role !== "MANAGER") return reply.code(403).send({ message: "Manager or admin access required" });
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const body = z.object({ notes: z.string().trim().min(1).max(1000) }).parse(request.body);
+    const body = refrigerantLeakFlagDismissSchema.parse(request.body);
     const flag = await prisma.refrigerantLeakFlag.findUnique({ where: { id } });
     if (!flag) return reply.code(404).send({ message: "Leak flag not found" });
     if (!(await assertPropertyScope(request, reply, flag.propertyId))) return;
@@ -470,24 +530,101 @@ export async function refrigerantRoutes(app: FastifyInstance) {
     if (!requireRefrigerantAccess(request, reply, "view")) return;
     const query = z.object({ report: z.enum(["usage", "recovery", "cylinders", "compliance", "unitHistory", "fullAudit"]).default("usage") }).parse(request.query);
     const propertyIds = scopedAllowedPropertyIds(request);
-    let rows: Array<Record<string, unknown>> = [];
-    if (query.report === "cylinders") {
-      const tanks = await prisma.refrigerantCylinder.findMany({ include: { refrigerantType: true }, orderBy: { identifier: "asc" } });
-      rows = tanks.map((tank) => ({ identifier: tank.identifier, type: tank.refrigerantType.name, category: tank.category, status: tank.status, tankSize: tank.tankSize, currentWeight: tank.currentWeight, fillPercent: fillPercent(tank.tankSize, tank.currentWeight), finalRecoveryCompleted: tank.finalRecoveryCompleted, notes: tank.notes ?? "" }));
-    } else if (query.report === "compliance") {
-      const result = await complianceIssues(propertyIds);
-      rows = result.issues.map((issue) => ({ severity: issue.severity, type: issue.type, message: issue.message }));
-    } else {
-      const txWhere = {
-        propertyId: propertyIds === null ? undefined : { in: propertyIds },
-        transactionType: query.report === "usage" ? "VIRGIN_CHARGE" : query.report === "recovery" ? { in: ["CLEAN_RECOVERY", "DIRTY_RECOVERY", "FINAL_RECOVERY"] } : undefined,
-      };
-      const transactions = await prisma.refrigerantTransaction.findMany({ where: txWhere, include: { refrigerantType: true, sourceCylinder: true, recoveryCylinder: true }, orderBy: { occurredAt: "desc" } });
-      rows = transactions.map((entry) => ({ date: entry.occurredAt.toISOString(), transactionType: entry.transactionType, propertyId: entry.propertyId ?? "", unitNumber: entry.unitNumber ?? "", refrigerantType: entry.refrigerantType.name, sourceCylinder: entry.sourceCylinder?.identifier ?? "", recoveryCylinder: entry.recoveryCylinder?.identifier ?? "", startWeight: entry.startWeight, endWeight: entry.endWeight, amount: entry.amount, user: entry.createdByName ?? "", notes: entry.notes ?? "" }));
-    }
+    const rows = await refrigerantExportRows(query.report, propertyIds);
     const csv = stringify(rows, { header: true });
     reply.header("content-type", "text/csv; charset=utf-8");
     reply.header("content-disposition", `attachment; filename=\"makereadyos-refrigerant-${query.report}.csv\"`);
     return csv;
+  });
+
+  app.get("/refrigerant/export.xls", async (request, reply) => {
+    if (!requireRefrigerantAccess(request, reply, "view")) return;
+    const query = z.object({ report: z.enum(["usage", "recovery", "cylinders", "compliance", "unitHistory", "fullAudit"]).default("usage") }).parse(request.query);
+    const propertyIds = scopedAllowedPropertyIds(request);
+    const rows = await refrigerantExportRows(query.report, propertyIds);
+    const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+    const lines = [
+      headers.join("\t"),
+      ...rows.map((row) => headers.map((header) => String(row[header] ?? "")).join("\t")),
+    ].join("\n");
+    reply.header("content-type", "application/vnd.ms-excel; charset=utf-8");
+    reply.header("content-disposition", `attachment; filename=\"makereadyos-refrigerant-${query.report}.xls\"`);
+    return lines;
+  });
+
+  app.get("/refrigerant/report.html", async (request, reply) => {
+    if (!requireRefrigerantAccess(request, reply, "view")) return;
+    const query = z.object({ report: z.enum(["usage", "recovery", "cylinders", "compliance", "unitHistory", "fullAudit"]).default("usage") }).parse(request.query);
+    const propertyIds = scopedAllowedPropertyIds(request);
+    const rows = await refrigerantExportRows(query.report, propertyIds);
+    const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Refrigerant ${htmlEscape(query.report)} Report</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+    h1 { margin: 0 0 8px; }
+    p { margin: 0 0 16px; color: #4b5563; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { border: 1px solid #d1d5db; padding: 6px; text-align: left; vertical-align: top; }
+    th { background: #f3f4f6; }
+  </style>
+</head>
+<body>
+  <h1>Refrigerant ${htmlEscape(query.report)} Report</h1>
+  <p>Generated ${htmlEscape(new Date().toLocaleString())} | ${htmlEscape(rows.length)} row(s)</p>
+  <table>
+    <thead>
+      <tr>${headers.map((header) => `<th>${htmlEscape(header)}</th>`).join("")}</tr>
+    </thead>
+    <tbody>
+      ${rows.map((row) => `<tr>${headers.map((header) => `<td>${htmlEscape(row[header])}</td>`).join("")}</tr>`).join("")}
+    </tbody>
+  </table>
+</body>
+</html>`;
+    reply.header("content-type", "text/html; charset=utf-8");
+    return reply.send(html);
+  });
+
+  app.get("/refrigerant/report.pdf", async (request, reply) => {
+    if (!requireRefrigerantAccess(request, reply, "view")) return;
+    const query = z.object({ report: z.enum(["usage", "recovery", "cylinders", "compliance", "unitHistory", "fullAudit"]).default("usage") }).parse(request.query);
+    const propertyIds = scopedAllowedPropertyIds(request);
+    const rows = await refrigerantExportRows(query.report, propertyIds);
+    const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Refrigerant ${htmlEscape(query.report)} Report</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+    h1 { margin: 0 0 8px; }
+    p { margin: 0 0 16px; color: #4b5563; }
+    table { width: 100%; border-collapse: collapse; font-size: 10px; }
+    th, td { border: 1px solid #d1d5db; padding: 6px; text-align: left; vertical-align: top; }
+    th { background: #f3f4f6; }
+  </style>
+</head>
+<body>
+  <h1>Refrigerant ${htmlEscape(query.report)} Report</h1>
+  <p>Generated ${htmlEscape(new Date().toLocaleString())} | ${htmlEscape(rows.length)} row(s)</p>
+  <table>
+    <thead>
+      <tr>${headers.map((header) => `<th>${htmlEscape(header)}</th>`).join("")}</tr>
+    </thead>
+    <tbody>
+      ${rows.map((row) => `<tr>${headers.map((header) => `<td>${htmlEscape(row[header])}</td>`).join("")}</tr>`).join("")}
+    </tbody>
+  </table>
+</body>
+</html>`;
+    const pdf = await renderPdfFromHtml(html);
+    reply.header("content-type", "application/pdf");
+    reply.header("content-disposition", `inline; filename="makereadyos-refrigerant-${query.report}.pdf"`);
+    return reply.send(pdf);
   });
 }

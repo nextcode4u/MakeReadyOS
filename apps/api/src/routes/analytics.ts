@@ -118,6 +118,17 @@ export async function analyticsRoutes(app: FastifyInstance) {
       orderBy: { createdAt: "desc" },
       take: 200,
     });
+    const leaseComplianceIssues = await prisma.leaseComplianceIssue.findMany({
+      where: { unitId: unit.id },
+      include: {
+        property: true,
+        notes: { orderBy: { createdAt: "desc" } },
+        photos: { orderBy: { createdAt: "desc" } },
+        noticeActions: { orderBy: { createdAt: "desc" } },
+        persistenceChecks: { orderBy: { createdAt: "desc" } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
     const events = [
       event("UNIT_CREATED", unit.createdAt, "Unit created", `${unit.property.code} ${unit.number} entered the directory.`, "unit", { unitId: unit.id }),
       ...items.flatMap((item) => [
@@ -133,6 +144,15 @@ export async function analyticsRoutes(app: FastifyInstance) {
         ...item.vendorAssignments.map((assignment) => event("VENDOR_ASSIGNMENT", assignment.updatedAt, `Vendor ${assignment.status.toLowerCase().replace(/_/g, " ")}`, `${assignment.vendor.name} / ${assignment.trade}`, "vendor", { itemId: item.id, vendorAssignmentId: assignment.id })),
         ...item.checklistInstances.flatMap((instance) => instance.items.filter((task) => task.completed && task.completedAt).map((task) => event("CHECKLIST_COMPLETED", task.completedAt!, "Checklist task completed", `${instance.name}: ${task.title}`, "checklist", { itemId: item.id, taskId: task.id, completedBy: task.completedBy?.fullName ?? null }))),
         ...item.automationRuns.map((run) => event("AUTOMATION_RUN", run.ranAt, "Automation run", `${run.rule.name}: ${run.message}`, "automation", { itemId: item.id, ruleId: run.ruleId })),
+      ]),
+      ...leaseComplianceIssues.flatMap((issue) => [
+        event("LEASE_COMPLIANCE_CREATED", issue.createdAt, "Lease-compliance issue created", `${issue.issueTypeName} logged for ${unit.number}.`, "leaseCompliance", { issueId: issue.id, status: issue.status, noticeStage: issue.noticeStage }),
+        ...issue.notes.map((note) => event("LEASE_COMPLIANCE_NOTE", note.createdAt, "Lease-compliance note", note.body, "leaseCompliance", { issueId: issue.id, noteId: note.id, authorName: note.authorName })),
+        ...issue.photos.map((photo) => event("LEASE_COMPLIANCE_PHOTO", photo.createdAt, "Lease-compliance photo uploaded", photo.originalName, "leaseCompliance", { issueId: issue.id, photoId: photo.id, photoCategory: photo.photoCategory })),
+        ...issue.noticeActions.map((action) => event("LEASE_COMPLIANCE_NOTICE", action.createdAt, "Lease notice updated", `${issue.issueTypeName}: ${action.noticeStage}`, "leaseCompliance", { issueId: issue.id, actionId: action.id, actedBy: action.actedByName })),
+        ...issue.persistenceChecks.map((check) => event("LEASE_COMPLIANCE_STILL_PERSISTS", check.createdAt, "Still persists", check.notes || `${issue.issueTypeName} still persists.`, "leaseCompliance", { issueId: issue.id, checkId: check.id, checkedBy: check.checkedByName })),
+        ...(issue.resolvedDate ? [event("LEASE_COMPLIANCE_RESOLVED", issue.resolvedDate, "Lease-compliance issue resolved", issue.resolutionNotes || issue.issueTypeName, "leaseCompliance", { issueId: issue.id })] : []),
+        ...(issue.archiveDate ? [event("LEASE_COMPLIANCE_ARCHIVED", issue.archiveDate, "Lease-compliance issue archived", issue.archiveNotes || issue.issueTypeName, "leaseCompliance", { issueId: issue.id })] : []),
       ]),
       ...audit.map((entry) => event(entry.action, entry.createdAt, entry.action.replace(/_/g, " "), entry.message, "audit", { auditId: entry.id, actor: entry.actorUser?.fullName ?? null, entityType: entry.entityType, entityId: entry.entityId })),
     ].sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
@@ -157,6 +177,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     });
     const recurringSignals = {
       pest: items.filter((item) => item.pestStatus && !["NONE", "TREATED"].includes(item.pestStatus)).length,
+      leaseCompliance: leaseComplianceIssues.filter((issue) => issue.recurringConcern || issue.managerReviewRequired).length,
       flooring: items.filter((item) => item.floorsStatus && item.floorsStatus !== "GOOD").length,
       paint: items.filter((item) => item.paintStatus && item.paintStatus !== "GOOD").length,
       vendor: items.filter((item) => item.vendorAssignments.length > 0).length,

@@ -42,7 +42,7 @@ MakeReadyOS keeps PM execution lightweight:
 - completion can require notes, photos, or pass/fail outcome based on the template
 - history is retained and not deleted as part of ordinary PM use
 
-This keeps recurring work visible without requiring a separate scheduler service.
+This keeps recurring work visible without requiring a separate scheduler service. The product decision is to keep PM request-driven and completion-driven rather than adding a background pre-generation daemon. Every PM overview, task, and calendar read ensures an open task exists for each active template, and each completion or skip immediately creates the next occurrence.
 
 ## Permissions
 
@@ -86,6 +86,7 @@ PM includes:
 - CSV export
 - Excel-compatible export
 - printable browser report
+- OpenAPI-documented `/api/pm` overview, template, task, calendar, history, attachment, and export endpoints for self-hosted integrations
 
 These exports are intended for operational review, supervisor follow-up, and simple compliance documentation.
 
@@ -99,7 +100,8 @@ Email, SMS, push, and external maintenance dispatch are not part of this foundat
 
 ## Current Limits
 
-- Native backup export/import does not yet include PM templates, tasks, attachments, or Wiki references.
-- Uploaded PM file bytes remain local upload storage and are not embedded in native JSON transfer.
-- No standalone background scheduler exists; recurring generation is request-driven and completion-driven.
+- Native backup/export now includes PM templates, generated tasks, attachment metadata, and PM Wiki references.
+- Uploaded PM file bytes remain local upload storage and are not embedded in native JSON transfer, so destination downloads still depend on the normal upload backup/restore path.
+- PM Wiki references restore only when the destination can resolve the referenced Wiki target.
+- No standalone background scheduler exists by design. Recurring generation is request-driven and completion-driven, which keeps deployment simpler while still ensuring active templates always surface an open task when PM views are used.
 - No approval workflow, vendor dispatch engine, inventory management, or accounting layer is included.

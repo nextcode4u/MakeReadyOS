@@ -16,6 +16,7 @@ export const notificationCategories = [
   "VENDOR",
   "PLANNING",
   "PM",
+  "LEASE_COMPLIANCE",
 ] as const;
 
 type NotificationCategory = (typeof notificationCategories)[number];

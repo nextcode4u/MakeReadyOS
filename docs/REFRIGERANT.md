@@ -13,7 +13,7 @@ The module tracks:
 - Final recovery from empty virgin cylinders before archival.
 - Repeated unit additions that may indicate a leak.
 - Capacity and recordkeeping warnings.
-- CSV operational exports.
+- CSV, Excel-compatible, printable HTML, and PDF operational exports.
 
 The module does not include QR-code inventory, Bluetooth scales, certification tracking, GPS, vendor compliance, accounting, or external reclaim integrations.
 
@@ -36,7 +36,7 @@ Managers and admins can dismiss repeated-addition leak flags. Only admins can ad
 - `Clean Recovery`: add/manage clean recovery cylinders and log clean recovery.
 - `Dirty Recovery`: add/manage dirty recovery cylinders and log dirty recovery.
 - `Unit History`: filtered transaction history by accessible property.
-- `Exports`: CSV downloads for usage, recovery, cylinders, compliance, unit history, and full audit reports.
+- `Exports`: CSV, Excel-compatible, printable HTML, and PDF downloads for usage, recovery, cylinders, compliance, unit history, and full audit reports.
 
 ## Tank Rules
 
@@ -83,7 +83,7 @@ The overview highlights:
 
 ## Exports And Backup
 
-CSV exports are available from the Refrigerant workspace for spreadsheet review and compliance handoff.
+Refrigerant reporting now includes CSV exports for spreadsheet review, Excel-compatible tab exports, printable HTML, and direct PDF output for compliance handoff.
 
 Native MakeReadyOS backup/export includes safe refrigerant operational data:
 
@@ -94,4 +94,4 @@ Native MakeReadyOS backup/export includes safe refrigerant operational data:
 
 Backups do not include secrets, sessions, API tokens, or external compliance credentials.
 
-PDF and Excel-specific report generation are planned for a later reporting pass. For now, CSV is the supported portable reporting format.
+Uploaded file-byte backup is not applicable here because the Refrigerant module currently stores operational records only and does not include an attachment surface.

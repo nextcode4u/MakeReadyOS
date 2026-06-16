@@ -1,0 +1,4 @@
+ALTER TABLE "ApiToken"
+ADD COLUMN "useCount" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN "lastUsedPath" TEXT,
+ADD COLUMN "lastUsedMethod" TEXT;

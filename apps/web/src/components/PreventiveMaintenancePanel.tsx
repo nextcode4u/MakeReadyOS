@@ -26,6 +26,7 @@ import {
 } from "../lib/api";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { StatusState } from "./StatusState";
+import { openProjectCreate } from "../lib/projectNavigation";
 
 type Props = {
   properties: Property[];
@@ -158,6 +159,24 @@ function TaskCard({
             <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Quick PM notes" />
           </label>
           <div className="pool-entry-actions">
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={() => openProjectCreate({
+                propertyId: task.propertyId,
+                source: "Preventive Maintenance",
+                recordType: "Recommendation",
+                title: task.taskName,
+                description: [task.description, task.instructions].filter(Boolean).join("\n\n"),
+                sourceRecordType: "PM_TASK",
+                sourceRecordId: task.id,
+                sourceRecordLabel: task.taskName,
+                area: task.category,
+                tags: ["preventive-maintenance", task.category.toLowerCase()],
+              })}
+            >
+              Create Recommendation
+            </button>
             <label className="button button-secondary pool-upload-button">
               Upload Photo/PDF
               <input
@@ -326,7 +345,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
           <select value={propertyId} onChange={(event) => setPropertyId(event.target.value)} aria-label="PM property">
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
           </select>
-          <a className="button secondary" href={preventiveMaintenancePrintableReportUrl({ propertyId })} target="_blank" rel="noreferrer">Printable / PDF</a>
+          <a className="button secondary" href={preventiveMaintenancePrintableReportUrl({ propertyId })} target="_blank" rel="noreferrer">PDF report</a>
           <a className="button secondary" href={preventiveMaintenanceExportCsvUrl({ propertyId })}>Export CSV</a>
           <a className="button secondary" href={preventiveMaintenanceExportExcelUrl({ propertyId })}>Export Excel</a>
         </div>
@@ -584,11 +603,11 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
           <article className="pool-card">
             <h2>Exports</h2>
             <div className="export-grid">
-              <a className="button button-secondary" href={preventiveMaintenancePrintableReportUrl({ propertyId })} target="_blank" rel="noreferrer">PM Completion Report / PDF</a>
+              <a className="button button-secondary" href={preventiveMaintenancePrintableReportUrl({ propertyId })} target="_blank" rel="noreferrer">PM Completion PDF Report</a>
               <a className="button button-secondary" href={preventiveMaintenanceExportCsvUrl({ propertyId })}>PM Compliance CSV</a>
               <a className="button button-secondary" href={preventiveMaintenanceExportExcelUrl({ propertyId })}>Overdue / History Excel</a>
             </div>
-            <p className="muted">Printable HTML is intended for browser print-to-PDF workflows. CSV and Excel-compatible exports are available directly.</p>
+            <p className="muted">PM exports now include a direct PDF report alongside CSV and Excel-compatible formats.</p>
           </article>
           <article className="pool-card">
             <h2>Compliance Snapshot</h2>

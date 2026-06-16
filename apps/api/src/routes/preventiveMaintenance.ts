@@ -9,7 +9,9 @@ import { z } from "zod";
 import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { createNotification, notifyPropertyRoles } from "../lib/notifications.js";
+import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
+import { queueWebhookEvent } from "../lib/webhookQueue.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
 
 const pmCategories = ["Pool", "Gate", "HVAC", "Electrical", "Fire Safety", "Irrigation", "Roof", "Grounds", "Building", "Clubhouse", "General", "Other"] as const;
@@ -21,7 +23,7 @@ const completionOutcomes = ["PASS", "FAIL", "COMPLETE", "SKIPPED"] as const;
 const allowedAttachmentExtensions = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".heic", ".heif", ".bmp", ".tif", ".tiff", ".pdf"]);
 const allowedAttachmentTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/heic", "image/heif", "image/bmp", "image/tiff", "application/pdf"]);
 
-const templateSchema = z.object({
+export const preventiveMaintenanceTemplateSchema = z.object({
   propertyId: z.string().min(1),
   name: z.string().trim().min(1).max(140),
   category: z.enum(pmCategories),
@@ -41,7 +43,7 @@ const templateSchema = z.object({
   isArchived: z.boolean().optional(),
 });
 
-const taskQuerySchema = z.object({
+export const preventiveMaintenanceTaskQuerySchema = z.object({
   propertyId: z.string().optional(),
   category: z.enum(pmCategories).optional(),
   status: z.enum(pmStatuses).optional(),
@@ -54,16 +56,16 @@ const taskQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-const historyQuerySchema = taskQuerySchema.extend({
+export const preventiveMaintenanceHistoryQuerySchema = preventiveMaintenanceTaskQuerySchema.extend({
   completedById: z.string().optional(),
 });
 
-const taskCompleteSchema = z.object({
+export const preventiveMaintenanceTaskCompleteSchema = z.object({
   outcome: z.enum(["PASS", "FAIL", "COMPLETE"]),
   notes: z.string().trim().max(4000).nullable().optional(),
 });
 
-const taskSkipSchema = z.object({
+export const preventiveMaintenanceTaskSkipSchema = z.object({
   notes: z.string().trim().max(4000).nullable().optional(),
 });
 
@@ -447,7 +449,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
 
   app.post("/pm/templates", async (request, reply) => {
     if (!requirePmAccess(request, reply, "edit")) return;
-    const input = templateSchema.parse(request.body);
+    const input = preventiveMaintenanceTemplateSchema.parse(request.body);
     await assertPropertyAccess(request, input.propertyId);
     const assignedUser = await findAssignablePmUser({
       propertyId: input.propertyId,
@@ -474,6 +476,25 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
       action: "PM_TEMPLATE_CREATED",
       message: `Created PM template ${template.name}`,
     });
+    await queueWebhookEvent({
+      eventType: "pm.template.created",
+      propertyId: template.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        templateId: template.id,
+        propertyId: template.propertyId,
+        propertyCode: template.property.code,
+        name: template.name,
+        category: template.category,
+        frequency: template.frequency,
+        assignedRole: template.assignedRole,
+        assignedUserId: template.assignedUserId,
+        assignedUserName: template.assignedUserName,
+        priority: template.priority,
+        isActive: template.isActive,
+        isArchived: template.isArchived,
+      },
+    });
     reply.code(201);
     return { template };
   });
@@ -481,7 +502,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
   app.patch("/pm/templates/:id", async (request, reply) => {
     if (!requirePmAccess(request, reply, "edit")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = templateSchema.partial().parse(request.body);
+    const input = preventiveMaintenanceTemplateSchema.partial().parse(request.body);
     const existing = await prisma.preventiveMaintenanceTemplate.findUnique({ where: { id } });
     if (!existing) throw Object.assign(new Error("PM template not found"), { statusCode: 404 });
     await assertPropertyAccess(request, existing.propertyId);
@@ -531,12 +552,30 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
       action: "PM_TEMPLATE_UPDATED",
       message: `Updated PM template ${template.name}`,
     });
+    await queueWebhookEvent({
+      eventType: "pm.template.updated",
+      propertyId: template.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        templateId: template.id,
+        propertyId: template.propertyId,
+        name: template.name,
+        category: template.category,
+        frequency: template.frequency,
+        assignedRole: template.assignedRole,
+        assignedUserId: template.assignedUserId,
+        assignedUserName: template.assignedUserName,
+        priority: template.priority,
+        isActive: template.isActive,
+        isArchived: template.isArchived,
+      },
+    });
     return { template };
   });
 
   app.get("/pm/tasks", async (request, reply) => {
     if (!requirePmAccess(request, reply, "view")) return;
-    const query = taskQuerySchema.parse(request.query);
+    const query = preventiveMaintenanceTaskQuerySchema.parse(request.query);
     const scoped = propertyScopeWhere(request, query.propertyId);
     if (scoped.denied) return reply.code(403).send({ message: "Property access denied" });
     await ensureGeneratedTasks(request, query.propertyId);
@@ -601,7 +640,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
 
   app.get("/pm/history", async (request, reply) => {
     if (!requirePmAccess(request, reply, "view")) return;
-    const query = historyQuerySchema.parse(request.query);
+    const query = preventiveMaintenanceHistoryQuerySchema.parse(request.query);
     const scoped = propertyScopeWhere(request, query.propertyId);
     if (scoped.denied) return reply.code(403).send({ message: "Property access denied" });
     const tasks = await prisma.preventiveMaintenanceTask.findMany({
@@ -640,7 +679,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
   app.post("/pm/tasks/:id/complete", async (request, reply) => {
     if (!requirePmAccess(request, reply, "edit")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = taskCompleteSchema.parse(request.body);
+    const input = preventiveMaintenanceTaskCompleteSchema.parse(request.body);
     const task = await prisma.preventiveMaintenanceTask.findUnique({
       where: { id },
       include: { template: true, attachments: true },
@@ -679,13 +718,34 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
       action: "PM_TASK_COMPLETED",
       message: `Completed PM task ${updated.taskName} (${input.outcome})`,
     });
+    await queueWebhookEvent({
+      eventType: "pm.task.completed",
+      propertyId: updated.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        taskId: updated.id,
+        templateId: updated.templateId,
+        propertyId: updated.propertyId,
+        propertyCode: updated.property.code,
+        taskName: updated.taskName,
+        category: updated.category,
+        assignedRole: updated.assignedRole,
+        assignedUserId: updated.assignedUserId,
+        assignedUserName: updated.assignedUserName,
+        priority: updated.priority,
+        dueDate: updated.dueDate,
+        completionOutcome: updated.completionOutcome,
+        completionNotes: updated.completionNotes,
+        completedAt: updated.completedAt,
+      },
+    });
     return { task: updated };
   });
 
   app.post("/pm/tasks/:id/skip", async (request, reply) => {
     if (!requirePmAccess(request, reply, "edit")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = taskSkipSchema.parse(request.body);
+    const input = preventiveMaintenanceTaskSkipSchema.parse(request.body);
     const task = await prisma.preventiveMaintenanceTask.findUnique({
       where: { id },
       include: { template: true },
@@ -714,6 +774,27 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
       entityId: updated.id,
       action: "PM_TASK_SKIPPED",
       message: `Skipped PM task ${updated.taskName}`,
+    });
+    await queueWebhookEvent({
+      eventType: "pm.task.skipped",
+      propertyId: updated.propertyId,
+      actorUserId: request.currentUser!.id,
+      data: {
+        taskId: updated.id,
+        templateId: updated.templateId,
+        propertyId: updated.propertyId,
+        propertyCode: updated.property.code,
+        taskName: updated.taskName,
+        category: updated.category,
+        assignedRole: updated.assignedRole,
+        assignedUserId: updated.assignedUserId,
+        assignedUserName: updated.assignedUserName,
+        priority: updated.priority,
+        dueDate: updated.dueDate,
+        completionOutcome: updated.completionOutcome,
+        completionNotes: updated.completionNotes,
+        completedAt: updated.completedAt,
+      },
     });
     return { task: updated };
   });
@@ -772,7 +853,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
 
   app.get("/pm/export.csv", async (request, reply) => {
     if (!requirePmAccess(request, reply, "view")) return;
-    const query = historyQuerySchema.parse(request.query);
+    const query = preventiveMaintenanceHistoryQuerySchema.parse(request.query);
     const scoped = propertyScopeWhere(request, query.propertyId);
     if (scoped.denied) return reply.code(403).send({ message: "Property access denied" });
     const tasks = await prisma.preventiveMaintenanceTask.findMany({
@@ -809,7 +890,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
 
   app.get("/pm/export.xls", async (request, reply) => {
     if (!requirePmAccess(request, reply, "view")) return;
-    const query = historyQuerySchema.parse(request.query);
+    const query = preventiveMaintenanceHistoryQuerySchema.parse(request.query);
     const scoped = propertyScopeWhere(request, query.propertyId);
     if (scoped.denied) return reply.code(403).send({ message: "Property access denied" });
     const tasks = await prisma.preventiveMaintenanceTask.findMany({
@@ -842,7 +923,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
 
   app.get("/pm/report.html", async (request, reply) => {
     if (!requirePmAccess(request, reply, "view")) return;
-    const query = historyQuerySchema.parse(request.query);
+    const query = preventiveMaintenanceHistoryQuerySchema.parse(request.query);
     const scoped = propertyScopeWhere(request, query.propertyId);
     if (scoped.denied) return reply.code(403).send({ message: "Property access denied" });
     const tasks = await prisma.preventiveMaintenanceTask.findMany({
@@ -881,5 +962,50 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
 </html>`;
     reply.header("Content-Type", "text/html; charset=utf-8");
     return reply.send(html);
+  });
+
+  app.get("/pm/report.pdf", async (request, reply) => {
+    if (!requirePmAccess(request, reply, "view")) return;
+    const query = preventiveMaintenanceHistoryQuerySchema.parse(request.query);
+    const scoped = propertyScopeWhere(request, query.propertyId);
+    if (scoped.denied) return reply.code(403).send({ message: "Property access denied" });
+    const tasks = await prisma.preventiveMaintenanceTask.findMany({
+      where: { propertyId: scoped.where },
+      include: { property: true, template: true, attachments: true },
+      orderBy: [{ dueDate: "asc" }, { completedAt: "desc" }],
+    });
+    const normalized = tasks.map((task) => ({ ...task, status: derivedTaskStatus(task) })).filter((task) => !query.status || task.status === query.status).filter((task) => taskMatchesQuery(task, query.q));
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Preventive Maintenance Report</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+    h1 { margin-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f3f4f6; }
+  </style>
+</head>
+<body>
+  <h1>Preventive Maintenance Report</h1>
+  <p>Generated ${htmlEscape(new Date().toLocaleString())}</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Property</th><th>Task</th><th>Category</th><th>Due Date</th><th>Assigned Role</th><th>Assigned User</th><th>Status</th><th>Priority</th><th>Completed By</th><th>Outcome</th><th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${normalized.map((task) => `<tr><td>${htmlEscape(task.property.code)}</td><td>${htmlEscape(task.taskName)}</td><td>${htmlEscape(task.category)}</td><td>${htmlEscape(task.dueDate.toLocaleDateString())}</td><td>${htmlEscape(task.assignedRole)}</td><td>${htmlEscape(task.assignedUserName ?? "")}</td><td>${htmlEscape(task.status)}</td><td>${htmlEscape(task.priority)}</td><td>${htmlEscape(task.completedByName ?? "")}</td><td>${htmlEscape(task.completionOutcome ?? "")}</td><td>${htmlEscape(task.completionNotes ?? "")}</td></tr>`).join("")}
+    </tbody>
+  </table>
+</body>
+</html>`;
+    const pdf = await renderPdfFromHtml(html);
+    reply.header("Content-Type", "application/pdf");
+    reply.header("Content-Disposition", 'inline; filename="pm-report.pdf"');
+    return reply.send(pdf);
   });
 }

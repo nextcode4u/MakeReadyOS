@@ -14,7 +14,7 @@ MakeReadyOS remains table-first while preparing for larger operating datasets:
 - Custom-field filters validate active field definitions and select options, then narrow through indexed `CustomFieldValue.customFieldId` lookups before final item pagination/counting. Operators that require absence checks still compare against the scoped item set, but positive text/status/date/number/user filters no longer scan every board item first.
 - Large secondary workspaces such as Dashboard, Vendors, Maps, Frog Pond, Automations, Admin/Integrations, Activity, My Work, Planning, Setup, Fields, Kanban, Schedule, and the item drawer are lazy-loaded so the initial board shell does not pull every operational surface into the first Vite chunk.
 - The production web build also separates React, React Query, and other vendor modules into explicit Vite chunks. This removed the previous oversized main app chunk warning while preserving the table-first startup shell.
-- API token calls are protected by a basic in-memory per-token rate limiter controlled by `API_TOKEN_RATE_LIMIT_MAX` and `API_TOKEN_RATE_LIMIT_WINDOW_MINUTES`.
+- API token calls are protected by a database-backed per-token rate limiter controlled by `API_TOKEN_RATE_LIMIT_MAX` and `API_TOKEN_RATE_LIMIT_WINDOW_MINUTES`, so the cap is shared across API replicas instead of being process-local.
 - Historical analytics use a small property/day snapshot table instead of repeatedly scanning all historical turn data for trend charts.
 - Workload planning reads are windowed by planned date and indexed by property/user/date so the foundation can scale before a full scheduling engine exists.
 

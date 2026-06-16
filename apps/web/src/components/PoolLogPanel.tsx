@@ -20,6 +20,7 @@ import {
 } from "../lib/api";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { StatusState } from "./StatusState";
+import { openProjectCreate } from "../lib/projectNavigation";
 
 type PoolTab = "overview" | "daily" | "setup" | "chemicals" | "history";
 
@@ -98,6 +99,7 @@ function formatPoolChemicalAmount(amount: number, unit: PoolChemical["unit"]) {
 
 function PoolEntryRow({ entry, canEdit, onUpload }: { entry: PoolLogEntry; canEdit: boolean; onUpload: (entryId: string, files: FileList | null) => void }) {
   const evaluation = entry.evaluationJson;
+  const needsFollowUp = evaluation?.status === "REVIEW" || entry.safetyChecks.some((check) => check.value === "FAIL");
   return (
     <div className="pool-history-row" data-testid="pool-history-row">
       <div>
@@ -117,6 +119,30 @@ function PoolEntryRow({ entry, canEdit, onUpload }: { entry: PoolLogEntry; canEd
       </div>
       <span className={`status-pill ${evaluation?.status === "REVIEW" ? "risk-high" : ""}`}>{evaluation?.status ?? "Logged"}</span>
       <div className="pool-entry-actions">
+        {canEdit ? (
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={() => openProjectCreate({
+              propertyId: entry.propertyId,
+              source: "Pool Log",
+              recordType: "Recommendation",
+              title: `${entry.facility.name} follow-up`,
+              description: [
+                `Pool log follow-up from ${new Date(entry.logDate).toLocaleDateString()}${entry.logTime ? ` ${entry.logTime}` : ""}.`,
+                entry.notes ?? "",
+              ].filter(Boolean).join("\n\n"),
+              sourceRecordType: "POOL_LOG_ENTRY",
+              sourceRecordId: entry.id,
+              sourceRecordLabel: entry.facility.name,
+              building: entry.facility.name,
+              area: entry.facility.type.replace(/_/g, " "),
+              tags: ["pool-log", needsFollowUp ? "review" : "follow-up"],
+            })}
+          >
+            Create Recommendation
+          </button>
+        ) : null}
         {entry.attachments?.length ? (
           <div className="pool-attachment-list">
             {entry.attachments.slice(0, 3).map((attachment) => (
@@ -306,7 +332,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId }: Props
             <option value="">All accessible properties</option>
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
           </select>
-          <a className="button secondary" data-testid="pool-report-printable" href={poolLogPrintableReportUrl({ propertyId: propertyId || undefined })} target="_blank" rel="noreferrer">Printable report</a>
+          <a className="button secondary" data-testid="pool-report-printable" href={poolLogPrintableReportUrl({ propertyId: propertyId || undefined })} target="_blank" rel="noreferrer">PDF report</a>
           <a className="button secondary" data-testid="pool-export-csv" href={poolLogExportCsvUrl({ propertyId: propertyId || undefined })}>Export CSV</a>
         </div>
       </div>

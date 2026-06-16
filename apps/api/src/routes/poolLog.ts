@@ -9,6 +9,8 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { notifyPropertyRoles } from "../lib/notifications.js";
+import { renderPdfFromHtml } from "../lib/pdf.js";
+import { queueWebhookEvent } from "../lib/webhookQueue.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
 
 const poolTypes = ["POOL", "SPA", "WADING_POOL", "SPLASH_PAD", "OTHER"] as const;
@@ -556,6 +558,26 @@ export async function poolLogRoutes(app: FastifyInstance) {
       include: { property: true, facility: true, safetyChecks: true, chemicalAdditions: true, attachments: true },
     });
     await writeAuditLog({ request, propertyId: entry.propertyId, entityType: "PoolLogEntry", entityId: entry.id, action: "Pool Log Created", message: `Logged pool/spa check for ${entry.facility.name}` });
+    await queueWebhookEvent({
+      eventType: "pool.entry.created",
+      propertyId: entry.propertyId,
+      actorUserId: request.currentUser?.id ?? null,
+      data: {
+        entryId: entry.id,
+        propertyId: entry.propertyId,
+        propertyCode: entry.property.code,
+        facilityId: entry.facilityId,
+        facilityName: entry.facility.name,
+        facilityType: entry.facility.type,
+        logDate: entry.logDate,
+        logTime: entry.logTime,
+        technicianId: entry.technicianId,
+        technicianName: entry.technicianName,
+        notes: entry.notes,
+        safetyFailureCount: entry.safetyChecks.filter((check) => check.value === "FAIL").length,
+        chemicalAdditionCount: entry.chemicalAdditions.length,
+      },
+    });
     await notifyPoolReviewIfNeeded({
       propertyId: entry.propertyId,
       facilityName: entry.facility.name,
@@ -625,6 +647,66 @@ export async function poolLogRoutes(app: FastifyInstance) {
       </body></html>`;
     reply.header("content-type", "text/html; charset=utf-8");
     return html;
+  });
+
+  app.get("/pool/report.pdf", async (request, reply) => {
+    const access = roleAccess(request.currentUser?.role ?? "VIEWER");
+    if (!access.view) throw Object.assign(new Error("Pool report access denied"), { statusCode: 403 });
+    const query = z.object({ propertyId: z.string().optional(), from: z.string().optional(), to: z.string().optional() }).parse(request.query);
+    if (query.propertyId) await assertPropertyAccess(request, query.propertyId);
+    const allowed = await allowedPropertyIds(request);
+    const entries = await prisma.poolLogEntry.findMany({
+      where: {
+        propertyId: query.propertyId ?? { in: allowed },
+        ...(query.from || query.to ? { logDate: { ...(query.from ? { gte: dateOnly(new Date(query.from)) } : {}), ...(query.to ? { lte: endOfDay(new Date(query.to)) } : {}) } } : {}),
+      },
+      include: { property: true, facility: true, safetyChecks: true, chemicalAdditions: true, attachments: true },
+      orderBy: [{ logDate: "desc" }, { createdAt: "desc" }],
+      take: 250,
+    });
+    const reviewCount = entries.filter((entry) => (entry.evaluationJson as { status?: string } | null)?.status === "REVIEW" || entry.safetyChecks.some((check) => check.value === "FAIL")).length;
+    const rows = entries.map((entry) => {
+      const evaluation = entry.evaluationJson as { status?: string; issues?: Array<{ message?: string }> } | null;
+      return `<tr>
+        <td>${htmlEscape(entry.property.code)}</td>
+        <td>${htmlEscape(entry.facility.name)}</td>
+        <td>${htmlEscape(entry.logDate.toISOString().slice(0, 10))}</td>
+        <td>${htmlEscape(entry.logTime ?? "")}</td>
+        <td>${htmlEscape(entry.technicianName ?? "")}</td>
+        <td>${htmlEscape(entry.ph ?? "")}</td>
+        <td>${htmlEscape(entry.freeChlorine ?? "")}</td>
+        <td>${htmlEscape(entry.combinedChlorine ?? "")}</td>
+        <td>${htmlEscape(evaluation?.status ?? "Logged")}</td>
+        <td>${htmlEscape((evaluation?.issues ?? []).map((issue) => issue.message ?? "").join("; "))}</td>
+        <td>${htmlEscape(entry.safetyChecks.filter((check) => check.value === "FAIL").map((check) => check.label).join("; "))}</td>
+        <td>${htmlEscape(entry.chemicalAdditions.map((addition) => `${addition.chemicalName} ${formatChemicalAdditionAmount(addition.amount, addition.unit)}`).join("; "))}</td>
+        <td>${htmlEscape(entry.attachments.length)}</td>
+      </tr>`;
+    }).join("");
+    const html = `<!doctype html>
+      <html><head><meta charset="utf-8"><title>MakeReadyOS Pool Log Report</title>
+      <style>
+        body{font-family:Arial,sans-serif;color:#111827;margin:24px}
+        h1{margin:0 0 4px} .muted{color:#4b5563}
+        .summary{display:flex;gap:12px;margin:18px 0;flex-wrap:wrap}
+        .card{border:1px solid #d1d5db;border-radius:8px;padding:10px 14px}
+        .card strong{display:block;font-size:22px}
+        table{width:100%;border-collapse:collapse;font-size:12px}
+        th,td{border:1px solid #d1d5db;padding:6px;text-align:left;vertical-align:top}
+        th{background:#f3f4f6}
+      </style></head><body>
+      <h1>MakeReadyOS Pool Log Report</h1>
+      <p class="muted">Generated ${htmlEscape(new Date().toLocaleString())}</p>
+      <div class="summary">
+        <div class="card"><strong>${entries.length}</strong><span>Log entries</span></div>
+        <div class="card"><strong>${reviewCount}</strong><span>Review entries</span></div>
+      </div>
+      <table><thead><tr><th>Property</th><th>Pool/Spa</th><th>Date</th><th>Time</th><th>Tech</th><th>pH</th><th>FC</th><th>CC</th><th>Status</th><th>Chemistry issues</th><th>Safety failures</th><th>Chemicals</th><th>Files</th></tr></thead><tbody>${rows || "<tr><td colspan=\"13\">No pool logs found.</td></tr>"}</tbody></table>
+      </body></html>`;
+    const pdf = await renderPdfFromHtml(html);
+    reply.header("content-type", "application/pdf");
+    reply.header("content-disposition", 'inline; filename="pool-log-report.pdf"');
+    return reply.send(pdf);
   });
 
   app.post("/pool/entries/:id/attachments", async (request, reply) => {

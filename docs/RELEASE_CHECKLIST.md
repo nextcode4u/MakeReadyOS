@@ -18,6 +18,7 @@ Run:
 
 ```bash
 ./doctor.sh
+./check-migration-hygiene.sh
 ./build.sh
 ./test.sh
 ./e2e.sh
@@ -45,6 +46,7 @@ For a fresh instance, complete or intentionally skip the in-app setup guide.
 ## Backup Verification
 
 - Run `./backup-db.sh`.
+- Run `./check-migration-hygiene.sh` before assuming migration-only release upgrades are safe on the current stack. The helper now checks Prisma migration history status, live-db-vs-schema drift, and applied migration file checksums.
 - Confirm a new dump exists in `backups/`.
 - Run `./backup-uploads.sh` when attachments/photos/property maps exist.
 - Run `./move-uploads.sh <host-path> --dry-run` before moving uploads from Docker's managed volume to host/NAS storage.

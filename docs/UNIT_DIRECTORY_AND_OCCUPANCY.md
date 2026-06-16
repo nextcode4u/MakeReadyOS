@@ -195,6 +195,7 @@ Use availability import in two different ways:
 
 - Initial availability import: creates or updates units and creates active make-ready turns for non-occupied operational statuses.
 - Recurring availability import: compares the new report to existing active turns by property + unit. The preview warns when applicant, status, dates, or days vacant differ. Provided report values update the active turn; omitted report fields do not wipe existing local values.
+- Stale-report failsafe: if the incoming report would overwrite newer or more advanced local board values, MakeReadyOS blocks the import and returns the conflicting units for review until an operator explicitly overrides the report.
 
 If using an AI assistant or another conversion tool, give it instructions like:
 

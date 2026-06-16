@@ -31,9 +31,10 @@ export async function dashboardRoutes(app: FastifyInstance) {
       return { message: "Property access denied" };
     }
     const propertyId = query.propertyId ?? (accessible === null ? undefined : { in: accessible });
-    const [items, archivedCount, sections, vendorAssignments, unitsCount, mapLocations, workBlocks, directoryUnits] = await Promise.all([
+    const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [items, archivedCount, sections, vendorAssignments, unitsCount, mapLocations, workBlocks, directoryUnits, propertyMaps, propertyMapPins, recentAudit] = await Promise.all([
       prisma.makeReadyItem.findMany({
-        where: { propertyId, isArchived: false, property: { isActive: true } },
+        where: { propertyId, property: { isActive: true } },
         include: {
           property: true,
           comments: { where: { isDeleted: false }, orderBy: { createdAt: "desc" }, take: 1 },
@@ -61,6 +62,27 @@ export async function dashboardRoutes(app: FastifyInstance) {
         where: { propertyId, isActive: true, isBudgeted: true, property: { isActive: true } },
         select: { occupancyStatus: true, property: { select: { id: true, occupancyGoalPercent: true } } },
       }),
+      prisma.propertyMap.findMany({
+        where: { propertyId, isArchived: false },
+        select: { id: true, name: true, mapType: true, isActive: true, isDefault: true, updatedAt: true },
+        orderBy: [{ isDefault: "desc" }, { isActive: "desc" }, { updatedAt: "desc" }],
+      }),
+      prisma.propertyMapPin.findMany({
+        where: { propertyId, isArchived: false },
+        include: { map: { select: { id: true, name: true } } },
+        orderBy: [{ isEmergency: "desc" }, { updatedAt: "desc" }],
+      }),
+      prisma.auditLog.findMany({
+        where: {
+          propertyId,
+          createdAt: { gte: last24Hours },
+          entityType: { in: ["MAKE_READY_ITEM", "AVAILABILITY_IMPORT"] },
+          action: { in: ["BOARD_ITEM_MARKED_READY", "BOARD_ITEM_ARCHIVED", "AVAILABILITY_SYNCED", "AVAILABILITY_IMPORTED"] },
+        },
+        include: { property: true },
+        orderBy: { createdAt: "desc" },
+        take: 80,
+      }),
     ]);
     const now = new Date();
     const inDays = (date: Date | null, days: number) => date && daysBetween(now, date) >= 0 && daysBetween(now, date) <= days;
@@ -83,7 +105,8 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const vacantLeasedStatuses = ["VACANT LEASED", "VACANT_LEASED", "VACANT LEASED READY", "VACANT LEASED NOT READY"];
     const readyStockStatuses = ["VACANT_READY", "VACANT NOT LEASED READY", "VACANT LEASED READY"];
     const ntvStatuses = ["NTV", "NTV NOT LEASED", "NTV_LEASED", "NTV LEASED"];
-    const evaluated = items.map((item) => ({
+    const activeItems = items.filter((item) => !item.isArchived);
+    const evaluated = activeItems.map((item) => ({
       item,
       risk: evaluateItemRisk({
         ...item,
@@ -132,26 +155,28 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const occupancyGoalPercent = goalUnits.length
       ? Math.round((goalUnits.reduce((sum, entry) => sum + entry.goal * entry.count, 0) / goalUnits.reduce((sum, entry) => sum + entry.count, 0)) * 10) / 10
       : 0;
+    const defaultMap = propertyMaps.find((map) => map.isDefault) ?? propertyMaps.find((map) => map.isActive) ?? propertyMaps[0] ?? null;
+    const utilityPinLabels = new Set(["Utility", "Pool", "Gate", "Fire System", "Access Control"]);
 
     return {
       kpis: {
-        active: items.length,
-        vacant: items.filter((item) => hasAnyStatus(item.vacancyStatus, vacantStatuses)).length,
-        vacantLeased: items.filter((item) => hasAnyStatus(item.vacancyStatus, vacantLeasedStatuses)).length,
-        ntv: items.filter((item) => item.vacancyStatus?.startsWith("NTV")).length,
-        downUnits: items.filter((item) => sectionType.get(`${item.propertyId}:${item.boardGroup}`) === "DOWN").length,
-        readyUnits: items.filter((item) => sectionType.get(`${item.propertyId}:${item.boardGroup}`) === "READY").length,
+        active: activeItems.length,
+        vacant: activeItems.filter((item) => hasAnyStatus(item.vacancyStatus, vacantStatuses)).length,
+        vacantLeased: activeItems.filter((item) => hasAnyStatus(item.vacancyStatus, vacantLeasedStatuses)).length,
+        ntv: activeItems.filter((item) => item.vacancyStatus?.startsWith("NTV")).length,
+        downUnits: activeItems.filter((item) => sectionType.get(`${item.propertyId}:${item.boardGroup}`) === "DOWN").length,
+        readyUnits: activeItems.filter((item) => sectionType.get(`${item.propertyId}:${item.boardGroup}`) === "READY").length,
         archived: archivedCount,
-        moveInsThisWeek: items.filter((item) => inCurrentWeek(item.moveInDate)).length,
-        moveInsNext7Days: items.filter((item) => inDays(item.moveInDate, 7)).length,
-        moveInsNext14Days: items.filter((item) => inDays(item.moveInDate, 14)).length,
-        overdue: items.filter((item) => item.overdue).length,
-        averageDaysVacant: items.length ? Math.round(items.reduce((total, item) => total + item.daysVacant, 0) / items.length) : 0,
-        missingTech: items.filter((item) => !item.assignedTech).length,
-        missingCriticalDates: items.filter((item) => !item.makeReadyDate || !item.vacatedDate).length,
-        pestIssues: items.filter((item) => item.pestStatus && !["NONE", "TREATED"].includes(item.pestStatus)).length,
-        flooringNeeds: items.filter((item) => item.floorsStatus === "REPLACE CARPET").length,
-        paintNeeds: items.filter((item) => item.paintStatus && item.paintStatus !== "GOOD").length,
+        moveInsThisWeek: activeItems.filter((item) => inCurrentWeek(item.moveInDate)).length,
+        moveInsNext7Days: activeItems.filter((item) => inDays(item.moveInDate, 7)).length,
+        moveInsNext14Days: activeItems.filter((item) => inDays(item.moveInDate, 14)).length,
+        overdue: activeItems.filter((item) => item.overdue).length,
+        averageDaysVacant: activeItems.length ? Math.round(activeItems.reduce((total, item) => total + item.daysVacant, 0) / activeItems.length) : 0,
+        missingTech: activeItems.filter((item) => !item.assignedTech).length,
+        missingCriticalDates: activeItems.filter((item) => !item.makeReadyDate || !item.vacatedDate).length,
+        pestIssues: activeItems.filter((item) => item.pestStatus && !["NONE", "TREATED"].includes(item.pestStatus)).length,
+        flooringNeeds: activeItems.filter((item) => item.floorsStatus === "REPLACE CARPET").length,
+        paintNeeds: activeItems.filter((item) => item.paintStatus && item.paintStatus !== "GOOD").length,
         moveInRisk: evaluated.filter((entry) => entry.risk.riskReasons.some((reason) => reason.category === "MOVE_IN_RISK" || reason.category === "DATE_CONFLICT")).length,
         riskCritical: riskByLevel.CRITICAL ?? 0,
         riskHigh: riskByLevel.HIGH ?? 0,
@@ -175,10 +200,10 @@ export async function dashboardRoutes(app: FastifyInstance) {
         directoryNtvLeased,
         readyStock: items.filter((item) => sectionType.get(`${item.propertyId}:${item.boardGroup}`) === "READY" && !item.isArchived).length,
       },
-      vacancyBreakdown: breakdown(items.map((item) => item.vacancyStatus ?? "Unset")),
-      scopeBreakdown: breakdown(items.map((item) => item.scopeLevel ?? "Unset")),
-      techWorkload: breakdown(items.map((item) => item.assignedTech ?? "Unassigned")),
-      propertyComparison: breakdown(items.map((item) => item.property.code)),
+      vacancyBreakdown: breakdown(activeItems.map((item) => item.vacancyStatus ?? "Unset")),
+      scopeBreakdown: breakdown(activeItems.map((item) => item.scopeLevel ?? "Unset")),
+      techWorkload: breakdown(activeItems.map((item) => item.assignedTech ?? "Unassigned")),
+      propertyComparison: breakdown(activeItems.map((item) => item.property.code)),
       riskByLevel,
       riskByCategory,
       riskByProperty: evaluated.reduce<Record<string, number>>((acc, entry) => {
@@ -195,10 +220,113 @@ export async function dashboardRoutes(app: FastifyInstance) {
         acc[area] = (acc[area] ?? 0) + 1;
         return acc;
       }, {}),
-      longestVacant: [...items].sort((a, b) => b.daysVacant - a.daysVacant).slice(0, 5).map((item) => ({
+      longestVacant: [...activeItems].sort((a, b) => b.daysVacant - a.daysVacant).slice(0, 5).map((item) => ({
         itemId: item.id, unitNumber: item.unitNumber, property: item.property, daysVacant: item.daysVacant,
       })),
       needsAttention,
+      recentStatusChanges: [
+        ...activeItems
+          .filter((item) => item.vacatedDate && item.vacatedDate >= last24Hours)
+          .map((item) => ({
+            key: `vacated:${item.id}:${item.vacatedDate?.toISOString()}`,
+            itemId: item.id,
+            unitNumber: item.unitNumber,
+            property: item.property,
+            changeType: "VACATED",
+            title: "Came vacant",
+            detail: item.vacatedDate ? `Vacated ${item.vacatedDate.toISOString().slice(0, 10)}` : "Vacated",
+            changedAt: item.vacatedDate!.toISOString(),
+            source: "board",
+          })),
+        ...activeItems
+          .filter((item) => item.moveOutDate && item.moveOutDate >= last24Hours)
+          .map((item) => ({
+            key: `notice:${item.id}:${item.moveOutDate?.toISOString()}`,
+            itemId: item.id,
+            unitNumber: item.unitNumber,
+            property: item.property,
+            changeType: "NOTICE",
+            title: "Notice logged",
+            detail: item.moveOutDate ? `NTV ${item.moveOutDate.toISOString().slice(0, 10)}` : "Notice to vacate updated",
+            changedAt: item.moveOutDate!.toISOString(),
+            source: "board",
+          })),
+        ...recentAudit.flatMap((entry) => {
+          const item = entry.entityId ? items.find((candidate) => candidate.id === entry.entityId) : null;
+          if (!item || !entry.property) return [];
+          if (entry.action === "BOARD_ITEM_MARKED_READY") {
+            return [{
+              key: `ready:${entry.id}`,
+              itemId: item.id,
+              unitNumber: item.unitNumber,
+              property: item.property,
+              changeType: "READY",
+              title: "Marked ready",
+              detail: "Passed final walk and moved to Ready Units.",
+              changedAt: entry.createdAt.toISOString(),
+              source: "board",
+            }];
+          }
+          if (entry.action === "BOARD_ITEM_ARCHIVED") {
+            return [{
+              key: `archive:${entry.id}`,
+              itemId: item.id,
+              unitNumber: item.unitNumber,
+              property: item.property,
+              changeType: "MOVED_IN",
+              title: "Moved in / archived",
+              detail: "Turn archived after move-in or completion.",
+              changedAt: entry.createdAt.toISOString(),
+              source: "board",
+            }];
+          }
+          if (entry.action === "AVAILABILITY_SYNCED") {
+            const metadata = (entry.metadata ?? {}) as Record<string, unknown>;
+            const vacancyStatus = typeof metadata.vacancyStatus === "string" ? metadata.vacancyStatus : item.vacancyStatus;
+            const title = vacancyStatus?.includes("READY")
+              ? "Availability marked ready"
+              : vacancyStatus?.startsWith("NTV")
+                ? "Availability updated notice"
+                : vacancyStatus?.includes("VACANT")
+                  ? "Availability updated vacancy"
+                  : "Availability synced";
+            const reportDate = typeof metadata.reportDate === "string" ? metadata.reportDate : null;
+            return [{
+              key: `availability:${entry.id}`,
+              itemId: item.id,
+              unitNumber: item.unitNumber,
+              property: item.property,
+              changeType: "AVAILABILITY",
+              title,
+              detail: reportDate ? `Report ${reportDate}` : "Imported from latest availability file.",
+              changedAt: entry.createdAt.toISOString(),
+              source: "availability",
+            }];
+          }
+          return [];
+        }),
+      ]
+        .sort((left, right) => new Date(right.changedAt).getTime() - new Date(left.changedAt).getTime())
+        .slice(0, 20),
+      propertyMaps: {
+        totalMaps: propertyMaps.length,
+        activeMaps: propertyMaps.filter((map) => map.isActive).length,
+        defaultMapName: defaultMap?.name ?? null,
+        totalPins: propertyMapPins.length,
+        emergencyPins: propertyMapPins.filter((pin) => pin.isEmergency).length,
+        utilityPins: propertyMapPins.filter((pin) => utilityPinLabels.has(pin.pinType)).length,
+        unmappedUnits: Math.max(0, unitsCount - mappedUnitIds.size),
+        recentPins: propertyMapPins.slice(0, 6).map((pin) => ({
+          id: pin.id,
+          title: pin.title,
+          pinType: pin.pinType,
+          mapName: pin.map.name,
+          isEmergency: pin.isEmergency,
+          building: pin.building,
+          unitLabel: pin.unitLabel,
+          area: pin.area,
+        })),
+      },
     };
   });
 }

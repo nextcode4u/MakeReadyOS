@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { apiTokenScopes, hashApiToken, requireAdmin } from "../lib/auth.js";
+import { apiTokenScopes, getApiTokenRateLimitConfig, hashApiToken, requireAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
 import { validateWebhookUrlForRegistration } from "../lib/webhookUrl.js";
@@ -37,20 +37,7 @@ export const webhookTestPayloadSchema = z.object({
   enqueue: z.boolean().default(false),
 });
 
-function publicToken(token: {
-  id: string;
-  name: string;
-  tokenPrefix: string;
-  tokenLastFour: string;
-  scopes: string[];
-  isActive: boolean;
-  revokedAt: Date | null;
-  lastUsedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-  propertyScopes: Array<{ property: { id: string; name: string; code: string } }>;
-  createdBy: { id: string; fullName: string; email: string };
-}) {
+function publicToken(token: any) {
   return {
     id: token.id,
     name: token.name,
@@ -59,11 +46,14 @@ function publicToken(token: {
     scopes: token.scopes,
     isActive: token.isActive,
     revokedAt: token.revokedAt,
+    useCount: token.useCount,
     lastUsedAt: token.lastUsedAt,
+    lastUsedPath: token.lastUsedPath,
+    lastUsedMethod: token.lastUsedMethod,
     createdAt: token.createdAt,
     updatedAt: token.updatedAt,
     createdBy: token.createdBy,
-    properties: token.propertyScopes.map((scope) => scope.property),
+    properties: token.propertyScopes.map((scope: any) => scope.property),
   };
 }
 
@@ -172,6 +162,7 @@ export async function integrationRoutes(app: FastifyInstance) {
 
     return {
       scopes: apiTokenScopes,
+      apiTokenRateLimit: getApiTokenRateLimitConfig(),
       webhookEvents: webhookEventTypes,
       apiTokens: apiTokens.map(publicToken),
       webhooks: webhooks.map(publicWebhook),

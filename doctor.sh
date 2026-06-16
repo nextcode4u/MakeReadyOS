@@ -95,7 +95,7 @@ else
   warn "docker compose is not available"
 fi
 
-for script in build.sh test.sh e2e.sh run-automations.sh run-analytics-snapshot.sh backup-db.sh restore-db.sh backup-uploads.sh restore-uploads.sh move-uploads.sh prune-backups.sh seed-large.sh reset-demo.sh; do
+for script in build.sh test.sh e2e.sh run-automations.sh run-analytics-snapshot.sh run-webhooks.sh backup-db.sh restore-db.sh backup-uploads.sh restore-uploads.sh move-uploads.sh route-existing-uploads.sh prune-backups.sh seed-large.sh reset-demo.sh check-migration-hygiene.sh update.sh; do
   [ -x "$script" ] || fail "$script is missing or not executable"
   bash -n "$script"
 done
@@ -116,6 +116,7 @@ if [ ! -d apps/api/prisma/migrations ] || ! find apps/api/prisma/migrations -min
   fail "Prisma migration files are missing"
 fi
 echo "Prisma migrations: present. For deployed updates run npm --prefix apps/api run db:deploy before starting the API."
+echo "For non-destructive drift/history checks on the running Compose database use ./check-migration-hygiene.sh."
 
 if [ "${UPLOAD_DIR:-/app/uploads}" != "/app/uploads" ]; then
   warn "UPLOAD_DIR is customized; verify backup-uploads.sh/restore-uploads.sh and host volume backups cover this path"

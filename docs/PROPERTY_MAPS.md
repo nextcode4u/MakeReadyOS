@@ -14,6 +14,9 @@ Property maps are a local, self-hosted foundation for visual unit navigation. Th
 - Managers/admins can add dedicated building, floor, area, or zone markers to the map. These markers store expected unit counts and coordinates separately from unit markers, which helps irregular properties, skipped building numbers, office buildings, and phased setup.
 - Map viewer colors markers by risk level, vacancy status, board section, assigned tech, or make-ready status.
 - Clicking a mapped unit marker opens the same operational item drawer when an active make-ready item exists.
+- Selected map units, areas, and shared pins can open prefilled recommendation capture in Projects, and the same map context can open a prefilled Pest Control quick-add request for fast field follow-up.
+- Dense marker clusters now spread slightly on the canvas instead of rendering as a single unreadable stack when several units/pins share the same area.
+- Shared map pins can now store local photo/PDF attachments for visual field context without forcing that information into a separate project or wiki record.
 - Unmapped units remain visible in the unit directory so setup gaps are obvious.
 
 ## Data Model
@@ -43,3 +46,4 @@ Map area markers are included in native backup/transfer because they are lightwe
 - There is no full building/floor hierarchy table yet; the current foundation uses unit-directory metadata plus persisted map area markers so simple properties, irregular building numbers, skipped office buildings, and mixed unit counts work without a rigid schema.
 - Marker dragging updates the same saved percentage coordinates as click-to-place. There is no bulk layout/import tool yet.
 - Heatmaps are not persisted yet; marker coloring is calculated from current board/risk state.
+- Shared map pin attachments still rely on the normal uploads backup path for file bytes; native transfer preserves attachment metadata only.

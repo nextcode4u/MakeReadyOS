@@ -4,11 +4,13 @@ import { z } from "zod";
 import { allowedPropertyIds, requireManagerOrAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { actionSchema, automationRuleBaseSchema, automationRuleInputSchema as createSchema, validateRuleReferences } from "../lib/automationDefinition.js";
+import { applyAutomationRules } from "../lib/automationAssignments.js";
 import { templateById, templateCatalog } from "../lib/automationTemplates.js";
-import { applyRules, computeDerivedFields, evaluateRuleConditions } from "../lib/board.js";
+import { computeDerivedFields, evaluateRuleConditions } from "../lib/board.js";
 import { prisma } from "../lib/prisma.js";
 import { executeScheduledAutomationRules } from "../lib/scheduledAutomations.js";
 
+export const automationCreateSchema = createSchema;
 export const automationUpdateSchema = automationRuleBaseSchema.partial().omit({ enabled: true });
 export const automationToggleSchema = z.object({ enabled: z.boolean() });
 export const automationListSchema = z.object({ includeArchived: z.coerce.boolean().default(false) });
@@ -129,6 +131,9 @@ function describeAction(action: z.infer<typeof actionSchema>, customFieldLabels:
   }
   if (action.type === "setPriority") {
     return { type: action.type, proposedValue: action.value, summary: `Set priority to ${action.value}` };
+  }
+  if (action.type === "assignLeastLoadedStaff") {
+    return { type: action.type, proposedValue: null, summary: "Assign to the least-loaded eligible staff member" };
   }
   return { type: action.type, proposedValue: action.value, summary: "Append item note" };
 }
@@ -346,28 +351,30 @@ export async function automationRoutes(app: FastifyInstance) {
     ];
     if (!definition.enabled) warnings.push("This rule is disabled. Preview evaluates it as if enabled.");
 
-    const matches = items.flatMap((item) => {
+    const previewRuleId = storedRule?.id ?? "draft-preview";
+    const matches = [];
+    for (const item of items) {
       const current = { ...item, ...computeDerivedFields(item) };
       const customValues = customValuesByField(item.customFieldValues);
       const conditionSummary = evaluateRuleConditions(current, definition.conditions, customValues);
-      if (!conditionSummary.matched) return [];
-      const simulation = applyRules(current, [{
-        id: storedRule?.id ?? "draft-preview",
+      if (!conditionSummary.matched) continue;
+      const simulation = await applyAutomationRules(current, [{
+        id: previewRuleId,
         name: definition.name,
         enabled: true,
         conditions: definition.conditions,
         actions: definition.actions,
       }], customValues, { operatingCalendar: item.property.operatingCalendar });
-      return [{
+      matches.push({
         itemId: item.id,
         property: { id: item.property.id, code: item.property.code, name: item.property.name },
         unitNumber: item.unitNumber,
         triggerSummary: `${definition.triggerType} evaluated against current values`,
         conditionSummary,
-        proposedActions: definition.actions.map((action) => describeAction(action, customFieldLabels)),
+        proposedActions: definition.actions.map((action, index) => simulation.actionSummaries.get(previewRuleId)?.[index] ?? describeAction(action, customFieldLabels)),
         warnings: simulation.logs.length === 0 ? ["Conditions matched but no action simulation was produced."] : [],
-      }];
-    });
+      });
+    }
     const affectedItems = matches.slice(0, payload.limit);
 
     await writeAuditLog({

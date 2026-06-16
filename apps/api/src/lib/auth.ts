@@ -9,7 +9,8 @@ const SESSION_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
 let lastExpiredSessionCleanupAt = 0;
 const apiTokenRateLimitMax = Number(process.env.API_TOKEN_RATE_LIMIT_MAX || 300);
 const apiTokenRateLimitWindowMs = Number(process.env.API_TOKEN_RATE_LIMIT_WINDOW_MINUTES || 15) * 60 * 1000;
-const apiTokenRateLimits = new Map<string, { windowStartedAt: number; count: number }>();
+let lastApiTokenRateLimitCleanupAt = 0;
+const API_TOKEN_RATE_LIMIT_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
 
 type SessionUser = Pick<User, "id" | "email" | "fullName" | "role" | "language" | "isActive"> & {
   propertyAccess: Array<Pick<UserPropertyAccess, "propertyId" | "role">>;
@@ -42,6 +43,14 @@ export function hashSessionToken(token: string) {
 
 export function hashApiToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
+}
+
+export function getApiTokenRateLimitConfig() {
+  return {
+    max: apiTokenRateLimitMax,
+    windowMinutes: Math.max(1, Math.round(apiTokenRateLimitWindowMs / 60000)),
+    storage: "database-shared" as const,
+  };
 }
 
 export function generateSessionToken() {
@@ -166,7 +175,12 @@ export async function loadSessionUser(request: FastifyRequest) {
 
     await prisma.apiToken.update({
       where: { id: token.id },
-      data: { lastUsedAt: new Date() },
+      data: {
+        useCount: { increment: 1 },
+        lastUsedAt: new Date(),
+        lastUsedPath: request.routeOptions.url ?? request.url,
+        lastUsedMethod: request.method,
+      } as any,
     });
 
     request.authType = "apiToken";
@@ -403,15 +417,41 @@ export async function requireApiTokenRateLimit(request: FastifyRequest, reply: F
   if (request.authType !== "apiToken" || !request.apiToken) return;
   if (!Number.isFinite(apiTokenRateLimitMax) || apiTokenRateLimitMax <= 0) return;
   const now = Date.now();
-  const key = request.apiToken.id;
-  const bucket = apiTokenRateLimits.get(key);
-  if (!bucket || now - bucket.windowStartedAt >= apiTokenRateLimitWindowMs) {
-    apiTokenRateLimits.set(key, { windowStartedAt: now, count: 1 });
-    return;
+  const windowStartedAtMs = now - (now % apiTokenRateLimitWindowMs);
+  const windowStartedAt = new Date(windowStartedAtMs);
+  const bucket = await prisma.apiTokenRateLimitWindow.upsert({
+    where: {
+      apiTokenId_windowStartedAt: {
+        apiTokenId: request.apiToken.id,
+        windowStartedAt,
+      },
+    },
+    create: {
+      apiTokenId: request.apiToken.id,
+      windowStartedAt,
+      requestCount: 1,
+    },
+    update: {
+      requestCount: { increment: 1 },
+    },
+    select: {
+      requestCount: true,
+    },
+  });
+
+  if (now - lastApiTokenRateLimitCleanupAt >= API_TOKEN_RATE_LIMIT_CLEANUP_INTERVAL_MS) {
+    lastApiTokenRateLimitCleanupAt = now;
+    void prisma.apiTokenRateLimitWindow.deleteMany({
+      where: {
+        windowStartedAt: {
+          lt: new Date(now - (apiTokenRateLimitWindowMs * 2)),
+        },
+      },
+    }).catch(() => {});
   }
-  bucket.count += 1;
-  if (bucket.count > apiTokenRateLimitMax) {
-    const retryAfterSeconds = Math.max(1, Math.ceil((apiTokenRateLimitWindowMs - (now - bucket.windowStartedAt)) / 1000));
+
+  if (bucket.requestCount > apiTokenRateLimitMax) {
+    const retryAfterSeconds = Math.max(1, Math.ceil(((windowStartedAtMs + apiTokenRateLimitWindowMs) - now) / 1000));
     reply.header("retry-after", String(retryAfterSeconds));
     return reply.code(429).send({ message: "API token rate limit exceeded" });
   }

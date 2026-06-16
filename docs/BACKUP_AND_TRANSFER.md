@@ -17,6 +17,8 @@ Native transfer includes property risk-policy threshold configuration because it
 
 Upload bytes can live in Docker's managed `uploads_data` volume or a host/NAS path configured with `UPLOADS_HOST_PATH`. Use `./move-uploads.sh <absolute-host-path>` before switching an existing deployment to host-mounted storage. Properties may also route new uploads into property-specific subfolders inside that active upload path; native JSON backup preserves the routing metadata but still does not embed file bytes. If older root-level files should be physically reorganized after enabling routing, use `./route-existing-uploads.sh` for a dry run, then `./route-existing-uploads.sh --apply` after confirming an upload backup exists.
 
+For larger deployments that also want off-host protection, keep the normal local backup flow first, then sync `backups/` or a mirrored upload tree to NAS/restic/another host. Concrete rsync/restic examples live in [UPLOAD_STORAGE.md](UPLOAD_STORAGE.md).
+
 ## Format
 
 The native backup JSON Schema and a minimal portable example live at:
@@ -57,7 +59,33 @@ The first supported package format is:
     "refrigerantCylinders": [],
     "refrigerantTransactions": [],
     "refrigerantLeakFlags": [],
+    "poolFacilities": [],
+    "poolChemicals": [],
+    "poolChemistryTargets": [],
+    "poolLogEntries": [],
+    "poolSafetyChecks": [],
+    "poolChemicalAdditions": [],
+    "propertyWikiEntries": [],
+    "propertyWikiVendors": [],
+    "propertyWikiAssets": [],
+    "propertyWikiReferences": [],
+    "preventiveMaintenanceTemplates": [],
+    "preventiveMaintenanceTasks": [],
+    "preventiveMaintenanceTaskAttachments": [],
+    "preventiveMaintenanceWikiReferences": [],
+    "projectCategories": [],
+    "projectRecords": [],
+    "projectComments": [],
+    "projectTasks": [],
+    "projectAttachments": [],
+    "projectWikiReferences": [],
+    "pestVendors": [],
+    "pestIssues": [],
+    "pestIssueNotes": [],
+    "pestAttachments": [],
     "propertyMaps": [],
+    "propertyMapPins": [],
+    "propertyMapPinAttachments": [],
     "unitMapLocations": [],
     "propertyTemplates": [],
     "propertyMapAreas": [],
@@ -85,7 +113,12 @@ References are portable rather than database-ID based. Properties use property c
 - Attachment/photo metadata is preserved by PostgreSQL backups. Local uploaded file bytes require an uploads backup and are not embedded in native JSON transfer files.
 - Vendor directory records and vendor assignments linked to make-ready items
 - Refrigerant types, virgin/recovery cylinder metadata, unit charge/recovery transactions, final recovery records, and repeated-addition leak flags
-- Property map metadata, building/area markers, and unit marker locations
+- Pool/spa setup and log records, including facilities, chemicals, chemistry targets, daily log entries, safety checks, and chemical additions
+- Property Wiki entries, vendors, asset metadata, and reusable workflow references
+- Preventive Maintenance templates, generated tasks, attachment metadata, and PM-linked Property Wiki references
+- Projects categories, records, comments, tasks, attachment metadata, and Project-linked Property Wiki references
+- Pest vendors, pest issues, issue notes, and attachment metadata
+- Property map metadata, shared pins, shared-pin attachment metadata, building/area markers, and unit marker locations
 - Property/board template metadata and manifests
 - Property notes
 
@@ -100,6 +133,8 @@ References are portable rather than database-ID based. Properties use property c
 - Operational library source/import manifests by default; re-import library packs separately when pack provenance matters
 - External refrigerant system credentials or regulatory account credentials; MakeReadyOS stores operational refrigerant logs only
 - Pool/spa setup and log records are included in native JSON transfer: facilities, chemicals, chemistry targets, daily log entries, safety checks, and chemical additions. Pool attachment metadata is database-backed, but uploaded pool-related photo/PDF file bytes are still upload-volume data, not embedded JSON.
+- Property Wiki operational content is included in native JSON transfer: entry/vendor records, emergency/building metadata, related-entry/vendor links, asset metadata, and workflow references. Per-user favorites/recent views remain intentionally excluded because native transfer does not move users or other personal state. Uploaded Wiki file bytes are still excluded.
+- Projects operational content is not yet included in native JSON transfer. Current recommendation/project data is preserved by PostgreSQL disaster-recovery backups, but portable JSON transfer support still needs to be added for categories, recommendation/project records, comments, lightweight tasks, wiki references, map-pin coordinates, and attachment metadata. Uploaded project file bytes remain excluded either way.
 - Live records inside property templates, such as make-ready items, comments, attachments, unit history, users, sessions, and tokens
 - Environment files, secrets, and deployment configuration
 - Uploaded attachment/photo/map file bytes; move the local upload volume separately with `backup-uploads.sh`/`restore-uploads.sh` for full continuity

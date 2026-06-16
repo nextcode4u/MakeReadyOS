@@ -3,6 +3,7 @@ import type { BoardColumnDefinition, BoardSection, CustomField, FloorPlan, Label
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import { boardColumns, boardGroupLabel, configuredBoardColumns, customColumnKey, defaultHiddenTableColumnKeys, requiredTableColumnKeys } from "../lib/board";
 import { formatDateDisplay, formatDateInput } from "../lib/dateTime";
+import { openPestQuickAdd, openPestWorkspace } from "../lib/pestNavigation";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { LabelPill } from "./LabelPill";
 import { Modal } from "./Modal";
@@ -116,6 +117,26 @@ function isOccupiedDirectoryGroup(group: string) {
 
 function isOccupiedDirectoryItem(item: MakeReadyItem) {
   return item.id.startsWith("occupied-unit:");
+}
+
+function hasActivePestIssue(item: MakeReadyItem) {
+  return Boolean(item.pestStatus && item.pestStatus !== "NONE");
+}
+
+function openPestForItem(item: MakeReadyItem) {
+  if (hasActivePestIssue(item)) {
+    openPestWorkspace({ propertyId: item.propertyId, tab: "make-ready", makeReadyItemId: item.id });
+    return;
+  }
+  openPestQuickAdd({
+    propertyId: item.propertyId,
+    unitId: item.unitId ?? undefined,
+    makeReadyItemId: item.id,
+    area: item.unit?.area ?? undefined,
+    source: "Make Ready",
+    priority: item.moveInSoon || item.overdue ? "High" : "Normal",
+    description: item.notes ?? undefined,
+  });
 }
 
 function CellState({ dirty, state, testId }: { dirty: boolean; state?: SaveState; testId: string }) {
@@ -635,11 +656,51 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                 <span>{item.property.code} / {item.floorPlan ?? "No floor plan"}</span>
               </div>
               <LabelPill value={item.vacancyStatus} label={item.vacancyStatus ? labelsByField.vacancyStatus?.[item.vacancyStatus] : undefined} muted />
-              {!isOccupiedDirectoryItem(item) ? <button type="button" className="item-details-button" data-testid={`mobile-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={`Open details for ${item.unitNumber}`}>Details</button> : null}
+              {!isOccupiedDirectoryItem(item) ? (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" className="item-details-button" data-testid={`mobile-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={`Open details for ${item.unitNumber}`}>Details</button>
+                </div>
+              ) : null}
             </header>
             <dl>
               <div><dt>Section</dt><dd>{boardGroupLabel(item.boardGroup, item.propertyId, boardSections)}</dd></div>
               <div><dt>Make Ready</dt><dd><LabelPill value={item.makeReadyStatus} label={item.makeReadyStatus ? labelsByField.makeReadyStatus?.[item.makeReadyStatus] : undefined} muted /></dd></div>
+              <div>
+                <dt>Pest</dt>
+                <dd>
+                  {!isOccupiedDirectoryItem(item) ? (
+                    <button
+                      type="button"
+                      className="cell-button"
+                      data-testid={`mobile-pest-status-${slug(item.unitNumber)}`}
+                      onClick={() => openPestForItem(item)}
+                      aria-label={`${hasActivePestIssue(item) ? "Open" : "Create"} pest record for ${item.unitNumber}`}
+                    >
+                      <LabelPill value={item.pestStatus} label={item.pestStatus ? labelsByField.pestStatus?.[item.pestStatus] : undefined} muted />
+                    </button>
+                  ) : (
+                    <LabelPill value={item.pestStatus} label={item.pestStatus ? labelsByField.pestStatus?.[item.pestStatus] : undefined} muted />
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Pest Treated</dt>
+                <dd>
+                  {!isOccupiedDirectoryItem(item) ? (
+                    <button
+                      type="button"
+                      className="cell-button"
+                      data-testid={`mobile-pest-treated-${slug(item.unitNumber)}`}
+                      onClick={() => openPestForItem(item)}
+                      aria-label={`${hasActivePestIssue(item) ? "Open" : "Create"} pest treatment record for ${item.unitNumber}`}
+                    >
+                      <LabelPill value={item.pestTreated} label={item.pestTreated ? labelsByField.pestTreated?.[item.pestTreated] : undefined} muted />
+                    </button>
+                  ) : (
+                    <LabelPill value={item.pestTreated} label={item.pestTreated ? labelsByField.pestTreated?.[item.pestTreated] : undefined} muted />
+                  )}
+                </dd>
+              </div>
               <div><dt>Move-In</dt><dd>{item.moveInDate ? formatDateDisplay(item.moveInDate) : "-"}</dd></div>
               <div><dt>Tech</dt><dd>{item.assignedTech || "Unassigned"}</dd></div>
             </dl>
@@ -968,6 +1029,8 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                       if (column.type === "label") {
                         const options = Object.values(labelsByField[column.key] ?? {}).filter((option) => !option.isArchived).sort((a, b) => a.sortOrder - b.sortOrder);
                         const draft = isEditing ? String(editing.draft ?? "") : "";
+                        const isPestColumn = column.key === "pestStatus" || column.key === "pestTreated";
+                        const pestActionEnabled = isPestColumn && !isOccupiedDirectoryItem(item);
                         return (
                           <td key={column.key} className={`${columnClassName(column.key)} ${editable ? "editable-cell" : "readonly-cell"}`}>
                             {isEditing && editable ? (
@@ -997,9 +1060,17 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                   type="button"
                                   data-testid={`builtin-cell-${column.key}-${slug(item.unitNumber)}`}
                                   className="cell-button"
-                                  onClick={() => editable && beginEdit(cell)}
-                                  disabled={!editable}
-                                  aria-label={`Edit ${column.label} for ${item.unitNumber}`}
+                                  onClick={() => {
+                                    if (pestActionEnabled) {
+                                      openPestForItem(item);
+                                      return;
+                                    }
+                                    if (editable) beginEdit(cell);
+                                  }}
+                                  disabled={!editable && !pestActionEnabled}
+                                  aria-label={pestActionEnabled
+                                    ? `${hasActivePestIssue(item) ? "Open" : "Create"} pest record for ${item.unitNumber}`
+                                    : `Edit ${column.label} for ${item.unitNumber}`}
                                 >
                                   <LabelPill value={typeof value === "string" ? value : null} label={typeof value === "string" ? labelsByField[column.key]?.[value] : undefined} muted={!editable} />
                                 </button>
@@ -1046,6 +1117,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                 {column.key === "unitNumber" && item.riskLevel && item.riskLevel !== "NONE" ? <small className={`risk-marker ${item.riskLevel === "CRITICAL" || item.riskLevel === "HIGH" ? "danger" : "warning"}`} data-testid={`risk-pill-${slug(item.unitNumber)}`}>{item.riskLevel} risk</small> : null}
                                 {column.key === "unitNumber" && (!item.riskLevel || item.riskLevel === "NONE") && item.overdue ? <small className="risk-marker danger">Overdue</small> : null}
                                 {column.key === "unitNumber" && (!item.riskLevel || item.riskLevel === "NONE") && !item.overdue && item.moveInSoon ? <small className="risk-marker warning">Move-in soon</small> : null}
+                                {column.key === "unitNumber" && item.pestStatus && item.pestStatus !== "NONE" ? <small className="risk-marker warning">Pest: {item.pestStatus}</small> : null}
                               </button>
                               {column.key === "unitNumber" && !isOccupiedDirectoryItem(item) ? <button type="button" className="item-details-icon" data-testid={`item-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={`Open details for ${item.unitNumber}`}>›</button> : null}
                               {feedback}

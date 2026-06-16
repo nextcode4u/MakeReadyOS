@@ -3,6 +3,7 @@ import { z } from "zod";
 import { automationTriggerTypes, editableFields, ruleConditionFields } from "./board.js";
 import { dateOffsetFields } from "./operatingCalendar.js";
 import { prisma } from "./prisma.js";
+import { assignableStaffRoles } from "./auth.js";
 
 export const triggerSchema = z.enum(automationTriggerTypes);
 export const ruleValueSchema = z.union([z.string().max(1000), z.number().finite(), z.boolean(), z.array(z.string().max(200)).max(20)]);
@@ -71,6 +72,17 @@ export const actionSchema = z.discriminatedUnion("type", [
     offsetDays: z.number().int().min(-60).max(60),
     respectOperatingCalendar: z.boolean().default(true),
   }),
+  z.object({
+    type: z.literal("assignLeastLoadedStaff"),
+    eligibleRoles: z.array(z.enum(["ADMIN", "MANAGER", "TECH", "CLEANER"])).min(1).max(assignableStaffRoles.length).default(["TECH"]),
+    eligibleUserIds: z.array(z.string().min(1)).max(25).optional(),
+    excludedUserIds: z.array(z.string().min(1)).max(25).optional(),
+    lookAheadDays: z.number().int().min(0).max(30).default(7),
+    includePlannedWork: z.boolean().default(true),
+    onlyWhenUnassigned: z.boolean().default(true),
+    dailyAssignmentCap: z.number().int().min(1).max(50).nullable().optional(),
+    targetDateField: z.enum(["makeReadyDate", "moveInDate", "vacatedDate"]).default("makeReadyDate"),
+  }),
   // Event-rule compatibility only. Scheduled checks cannot use these legacy actions.
   z.object({
     type: z.literal("setPriority"),
@@ -107,6 +119,17 @@ export const automationRuleInputSchema = automationRuleBaseSchema.superRefine((r
         context.addIssue({
           code: z.ZodIssueCode.custom,
           message: "Scheduled checks support setField, setDateFromField, setCustomField, and addAuditNote actions only",
+          path: ["actions", index, "type"],
+        });
+      }
+    });
+  }
+  if (rule.triggerType !== "SCHEDULED_CHECK") {
+    rule.actions.forEach((action, index) => {
+      if (action.type === "assignLeastLoadedStaff") {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Least-loaded assignment is available for scheduled checks only",
           path: ["actions", index, "type"],
         });
       }

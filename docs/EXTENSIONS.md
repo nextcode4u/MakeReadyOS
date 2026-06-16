@@ -74,7 +74,7 @@ The current release stores webhook endpoint configuration:
 - enabled/disabled state
 - dry-run, queued, delivered, failed, and gave-up delivery attempt history
 
-Delivery is intentionally script-driven. Admins can generate a signed dry-run payload to validate headers and payload shape, or queue a signed test payload for `./run-webhooks.sh`. Core application writes also queue subscribed events for item create/update/assignment, risk-level changes, comment creation, checklist completion, and vendor assignment changes. The runner HMAC-signs payloads, applies a short timeout, retries with bounded backoff, records delivery attempts, optionally disables endpoints after repeated consecutive failures, can reject private/local webhook targets for public deployments, and never blocks the primary user action.
+Delivery is intentionally script-driven. Admins can generate a signed dry-run payload to validate headers and payload shape, or queue a signed test payload for `./run-webhooks.sh`. Core application writes also queue subscribed events for make-ready items, risk-level changes, comments, attachments, checklist completion, vendor assignment changes, Projects records, Pest issues, Preventive Maintenance templates/tasks, Pool Log entries, and Lease Compliance issue lifecycle changes. The runner HMAC-signs payloads, applies a short timeout, retries with bounded backoff, records delivery attempts, optionally disables endpoints after repeated consecutive failures, can reject private/local webhook targets for public deployments, and never blocks the primary user action.
 
 Initial event names:
 
@@ -85,6 +85,21 @@ Initial event names:
 - `comment.created`
 - `vendor.assignment.updated`
 - `checklist.completed`
+- `project.record.created`
+- `project.record.updated`
+- `project.record.archived`
+- `pest.issue.created`
+- `pest.issue.updated`
+- `pest.issue.archived`
+- `pm.template.created`
+- `pm.template.updated`
+- `pm.task.completed`
+- `pm.task.skipped`
+- `pool.entry.created`
+- `lease.issue.created`
+- `lease.issue.updated`
+- `lease.issue.resolved`
+- `lease.issue.archived`
 
 ## Runtime Safety
 

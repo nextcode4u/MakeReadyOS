@@ -34,7 +34,7 @@ MakeReadyOS is currently a feature-rich self-hosted operations platform. The nex
 ## Integrations And API Ecosystem
 
 - Expand the current `/api/openapi.json` baseline with generated schemas from route validation.
-- Add API token usage analytics and stronger shared rate limiting for public deployments.
+- Keep expanding API token operational visibility and add edge/proxy hardening patterns for public deployments.
 - Implement signed webhook delivery with queue, retry, timeout, and delivery attempt logs.
 - Publish JSON schemas for operational library packs and native backup files.
 - Add more examples for import adapters and reporting scripts.

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { Prisma, UserRole } from "@prisma/client";
 import { automationRuleInputSchema, validateRuleReferences } from "./automationDefinition.js";
-import { applyRules, computeDerivedFields, editableFields, normalizeItemPatch } from "./board.js";
+import { applyAutomationRules } from "./automationAssignments.js";
+import { computeDerivedFields, editableFields, normalizeItemPatch } from "./board.js";
 import { writeAuditLog } from "./audit.js";
 import { prisma } from "./prisma.js";
 import { createNotification, notifyAssignedStaff } from "./notifications.js";
@@ -184,7 +185,7 @@ export async function executeScheduledAutomationRules(options: {
         for (const item of items) {
           const derived = computeDerivedFields(item);
           const customValues = Object.fromEntries(item.customFieldValues.map((value) => [value.customFieldId, value.value]));
-          const simulation = applyRules({ ...item, ...derived }, [{
+          const simulation = await applyAutomationRules({ ...item, ...derived }, [{
             id: rule.id,
             name: rule.name,
             enabled: true,
@@ -202,6 +203,17 @@ export async function executeScheduledAutomationRules(options: {
           if (Object.keys(normalizedPatch).length > 0) {
             await prisma.makeReadyItem.update({ where: { id: item.id }, data: normalizedPatch });
             actionCount += Object.keys(normalizedPatch).length;
+            if (typeof normalizedPatch.assignedTech === "string" && normalizedPatch.assignedTech !== item.assignedTech) {
+              await notifyAssignedStaff({
+                assignedTech: normalizedPatch.assignedTech,
+                propertyId: item.propertyId,
+                itemId: item.id,
+                category: "ASSIGNMENT",
+                title: "Make-ready assignment updated",
+                message: `${item.unitNumber} has been assigned to you by automation.`,
+                dedupeKey: `assignment:${item.id}:${normalizedPatch.assignedTech}:scheduled-automation`,
+              });
+            }
           }
 
           for (const customValue of simulation.customFieldUpdates) {

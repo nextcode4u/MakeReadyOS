@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { BoardColumnDefinition, CustomField, FloorPlan, LabelDefinition, Property, ScheduleTrack } from "../lib/api";
+import type { BoardColumnDefinition, BoardSection, CustomField, FloorPlan, LabelDefinition, Property, ScheduleTrack } from "../lib/api";
 import { LabelPill } from "./LabelPill";
 import { StatusState } from "./StatusState";
 
@@ -21,6 +21,7 @@ const optionSets = [
 
 type Props = {
   properties: Property[];
+  boardSections: BoardSection[];
   options: LabelDefinition[];
   floorPlans: FloorPlan[];
   columns: BoardColumnDefinition[];
@@ -31,6 +32,7 @@ type Props = {
   onUpdateOption: (id: string, input: Partial<Pick<LabelDefinition, "value" | "color" | "textColor">>) => Promise<void>;
   onArchiveOption: (id: string, restore: boolean) => Promise<void>;
   onReorderOptions: (ids: string[]) => Promise<void>;
+  onUpdateBoardSection: (id: string, displayName: string) => Promise<void>;
   onCreateFloorPlan: (input: { propertyId: string; code: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null; description: string | null }) => Promise<void>;
   onUpdateFloorPlan: (id: string, input: { code: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null; description: string | null }) => Promise<void>;
   onArchiveFloorPlan: (id: string, restore: boolean) => Promise<void>;
@@ -43,6 +45,7 @@ type Props = {
 
 export function BoardConfigurationPanel({
   properties,
+  boardSections,
   options,
   floorPlans,
   columns,
@@ -53,6 +56,7 @@ export function BoardConfigurationPanel({
   onUpdateOption,
   onArchiveOption,
   onReorderOptions,
+  onUpdateBoardSection,
   onCreateFloorPlan,
   onUpdateFloorPlan,
   onArchiveFloorPlan,
@@ -62,6 +66,14 @@ export function BoardConfigurationPanel({
   onArchiveScheduleTrack,
   onReorderScheduleTracks,
 }: Props) {
+  const [sectionPropertyId, setSectionPropertyId] = useState(properties[0]?.id ?? "");
+  const [selectedSectionId, setSelectedSectionId] = useState("");
+  const [sectionLabelDraft, setSectionLabelDraft] = useState("");
+  const propertySections = useMemo(
+    () => boardSections.filter((section) => section.propertyId === sectionPropertyId).sort((left, right) => left.sortOrder - right.sortOrder),
+    [boardSections, sectionPropertyId],
+  );
+  const selectedSection = propertySections.find((section) => section.id === selectedSectionId) ?? null;
   const [fieldKey, setFieldKey] = useState<string>("vacancyStatus");
   const [newOption, setNewOption] = useState({ value: "", color: "#46d39c", textColor: "#06291c" });
   const [selectedOptionId, setSelectedOptionId] = useState("");
@@ -84,6 +96,12 @@ export function BoardConfigurationPanel({
   const selectedTrack = scheduleTracks.find((track) => track.id === selectedTrackId) ?? null;
   const [trackDraft, setTrackDraft] = useState({ sourceField: "", displayName: "", colorBasis: "NEUTRAL" as ScheduleTrack["colorBasis"], colorSourceField: null as string | null, fixedColor: "#58a6de", groupingMode: "NONE" as ScheduleTrack["groupingMode"], visibilityFilter: null as ScheduleTrack["visibilityFilter"], overdueEnabled: true, moveInSoonEnabled: true, isEnabled: true });
   const configuredSources = new Set(scheduleTracks.map((track) => track.sourceField));
+  const scheduleVisibleSections = useMemo(
+    () => boardSections
+      .filter((section) => section.isActive)
+      .sort((left, right) => left.property.code.localeCompare(right.property.code) || left.sortOrder - right.sortOrder),
+    [boardSections],
+  );
   const scheduleSources = [
     { key: "moveOutDate", label: "NTV / Expected Vacate" },
     { key: "vacatedDate", label: "Vacated" },
@@ -171,8 +189,26 @@ export function BoardConfigurationPanel({
   ];
 
   useEffect(() => {
+    if (!sectionPropertyId && properties[0]) setSectionPropertyId(properties[0].id);
+  }, [properties, sectionPropertyId]);
+
+  useEffect(() => {
     if (!propertyId && properties[0]) setPropertyId(properties[0].id);
   }, [properties, propertyId]);
+
+  useEffect(() => {
+    if (propertySections.length === 0) {
+      setSelectedSectionId("");
+      return;
+    }
+    if (!propertySections.some((section) => section.id === selectedSectionId)) {
+      setSelectedSectionId(propertySections[0]?.id ?? "");
+    }
+  }, [propertySections, selectedSectionId]);
+
+  useEffect(() => {
+    setSectionLabelDraft(selectedSection?.displayName ?? "");
+  }, [selectedSection]);
 
   useEffect(() => {
     if (!selectedOption) return;
@@ -246,6 +282,52 @@ export function BoardConfigurationPanel({
 
   return (
     <section className="operations-grid config-grid" data-testid="board-configuration-panel">
+      <article className="operations-card" data-testid="board-section-management">
+        <div className="admin-section-head">
+          <h3>Board Sections / Tables</h3>
+          <span className="subtitle">Workflow sections managed separately from labels</span>
+        </div>
+        <label className="config-field">Property
+          <select data-testid="board-section-property" value={sectionPropertyId} onChange={(event) => { setSectionPropertyId(event.target.value); setSelectedSectionId(""); }}>
+            {properties.filter((property) => property.isActive).map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
+          </select>
+        </label>
+        <div className="record-list">
+          {propertySections.length === 0 ? (
+            <StatusState title="No board sections found" description="Select another property or finish property setup first." tone="subtle" />
+          ) : propertySections.map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              data-testid={`board-section-row-${section.sectionType.toLowerCase()}`}
+              className={selectedSectionId === section.id ? "record-row selected" : "record-row"}
+              onClick={() => setSelectedSectionId(section.id)}
+            >
+              <span><strong>{section.displayName}</strong>{` ${section.property.code} / ${section.key}`}</span>
+              <span className="status-chip active">{section.sectionType.replace(/_/g, " ")}</span>
+            </button>
+          ))}
+        </div>
+        {selectedSection ? (
+          <div className="editor-block">
+            <label>Display name
+              <input data-testid="board-section-edit-label" value={sectionLabelDraft} onChange={(event) => setSectionLabelDraft(event.target.value)} />
+            </label>
+            <label>Internal key<input value={selectedSection.key} readOnly /></label>
+            <label>Section type<input value={selectedSection.sectionType.replace(/_/g, " ")} readOnly /></label>
+            <p className="helper-copy span-full">Rename the operator-facing section name here. Filters, automations, APIs, and import logic continue to use the stable internal key and section type.</p>
+            <button
+              data-testid="board-section-save"
+              className="button button-primary span-full"
+              disabled={!sectionLabelDraft.trim() || sectionLabelDraft.trim() === selectedSection.displayName}
+              onClick={() => void onUpdateBoardSection(selectedSection.id, sectionLabelDraft.trim())}
+            >
+              Save Section Name
+            </button>
+          </div>
+        ) : null}
+      </article>
+
       <article className="operations-card" data-testid="option-management">
         <div className="admin-section-head">
           <h3>Board Labels</h3>
@@ -443,7 +525,11 @@ export function BoardConfigurationPanel({
                   setTrackDraft((current) => ({ ...current, visibilityFilter: { ...(current.visibilityFilter ?? {}), boardGroups } }));
                 }}
               >
-                {["READY_UNITS_TA", "MAKE_READY_BOARD_TA", "DOWN_AND_MODELS", "READY_UNITS_VAB", "MAKE_READY_BOARD_VAB", "ARCHIVE_TA", "ARCHIVE_VAB"].map((group) => <option key={group} value={group}>{group.replace(/_/g, " ")}</option>)}
+                {scheduleVisibleSections.map((section) => (
+                  <option key={section.id} value={section.key}>
+                    {section.property.code} / {section.displayName}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="toggle-row"><input data-testid="schedule-track-edit-overdue" type="checkbox" checked={trackDraft.overdueEnabled} onChange={(event) => setTrackDraft((current) => ({ ...current, overdueEnabled: event.target.checked }))} /> Flag overdue</label>

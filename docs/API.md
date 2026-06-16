@@ -12,7 +12,7 @@ curl http://localhost:4000/api/openapi.json
 
 The contract includes the stable handwritten path surface, generated component schemas for the Zod validators used by the route layer, file-exchange schemas such as `NativeBackup`, and response-envelope schemas for public surfaces. Generated request/query schemas are intentionally named with their route purpose, for example `MakeReadyCreateRequest`, `UnitImportRequest`, `WebhookCreateRequest`, and `OperationalLibraryPack`. Response schemas use names such as `MakeReadyItemResponse`, `VendorAssignmentsResponse`, `AutomationRunsResponse`, `OperationalLibraryInstallSummary`, `WebhookEndpoint`, and `AuthSessionResponse`.
 
-The contract documents the stable integration surface: auth shape, API-token security, core make-ready item endpoints, operations setup, custom fields, saved views, comments/attachments, dashboard/analytics/risk summaries, planning, vendors, maps, activity, notifications, property templates, automation/operational-library routes, backup transfer, admin user/storage metadata, and admin integration registration. It is intentionally conservative; route-specific docs in this file remain the source of operational detail where an endpoint has more filters or workflow-specific behavior than the baseline contract describes.
+The contract documents the stable integration surface: auth shape, API-token security, core make-ready item endpoints, operations setup, custom fields, saved views, comments/attachments, dashboard/analytics/risk summaries, planning, vendors, Property Wiki, maps, Projects, Pest Control, Lease Compliance, activity, notifications, property templates, automation/operational-library routes, backup transfer, admin user/storage metadata, and admin integration registration. It is intentionally conservative; route-specific docs in this file remain the source of operational detail where an endpoint has more filters or workflow-specific behavior than the baseline contract describes.
 
 JSON contracts intended for file exchange are also published in the repository:
 
@@ -80,11 +80,34 @@ Tokens can also be scoped to specific properties. Property scope is an additiona
 - `GET /api/activity?limit=&offset=`
 - `GET /api/notifications?limit=&offset=&unreadOnly=`
 - `GET /api/vendors`
+- `GET /api/pm/overview`
+- `GET /api/pm/templates`
+- `GET /api/pm/tasks`
+- `GET /api/pm/calendar`
+- `GET /api/pm/history`
+- `GET /api/pm/export.csv`
+- `GET /api/pm/export.xls`
+- `GET /api/pm/report.html`
+- `GET /api/lease-compliance/overview`
+- `GET /api/lease-compliance/issues`
+- `GET /api/lease-compliance/issue-types?propertyId=`
+- `GET /api/lease-compliance/settings?propertyId=`
+- `GET /api/lease-compliance/export.csv`
+- `GET /api/lease-compliance/report.html`
+- `GET /api/lease-compliance/report.pdf`
 - `GET /api/refrigerant/overview`
 - `GET /api/refrigerant/types`
 - `GET /api/refrigerant/cylinders`
 - `GET /api/refrigerant/history`
 - `GET /api/refrigerant/export.csv`
+- `GET /api/property-wiki/overview`
+- `GET /api/property-wiki/profile?propertyId=`
+- `GET /api/property-wiki/entries?propertyId=&section=&includeInactive=&q=`
+- `GET /api/property-wiki/vendors?propertyId=&includeInactive=&q=`
+- `GET /api/property-wiki/assets?propertyId=&kind=&entryId=&vendorId=&q=`
+- `GET /api/property-wiki/context?module=&propertyId=&recordType=&recordId=&floorPlan=&unitNumber=&building=&facilityName=&equipmentQuery=&query=`
+- `GET /api/property-wiki/records/:targetType/:id`
+- `GET /api/property-wiki/search?propertyId=&q=`
 - `GET /api/property-maps`
 - `GET /api/property-map-areas?propertyId=&mapId=`
 - `GET /api/unit-map-locations`
@@ -92,6 +115,10 @@ Tokens can also be scoped to specific properties. Property scope is an additiona
 - `GET /api/automations`
 - `POST /api/automations/preview`
 - `GET /api/operational-library/packs`
+
+Automation rule payloads are defined in the served OpenAPI contract and now include structured action variants such as `setField`, `setCustomField`, `setDateFromField`, `addAuditNote`, and the scheduled-only `assignLeastLoadedStaff` action for planning-aware automatic assignment.
+
+Lease Compliance now has exact served OpenAPI route coverage for overview, settings, issue types, issue list/create/update, notes, persistence checks, notice workflow, resolve/archive actions, recurring-warning dismissal, evidence upload/download/delete, and CSV/HTML/PDF reporting.
 
 Admin-only token management remains session-only:
 
@@ -106,7 +133,7 @@ Admin-only token management remains session-only:
 - `GET /api/admin/integrations/webhooks/:id/deliveries?limit=&offset=`
 - `GET /api/admin/integrations/webhooks/:id/health`
 
-The Admin Integrations UI exposes webhook health, attempt/failure counts, recent delivery attempts, signed dry-run payload creation, and queued test payload creation. Queued attempts are delivered only by `./run-webhooks.sh`.
+The Admin Integrations UI exposes API token usage metadata such as last-used time, total request count, and last-used request path/method, plus webhook health, attempt/failure counts, recent delivery attempts, signed dry-run payload creation, and queued test payload creation. Queued attempts are delivered only by `./run-webhooks.sh`.
 
 ## Pagination
 
@@ -152,7 +179,7 @@ Set `MAKEREADYOS_URL` and `MAKEREADYOS_TOKEN` before running them.
 ## Security Notes
 
 - Tokens are never shown again after creation.
-- API token requests are protected by a basic configurable per-token limiter. Tune `API_TOKEN_RATE_LIMIT_MAX` and `API_TOKEN_RATE_LIMIT_WINDOW_MINUTES` for the deployment, and keep an internet-facing instance behind a trusted reverse proxy.
+- API token requests are protected by a configurable database-backed per-token window limiter shared across API replicas. Tune `API_TOKEN_RATE_LIMIT_MAX` and `API_TOKEN_RATE_LIMIT_WINDOW_MINUTES` for the deployment, and keep an internet-facing instance behind a trusted reverse proxy or edge rate limiter.
 - Token hashes, password hashes, sessions, CSRF tokens, and secrets are not included in native transfer exports.
 - Do not create broad write tokens unless an integration genuinely needs them.
 - New webhook endpoints store the signing secret encrypted at rest so queued deliveries can be HMAC-signed. Older endpoints without encrypted secrets must be recreated or rotated before delivery can be enabled.
@@ -160,4 +187,4 @@ Set `MAKEREADYOS_URL` and `MAKEREADYOS_TOKEN` before running them.
 - Subscribed application events are queued for item create/update/assignment/archive/restore, risk-level changes, comment creation, attachment create/delete, checklist completion, and vendor assignment changes.
 - Webhook health is available through `/api/admin/integrations/webhooks/:id/health` and includes aggregate status counts, event counts, pending work, latest failure metadata, and a coarse `READY`/`PENDING`/`FAILING`/`DISABLED` state.
 - Webhook delivery is script-driven, not an always-running worker. `./run-webhooks.sh` processes queued delivery attempts with bounded batch size, HTTP timeout, retry/backoff, delivery history, optional endpoint auto-disable after repeated consecutive failures, and optional private/local URL blocking for public deployments. Tune `WEBHOOK_DELIVERY_BATCH_SIZE`, `WEBHOOK_DELIVERY_TIMEOUT_MS`, `WEBHOOK_DELIVERY_MAX_ATTEMPTS`, `WEBHOOK_AUTO_DISABLE_FAILURES`, `WEBHOOK_ALLOW_PRIVATE_URLS`, and `WEBHOOK_ALLOWED_HOSTS`.
-- The current OpenAPI path list is still intentionally conservative, but request/query component schemas are generated from shared route validators where they exist. Common long-tail integration responses now have exact serializers for options, floor plans, schedule tracks, checklist/price-sheet metadata, automation run history, operational library installs, API tokens, webhook endpoints, and webhook delivery attempts. Remaining route-specific serializers are tracked in [API_SPEC_PLAN.md](API_SPEC_PLAN.md); webhook delivery behavior is documented in [WEBHOOK_DELIVERY_PLAN.md](WEBHOOK_DELIVERY_PLAN.md).
+- The current OpenAPI path list is still intentionally conservative, but request/query component schemas are generated from shared route validators where they exist. Common long-tail integration responses now have exact serializers for options, floor plans, schedule tracks, checklist/price-sheet metadata, automation run history, operational library installs, API tokens, webhook endpoints, webhook delivery attempts, analytics/risk summary payloads, the core Projects/Pest/Lease Compliance overview and record envelopes, full Refrigerant type/cylinder/transaction/compliance payloads, and Property Maps pin/area payloads. Remaining route-specific serializers are tracked in [API_SPEC_PLAN.md](API_SPEC_PLAN.md); webhook delivery behavior is documented in [WEBHOOK_DELIVERY_PLAN.md](WEBHOOK_DELIVERY_PLAN.md).

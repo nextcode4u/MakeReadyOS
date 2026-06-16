@@ -21,6 +21,11 @@ type Props = {
 
 const defaultTokenScopes: ApiTokenScope[] = ["read:items"];
 const defaultWebhookEvents: WebhookEventType[] = ["item.updated"];
+const webhookStatusOrder = ["PENDING", "FAILED", "DELIVERED", "GAVE_UP", "DRY_RUN"] as const;
+
+function webhookStatusPillClass(status: string) {
+  return `status-${status.toLowerCase().replace(/_/g, "-")}`;
+}
 
 export function IntegrationsPanel({ properties }: Props) {
   const queryClient = useQueryClient();
@@ -95,6 +100,7 @@ export function IntegrationsPanel({ properties }: Props) {
   const webhookEvents = integrations.data?.webhookEvents ?? [];
   const apiTokens = integrations.data?.apiTokens ?? [];
   const webhooks = integrations.data?.webhooks ?? [];
+  const apiTokenRateLimit = integrations.data?.apiTokenRateLimit ?? null;
   const selectedWebhook = webhooks.find((webhook) => webhook.id === selectedWebhookId) ?? null;
   const webhookDeliveries = useQuery({
     queryKey: ["webhook-deliveries", selectedWebhookId],
@@ -159,6 +165,15 @@ export function IntegrationsPanel({ properties }: Props) {
   };
 
   const formatDate = (value: string | null) => formatDateTime(value);
+  const healthStatusEntries = webhookHealthDetails.data
+    ? webhookStatusOrder
+      .filter((status) => Number(webhookHealthDetails.data?.health.statusCounts[status] ?? 0) > 0)
+      .map((status) => ({ status, count: Number(webhookHealthDetails.data?.health.statusCounts[status] ?? 0) }))
+    : [];
+  const healthEventEntries = webhookHealthDetails.data
+    ? Object.entries(webhookHealthDetails.data.health.eventCounts)
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    : [];
 
   return (
     <section className="admin-card" data-testid="integrations-panel">
@@ -306,7 +321,14 @@ export function IntegrationsPanel({ properties }: Props) {
 
       <section className="admin-section integration-list">
         <div className="admin-section-head">
-          <h3>API Tokens</h3>
+          <div>
+            <h3>API Tokens</h3>
+            {apiTokenRateLimit ? (
+              <p className="helper-text">
+                Shared rate limit: {apiTokenRateLimit.max} requests / {apiTokenRateLimit.windowMinutes} minute{apiTokenRateLimit.windowMinutes === 1 ? "" : "s"} per token.
+              </p>
+            ) : null}
+          </div>
           <span className="subtitle">{activeTokenCount} active</span>
         </div>
         {apiTokens.length === 0 ? (
@@ -319,7 +341,10 @@ export function IntegrationsPanel({ properties }: Props) {
                 <p className="helper-text">
                   {token.tokenPrefix}...{token.tokenLastFour} · {token.scopes.join(", ")} · {token.properties.length ? token.properties.map((property) => property.code).join(", ") : "all properties"}
                 </p>
-                <p className="helper-text">Last used: {formatDate(token.lastUsedAt)}</p>
+                <p className="helper-text">
+                  Uses: {token.useCount} · Last used: {formatDate(token.lastUsedAt)}
+                  {token.lastUsedMethod && token.lastUsedPath ? ` · ${token.lastUsedMethod} ${token.lastUsedPath}` : ""}
+                </p>
               </div>
               <div className="row-actions">
                 <span className={`status-pill ${token.isActive ? "status-active" : "status-muted"}`}>{token.isActive ? "ACTIVE" : "REVOKED"}</span>
@@ -412,13 +437,52 @@ export function IntegrationsPanel({ properties }: Props) {
             </div>
             {webhookDeliveries.isLoading ? <StatusState title="Loading deliveries" description="Fetching recent webhook attempts." /> : null}
             {webhookHealthDetails.data ? (
-              <div className="webhook-health-summary" data-testid="webhook-health-summary">
-                <span>Health: <strong>{webhookHealthDetails.data.health.state}</strong></span>
-                <span>Pending: <strong>{webhookHealthDetails.data.health.pendingCount}</strong></span>
-                <span>Total attempts: <strong>{webhookHealthDetails.data.health.total}</strong></span>
-                <span>Failures: <strong>{webhookHealthDetails.data.health.failureCount}</strong></span>
-                {webhookHealthDetails.data.health.oldestPendingAt ? <span>Oldest pending: {formatDate(webhookHealthDetails.data.health.oldestPendingAt)}</span> : null}
-              </div>
+              <>
+                <div className="webhook-health-summary" data-testid="webhook-health-summary">
+                  <span>Health: <strong>{webhookHealthDetails.data.health.state}</strong></span>
+                  <span>Pending: <strong>{webhookHealthDetails.data.health.pendingCount}</strong></span>
+                  <span>Total attempts: <strong>{webhookHealthDetails.data.health.total}</strong></span>
+                  <span>Failures: <strong>{webhookHealthDetails.data.health.failureCount}</strong></span>
+                  {webhookHealthDetails.data.health.oldestPendingAt ? <span>Oldest pending: {formatDate(webhookHealthDetails.data.health.oldestPendingAt)}</span> : null}
+                  {webhookHealthDetails.data.health.lastDeliveryAt ? <span>Last delivery: {formatDate(webhookHealthDetails.data.health.lastDeliveryAt)}</span> : null}
+                </div>
+                {healthStatusEntries.length ? (
+                  <div className="webhook-health-grid">
+                    <section className="webhook-health-card">
+                      <h5>Status Breakdown</h5>
+                      <div className="webhook-chip-row">
+                        {healthStatusEntries.map((entry) => (
+                          <span key={entry.status} className={`status-pill ${webhookStatusPillClass(entry.status)}`}>
+                            {entry.status}: {entry.count}
+                          </span>
+                        ))}
+                      </div>
+                    </section>
+                    <section className="webhook-health-card">
+                      <h5>Events Seen</h5>
+                      <div className="webhook-metric-list">
+                        {healthEventEntries.map(([eventType, count]) => (
+                          <div key={eventType} className="webhook-metric-row">
+                            <strong>{eventType}</strong>
+                            <span>{count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                    {webhookHealthDetails.data.health.latestFailure ? (
+                      <section className="webhook-health-card webhook-health-card-danger">
+                        <h5>Latest Failure</h5>
+                        <div className="webhook-failure-stack">
+                          <strong>{webhookHealthDetails.data.health.latestFailure.eventType}</strong>
+                          <span>{formatDate(webhookHealthDetails.data.health.latestFailure.updatedAt)}</span>
+                          <span>{webhookHealthDetails.data.health.latestFailure.responseStatus ? `HTTP ${webhookHealthDetails.data.health.latestFailure.responseStatus}` : "No HTTP response"}</span>
+                          {webhookHealthDetails.data.health.latestFailure.errorMessage ? <p>{webhookHealthDetails.data.health.latestFailure.errorMessage}</p> : null}
+                        </div>
+                      </section>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
             ) : null}
             {webhookDeliveries.isError ? (
               <div className="admin-message error">Unable to load webhook deliveries.</div>

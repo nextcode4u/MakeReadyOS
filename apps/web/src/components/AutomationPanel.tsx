@@ -16,9 +16,25 @@ const builtInOperators: AutomationCondition["operator"][] = ["equals", "notEqual
 const noValueOperators: AutomationCondition["operator"][] = ["isEmpty", "notEmpty", "dateBeforeToday", "dateAfterToday", "dateMissing", "dateOnWeekend", "dateOnMondayOrFriday"];
 const settableFields = ["vacancyStatus", "completionStatus", "scopeLevel", "pestTreated", "makeReadyStatus", "cleaningStatus", "paintStatus", "doorsStatus", "notes"];
 const dateActionFields = ["moveOutDate", "vacatedDate", "makeReadyDate", "flooringDate", "moveInDate"];
+const assignableRoles = ["ADMIN", "MANAGER", "TECH", "CLEANER"] as const;
 
 type DraftCondition = { field: string; operator: AutomationCondition["operator"]; value: string };
-type DraftAction = { type: AutomationAction["type"]; field: string; fieldId: string; value: string; sourceField: string; targetField: string; offsetDays: string };
+type DraftAction = {
+  type: AutomationAction["type"];
+  field: string;
+  fieldId: string;
+  value: string;
+  sourceField: string;
+  targetField: string;
+  offsetDays: string;
+  eligibleRoles: string[];
+  eligibleUserIds: string;
+  excludedUserIds: string;
+  lookAheadDays: string;
+  dailyAssignmentCap: string;
+  onlyWhenUnassigned: boolean;
+  includePlannedWork: boolean;
+};
 type Draft = {
   name: string;
   description: string;
@@ -70,7 +86,22 @@ function emptyDraft(role: UserRole, properties: Property[]): Draft {
     triggerType: "ITEM_UPDATED",
     enabled: true,
     conditions: [{ field: "completionStatus", operator: "notEquals", value: "DONE" }],
-    actions: [{ type: "addAuditNote", field: "vacancyStatus", fieldId: "", value: "Automation attention required.", sourceField: "makeReadyDate", targetField: "flooringDate", offsetDays: "1" }],
+    actions: [{
+      type: "addAuditNote",
+      field: "vacancyStatus",
+      fieldId: "",
+      value: "Automation attention required.",
+      sourceField: "makeReadyDate",
+      targetField: "flooringDate",
+      offsetDays: "1",
+      eligibleRoles: ["TECH"],
+      eligibleUserIds: "",
+      excludedUserIds: "",
+      lookAheadDays: "7",
+      dailyAssignmentCap: "",
+      onlyWhenUnassigned: true,
+      includePlannedWork: true,
+    }],
   };
 }
 
@@ -88,6 +119,13 @@ function toDraft(rule: AutomationRule): Draft {
     sourceField: "sourceField" in action ? action.sourceField : "makeReadyDate",
     targetField: "targetField" in action ? action.targetField : "flooringDate",
     offsetDays: "offsetDays" in action ? String(action.offsetDays) : "1",
+    eligibleRoles: action.type === "assignLeastLoadedStaff" ? action.eligibleRoles : ["TECH"],
+    eligibleUserIds: action.type === "assignLeastLoadedStaff" ? action.eligibleUserIds?.join(", ") ?? "" : "",
+    excludedUserIds: action.type === "assignLeastLoadedStaff" ? action.excludedUserIds?.join(", ") ?? "" : "",
+    lookAheadDays: action.type === "assignLeastLoadedStaff" ? String(action.lookAheadDays) : "7",
+    dailyAssignmentCap: action.type === "assignLeastLoadedStaff" && action.dailyAssignmentCap ? String(action.dailyAssignmentCap) : "",
+    onlyWhenUnassigned: action.type === "assignLeastLoadedStaff" ? action.onlyWhenUnassigned ?? true : true,
+    includePlannedWork: action.type === "assignLeastLoadedStaff" ? action.includePlannedWork ?? true : true,
   }));
   return {
     name: rule.name,
@@ -148,6 +186,19 @@ function draftPayload(draft: Draft, customFields: CustomField[]) {
     if (action.type === "setField") return { type: "setField", field: action.field, value: action.value || null };
     if (action.type === "setCustomField") return { type: "setCustomField", fieldId: action.fieldId, value: action.value || null };
     if (action.type === "setDateFromField") return { type: "setDateFromField", sourceField: action.sourceField, targetField: action.targetField, offsetDays: Number(action.offsetDays || 0), respectOperatingCalendar: true };
+    if (action.type === "assignLeastLoadedStaff") {
+      return {
+        type: "assignLeastLoadedStaff",
+        eligibleRoles: action.eligibleRoles.filter(Boolean) as Array<"ADMIN" | "MANAGER" | "TECH" | "CLEANER">,
+        eligibleUserIds: action.eligibleUserIds.split(",").map((entry) => entry.trim()).filter(Boolean),
+        excludedUserIds: action.excludedUserIds.split(",").map((entry) => entry.trim()).filter(Boolean),
+        lookAheadDays: Number(action.lookAheadDays || 0),
+        includePlannedWork: action.includePlannedWork,
+        onlyWhenUnassigned: action.onlyWhenUnassigned,
+        dailyAssignmentCap: action.dailyAssignmentCap.trim() ? Number(action.dailyAssignmentCap) : null,
+        targetDateField: action.sourceField as "makeReadyDate" | "moveInDate" | "vacatedDate",
+      };
+    }
     if (action.type === "setPriority") return { type: "setPriority", value: Number(action.value || 0) };
     return { type: action.type, value: action.value };
   });
@@ -167,6 +218,16 @@ function isActionIncomplete(action: DraftAction) {
   if (action.type === "setDateFromField") {
     const offset = Number(action.offsetDays);
     return !action.sourceField || !action.targetField || action.sourceField === action.targetField || !Number.isInteger(offset) || offset < -60 || offset > 60;
+  }
+  if (action.type === "assignLeastLoadedStaff") {
+    const lookAhead = Number(action.lookAheadDays);
+    const cap = action.dailyAssignmentCap.trim() ? Number(action.dailyAssignmentCap) : null;
+    return action.eligibleRoles.length === 0
+      || !["makeReadyDate", "moveInDate", "vacatedDate"].includes(action.sourceField)
+      || !Number.isInteger(lookAhead)
+      || lookAhead < 0
+      || lookAhead > 30
+      || (cap !== null && (!Number.isInteger(cap) || cap < 1 || cap > 50));
   }
   return !action.value.trim();
 }
@@ -672,15 +733,35 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
             <section className="automation-builder span-full">
               <div className="admin-section-head">
                 <strong>Actions</strong>
-                <button className="button button-secondary" type="button" disabled={!creating && !canEditSelected} onClick={() => setDraft((current) => ({ ...current, actions: [...current.actions, { type: "addAuditNote", field: "vacancyStatus", fieldId: "", value: "", sourceField: "makeReadyDate", targetField: "flooringDate", offsetDays: "1" }] }))}>Add Action</button>
+                <button className="button button-secondary" type="button" disabled={!creating && !canEditSelected} onClick={() => setDraft((current) => ({ ...current, actions: [...current.actions, {
+                  type: "addAuditNote",
+                  field: "vacancyStatus",
+                  fieldId: "",
+                  value: "",
+                  sourceField: "makeReadyDate",
+                  targetField: "flooringDate",
+                  offsetDays: "1",
+                  eligibleRoles: ["TECH"],
+                  eligibleUserIds: "",
+                  excludedUserIds: "",
+                  lookAheadDays: "7",
+                  dailyAssignmentCap: "",
+                  onlyWhenUnassigned: true,
+                  includePlannedWork: true,
+                }] }))}>Add Action</button>
               </div>
               {draft.actions.map((action, index) => (
                 <div className="automation-builder-row" key={`action-${index}`}>
-                  <select data-testid={`automation-action-type-${index}`} disabled={!creating && !canEditSelected} value={action.type} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, type: event.target.value as AutomationAction["type"] } : entry) }))}>
+                  <select data-testid={`automation-action-type-${index}`} disabled={!creating && !canEditSelected} value={action.type} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? {
+                    ...entry,
+                    type: event.target.value as AutomationAction["type"],
+                    value: event.target.value === "addAuditNote" ? entry.value : event.target.value === "assignLeastLoadedStaff" ? "" : entry.value,
+                  } : entry) }))}>
                     <option value="setField">Set field value</option>
                     <option value="setDateFromField">Set date from operating offset</option>
                     <option value="setCustomField">Set custom field value</option>
                     <option value="addAuditNote">Add activity note</option>
+                    {draft.triggerType === "SCHEDULED_CHECK" ? <option value="assignLeastLoadedStaff">Assign least-loaded staff</option> : null}
                     {draft.triggerType !== "SCHEDULED_CHECK" ? <option value="setPriority">Set priority (existing)</option> : null}
                     {draft.triggerType !== "SCHEDULED_CHECK" ? <option value="appendNote">Append item note (existing)</option> : null}
                   </select>
@@ -706,9 +787,95 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                     </>
                   ) : null}
                   {action.type === "setCustomField" ? <select disabled={!creating && !canEditSelected} value={action.fieldId} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, fieldId: event.target.value } : entry) }))}><option value="">Choose field</option>{customFields.map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}</select> : null}
+                  {action.type === "assignLeastLoadedStaff" ? (
+                    <>
+                      <select disabled={!creating && !canEditSelected} value={action.sourceField} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, sourceField: event.target.value } : entry) }))}>
+                        {["makeReadyDate", "moveInDate", "vacatedDate"].map((field) => <option key={field} value={field}>Target {humanize(field)}</option>)}
+                      </select>
+                      <input
+                        type="number"
+                        disabled={!creating && !canEditSelected}
+                        value={action.lookAheadDays}
+                        min={0}
+                        max={30}
+                        placeholder="Look-ahead days"
+                        onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, lookAheadDays: event.target.value } : entry) }))}
+                      />
+                      <input
+                        disabled={!creating && !canEditSelected}
+                        value={action.eligibleUserIds}
+                        placeholder="Eligible user IDs (optional)"
+                        onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, eligibleUserIds: event.target.value } : entry) }))}
+                      />
+                      <input
+                        disabled={!creating && !canEditSelected}
+                        value={action.excludedUserIds}
+                        placeholder="Exclude user IDs (optional)"
+                        onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, excludedUserIds: event.target.value } : entry) }))}
+                      />
+                      <input
+                        type="number"
+                        disabled={!creating && !canEditSelected}
+                        value={action.dailyAssignmentCap}
+                        min={1}
+                        max={50}
+                        placeholder="Planned-day cap"
+                        onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, dailyAssignmentCap: event.target.value } : entry) }))}
+                      />
+                    </>
+                  ) : null}
                   {action.type !== "setDateFromField" ? (
-                    <input data-testid={`automation-action-value-${index}`} disabled={!creating && !canEditSelected} value={action.value} placeholder={action.type === "addAuditNote" ? "Activity note" : "Value"} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, value: event.target.value } : entry) }))} />
+                    action.type === "assignLeastLoadedStaff" ? (
+                      <label className="toggle-row">
+                        <input
+                          type="checkbox"
+                          checked={action.onlyWhenUnassigned}
+                          disabled={!creating && !canEditSelected}
+                          onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, onlyWhenUnassigned: event.target.checked } : entry) }))}
+                        />
+                        Only when unassigned
+                      </label>
+                    ) : (
+                      <input data-testid={`automation-action-value-${index}`} disabled={!creating && !canEditSelected} value={action.value} placeholder={action.type === "addAuditNote" ? "Activity note" : "Value"} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, value: event.target.value } : entry) }))} />
+                    )
                   ) : <span className="subtitle">Uses property operating calendar rules</span>}
+                  {action.type === "assignLeastLoadedStaff" ? (
+                    <label className="toggle-row">
+                      <input
+                        type="checkbox"
+                        checked={action.includePlannedWork}
+                        disabled={!creating && !canEditSelected}
+                        onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, includePlannedWork: event.target.checked } : entry) }))}
+                      />
+                      Include planned work
+                    </label>
+                  ) : null}
+                  {action.type === "assignLeastLoadedStaff" ? (
+                    <div className="automation-role-chips">
+                      {assignableRoles.map((roleOption) => {
+                        const checked = action.eligibleRoles.includes(roleOption);
+                        return (
+                          <label className="toggle-row" key={`${index}-${roleOption}`}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={!creating && !canEditSelected}
+                              onChange={(event) => setDraft((current) => ({
+                                ...current,
+                                actions: current.actions.map((entry, entryIndex) => entryIndex === index ? {
+                                  ...entry,
+                                  eligibleRoles: event.target.checked
+                                    ? Array.from(new Set([...entry.eligibleRoles, roleOption]))
+                                    : entry.eligibleRoles.filter((value) => value !== roleOption),
+                                } : entry),
+                              }))}
+                            />
+                            {roleOption}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                   <button className="icon-button" type="button" aria-label="Remove action" disabled={draft.actions.length === 1 || (!creating && !canEditSelected)} onClick={() => setDraft((current) => ({ ...current, actions: current.actions.filter((_, entryIndex) => entryIndex !== index) }))}>x</button>
                 </div>
               ))}

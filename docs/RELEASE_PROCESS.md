@@ -79,12 +79,28 @@ Include:
 
 For Docker Compose deployments:
 
+Preferred operator path:
+
+```bash
+./update.sh --yes
+```
+
+To pull the current branch first:
+
+```bash
+./update.sh --pull --yes
+```
+
+Manual equivalent:
+
 1. Back up PostgreSQL with `./backup-db.sh`.
 2. Back up uploads with `./backup-uploads.sh`.
 3. Pull the new source or release archive.
 4. Run `./doctor.sh`.
-5. Run `npm --prefix apps/api run db:deploy`.
-6. Rebuild and start:
+5. Run `./check-migration-hygiene.sh` and review the result before relying on migration-only upgrade expectations. It now checks Prisma migration history status, live-db-vs-schema drift, and applied migration file checksums.
+6. Run `npm --prefix apps/api run db:deploy`.
+7. If `check-migration-hygiene.sh` reports drift/history issues or a release explicitly documents a migration-history cleanup window, rehearse restore on a disposable copy before applying that release to the primary instance.
+8. Rebuild and start:
 
 ```bash
 docker compose up --build -d

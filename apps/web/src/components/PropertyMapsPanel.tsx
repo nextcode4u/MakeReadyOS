@@ -1,14 +1,45 @@
-import { useMemo, useRef, useState } from "react";
-import type { PointerEvent } from "react";
-import type { BoardSection, LabelDefinition, MakeReadyItem, Property, PropertyMap, PropertyMapArea, Unit, UnitMapLocation } from "../lib/api";
-import { propertyMapFileUrl } from "../lib/api";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type {
+  BoardSection,
+  LabelDefinition,
+  MakeReadyItem,
+  PestIssue,
+  PreventiveMaintenanceTask,
+  ProjectRecord,
+  Property,
+  PropertyMap,
+  PropertyMapArea,
+  PropertyMapPin,
+  PropertyWikiEntry,
+  Unit,
+  UnitMapLocation,
+} from "../lib/api";
+import {
+  createPropertyMapPin,
+  getPestIssues,
+  getPreventiveMaintenanceTasks,
+  getProjectMapRecords,
+  getPropertyMapPins,
+  getPropertyWikiEntries,
+  propertyMapPinAttachmentDownloadUrl,
+  propertyMapExportCsvUrl,
+  propertyMapExportXlsUrl,
+  propertyMapFileUrl,
+  propertyMapPrintableReportUrl,
+  removePropertyMapPin,
+  deletePropertyMapPinAttachment,
+  updatePropertyMapPin,
+  uploadPropertyMapPinAttachment,
+} from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
+import { openPestQuickAdd } from "../lib/pestNavigation";
+import { openProjectCreate, openProjectRecord } from "../lib/projectNavigation";
+import { UnitSearchSelect } from "./UnitSearchSelect";
 
 type ColorSource = "riskLevel" | "vacancyStatus" | "boardSection" | "assignedTech" | "makeReadyStatus";
-
-function floorPlanLabel(plan: { code: string; name: string }) {
-  return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
-}
+type MarkerKind = "unit" | "area" | "pin" | "project";
+type PlacementMode = "none" | "unit" | "area" | "pin" | "move-pin";
 
 type Props = {
   properties: Property[];
@@ -63,6 +94,12 @@ type Props = {
   onOpenItem: (itemId: string) => void;
 };
 
+type SelectedMarker =
+  | { kind: "unit"; location: UnitMapLocation }
+  | { kind: "area"; area: PropertyMapArea }
+  | { kind: "pin"; pin: PropertyMapPin }
+  | { kind: "project"; record: ProjectRecord };
+
 const riskColors: Record<string, string> = {
   NONE: "#8a93a6",
   LOW: "#41c98f",
@@ -77,6 +114,53 @@ const sectionColors: Record<string, string> = {
   DOWN: "#ffc268",
   ARCHIVE: "#8a93a6",
 };
+
+const pinTypePalette: Record<string, string> = {
+  Building: "#4d91ff",
+  Unit: "#8a93a6",
+  Utility: "#e5b33b",
+  Equipment: "#39c8c5",
+  Project: "#ef6b73",
+  Recommendation: "#f39c47",
+  "Pest Control": "#9c6cff",
+  "Preventive Maintenance": "#41c98f",
+  Inspection: "#ef7ab8",
+  Pool: "#45d4ff",
+  Gate: "#8f5b31",
+  "Fire System": "#ef4444",
+  "Access Control": "#7c5cff",
+  "Known Issue": "#f59e0b",
+  Wiki: "#5b6dff",
+  Custom: "#cbd5e1",
+};
+
+const pinTypeOptions = [
+  "Building",
+  "Unit",
+  "Utility",
+  "Equipment",
+  "Project",
+  "Recommendation",
+  "Pest Control",
+  "Preventive Maintenance",
+  "Inspection",
+  "Pool",
+  "Gate",
+  "Fire System",
+  "Access Control",
+  "Known Issue",
+  "Wiki",
+  "Custom",
+];
+
+function floorPlanLabel(plan: { code: string; name: string }) {
+  return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "Not set";
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
+}
 
 function hashColor(value: string) {
   let hash = 0;
@@ -105,6 +189,42 @@ function markerLabel(source: ColorSource, item: MakeReadyItem | undefined, secti
   return source === "vacancyStatus" ? item.vacancyStatus ?? "Unset" : item.makeReadyStatus ?? "Unset";
 }
 
+function markerMatchesSearch(values: Array<string | null | undefined>, search: string) {
+  if (!search.trim()) return true;
+  const query = search.trim().toLowerCase();
+  return values.some((value) => value?.toLowerCase().includes(query));
+}
+
+function overlapOffset(index: number, total: number) {
+  if (total <= 1) {
+    return { offsetX: 0, offsetY: 0 };
+  }
+  const radius = Math.min(28, 12 + Math.floor((total - 1) / 4) * 7);
+  const angle = ((Math.PI * 2) / total) * index - Math.PI / 2;
+  return {
+    offsetX: Math.round(Math.cos(angle) * radius),
+    offsetY: Math.round(Math.sin(angle) * radius),
+  };
+}
+
+function buildMarkerOffsetMap(entries: Array<{ key: string; xPercent: number; yPercent: number }>, bucketSize = 2.5) {
+  const groups = new Map<string, Array<{ key: string; xPercent: number; yPercent: number }>>();
+  for (const entry of entries) {
+    const bucketX = Math.round(entry.xPercent / bucketSize);
+    const bucketY = Math.round(entry.yPercent / bucketSize);
+    const bucketKey = `${bucketX}:${bucketY}`;
+    groups.set(bucketKey, [...(groups.get(bucketKey) ?? []), entry]);
+  }
+  const offsets = new Map<string, { offsetX: number; offsetY: number; overlapCount: number }>();
+  for (const group of groups.values()) {
+    group.forEach((entry, index) => {
+      const { offsetX, offsetY } = overlapOffset(index, group.length);
+      offsets.set(entry.key, { offsetX, offsetY, overlapCount: group.length });
+    });
+  }
+  return offsets;
+}
+
 export function PropertyMapsPanel({
   properties,
   units,
@@ -129,24 +249,47 @@ export function PropertyMapsPanel({
   onRemoveArea,
   onOpenItem,
 }: Props) {
-  const initialPropertyId = selectedPropertyId || properties[0]?.id || "";
-  const [localPropertyId, setLocalPropertyId] = useState(initialPropertyId);
+  const queryClient = useQueryClient();
+  const [localPropertyId, setLocalPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const propertyId = selectedPropertyId || localPropertyId;
   const property = properties.find((entry) => entry.id === propertyId);
   const propertyMaps = maps.filter((map) => map.propertyId === propertyId);
-  const activeMap = propertyMaps.find((map) => map.isActive && !map.isArchived) ?? propertyMaps.find((map) => !map.isArchived) ?? propertyMaps[0];
-  const [activeMapId, setActiveMapId] = useState("");
-  const selectedMap = propertyMaps.find((map) => map.id === (activeMapId || activeMap?.id)) ?? activeMap;
+  const defaultMap = propertyMaps.find((map) => map.isDefault && !map.isArchived) ?? propertyMaps.find((map) => map.isActive && !map.isArchived) ?? propertyMaps.find((map) => !map.isArchived) ?? propertyMaps[0];
+  const [selectedMapId, setSelectedMapId] = useState("");
+  const selectedMap = propertyMaps.find((map) => map.id === (selectedMapId || defaultMap?.id)) ?? defaultMap ?? null;
   const [selectedUnitId, setSelectedUnitId] = useState("");
+  const [selectedMarker, setSelectedMarker] = useState<SelectedMarker | null>(null);
+  const [placementMode, setPlacementMode] = useState<PlacementMode>("none");
   const [colorSource, setColorSource] = useState<ColorSource>("riskLevel");
+  const [zoom, setZoom] = useState(1);
+  const [search, setSearch] = useState("");
+  const [emergencyOnly, setEmergencyOnly] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [locationMeta, setLocationMeta] = useState({ building: "", area: "", floor: "" });
   const [areaDraft, setAreaDraft] = useState({ name: "", areaType: "BUILDING", expectedUnitCount: "", color: "#1f8fdb" });
-  const [placingArea, setPlacingArea] = useState(false);
+  const [pinDraft, setPinDraft] = useState({
+    title: "",
+    pinType: "Utility",
+    building: "",
+    unitLabel: "",
+    area: "",
+    description: "",
+    linkedRecordType: "",
+    linkedRecordId: "",
+    tags: "",
+    isEmergency: false,
+  });
+  const [layerToggles, setLayerToggles] = useState<Record<string, boolean>>({
+    units: true,
+    areas: true,
+    pins: true,
+    projects: true,
+    recommendations: true,
+    pest: true,
+    pm: true,
+    wiki: true,
+  });
   const [selectedBuilding, setSelectedBuilding] = useState("");
-  const canvasRef = useRef<HTMLDivElement | null>(null);
-  const dragState = useRef<{ locationId: string; startX: number; startY: number; moved: boolean } | null>(null);
-  const suppressMarkerClick = useRef<string | null>(null);
 
   const propertyUnits = units.filter((unit) => unit.propertyId === propertyId && unit.isActive);
   const itemByUnit = useMemo(() => {
@@ -156,135 +299,304 @@ export function PropertyMapsPanel({
     }
     return result;
   }, [items, propertyId]);
+
   const mapLocations = locations.filter((location) => location.mapId === selectedMap?.id && !location.isArchived);
   const mapAreas = areas.filter((area) => area.mapId === selectedMap?.id && !area.isArchived);
   const locationByUnit = useMemo(() => new Map(mapLocations.map((location) => [location.unitId, location])), [mapLocations]);
   const unmappedUnits = propertyUnits.filter((unit) => !locationByUnit.has(unit.id));
-  const imagePreview = selectedMap?.mimeType?.startsWith("image/");
+
+  const pinsQuery = useQuery({
+    queryKey: ["property-map-pins", propertyId, selectedMap?.id],
+    queryFn: () => getPropertyMapPins({ propertyId, mapId: selectedMap?.id ?? undefined }),
+    enabled: Boolean(propertyId && selectedMap?.id),
+  });
+  const projectPinsQuery = useQuery({
+    queryKey: ["property-map-projects", propertyId],
+    queryFn: () => getProjectMapRecords({ propertyId }),
+    enabled: Boolean(propertyId),
+  });
+  const pestQuery = useQuery({
+    queryKey: ["property-map-pest", propertyId],
+    queryFn: () => getPestIssues({ propertyId, limit: 300, includeArchived: false }),
+    enabled: Boolean(propertyId),
+  });
+  const pmQuery = useQuery({
+    queryKey: ["property-map-pm", propertyId],
+    queryFn: () => getPreventiveMaintenanceTasks({ propertyId, limit: 300 }),
+    enabled: Boolean(propertyId),
+  });
+  const wikiQuery = useQuery({
+    queryKey: ["property-map-wiki", propertyId],
+    queryFn: () => getPropertyWikiEntries({ propertyId, includeInactive: false }),
+    enabled: Boolean(propertyId),
+  });
+
+  const pinCreateMutation = useMutation({
+    mutationFn: createPropertyMapPin,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["property-map-pins"] });
+    },
+  });
+  const pinUpdateMutation = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: Parameters<typeof updatePropertyMapPin>[1] }) => updatePropertyMapPin(id, input),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["property-map-pins"] });
+    },
+  });
+  const pinRemoveMutation = useMutation({
+    mutationFn: removePropertyMapPin,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["property-map-pins"] });
+      setSelectedMarker(null);
+    },
+  });
+  const pinAttachmentUploadMutation = useMutation({
+    mutationFn: ({ pinId, file }: { pinId: string; file: File }) => uploadPropertyMapPinAttachment(pinId, file),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["property-map-pins"] });
+    },
+  });
+  const pinAttachmentDeleteMutation = useMutation({
+    mutationFn: deletePropertyMapPinAttachment,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["property-map-pins"] });
+    },
+  });
+
+  const wikiEntries = wikiQuery.data?.entries ?? [];
+  const pestIssues = pestQuery.data?.issues ?? [];
+  const pmTasks = pmQuery.data?.tasks ?? [];
+  const projectRecords = (projectPinsQuery.data?.records ?? []).filter((record) => record.propertyMapId === selectedMap?.id && record.pinX !== null && record.pinY !== null);
+  const customPins = pinsQuery.data?.pins ?? [];
+
   const buildingSummaries = useMemo(() => {
-    const summaries = new Map<string, {
-      key: string;
-      label: string;
-      units: Unit[];
-      mapped: number;
-      activeTurns: number;
-      x: number | null;
-      y: number | null;
-    }>();
+    const summaries = new Map<string, { key: string; label: string; units: Unit[]; mapped: number; x: number | null; y: number | null }>();
     for (const area of mapAreas) {
       const label = area.name.trim() || "Unnamed area";
-      summaries.set(label.toLowerCase(), {
-        key: label.toLowerCase(),
-        label,
-        units: [],
-        mapped: 0,
-        activeTurns: 0,
-        x: area.xPercent,
-        y: area.yPercent,
-      });
+      summaries.set(label.toLowerCase(), { key: label.toLowerCase(), label, units: [], mapped: 0, x: area.xPercent, y: area.yPercent });
     }
     for (const unit of propertyUnits) {
       const location = locationByUnit.get(unit.id);
       const label = unit.building?.trim() || location?.building?.trim() || unit.area?.trim() || location?.area?.trim() || "No building";
       const key = label.toLowerCase();
-      const existing = summaries.get(key) ?? { key, label, units: [], mapped: 0, activeTurns: 0, x: null, y: null };
+      const existing = summaries.get(key) ?? { key, label, units: [], mapped: 0, x: null, y: null };
       existing.units.push(unit);
       if (location) {
         existing.mapped += 1;
         existing.x = existing.x === null ? location.xPercent : (existing.x + location.xPercent) / 2;
         existing.y = existing.y === null ? location.yPercent : (existing.y + location.yPercent) / 2;
       }
-      if (itemByUnit.has(unit.id)) existing.activeTurns += 1;
       summaries.set(key, existing);
     }
-    return Array.from(summaries.values()).sort((left, right) => {
-      if (left.label === "No building") return 1;
-      if (right.label === "No building") return -1;
-      return left.label.localeCompare(right.label, undefined, { numeric: true });
-    });
-  }, [itemByUnit, locationByUnit, mapAreas, propertyUnits]);
-  const filteredPropertyUnits = selectedBuilding
-    ? propertyUnits.filter((unit) => {
-      const location = locationByUnit.get(unit.id);
-      return (unit.building?.trim() || location?.building?.trim() || unit.area?.trim() || location?.area?.trim() || "No building").toLowerCase() === selectedBuilding;
-    })
-    : propertyUnits;
+    return Array.from(summaries.values()).sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }));
+  }, [locationByUnit, mapAreas, propertyUnits]);
 
-  const legendEntries = useMemo(() => {
-    const entries = new Map<string, string>();
-    for (const location of mapLocations) {
-      const item = itemByUnit.get(location.unitId);
-      entries.set(markerLabel(colorSource, item, boardSections), markerColor(colorSource, item, labelsByField, boardSections));
-    }
-    return Array.from(entries.entries());
-  }, [boardSections, colorSource, itemByUnit, labelsByField, mapLocations]);
+  const linkedRecordOptions = useMemo(() => ({
+    PROJECT_RECORD: projectPinsQuery.data?.records ?? [],
+    PEST_ISSUE: pestIssues,
+    PM_TASK: pmTasks,
+    WIKI_ENTRY: wikiEntries,
+  }), [pestIssues, pmTasks, projectPinsQuery.data?.records, wikiEntries]);
+
+  const imagePreview = selectedMap?.mimeType?.startsWith("image/");
 
   const updateProperty = (value: string) => {
     setLocalPropertyId(value);
     onPropertyChange(value);
-    setActiveMapId("");
+    setSelectedMapId("");
     setSelectedUnitId("");
+    setSelectedMarker(null);
     setSelectedBuilding("");
   };
 
-  const saveAt = async (xPercent: number, yPercent: number) => {
-    if (!canManage || !selectedMap || !selectedUnitId) return;
-    await onSaveLocation({
-      propertyId,
-      mapId: selectedMap.id,
-      unitId: selectedUnitId,
-      xPercent,
-      yPercent,
-      building: locationMeta.building || null,
-      area: locationMeta.area || null,
-      floor: locationMeta.floor || null,
-    });
-  };
-  const saveAreaAt = async (xPercent: number, yPercent: number) => {
-    if (!canManage || !selectedMap || !areaDraft.name.trim()) return;
-    await onCreateArea({
-      propertyId,
-      mapId: selectedMap.id,
-      name: areaDraft.name.trim(),
-      areaType: areaDraft.areaType,
-      xPercent,
-      yPercent,
-      color: areaDraft.color || null,
-      expectedUnitCount: areaDraft.expectedUnitCount ? Number(areaDraft.expectedUnitCount) : null,
-    });
-    setAreaDraft((current) => ({ ...current, name: "", expectedUnitCount: "" }));
-    setPlacingArea(false);
-  };
-  const saveLocationAt = async (location: UnitMapLocation, xPercent: number, yPercent: number) => {
-    if (!canManage || !selectedMap) return;
-    const unit = propertyUnits.find((entry) => entry.id === location.unitId) ?? location.unit;
-    await onSaveLocation({
-      propertyId,
-      mapId: selectedMap.id,
-      unitId: location.unitId,
-      xPercent: Math.max(0, Math.min(100, xPercent)),
-      yPercent: Math.max(0, Math.min(100, yPercent)),
-      building: location.building ?? unit?.building ?? null,
-      area: location.area ?? unit?.area ?? null,
-      floor: location.floor ?? unit?.floor ?? null,
-    });
-  };
-  const percentFromPointer = (event: PointerEvent<HTMLElement>) => {
-    const box = canvasRef.current?.getBoundingClientRect();
-    if (!box) return null;
+  const percentFromClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
     return {
       xPercent: Math.max(0, Math.min(100, ((event.clientX - box.left) / box.width) * 100)),
       yPercent: Math.max(0, Math.min(100, ((event.clientY - box.top) / box.height) * 100)),
     };
   };
 
+  const handleMapClick = async (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!selectedMap || !canManage) return;
+    const point = percentFromClick(event);
+    if (placementMode === "unit" && selectedUnitId) {
+      await onSaveLocation({
+        propertyId,
+        mapId: selectedMap.id,
+        unitId: selectedUnitId,
+        xPercent: point.xPercent,
+        yPercent: point.yPercent,
+        building: locationMeta.building || null,
+        area: locationMeta.area || null,
+        floor: locationMeta.floor || null,
+      });
+      return;
+    }
+    if (placementMode === "area" && areaDraft.name.trim()) {
+      await onCreateArea({
+        propertyId,
+        mapId: selectedMap.id,
+        name: areaDraft.name.trim(),
+        areaType: areaDraft.areaType,
+        xPercent: point.xPercent,
+        yPercent: point.yPercent,
+        color: areaDraft.color || null,
+        expectedUnitCount: areaDraft.expectedUnitCount ? Number(areaDraft.expectedUnitCount) : null,
+      });
+      setAreaDraft((current) => ({ ...current, name: "", expectedUnitCount: "" }));
+      setPlacementMode("none");
+      return;
+    }
+    if (placementMode === "pin" && pinDraft.title.trim()) {
+      await pinCreateMutation.mutateAsync({
+        propertyId,
+        mapId: selectedMap.id,
+        title: pinDraft.title.trim(),
+        pinType: pinDraft.pinType,
+        xPercent: point.xPercent,
+        yPercent: point.yPercent,
+        building: pinDraft.building || null,
+        unitLabel: pinDraft.unitLabel || null,
+        area: pinDraft.area || null,
+        description: pinDraft.description || null,
+        linkedRecordType: pinDraft.linkedRecordType || null,
+        linkedRecordId: pinDraft.linkedRecordId || null,
+        tags: pinDraft.tags.split(",").map((value) => value.trim()).filter(Boolean),
+        isEmergency: pinDraft.isEmergency,
+      });
+      setPinDraft((current) => ({ ...current, title: "", description: "", tags: "" }));
+      setPlacementMode("none");
+      return;
+    }
+    if (placementMode === "move-pin" && selectedMarker?.kind === "pin") {
+      await pinUpdateMutation.mutateAsync({ id: selectedMarker.pin.id, input: { xPercent: point.xPercent, yPercent: point.yPercent } });
+      setPlacementMode("none");
+    }
+  };
+
+  const mergedSearchResults = useMemo(() => {
+    const results: Array<{ id: string; title: string; subtitle: string; onSelect: () => void }> = [];
+    for (const location of mapLocations) {
+      const unit = propertyUnits.find((entry) => entry.id === location.unitId) ?? location.unit;
+      if (!markerMatchesSearch([unit.number, location.building, location.area, location.floor], search)) continue;
+      results.push({
+        id: `unit:${location.id}`,
+        title: `Unit ${unit.number}`,
+        subtitle: [location.building, location.area, location.floor].filter(Boolean).join(" / ") || "Unit marker",
+        onSelect: () => setSelectedMarker({ kind: "unit", location }),
+      });
+    }
+    for (const area of mapAreas) {
+      if (!markerMatchesSearch([area.name, area.areaType, area.notes], search)) continue;
+      results.push({
+        id: `area:${area.id}`,
+        title: area.name,
+        subtitle: `${area.areaType} area`,
+        onSelect: () => setSelectedMarker({ kind: "area", area }),
+      });
+    }
+    for (const pin of customPins) {
+      if (!markerMatchesSearch([pin.title, pin.pinType, pin.building, pin.unitLabel, pin.area, pin.description, pin.tags.join(" ")], search)) continue;
+      results.push({
+        id: `pin:${pin.id}`,
+        title: pin.title,
+        subtitle: [pin.pinType, pin.building, pin.unitLabel, pin.area].filter(Boolean).join(" / "),
+        onSelect: () => setSelectedMarker({ kind: "pin", pin }),
+      });
+    }
+    for (const record of projectRecords) {
+      if (!markerMatchesSearch([record.title, record.recordType, record.building, record.area, record.locationNotes, record.tags.join(" ")], search)) continue;
+      results.push({
+        id: `project:${record.id}`,
+        title: record.title,
+        subtitle: [record.recordType, record.status, record.building, record.area].filter(Boolean).join(" / "),
+        onSelect: () => setSelectedMarker({ kind: "project", record }),
+      });
+    }
+    return results.slice(0, 30);
+  }, [customPins, mapAreas, mapLocations, projectRecords, propertyUnits, search]);
+
+  const selectedMarkerDetails = (() => {
+    if (!selectedMarker) return null;
+    if (selectedMarker.kind === "unit") {
+      const location = selectedMarker.location;
+      const unit = propertyUnits.find((entry) => entry.id === location.unitId) ?? location.unit;
+      const item = itemByUnit.get(location.unitId);
+      const unitPests = pestIssues.filter((issue) => issue.unitId === location.unitId).slice(0, 4);
+      const relatedWiki = wikiEntries.filter((entry) => (entry.building && entry.building === (unit.building ?? location.building)) || entry.floorPlan === unit.floorPlan).slice(0, 4);
+      return {
+        title: `Unit ${unit.number}`,
+        type: "Unit",
+        description: [location.building ? `Building ${location.building}` : null, location.area, location.floor].filter(Boolean).join(" / "),
+        related: [
+          item ? `Make Ready: ${item.makeReadyStatus ?? item.status}` : null,
+          unitPests[0] ? `Pest: ${unitPests[0].pestType} / ${unitPests[0].status}` : null,
+          relatedWiki[0] ? `Wiki: ${relatedWiki[0].title}` : null,
+        ].filter(Boolean),
+      };
+    }
+    if (selectedMarker.kind === "area") {
+      return {
+        title: selectedMarker.area.name,
+        type: selectedMarker.area.areaType,
+        description: selectedMarker.area.notes || `${selectedMarker.area.expectedUnitCount ?? 0} expected units`,
+        related: [
+          `${propertyUnits.filter((unit) => (unit.building ?? unit.area ?? "").toLowerCase() === selectedMarker.area.name.toLowerCase()).length} units`,
+        ],
+      };
+    }
+    if (selectedMarker.kind === "pin") {
+      const pin = selectedMarker.pin;
+      return {
+        title: pin.title,
+        type: pin.pinType,
+        description: pin.description || [pin.building, pin.unitLabel, pin.area].filter(Boolean).join(" / "),
+        related: [
+          pin.linkedRecord ? `${pin.linkedRecord.title} / ${pin.linkedRecord.subtitle ?? pin.linkedRecord.targetType}` : null,
+          pin.isEmergency ? "Emergency pin" : null,
+          pin.attachments.length ? `${pin.attachments.length} attachment${pin.attachments.length === 1 ? "" : "s"}` : null,
+          pin.tags.length ? `Tags: ${pin.tags.join(", ")}` : null,
+        ].filter(Boolean),
+      };
+    }
+    return {
+      title: selectedMarker.record.title,
+      type: selectedMarker.record.recordType,
+      description: selectedMarker.record.description || [selectedMarker.record.building, selectedMarker.record.area].filter(Boolean).join(" / "),
+      related: [
+        selectedMarker.record.status,
+        selectedMarker.record.priority,
+        selectedMarker.record.assignedUserName ?? selectedMarker.record.companyName ?? null,
+      ].filter(Boolean),
+    };
+  })();
+
+  const visibleUnitMarkers = layerToggles.units ? mapLocations.filter((location) => !selectedBuilding || (location.building ?? location.area ?? "").toLowerCase() === selectedBuilding) : [];
+  const visibleAreaMarkers = layerToggles.areas ? mapAreas.filter((area) => !search || markerMatchesSearch([area.name, area.areaType, area.notes], search)) : [];
+  const visiblePins = layerToggles.pins ? customPins.filter((pin) => (!emergencyOnly || pin.isEmergency) && markerMatchesSearch([pin.title, pin.pinType, pin.building, pin.unitLabel, pin.area, pin.description, pin.tags.join(" ")], search)) : [];
+  const visibleProjects = projectRecords.filter((record) => (record.recordType === "Project" ? layerToggles.projects : layerToggles.recommendations) && markerMatchesSearch([record.title, record.recordType, record.building, record.area, record.locationNotes, record.tags.join(" ")], search));
+  const markerOffsets = useMemo(() => buildMarkerOffsetMap([
+    ...visibleUnitMarkers.map((location) => ({ key: `unit:${location.id}`, xPercent: location.xPercent, yPercent: location.yPercent })),
+    ...visibleAreaMarkers.map((area) => ({ key: `area:${area.id}`, xPercent: area.xPercent, yPercent: area.yPercent })),
+    ...visiblePins.map((pin) => ({ key: `pin:${pin.id}`, xPercent: pin.xPercent, yPercent: pin.yPercent })),
+    ...visibleProjects.map((record) => ({ key: `project:${record.id}`, xPercent: record.pinX ?? 0, yPercent: record.pinY ?? 0 })),
+  ]), [visibleAreaMarkers, visiblePins, visibleProjects, visibleUnitMarkers]);
+
+  const buildingFilteredUnits = selectedBuilding
+    ? propertyUnits.filter((unit) => {
+      const location = locationByUnit.get(unit.id);
+      return (unit.building?.trim() || location?.building?.trim() || unit.area?.trim() || location?.area?.trim() || "No building").toLowerCase() === selectedBuilding;
+    })
+    : propertyUnits;
+
   return (
     <section className="panel property-map-panel" data-testid="property-maps-panel">
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Property Maps</p>
-          <h2>Map & Unit Directory</h2>
-          <p className="muted">Local site maps, unit markers, mapped/unmapped status, and visual navigation without external map services.</p>
+          <h2>Visual Property Operations</h2>
+          <p className="muted">Maps, units, areas, emergency utilities, and linked records in one operational view.</p>
         </div>
       </div>
       {loading && <div className="state-card">Loading property maps...</div>}
@@ -292,18 +604,21 @@ export function PropertyMapsPanel({
 
       <div className="toolbar compact-toolbar map-toolbar">
         <label>Property
-          <select data-testid="map-property-select" value={propertyId} onChange={(event) => updateProperty(event.target.value)}>
+          <select value={propertyId} onChange={(event) => updateProperty(event.target.value)}>
             {properties.map((entry) => <option key={entry.id} value={entry.id}>{entry.code} - {entry.name}</option>)}
           </select>
         </label>
         <label>Map
-          <select data-testid="map-active-select" value={selectedMap?.id ?? ""} onChange={(event) => setActiveMapId(event.target.value)}>
+          <select value={selectedMap?.id ?? ""} onChange={(event) => setSelectedMapId(event.target.value)}>
             <option value="">No map selected</option>
-            {propertyMaps.map((map) => <option key={map.id} value={map.id}>{map.name}{map.isArchived ? " (archived)" : ""}</option>)}
+            {propertyMaps.map((map) => <option key={map.id} value={map.id}>{map.name}{map.isDefault ? " / default" : ""}</option>)}
           </select>
         </label>
+        <label>Search
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Building, unit, pin, project, issue..." />
+        </label>
         <label>Color by
-          <select data-testid="map-color-source" value={colorSource} onChange={(event) => setColorSource(event.target.value as ColorSource)}>
+          <select value={colorSource} onChange={(event) => setColorSource(event.target.value as ColorSource)}>
             <option value="riskLevel">Risk Level</option>
             <option value="vacancyStatus">Vacancy Status</option>
             <option value="boardSection">Board Section</option>
@@ -311,202 +626,221 @@ export function PropertyMapsPanel({
             <option value="makeReadyStatus">Make Ready Status</option>
           </select>
         </label>
+        <label className="compact-toggle">Emergency mode
+          <input type="checkbox" checked={emergencyOnly} onChange={(event) => setEmergencyOnly(event.target.checked)} />
+        </label>
       </div>
 
-      {canManage && (
+      {canManage ? (
         <div className="operations-card map-management-card">
           <h3>Map Setup</h3>
-          <form className="inline-form" data-testid="map-create-form" onSubmit={async (event) => {
-            event.preventDefault();
-            if (!propertyId || !draftName.trim()) return;
-            await onCreateMap({ propertyId, name: draftName.trim() });
-            setDraftName("");
-          }}>
-            <input data-testid="map-create-name" value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder="New map name" />
-            <button data-testid="map-create-submit" className="button button-primary" disabled={!draftName.trim()}>Create Map</button>
-          </form>
-          {selectedMap ? (
-            <div className="map-file-actions">
-              <input data-testid="map-file-upload" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void onUploadMap(selectedMap.id, file);
-              }} />
-              <button className="button button-secondary" data-testid="map-archive-button" onClick={() => void onArchiveMap(selectedMap.id, !selectedMap.isArchived)}>
-                {selectedMap.isArchived ? "Restore Map" : "Archive Map"}
-              </button>
-            </div>
-          ) : null}
+          <div className="map-management-grid">
+            <form className="inline-form" onSubmit={async (event) => {
+              event.preventDefault();
+              if (!propertyId || !draftName.trim()) return;
+              await onCreateMap({ propertyId, name: draftName.trim() });
+              setDraftName("");
+            }}>
+              <input value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder="New map name" />
+              <button className="button button-primary" disabled={!draftName.trim()}>Create Map</button>
+            </form>
+            {selectedMap ? (
+              <div className="map-file-actions">
+                <input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void onUploadMap(selectedMap.id, file);
+                }} />
+                <button className="button button-secondary" type="button" onClick={() => void onArchiveMap(selectedMap.id, !selectedMap.isArchived)}>
+                  {selectedMap.isArchived ? "Restore Map" : "Archive Map"}
+                </button>
+                <a className="button button-secondary" href={propertyMapExportCsvUrl(selectedMap.id)} target="_blank" rel="noreferrer">CSV</a>
+                <a className="button button-secondary" href={propertyMapExportXlsUrl(selectedMap.id)} target="_blank" rel="noreferrer">Excel</a>
+                <a className="button button-secondary" href={propertyMapPrintableReportUrl(selectedMap.id)} target="_blank" rel="noreferrer">PDF</a>
+              </div>
+            ) : null}
+          </div>
         </div>
-      )}
+      ) : null}
 
-      <div className="map-grid">
+      <div className="map-grid property-map-enhanced-grid">
         <div className="operations-card map-editor-card">
           <div className="map-card-header">
             <div>
               <h3>{selectedMap?.name ?? "No map configured"}</h3>
-              <p className="muted">{property ? `${property.code} unit map` : "Select a property"} / {mapLocations.length} mapped / {unmappedUnits.length} unmapped</p>
+              <p className="muted">{selectedMap ? `${selectedMap.mapType} / ${visibleUnitMarkers.length} unit markers / ${visiblePins.length} custom pins / ${visibleProjects.length} project pins` : "Select a property map to begin"}</p>
             </div>
-            <div className="map-legend" data-testid="map-legend">
-              {legendEntries.length === 0 ? <span className="muted">No marker legend yet</span> : legendEntries.map(([label, color]) => <span key={label}><i style={{ background: color }} />{label}</span>)}
+            <div className="map-legend">
+              <button type="button" className="button button-secondary" onClick={() => setZoom((current) => Math.max(0.7, Number((current - 0.1).toFixed(1))))}>-</button>
+              <span>{Math.round(zoom * 100)}%</span>
+              <button type="button" className="button button-secondary" onClick={() => setZoom((current) => Math.min(2, Number((current + 0.1).toFixed(1))))}>+</button>
+              <button type="button" className="button button-secondary" onClick={() => setZoom(1)}>Reset</button>
             </div>
           </div>
-          <div
-            ref={canvasRef}
-            className={`property-map-canvas ${imagePreview ? "" : "no-preview"}`}
-            data-testid="property-map-canvas"
-            onClick={(event) => {
-              const box = event.currentTarget.getBoundingClientRect();
-              const xPercent = ((event.clientX - box.left) / box.width) * 100;
-              const yPercent = ((event.clientY - box.top) / box.height) * 100;
-              if (placingArea) void saveAreaAt(xPercent, yPercent);
-              else void saveAt(xPercent, yPercent);
-            }}
-          >
-            {selectedMap && imagePreview ? <img src={propertyMapFileUrl(selectedMap.id)} alt={`${selectedMap.name} map`} /> : (
-              <div className="map-placeholder">
-                <strong>{selectedMap ? "Map file preview unavailable" : "Create or select a map"}</strong>
-                <span>{selectedMap?.mimeType === "application/pdf" ? "PDF maps are stored and downloadable; marker editing uses this neutral canvas." : "Upload a PNG, JPG, WebP, or PDF property map."}</span>
-              </div>
-            )}
-            {mapLocations.map((location) => {
-              const item = itemByUnit.get(location.unitId);
-              const unit = propertyUnits.find((entry) => entry.id === location.unitId) ?? location.unit;
-              const color = markerColor(colorSource, item, labelsByField, boardSections);
-              return (
-                <button
-                  key={location.id}
-                  type="button"
-                  className="map-marker"
-                  data-testid={`map-marker-${unit.number}`}
-                  style={{ left: `${location.xPercent}%`, top: `${location.yPercent}%`, background: color }}
-                  title={`${unit.number} / ${markerLabel(colorSource, item, boardSections)}`}
-                  draggable={false}
-                  onPointerDown={(event) => {
-                    if (!canManage) return;
-                    event.stopPropagation();
-                    dragState.current = { locationId: location.id, startX: event.clientX, startY: event.clientY, moved: false };
-                    event.currentTarget.setPointerCapture(event.pointerId);
-                  }}
-                  onPointerMove={(event) => {
-                    const drag = dragState.current;
-                    if (!drag || drag.locationId !== location.id) return;
-                    if (Math.abs(event.clientX - drag.startX) > 4 || Math.abs(event.clientY - drag.startY) > 4) drag.moved = true;
-                  }}
-                  onPointerUp={(event) => {
-                    const drag = dragState.current;
-                    if (!drag || drag.locationId !== location.id) return;
-                    dragState.current = null;
-                    if (drag.moved) {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      suppressMarkerClick.current = location.id;
-                      const point = percentFromPointer(event);
-                      if (point) void saveLocationAt(location, point.xPercent, point.yPercent);
-                    }
-                  }}
-                  onPointerCancel={() => {
-                    dragState.current = null;
-                  }}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (suppressMarkerClick.current === location.id) {
-                      suppressMarkerClick.current = null;
-                      return;
-                    }
-                    if (item) onOpenItem(item.id);
-                  }}
-                >
-                  {unit.number}
-                </button>
-              );
-            })}
-            {buildingSummaries
-              .filter((summary) => summary.units.length > 0 && summary.mapped > 0 && summary.x !== null && summary.y !== null)
-              .map((summary) => (
-                <button
-                  key={summary.key}
-                  type="button"
-                  className="map-building-marker"
-                  data-testid={`map-building-${summary.key.replace(/[^a-z0-9]+/g, "-")}`}
-                  style={{ left: `${summary.x}%`, top: `${summary.y}%` }}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setSelectedBuilding(summary.key);
-                  }}
-                  title={`${summary.label}: ${summary.units.length} units, ${summary.mapped} mapped`}
-                >
-                  <strong>{summary.label}</strong>
-                  <span>{summary.units.length} units</span>
-                </button>
-              ))}
-            {mapAreas.map((area) => (
-              <button
-                key={area.id}
-                type="button"
-                className="map-area-marker"
-                data-testid={`map-area-${area.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}
-                style={{ left: `${area.xPercent}%`, top: `${area.yPercent}%`, borderColor: area.color ?? undefined }}
-                title={`${area.name}: ${area.expectedUnitCount ?? "unknown"} expected units`}
-                onPointerDown={(event) => {
-                  if (!canManage) return;
-                  event.stopPropagation();
-                  dragState.current = { locationId: `area:${area.id}`, startX: event.clientX, startY: event.clientY, moved: false };
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                }}
-                onPointerMove={(event) => {
-                  const drag = dragState.current;
-                  if (!drag || drag.locationId !== `area:${area.id}`) return;
-                  if (Math.abs(event.clientX - drag.startX) > 4 || Math.abs(event.clientY - drag.startY) > 4) drag.moved = true;
-                }}
-                onPointerUp={(event) => {
-                  const drag = dragState.current;
-                  if (!drag || drag.locationId !== `area:${area.id}`) return;
-                  dragState.current = null;
-                  event.stopPropagation();
-                  if (drag.moved) {
-                    const point = percentFromPointer(event);
-                    if (point) void onUpdateArea(area.id, { xPercent: point.xPercent, yPercent: point.yPercent });
-                  } else {
-                    setSelectedBuilding(area.name.toLowerCase());
-                  }
-                }}
-                onPointerCancel={() => {
-                  dragState.current = null;
-                }}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <strong>{area.name}</strong>
-                <span>{area.expectedUnitCount ?? 0} expected</span>
-              </button>
+          <div className="map-layer-row">
+            {[
+              ["units", "Units"],
+              ["areas", "Areas"],
+              ["pins", "Pins"],
+              ["projects", "Projects"],
+              ["recommendations", "Recommendations"],
+            ].map(([key, label]) => (
+              <label key={key} className="compact-toggle">
+                <input type="checkbox" checked={layerToggles[key]} onChange={(event) => setLayerToggles((current) => ({ ...current, [key]: event.target.checked }))} />
+                {label}
+              </label>
             ))}
           </div>
-          {selectedMap?.mimeType === "application/pdf" ? <a className="button button-secondary" href={propertyMapFileUrl(selectedMap.id)} target="_blank" rel="noreferrer">Open PDF map</a> : null}
+          <div className="property-map-scroll">
+            <div
+              className={`property-map-canvas ${imagePreview ? "" : "no-preview"}`}
+              onClick={handleMapClick}
+              style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}
+            >
+              {selectedMap && imagePreview ? <img src={propertyMapFileUrl(selectedMap.id)} alt={`${selectedMap.name} map`} /> : (
+                <div className="map-placeholder">
+                  <strong>{selectedMap ? "Map preview unavailable" : "Create or select a map"}</strong>
+                  <span>{selectedMap?.mimeType === "application/pdf" ? "PDF maps stay usable for pin placement and export." : "Upload a PNG, JPG, WebP, or PDF map."}</span>
+                </div>
+              )}
+              {visibleAreaMarkers.map((area) => (
+                <button
+                  key={area.id}
+                  type="button"
+                  className={`map-area-marker${(markerOffsets.get(`area:${area.id}`)?.overlapCount ?? 1) > 1 ? " overlap-group" : ""}`}
+                  style={{
+                    left: `${area.xPercent}%`,
+                    top: `${area.yPercent}%`,
+                    borderColor: area.color ?? undefined,
+                    transform: `translate(calc(-50% + ${markerOffsets.get(`area:${area.id}`)?.offsetX ?? 0}px), calc(-50% + ${markerOffsets.get(`area:${area.id}`)?.offsetY ?? 0}px))`,
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedMarker({ kind: "area", area });
+                    setSelectedBuilding(area.name.toLowerCase());
+                  }}
+                >
+                  <strong>{area.name}</strong>
+                  <span>{area.areaType.toLowerCase()}</span>
+                </button>
+              ))}
+              {visibleUnitMarkers.map((location) => {
+                const unit = propertyUnits.find((entry) => entry.id === location.unitId) ?? location.unit;
+                const item = itemByUnit.get(location.unitId);
+                return (
+                  <button
+                    key={location.id}
+                    type="button"
+                    className={`map-marker${(markerOffsets.get(`unit:${location.id}`)?.overlapCount ?? 1) > 1 ? " overlap-group" : ""}`}
+                    style={{
+                      left: `${location.xPercent}%`,
+                      top: `${location.yPercent}%`,
+                      background: markerColor(colorSource, item, labelsByField, boardSections),
+                      transform: `translate(calc(-50% + ${markerOffsets.get(`unit:${location.id}`)?.offsetX ?? 0}px), calc(-50% + ${markerOffsets.get(`unit:${location.id}`)?.offsetY ?? 0}px))`,
+                    }}
+                    title={`${unit.number} / ${markerLabel(colorSource, item, boardSections)}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSelectedMarker({ kind: "unit", location });
+                    }}
+                  >
+                    {unit.number}
+                  </button>
+                );
+              })}
+              {visiblePins.map((pin) => (
+                <button
+                  key={pin.id}
+                  type="button"
+                  className={`map-pin-marker${pin.isEmergency ? " emergency" : ""}${(markerOffsets.get(`pin:${pin.id}`)?.overlapCount ?? 1) > 1 ? " overlap-group" : ""}`}
+                  style={{
+                    left: `${pin.xPercent}%`,
+                    top: `${pin.yPercent}%`,
+                    background: pinTypePalette[pin.pinType] ?? pinTypePalette.Custom,
+                    transform: `translate(calc(-50% + ${markerOffsets.get(`pin:${pin.id}`)?.offsetX ?? 0}px), calc(-50% + ${markerOffsets.get(`pin:${pin.id}`)?.offsetY ?? 0}px))`,
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedMarker({ kind: "pin", pin });
+                  }}
+                >
+                  {pin.title}
+                </button>
+              ))}
+              {visibleProjects.map((record) => (
+                <button
+                  key={record.id}
+                  type="button"
+                  className={`map-project-marker${(markerOffsets.get(`project:${record.id}`)?.overlapCount ?? 1) > 1 ? " overlap-group" : ""}`}
+                  style={{
+                    left: `${record.pinX}%`,
+                    top: `${record.pinY}%`,
+                    background: record.recordType === "Project" ? pinTypePalette.Project : pinTypePalette.Recommendation,
+                    transform: `translate(calc(-50% + ${markerOffsets.get(`project:${record.id}`)?.offsetX ?? 0}px), calc(-50% + ${markerOffsets.get(`project:${record.id}`)?.offsetY ?? 0}px))`,
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedMarker({ kind: "project", record });
+                  }}
+                >
+                  {record.title}
+                </button>
+              ))}
+            </div>
+          </div>
+          {selectedMap?.mimeType === "application/pdf" ? <a className="button button-secondary" href={propertyMapFileUrl(selectedMap.id)} target="_blank" rel="noreferrer">Open PDF Map</a> : null}
         </div>
 
-        <div className="operations-card unit-directory-card" data-testid="unit-directory-panel">
-          <h3>Unit Directory</h3>
-          <div className="map-building-summary" data-testid="map-building-summary">
+        <div className="operations-card unit-directory-card">
+          <h3>Map Controls</h3>
+          <div className="map-building-summary">
             <button type="button" className={!selectedBuilding ? "selected" : ""} onClick={() => setSelectedBuilding("")}>
               All buildings <strong>{propertyUnits.length}</strong>
             </button>
             {buildingSummaries.map((summary) => (
-              <button
-                key={summary.key}
-                type="button"
-                className={selectedBuilding === summary.key ? "selected" : ""}
-                data-testid={`map-building-filter-${summary.key.replace(/[^a-z0-9]+/g, "-")}`}
-                onClick={() => setSelectedBuilding(summary.key)}
-              >
+              <button key={summary.key} type="button" className={selectedBuilding === summary.key ? "selected" : ""} onClick={() => setSelectedBuilding(summary.key)}>
                 {summary.label}
                 <strong>{summary.mapped}/{summary.units.length} mapped</strong>
-                {summary.activeTurns ? <span>{summary.activeTurns} active</span> : null}
               </button>
             ))}
           </div>
-          {canManage ? (
-            <div className="map-area-editor" data-testid="map-area-editor">
-              <h4>Building / area markers</h4>
-              <p className="muted">Mark buildings, floors, or site zones. Unit placement still stays unit-specific.</p>
+
+          <div className="map-mode-stack">
+            <label>Placement mode
+              <select value={placementMode} onChange={(event) => setPlacementMode(event.target.value as PlacementMode)}>
+                <option value="none">Browse only</option>
+                <option value="unit">Place unit</option>
+                <option value="area">Place building / area</option>
+                <option value="pin">Add shared pin</option>
+                {selectedMarker?.kind === "pin" ? <option value="move-pin">Move selected pin</option> : null}
+              </select>
+            </label>
+          </div>
+
+          {placementMode === "unit" ? (
+            <div className="stacked-form">
+              <label>Unit to place</label>
+              <UnitSearchSelect
+                units={buildingFilteredUnits}
+                value={selectedUnitId}
+                onChange={(value) => {
+                  setSelectedUnitId(value);
+                  const existing = locationByUnit.get(value);
+                  const unit = propertyUnits.find((entry) => entry.id === value);
+                  setLocationMeta({ building: existing?.building ?? unit?.building ?? "", area: existing?.area ?? unit?.area ?? "", floor: existing?.floor ?? unit?.floor ?? "" });
+                }}
+                placeholder="Search unit..."
+              />
+              <div className="three-column-form">
+                <input value={locationMeta.building} onChange={(event) => setLocationMeta((current) => ({ ...current, building: event.target.value }))} placeholder="Building" />
+                <input value={locationMeta.area} onChange={(event) => setLocationMeta((current) => ({ ...current, area: event.target.value }))} placeholder="Area" />
+                <input value={locationMeta.floor} onChange={(event) => setLocationMeta((current) => ({ ...current, floor: event.target.value }))} placeholder="Floor" />
+              </div>
+              <p className="muted">Select a unit, then click the map to place it.</p>
+            </div>
+          ) : null}
+
+          {placementMode === "area" ? (
+            <div className="map-area-editor">
               <div className="map-area-form">
                 <input value={areaDraft.name} onChange={(event) => setAreaDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Building or area name" />
                 <select value={areaDraft.areaType} onChange={(event) => setAreaDraft((current) => ({ ...current, areaType: event.target.value }))}>
@@ -517,60 +851,285 @@ export function PropertyMapsPanel({
                 </select>
                 <input type="number" min="0" value={areaDraft.expectedUnitCount} onChange={(event) => setAreaDraft((current) => ({ ...current, expectedUnitCount: event.target.value }))} placeholder="Expected units" />
                 <input type="color" value={areaDraft.color} onChange={(event) => setAreaDraft((current) => ({ ...current, color: event.target.value }))} aria-label="Area marker color" />
-                <button className="button button-secondary" type="button" disabled={!selectedMap || !areaDraft.name.trim()} onClick={() => setPlacingArea((current) => !current)}>
-                  {placingArea ? "Click map to place" : "Place marker"}
-                </button>
               </div>
-              <div className="map-area-list">
-                {mapAreas.length === 0 ? <span className="muted">No building or area markers yet.</span> : mapAreas.map((area) => (
-                  <article key={area.id}>
-                    <button type="button" onClick={() => setSelectedBuilding(area.name.toLowerCase())}>
-                      <strong>{area.name}</strong>
-                      <small>{area.areaType.toLowerCase()} / {area.expectedUnitCount ?? 0} expected units</small>
-                    </button>
-                    <button type="button" className="button button-secondary" onClick={() => void onRemoveArea(area.id)}>Archive</button>
-                  </article>
-                ))}
-              </div>
+              <p className="muted">Click the map to place the building or area marker.</p>
             </div>
           ) : null}
-          <div className="stacked-form">
-            <label>Unit to place
-              <select data-testid="map-unit-select" value={selectedUnitId} onChange={(event) => {
-                setSelectedUnitId(event.target.value);
-                const existing = locationByUnit.get(event.target.value);
-                const unit = propertyUnits.find((entry) => entry.id === event.target.value);
-                setLocationMeta({ building: existing?.building ?? unit?.building ?? "", area: existing?.area ?? unit?.area ?? "", floor: existing?.floor ?? unit?.floor ?? "" });
-              }}>
-                <option value="">Select unit</option>
-                {filteredPropertyUnits.map((unit) => {
-                  const location = locationByUnit.get(unit.id);
-                  const building = unit.building || location?.building;
-                  return <option key={unit.id} value={unit.id}>{displayUnitNumber(property?.code ?? "", unit.number)}{building ? ` / Bldg ${building}` : ""}{location ? " / mapped" : " / unmapped"}</option>;
-                })}
-              </select>
-            </label>
-            <div className="three-column-form">
-              <input data-testid="map-location-building" value={locationMeta.building} onChange={(event) => setLocationMeta((current) => ({ ...current, building: event.target.value }))} placeholder="Building" />
-              <input data-testid="map-location-area" value={locationMeta.area} onChange={(event) => setLocationMeta((current) => ({ ...current, area: event.target.value }))} placeholder="Area" />
-              <input data-testid="map-location-floor" value={locationMeta.floor} onChange={(event) => setLocationMeta((current) => ({ ...current, floor: event.target.value }))} placeholder="Floor" />
+
+          {placementMode === "pin" ? (
+            <div className="map-pin-editor">
+              <div className="map-pin-form">
+                <input value={pinDraft.title} onChange={(event) => setPinDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Pin title" />
+                <select value={pinDraft.pinType} onChange={(event) => setPinDraft((current) => ({ ...current, pinType: event.target.value }))}>
+                  {pinTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+                <input value={pinDraft.building} onChange={(event) => setPinDraft((current) => ({ ...current, building: event.target.value }))} placeholder="Building" />
+                <input value={pinDraft.unitLabel} onChange={(event) => setPinDraft((current) => ({ ...current, unitLabel: event.target.value }))} placeholder="Unit" />
+                <input value={pinDraft.area} onChange={(event) => setPinDraft((current) => ({ ...current, area: event.target.value }))} placeholder="Area" />
+                <textarea value={pinDraft.description} onChange={(event) => setPinDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Description" />
+                <select value={pinDraft.linkedRecordType} onChange={(event) => setPinDraft((current) => ({ ...current, linkedRecordType: event.target.value, linkedRecordId: "" }))}>
+                  <option value="">No linked record</option>
+                  <option value="PROJECT_RECORD">Project / Recommendation</option>
+                  <option value="PEST_ISSUE">Pest Control</option>
+                  <option value="PM_TASK">PM Task</option>
+                  <option value="WIKI_ENTRY">Wiki Entry</option>
+                </select>
+                {pinDraft.linkedRecordType ? (
+                  <select value={pinDraft.linkedRecordId} onChange={(event) => setPinDraft((current) => ({ ...current, linkedRecordId: event.target.value }))}>
+                    <option value="">Choose linked record</option>
+                    {pinDraft.linkedRecordType === "PROJECT_RECORD" ? linkedRecordOptions.PROJECT_RECORD.map((record) => <option key={record.id} value={record.id}>{record.title}</option>) : null}
+                    {pinDraft.linkedRecordType === "PEST_ISSUE" ? linkedRecordOptions.PEST_ISSUE.map((issue) => <option key={issue.id} value={issue.id}>{issue.unit?.number ?? issue.area ?? issue.pestType} / {issue.pestType}</option>) : null}
+                    {pinDraft.linkedRecordType === "PM_TASK" ? linkedRecordOptions.PM_TASK.map((task) => <option key={task.id} value={task.id}>{task.taskName}</option>) : null}
+                    {pinDraft.linkedRecordType === "WIKI_ENTRY" ? linkedRecordOptions.WIKI_ENTRY.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>) : null}
+                  </select>
+                ) : null}
+                <input value={pinDraft.tags} onChange={(event) => setPinDraft((current) => ({ ...current, tags: event.target.value }))} placeholder="tag1, tag2" />
+                <label className="compact-toggle">Emergency pin
+                  <input type="checkbox" checked={pinDraft.isEmergency} onChange={(event) => setPinDraft((current) => ({ ...current, isEmergency: event.target.checked }))} />
+                </label>
+              </div>
+              <p className="muted">Click the map to place the shared pin.</p>
             </div>
-            {canManage ? <p className="muted">Select a unit, then click the map to place it. Drag existing markers to adjust placement.</p> : <p className="muted">Map editing requires manager or admin access.</p>}
-          </div>
+          ) : null}
+
+          {search.trim() ? (
+            <div className="map-search-results">
+              {mergedSearchResults.length === 0 ? <p className="muted">No map matches for this search.</p> : mergedSearchResults.map((result) => (
+                <button key={result.id} type="button" className="map-search-result" onClick={result.onSelect}>
+                  <strong>{result.title}</strong>
+                  <span>{result.subtitle}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           <div className="unit-directory-list">
-            {filteredPropertyUnits.map((unit) => {
+            {buildingFilteredUnits.map((unit) => {
               const location = locationByUnit.get(unit.id);
               const item = itemByUnit.get(unit.id);
               return (
                 <article key={unit.id} className="unit-directory-row">
                   <button type="button" onClick={() => item && onOpenItem(item.id)} disabled={!item}>
                     <strong>{displayUnitNumber(property?.code ?? "", unit.number)}</strong>
-                    <small>{unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan ?? "No floor plan"} / {unit.occupancyStatus?.replace(/_/g, " ") ?? "UNKNOWN"} / {location ? `${location.building ? `Bldg ${location.building} ` : ""}${location.area || "No area"} ${location.floor || ""}` : "Unmapped"}</small>
+                    <small>{unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan ?? "No floor plan"} / {location ? `${location.building ? `Bldg ${location.building}` : ""} ${location.area ?? "Mapped"}` : "Unmapped"}</small>
                   </button>
-                  {location && canManage ? <button className="button button-secondary" data-testid={`map-location-remove-${unit.number}`} onClick={() => void onRemoveLocation(location.id)}>Remove</button> : null}
+                  {location && canManage ? <button className="button button-secondary" type="button" onClick={() => void onRemoveLocation(location.id)}>Remove</button> : null}
                 </article>
               );
             })}
+            {!buildingFilteredUnits.length ? <p className="muted">No units match the selected building filter.</p> : null}
+          </div>
+        </div>
+
+        <div className="operations-card map-detail-card">
+          <h3>Selected Record</h3>
+          {selectedMarkerDetails ? (
+            <div className="map-detail-stack">
+              <div>
+                <strong>{selectedMarkerDetails.title}</strong>
+                <p className="muted">{selectedMarkerDetails.type}</p>
+              </div>
+              <p>{selectedMarkerDetails.description || "No additional description."}</p>
+            <div className="map-detail-list">
+              {selectedMarkerDetails.related.map((entry) => <span key={entry}>{entry}</span>)}
+            </div>
+              {canManage ? (
+                <div className="pool-entry-actions">
+                  {selectedMarker?.kind === "unit" ? (
+                    <>
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={() => {
+                          const location = selectedMarker.location;
+                          const unit = propertyUnits.find((entry) => entry.id === location.unitId) ?? location.unit;
+                          openProjectCreate({
+                            propertyId,
+                            source: "Map Finding",
+                            recordType: "Recommendation",
+                            title: `Unit ${unit.number} map finding`,
+                            description: [location.building ? `Building ${location.building}` : null, location.area, location.floor].filter(Boolean).join(" / "),
+                            sourceRecordType: "UNIT_MAP_LOCATION",
+                            sourceRecordId: location.id,
+                            sourceRecordLabel: unit.number,
+                            building: location.building ?? unit.building ?? "",
+                            area: location.area ?? unit.area ?? "",
+                            tags: ["property-map", "unit"],
+                          });
+                        }}
+                      >
+                        Create Recommendation
+                      </button>
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={() => {
+                          const location = selectedMarker.location;
+                          const unit = propertyUnits.find((entry) => entry.id === location.unitId) ?? location.unit;
+                          openPestQuickAdd({
+                            propertyId,
+                            unitId: location.unitId,
+                            area: location.area ?? unit.area ?? "",
+                            source: "Property Walk",
+                            priority: "Normal",
+                            description: [`Map follow-up for unit ${unit.number}.`, location.building ? `Building ${location.building}` : null, location.area, location.floor].filter(Boolean).join(" / "),
+                          });
+                        }}
+                      >
+                        Create Pest Request
+                      </button>
+                    </>
+                  ) : null}
+                  {selectedMarker?.kind === "area" ? (
+                    <>
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={() => openProjectCreate({
+                          propertyId,
+                          source: "Map Finding",
+                          recordType: "Recommendation",
+                          title: selectedMarker.area.name,
+                          description: selectedMarker.area.notes || `${selectedMarker.area.areaType} map area`,
+                          sourceRecordType: "PROPERTY_MAP_AREA",
+                          sourceRecordId: selectedMarker.area.id,
+                          sourceRecordLabel: selectedMarker.area.name,
+                          building: selectedMarker.area.areaType === "BUILDING" ? selectedMarker.area.name : "",
+                          area: selectedMarker.area.areaType !== "BUILDING" ? selectedMarker.area.name : "",
+                          tags: ["property-map", selectedMarker.area.areaType.toLowerCase()],
+                        })}
+                      >
+                        Create Recommendation
+                      </button>
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={() => openPestQuickAdd({
+                          propertyId,
+                          area: selectedMarker.area.name,
+                          source: "Property Walk",
+                          priority: "Normal",
+                          description: selectedMarker.area.notes || `${selectedMarker.area.areaType} map area follow-up.`,
+                        })}
+                      >
+                        Create Pest Request
+                      </button>
+                    </>
+                  ) : null}
+                  {selectedMarker?.kind === "pin" ? (
+                    <>
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={() => openProjectCreate({
+                          propertyId,
+                          source: "Map Finding",
+                          recordType: "Recommendation",
+                          title: selectedMarker.pin.title,
+                          description: selectedMarker.pin.description || "",
+                          sourceRecordType: "PROPERTY_MAP_PIN",
+                          sourceRecordId: selectedMarker.pin.id,
+                          sourceRecordLabel: selectedMarker.pin.title,
+                          building: selectedMarker.pin.building ?? "",
+                          area: selectedMarker.pin.area ?? "",
+                          locationNotes: selectedMarker.pin.unitLabel ?? "",
+                          tags: ["property-map", selectedMarker.pin.pinType.toLowerCase().replace(/\s+/g, "-")],
+                        })}
+                      >
+                        Create Recommendation
+                      </button>
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={() => openPestQuickAdd({
+                          propertyId,
+                          area: selectedMarker.pin.area ?? selectedMarker.pin.building ?? selectedMarker.pin.title,
+                          source: "Property Walk",
+                          priority: selectedMarker.pin.isEmergency ? "High" : "Normal",
+                          description: [selectedMarker.pin.title, selectedMarker.pin.description, selectedMarker.pin.unitLabel ? `Unit ${selectedMarker.pin.unitLabel}` : null].filter(Boolean).join("\n\n"),
+                        })}
+                      >
+                        Create Pest Request
+                      </button>
+                    </>
+                  ) : null}
+                  {selectedMarker?.kind === "project" ? (
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={() => openProjectRecord({ id: selectedMarker.record.id, propertyId })}
+                    >
+                      Open Project Record
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+              {selectedMarker?.kind === "pin" && canManage ? (
+                <div className="pool-entry-actions">
+                  <button className="button button-secondary" type="button" onClick={() => setPlacementMode("move-pin")}>Move Pin</button>
+                  <button className="button button-secondary" type="button" onClick={() => void pinRemoveMutation.mutateAsync(selectedMarker.pin.id)}>Archive Pin</button>
+                </div>
+              ) : null}
+              {selectedMarker?.kind === "pin" ? (
+                <div className="pool-card" style={{ padding: 12 }}>
+                  <div className="drawer-section-title">
+                    <h3>Pin Files</h3>
+                    {canManage ? (
+                      <label className="button button-secondary pool-upload-button">
+                        Upload Photo/PDF
+                        <input
+                          type="file"
+                          hidden
+                          accept="image/*,.pdf"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (file) void pinAttachmentUploadMutation.mutateAsync({ pinId: selectedMarker.pin.id, file });
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+                  {selectedMarker.pin.attachments.length ? (
+                    <div className="pool-attachment-list">
+                      {selectedMarker.pin.attachments.map((attachment) => (
+                        <span key={attachment.id} style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+                          <a href={propertyMapPinAttachmentDownloadUrl(attachment.id)} target="_blank" rel="noreferrer">
+                            {attachment.originalName}
+                          </a>
+                          {attachment.caption ? <em className="muted">{attachment.caption}</em> : null}
+                          {canManage ? <button className="link-button" type="button" onClick={() => void pinAttachmentDeleteMutation.mutateAsync(attachment.id)}>Remove</button> : null}
+                        </span>
+                      ))}
+                    </div>
+                  ) : <p className="muted">No files attached to this pin yet.</p>}
+                </div>
+              ) : null}
+              {selectedMarker?.kind === "area" && canManage ? (
+                <div className="pool-entry-actions">
+                  <button className="button button-secondary" type="button" onClick={() => void onRemoveArea(selectedMarker.area.id)}>Archive Area</button>
+                </div>
+              ) : null}
+            </div>
+          ) : <p className="muted">Select a unit, area, shared pin, or project marker to inspect it.</p>}
+
+          <div className="map-summary-grid">
+            <article>
+              <strong>{customPins.length}</strong>
+              <span>Shared pins</span>
+            </article>
+            <article>
+              <strong>{projectRecords.length}</strong>
+              <span>Project pins</span>
+            </article>
+            <article>
+              <strong>{mapLocations.length}</strong>
+              <span>Mapped units</span>
+            </article>
+            <article>
+              <strong>{unmappedUnits.length}</strong>
+              <span>Unmapped units</span>
+            </article>
           </div>
         </div>
       </div>

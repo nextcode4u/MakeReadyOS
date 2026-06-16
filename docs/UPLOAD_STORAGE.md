@@ -140,6 +140,33 @@ Restore both:
 
 Inspection-gallery ZIP exports are for per-unit evidence packets. They are not full storage backups.
 
+## Optional Off-Host Backup Examples
+
+Use these only after local `./backup-db.sh` and `./backup-uploads.sh` are already working. Keep the local backup first so disaster recovery does not depend on a network target being reachable during an outage.
+
+Rsync copy to a mounted NAS or another Linux host:
+
+```bash
+rsync -av --delete /root/PIMP/backups/ /mnt/nas/makereadyos-backups/
+rsync -av --delete /root/PIMP/uploads/ /mnt/nas/makereadyos-live-uploads-mirror/
+```
+
+Restic snapshot to a local/NAS repository:
+
+```bash
+export RESTIC_REPOSITORY=/mnt/nas/restic/makereadyos
+export RESTIC_PASSWORD='replace-with-a-real-secret'
+restic backup /root/PIMP/backups /root/PIMP/uploads
+restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
+```
+
+Recommended pattern:
+
+- Run `./backup-db.sh` and `./backup-uploads.sh` first.
+- Sync the resulting `backups/` directory off-host on a schedule.
+- Mirror live `uploads/` only when the storage target and bandwidth are reliable enough for large photo trees.
+- Rehearse restore from the off-host copy before depending on it for production recovery.
+
 ## Upload Size And Reverse Proxy Limits
 
 `MAX_UPLOAD_MB` controls the MakeReadyOS API file limit. Set it to `0` to disable the app-level per-file cap for high-resolution phone photos and HDR images. The bundled nginx web container is configured with `client_max_body_size 0`, so it does not impose its own request-body limit.

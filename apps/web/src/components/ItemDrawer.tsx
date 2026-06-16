@@ -1,9 +1,10 @@
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BoardColumnDefinition, BoardSection, ChargePriceSheetItem, CurrentUser, CustomField, FloorPlan, ItemCollaboration, LabelDefinition, MakeReadyItem, StaffOption, UnitHistoryResponse, Vendor, VendorAssignment, WorkAssignmentBlock } from "../lib/api";
-import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, chargeReportCsvUrl, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getUnitHistory, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
+import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, chargeReportCsvUrl, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getPestIssues, getUnitHistory, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
 import { boardGroupLabel, configuredBoardColumns } from "../lib/board";
 import { formatDateTime } from "../lib/dateTime";
+import { openPestQuickAdd, openPestWorkspace } from "../lib/pestNavigation";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { LabelPill } from "./LabelPill";
 import { Modal } from "./Modal";
@@ -220,6 +221,11 @@ export function ItemDrawer({
     queryKey: ["charge-report", item.id],
     queryFn: () => getChargeReport(item.id),
     enabled: chargeReportOpen,
+  });
+  const linkedPestIssuesQuery = useQuery({
+    queryKey: ["pest", "linked-make-ready", item.id],
+    queryFn: () => getPestIssues({ propertyId: item.propertyId, makeReadyItemId: item.id, includeArchived: true, limit: 20 }),
+    enabled: !item.isArchived,
   });
   const canCollaborate = currentUser.role !== "VIEWER";
   const itemVendorAssignments = vendorAssignments.filter((assignment) => assignment.itemId === item.id);
@@ -766,6 +772,52 @@ export function ItemDrawer({
           />
         </section>
 
+        <section className="drawer-section" data-testid="drawer-pest-context">
+          <div className="drawer-section-title">
+            <h3>Pest Control</h3>
+            <span className="muted">{linkedPestIssuesQuery.data?.issues.length ?? 0} linked</span>
+          </div>
+          <div className="drawer-actions" style={{ marginBottom: 12 }}>
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={() => openPestQuickAdd({
+                propertyId: item.propertyId,
+                unitId: item.unitId ?? undefined,
+                makeReadyItemId: item.id,
+                area: item.unit?.area ?? undefined,
+                source: "Make Ready",
+                priority: item.moveInSoon || item.overdue ? "High" : "Normal",
+                description: item.notes ?? undefined,
+              })}
+            >
+              Create Pest Request
+            </button>
+            <button
+              type="button"
+              className="button button-ghost"
+              onClick={() => openPestWorkspace({ propertyId: item.propertyId, tab: "make-ready", makeReadyItemId: item.id })}
+            >
+              Open Linked Pest
+            </button>
+          </div>
+          {linkedPestIssuesQuery.isLoading ? <p className="drawer-empty">Loading linked pest requests...</p> : linkedPestIssuesQuery.isError ? (
+            <p className="drawer-empty">Linked pest requests could not be loaded.</p>
+          ) : !(linkedPestIssuesQuery.data?.issues.length) ? (
+            <p className="drawer-empty">No pest requests are linked to this make-ready item yet.</p>
+          ) : (
+            <div className="attachment-list">
+              {linkedPestIssuesQuery.data?.issues.slice(0, 4).map((issue) => (
+                <div key={issue.id} className="attachment-row vendor-assignment-row">
+                  <strong>{issue.pestType}{issue.additionalPestType ? ` / ${issue.additionalPestType}` : ""}</strong>
+                  <small>{issue.status} / {issue.priority} / {issue.requestDate.slice(0, 10)}</small>
+                  <small>{issue.area ?? issue.unit?.number ?? item.unitNumber}{issue.followUpDate ? ` / Follow up ${issue.followUpDate.slice(0, 10)}` : ""}</small>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         <section className="drawer-section" data-testid="drawer-vendor-assignments">
           <div className="drawer-section-title"><h3>Vendor Work</h3><span className="muted">{itemVendorAssignments.length} assignment{itemVendorAssignments.length === 1 ? "" : "s"}</span></div>
           {itemVendorAssignments.length === 0 ? <p className="drawer-empty">No vendor or contractor work assigned.</p> : (
@@ -1000,6 +1052,21 @@ export function ItemDrawer({
           <section className="drawer-section">
             <h3>Quick Actions</h3>
             <div className="drawer-actions">
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={() => openPestQuickAdd({
+                  propertyId: item.propertyId,
+                  unitId: item.unitId ?? undefined,
+                  makeReadyItemId: item.id,
+                  area: item.unit?.area ?? undefined,
+                  source: "Make Ready",
+                  priority: item.moveInSoon || item.overdue ? "High" : "Normal",
+                  description: item.notes ?? undefined,
+                })}
+              >
+                Pest Request
+              </button>
               <label>Move section
                 <select data-testid="drawer-move-section" value={item.boardGroup} onChange={(event) => void onBatch({ action: "MOVE_GROUP", ids: [item.id], boardGroup: event.target.value })}>
                   {boardGroups.map((group) => <option key={group} value={group}>{boardGroupLabel(group, item.propertyId, boardSections)}</option>)}

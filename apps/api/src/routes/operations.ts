@@ -130,6 +130,7 @@ export const availabilityImportSchema = z.object({
   rows: z.array(availabilityImportRowSchema).min(1).max(1500),
   updateExisting: z.boolean().default(true),
   createTurns: z.boolean().default(true),
+  overrideConflicts: z.boolean().default(false),
 });
 
 export const unitImportRevertSchema = z.object({
@@ -282,6 +283,84 @@ function stripAvailabilityImportNotes(notes: string | null | undefined) {
     .join(" / ")
     .trim();
   return cleaned || null;
+}
+
+function normalizeDateString(value: Date | string | null | undefined) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : parseOptionalDate(value);
+  if (!date) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function isDoneLikeStatus(value: string | null | undefined) {
+  return ["DONE", "YES", "GOOD", "MADE", "COMPLETE", "COMPLETED"].includes(String(value ?? "").trim().toUpperCase());
+}
+
+function isReadyAvailabilityStatus(value: string | null | undefined) {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  return Boolean(normalized && normalized.includes("READY") && !normalized.includes("NOT READY"));
+}
+
+function buildAvailabilityConflict(existingTurn: {
+  id: string;
+  unitNumber: string;
+  vacancyStatus: string | null;
+  applicant: string | null;
+  moveOutDate: Date | null;
+  vacatedDate: Date | null;
+  makeReadyDate: Date | null;
+  moveInDate: Date | null;
+  makeReadyStatus: string | null;
+  boardGroup: string;
+  daysVacant: number;
+  updatedAt: Date;
+  createdAt: Date;
+}, row: z.infer<typeof availabilityImportRowSchema>, status: string, projectedBoardGroup: string) {
+  const fieldChanges: string[] = [];
+  const nextVacancyStatus = status === "MODEL" ? "VACANT NOT LEASED NOT READY" : status;
+  const noticeStatus = status === "NTV" || status === "NTV_LEASED" || status === "NTV NOT LEASED" || status === "NTV LEASED";
+  const reportMoveOut = row.moveOutDate !== undefined ? (noticeStatus ? normalizeDateString(row.moveOutDate) : "") : normalizeDateString(existingTurn.moveOutDate);
+  const reportVacated = row.vacatedDate !== undefined || row.moveOutDate !== undefined
+    ? normalizeDateString(row.vacatedDate) || (!noticeStatus ? normalizeDateString(row.moveOutDate) : "")
+    : normalizeDateString(existingTurn.vacatedDate);
+  const reportMakeReady = row.makeReadyDate !== undefined ? normalizeDateString(row.makeReadyDate) : normalizeDateString(existingTurn.makeReadyDate);
+  const reportMoveIn = row.moveInDate !== undefined ? normalizeDateString(row.moveInDate) : normalizeDateString(existingTurn.moveInDate);
+  const reportApplicant = row.applicant !== undefined ? (row.applicant ?? "") : (existingTurn.applicant ?? "");
+  const reportMakeReadyStatus = row.makeReadyStatus !== undefined
+    ? (row.makeReadyStatus ?? "")
+    : (existingTurn.makeReadyStatus ?? (isReadyAvailabilityStatus(status) ? "DONE" : ""));
+
+  if (nextVacancyStatus !== (existingTurn.vacancyStatus ?? "")) fieldChanges.push(`Vacancy: ${existingTurn.vacancyStatus ?? "blank"} -> ${nextVacancyStatus}`);
+  if (reportApplicant !== (existingTurn.applicant ?? "")) fieldChanges.push(`Applicant: ${existingTurn.applicant || "blank"} -> ${reportApplicant || "blank"}`);
+  if (reportMoveOut !== normalizeDateString(existingTurn.moveOutDate)) fieldChanges.push(`NTV date: ${normalizeDateString(existingTurn.moveOutDate) || "blank"} -> ${reportMoveOut || "blank"}`);
+  if (reportVacated !== normalizeDateString(existingTurn.vacatedDate)) fieldChanges.push(`Vacated: ${normalizeDateString(existingTurn.vacatedDate) || "blank"} -> ${reportVacated || "blank"}`);
+  if (reportMakeReady !== normalizeDateString(existingTurn.makeReadyDate)) fieldChanges.push(`Make ready: ${normalizeDateString(existingTurn.makeReadyDate) || "blank"} -> ${reportMakeReady || "blank"}`);
+  if (reportMoveIn !== normalizeDateString(existingTurn.moveInDate)) fieldChanges.push(`Move-in: ${normalizeDateString(existingTurn.moveInDate) || "blank"} -> ${reportMoveIn || "blank"}`);
+  if (reportMakeReadyStatus !== (existingTurn.makeReadyStatus ?? "")) fieldChanges.push(`Make ready status: ${existingTurn.makeReadyStatus || "blank"} -> ${reportMakeReadyStatus || "blank"}`);
+  if (projectedBoardGroup !== existingTurn.boardGroup) fieldChanges.push(`Board section will change from ${existingTurn.boardGroup} to ${projectedBoardGroup}`);
+  if (row.daysVacant !== undefined && row.daysVacant !== null && Number(row.daysVacant) !== Number(existingTurn.daysVacant ?? 0)) {
+    fieldChanges.push(`Days vacant: ${Number(existingTurn.daysVacant ?? 0)} -> ${Number(row.daysVacant)}`);
+  }
+  if (fieldChanges.length === 0) return null;
+
+  const reportDate = parseOptionalDate(row.reportDate);
+  const localReadyRegression = (isDoneLikeStatus(existingTurn.makeReadyStatus) || isReadyAvailabilityStatus(existingTurn.vacancyStatus) || projectedBoardGroup !== existingTurn.boardGroup && isReadyAvailabilityStatus(existingTurn.vacancyStatus))
+    && !isReadyAvailabilityStatus(nextVacancyStatus)
+    && !isDoneLikeStatus(reportMakeReadyStatus);
+  const localChangeAfterReport = reportDate ? existingTurn.updatedAt.getTime() > reportDate.getTime() : existingTurn.updatedAt.getTime() > existingTurn.createdAt.getTime();
+
+  if (!localReadyRegression && !localChangeAfterReport) return null;
+
+  return {
+    itemId: existingTurn.id,
+    unitNumber: existingTurn.unitNumber,
+    updatedAt: existingTurn.updatedAt.toISOString(),
+    reportDate: reportDate?.toISOString() ?? null,
+    reason: localReadyRegression
+      ? "Local board is already ahead of the availability report. Review before allowing the report to move this turn backward."
+      : "This availability report appears older than the latest local board edits for this turn.",
+    fieldChanges,
+  };
 }
 
 function normalizeAvailabilityStatus(row: z.infer<typeof availabilityImportRowSchema>) {
@@ -1088,6 +1167,48 @@ export async function operationsRoutes(app: FastifyInstance) {
       seen.add(key);
       return [{ ...row, number }];
     });
+
+    const boardSections = await prisma.boardSection.findMany({
+      where: { propertyId: payload.propertyId, isActive: true },
+      select: { key: true, sectionType: true, sortOrder: true },
+      orderBy: { sortOrder: "asc" },
+    });
+    const existingTurns = await prisma.makeReadyItem.findMany({
+      where: {
+        propertyId: payload.propertyId,
+        isArchived: false,
+        unitNumber: { in: sanitizedRows.map((row) => row.number) },
+      },
+      orderBy: [{ unitNumber: "asc" }, { updatedAt: "desc" }],
+    });
+    const existingTurnByUnit = new Map<string, (typeof existingTurns)[number]>();
+    for (const turn of existingTurns) {
+      const key = turn.unitNumber.toUpperCase();
+      if (!existingTurnByUnit.has(key)) existingTurnByUnit.set(key, turn);
+    }
+    const preferredSectionKeyForStatus = (status: string) => {
+      const readyStatus = (status.includes("READY") && !status.includes("NOT READY")) || status === "VACANT_READY" || status === "VACANT_LEASED";
+      const sectionType = readyStatus ? "READY" : status === "DOWN" || status === "MODEL" ? "DOWN" : "MAKE_READY";
+      return boardSections.find((section) => section.sectionType === sectionType)?.key ?? boardSections[0]?.key ?? "MAKE_READY";
+    };
+    const conflicts = sanitizedRows.flatMap((row) => {
+      if (!payload.updateExisting) return [];
+      const existingTurn = existingTurnByUnit.get(row.number.toUpperCase());
+      if (!existingTurn) return [];
+      const status = normalizeAvailabilityStatus(row);
+      const projectedBoardGroup = preferredSectionKeyForStatus(status);
+      const conflict = buildAvailabilityConflict(existingTurn, row, status, projectedBoardGroup);
+      return conflict ? [conflict] : [];
+    });
+
+    if (conflicts.length > 0 && !payload.overrideConflicts) {
+      reply.code(409);
+      return {
+        message: `Availability import found ${conflicts.length} board conflict${conflicts.length === 1 ? "" : "s"}. Review local-vs-report differences before overwriting.`,
+        property: { id: property.id, code: property.code, name: property.name },
+        conflicts,
+      };
+    }
 
     await prisma.$transaction(async (tx) => {
       const floorPlanCache = new Map<string, { id: string; code: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null }>();

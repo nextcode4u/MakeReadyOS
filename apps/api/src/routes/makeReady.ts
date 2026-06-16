@@ -5,9 +5,11 @@ import { z } from "zod";
 import { scopedAllowedPropertyIds, assignableStaffRoles, canUpdateMakeReadyField } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { automationRuleInputSchema, validateRuleReferences } from "../lib/automationDefinition.js";
+import { applyAutomationRules } from "../lib/automationAssignments.js";
+import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
 import { notifyAssignedStaff, notifyPropertyRoles } from "../lib/notifications.js";
-import { applyRules, computeDerivedFields, editableFields, normalizeItemPatch } from "../lib/board.js";
+import { computeDerivedFields, editableFields, normalizeItemPatch } from "../lib/board.js";
 import { evaluateAndPersistItemRisk, riskCategories } from "../lib/risk.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 
@@ -111,6 +113,9 @@ export const makeReadyCreateSchema = z.object({
 });
 
 export const makeReadyPatchSchema = z.record(z.unknown());
+const makeReadyExportQuerySchema = z.object({
+  propertyId: z.string().optional(),
+});
 export const makeReadyBatchSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("ARCHIVE"), ids: z.array(z.string()).min(1).max(200) }),
   z.object({ action: z.literal("RESTORE"), ids: z.array(z.string()).min(1).max(200) }),
@@ -185,6 +190,106 @@ function customDateWithinNextDays(value: string, days: number, now = new Date())
   const end = new Date(start);
   end.setDate(end.getDate() + days);
   return date >= start && date <= end;
+}
+
+function htmlEscape(value: unknown) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+async function getMakeReadyExportBundle(request: FastifyRequest, propertyId?: string) {
+  const scoped = scopedAllowedPropertyIds(request);
+  if (propertyId && scoped !== null && !scoped.includes(propertyId)) {
+    throw Object.assign(new Error("Property access denied"), { statusCode: 403 });
+  }
+  const items = await prisma.makeReadyItem.findMany({
+    where: {
+      propertyId: propertyId ?? (scoped === null ? undefined : { in: scoped }),
+      isArchived: false,
+      property: { isActive: true },
+    },
+    include: {
+      property: true,
+      customFieldValues: true,
+    },
+    orderBy: [{ propertyId: "asc" }, { boardGroup: "asc" }, { unitNumber: "asc" }],
+  });
+
+  const customFields = await prisma.customField.findMany({
+    where: { module: "make-ready", isArchived: false },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+  });
+
+  return { items, customFields };
+}
+
+function buildMakeReadyReportHtml(items: Array<Prisma.MakeReadyItemGetPayload<{ include: { property: true; customFieldValues: true } }>>) {
+  const total = items.length;
+  const overdue = items.filter((item) => item.overdue).length;
+  const moveInSoon = items.filter((item) => item.moveInSoon).length;
+  const highRisk = items.filter((item) => ["HIGH", "CRITICAL"].includes(item.riskLevel ?? "")).length;
+  return `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8" /><title>Make Ready Board Report</title>
+<style>
+body{font-family:Arial,sans-serif;padding:24px;background:#f8fafc;color:#0f172a}
+.report{display:grid;gap:20px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.kpi,.card{background:#fff;border:1px solid #cbd5e1;border-radius:16px;padding:16px}
+.kpi strong{display:block;font-size:28px}
+table{width:100%;border-collapse:collapse;font-size:12px;background:#fff;border:1px solid #cbd5e1;border-radius:16px;overflow:hidden}
+th,td{padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}
+th{background:#e2e8f0;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#334155}
+.muted{color:#475569}
+</style>
+</head>
+<body>
+<div class="report">
+  <h1>Make Ready Board Report</h1>
+  <div class="kpis">
+    <div class="kpi"><strong>${total}</strong><span>Active turns</span></div>
+    <div class="kpi"><strong>${overdue}</strong><span>Overdue</span></div>
+    <div class="kpi"><strong>${moveInSoon}</strong><span>Move-in soon</span></div>
+    <div class="kpi"><strong>${highRisk}</strong><span>High / critical risk</span></div>
+  </div>
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Property</th>
+          <th>Section</th>
+          <th>Unit</th>
+          <th>Vacancy</th>
+          <th>Make Ready</th>
+          <th>Move-In</th>
+          <th>Assigned</th>
+          <th>Risk</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map((item) => `
+          <tr>
+            <td>${htmlEscape(item.property.code)}</td>
+            <td>${htmlEscape(item.boardGroup)}</td>
+            <td>${htmlEscape(item.unitNumber)}</td>
+            <td>${htmlEscape(item.vacancyStatus ?? "-")}</td>
+            <td>${htmlEscape(item.makeReadyStatus ?? "-")}</td>
+            <td>${htmlEscape(item.moveInDate?.toISOString().slice(0, 10) ?? "-")}</td>
+            <td>${htmlEscape(item.assignedTech ?? "-")}</td>
+            <td>${htmlEscape(item.riskLevel ?? "NONE")} / ${htmlEscape(item.riskScore ?? 0)}</td>
+            <td class="muted">${htmlEscape(item.notes ?? "")}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  </div>
+</div>
+</body></html>`;
 }
 
 function customFieldValueMatches(value: Prisma.JsonValue | undefined, filter: CustomFieldFilterInput, fieldType: string) {
@@ -361,7 +466,7 @@ async function processItem(itemId: string, options: {
 
   const derived = computeDerivedFields(item);
   const customValues = Object.fromEntries(item.customFieldValues.map((value) => [value.customFieldId, value.value]));
-  const { next, logs, customFieldUpdates, auditNotes } = applyRules({ ...item, ...derived }, definitions, customValues);
+  const { next, logs, customFieldUpdates, auditNotes } = await applyAutomationRules({ ...item, ...derived }, definitions, customValues);
   const automationPatch: Record<string, unknown> = {};
   for (const field of editableFields) {
     if (next[field] !== item[field]) {
@@ -380,6 +485,30 @@ async function processItem(itemId: string, options: {
       priority: typeof next.priority === "number" ? next.priority : item.priority,
     },
   });
+
+  if (updated.assignedTech && updated.assignedTech !== item.assignedTech) {
+    await notifyAssignedStaff({
+      assignedTech: updated.assignedTech,
+      propertyId: updated.propertyId,
+      itemId: updated.id,
+      category: "ASSIGNMENT",
+      title: "Make-ready assignment updated",
+      message: `${updated.unitNumber} has been assigned to you by automation.`,
+      dedupeKey: `assignment:${updated.id}:${updated.assignedTech}:automation`,
+    });
+    await queueWebhookEvent({
+      eventType: "item.assigned",
+      propertyId: updated.propertyId,
+      itemId: updated.id,
+      actorUserId: options.request?.currentUser?.id ?? null,
+      data: {
+        id: updated.id,
+        unitNumber: updated.unitNumber,
+        assignedTech: updated.assignedTech,
+        source: "automation",
+      },
+    });
+  }
 
   for (const update of customFieldUpdates) {
     const field = await prisma.customField.findFirst({
@@ -1198,25 +1327,8 @@ export async function makeReadyRoutes(app: FastifyInstance) {
   });
 
   app.get("/export/make-ready.csv", async (request, reply) => {
-    const user = request.currentUser!;
-    const propertyIds = scopedAllowedPropertyIds(request);
-    const items = await prisma.makeReadyItem.findMany({
-      where: {
-        propertyId: propertyIds === null ? undefined : { in: propertyIds },
-        isArchived: false,
-        property: { isActive: true },
-      },
-      include: {
-        property: true,
-        customFieldValues: true,
-      },
-      orderBy: [{ propertyId: "asc" }, { boardGroup: "asc" }, { unitNumber: "asc" }],
-    });
-
-    const customFields = await prisma.customField.findMany({
-      where: { module: "make-ready", isArchived: false },
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-    });
+    const query = makeReadyExportQuerySchema.parse(request.query);
+    const { items, customFields } = await getMakeReadyExportBundle(request, query.propertyId);
 
     const csv = stringify(
       items.map((item) => ({
@@ -1262,5 +1374,21 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     reply.header("content-type", "text/csv; charset=utf-8");
     reply.header("content-disposition", "attachment; filename=make-ready-board.csv");
     return reply.send(csv);
+  });
+
+  app.get("/export/make-ready.html", async (request, reply) => {
+    const query = makeReadyExportQuerySchema.parse(request.query);
+    const { items } = await getMakeReadyExportBundle(request, query.propertyId);
+    reply.header("content-type", "text/html; charset=utf-8");
+    return reply.send(buildMakeReadyReportHtml(items));
+  });
+
+  app.get("/export/make-ready.pdf", async (request, reply) => {
+    const query = makeReadyExportQuerySchema.parse(request.query);
+    const { items } = await getMakeReadyExportBundle(request, query.propertyId);
+    const pdf = await renderPdfFromHtml(buildMakeReadyReportHtml(items));
+    reply.header("content-type", "application/pdf");
+    reply.header("content-disposition", "inline; filename=make-ready-board.pdf");
+    return reply.send(pdf);
   });
 }

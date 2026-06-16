@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createRefrigerantCharge,
@@ -11,6 +11,9 @@ import {
   getRefrigerantHistory,
   getRefrigerantOverview,
   refrigerantExportCsvUrl,
+  refrigerantExportExcelUrl,
+  refrigerantPrintableHtmlReportUrl,
+  refrigerantPrintableReportUrl,
   updateRefrigerantCylinder,
   updateRefrigerantType,
   type Property,
@@ -20,6 +23,7 @@ import {
   type Unit,
   type UserRole,
 } from "../lib/api";
+import { UnitSearchSelect } from "./UnitSearchSelect";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { StatusState } from "./StatusState";
 
@@ -29,6 +33,15 @@ type Props = {
   properties: Property[];
   units: Unit[];
   userRole: UserRole;
+};
+
+type RefrigerantWorkflowDraft = {
+  propertyId: string;
+  unitId: string;
+  unitNumber: string;
+  building: string;
+  equipmentQuery: string;
+  query: string;
 };
 
 const categoryLabel: Record<RefrigerantCylinder["category"], string> = {
@@ -94,6 +107,7 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [propertyFilter, setPropertyFilter] = useState("");
+  const [formResetVersion, setFormResetVersion] = useState(0);
   const canEdit = userRole === "ADMIN" || userRole === "MANAGER" || userRole === "TECH";
   const canAdmin = userRole === "ADMIN";
   const queryClient = useQueryClient();
@@ -129,6 +143,7 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
     onSuccess: async () => {
       setMessage("Refrigerant record saved.");
       setError("");
+      setFormResetVersion((current) => current + 1);
       await invalidate();
     },
     onError: (err) => {
@@ -248,7 +263,9 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
                 units={units}
                 tanks={activeVirginTanks}
                 onSubmit={submitCharge}
+                canEdit={canEdit}
                 loading={runMutation.isPending}
+                resetVersion={formResetVersion}
               />
               <QuickRecoveryForm
                 title="Quick Recovery"
@@ -258,22 +275,11 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
                 types={activeTypes}
                 recoveryType="CLEAN"
                 onSubmit={(event) => submitRecovery(event, "CLEAN")}
+                canEdit={canEdit}
                 loading={runMutation.isPending}
+                resetVersion={formResetVersion}
               />
             </div>
-          ) : null}
-          {workflowPropertyId ? (
-            <PropertyWikiWorkflowPanel
-              title="Equipment, SOPs, and HVAC Notes"
-              module="REFRIGERANT"
-              propertyId={workflowPropertyId}
-              recordType={workflowTransaction?.id ? "REFRIGERANT_TRANSACTION" : undefined}
-              recordId={workflowTransaction?.id ?? undefined}
-              unitNumber={workflowTransaction?.unitNumber}
-              equipmentQuery={workflowTransaction?.unitNumber}
-              query={workflowTransaction?.notes}
-              canEdit={canEdit}
-            />
           ) : null}
           <section className="refrigerant-card">
             <h2>Compliance Issues</h2>
@@ -331,6 +337,7 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
           onUpdate={(id, input) => runMutation.mutate(() => updateRefrigerantCylinder(id, input))}
           onRecovery={(event) => submitRecovery(event, "CLEAN")}
           loading={runMutation.isPending}
+          resetVersion={formResetVersion}
         />
       ) : tab === "dirty" ? (
         <TankWorkspace
@@ -346,6 +353,7 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
           onUpdate={(id, input) => runMutation.mutate(() => updateRefrigerantCylinder(id, input))}
           onRecovery={(event) => submitRecovery(event, "DIRTY")}
           loading={runMutation.isPending}
+          resetVersion={formResetVersion}
         />
       ) : tab === "history" ? (
         <>
@@ -375,7 +383,7 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
       ) : (
         <section className="refrigerant-card">
           <h2>Exports</h2>
-          <p className="muted">CSV exports are available now and can be opened in spreadsheet tools. PDF and native Excel exports are planned for the reporting layer.</p>
+          <p className="muted">Refrigerant exports now include CSV, Excel-compatible download, printable HTML, and direct PDF output for each report shape.</p>
           <div className="export-grid">
             {[
               ["usage", "Usage Report"],
@@ -384,7 +392,17 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
               ["compliance", "Compliance Report"],
               ["unitHistory", "Unit History Report"],
               ["fullAudit", "Full Audit Export"],
-            ].map(([report, label]) => <a key={report} className="button button-secondary" href={refrigerantExportCsvUrl(report as never)}>{label} CSV</a>)}
+            ].map(([report, label]) => (
+              <div key={report} className="refrigerant-export-row">
+                <strong>{label}</strong>
+                <div className="pool-entry-actions">
+                  <a className="button button-secondary" href={refrigerantExportCsvUrl(report as never)}>CSV</a>
+                  <a className="button button-secondary" href={refrigerantExportExcelUrl(report as never)}>Excel</a>
+                  <a className="button button-secondary" href={refrigerantPrintableHtmlReportUrl(report as never)} target="_blank" rel="noreferrer">Printable</a>
+                  <a className="button button-primary" href={refrigerantPrintableReportUrl(report as never)} target="_blank" rel="noreferrer">PDF</a>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       )}
@@ -432,41 +450,96 @@ function RefrigerantTypesCard({ canAdmin, types, onCreate, onToggle, loading }: 
   );
 }
 
-function UnitSelect({ properties, units }: { properties: Property[]; units: Unit[] }) {
-  const [selectedPropertyId, setSelectedPropertyId] = useState("");
+function UnitSelect({
+  properties,
+  units,
+  selectedPropertyId,
+  selectedUnitId,
+  onPropertyChange,
+  onUnitChange,
+}: {
+  properties: Property[];
+  units: Unit[];
+  selectedPropertyId: string;
+  selectedUnitId: string;
+  onPropertyChange: (propertyId: string) => void;
+  onUnitChange: (unitId: string) => void;
+}) {
   const scopedUnits = selectedPropertyId ? units.filter((unit) => unit.propertyId === selectedPropertyId) : units;
   return (
     <>
       <label>Property
-        <select name="propertyId" value={selectedPropertyId} onChange={(event) => setSelectedPropertyId(event.target.value)}>
+        <select
+          name="propertyId"
+          value={selectedPropertyId}
+          onChange={(event) => {
+            onPropertyChange(event.target.value);
+            onUnitChange("");
+          }}
+        >
           <option value="">No property / shop work</option>
           {properties.map((property) => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}
         </select>
       </label>
       <label>Unit
-        <select name="unitId">
-          <option value="">No unit selected</option>
-          {scopedUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.number} / {unit.floorPlan ?? "No floor plan"}</option>)}
-        </select>
+        <UnitSearchSelect
+          name="unitId"
+          units={scopedUnits}
+          value={selectedUnitId}
+          onChange={onUnitChange}
+          emptyLabel="No unit selected"
+          placeholder="Search unit..."
+        />
       </label>
     </>
   );
 }
 
-function QuickChargeForm({ title, properties, units, tanks, onSubmit, loading }: {
+function QuickChargeForm({ title, properties, units, tanks, onSubmit, canEdit, loading, resetVersion }: {
   title: string;
   properties: Property[];
   units: Unit[];
   tanks: RefrigerantCylinder[];
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  canEdit: boolean;
   loading: boolean;
+  resetVersion: number;
 }) {
+  const [selectedPropertyId, setSelectedPropertyId] = useState("");
+  const [selectedUnitId, setSelectedUnitId] = useState("");
+  const [selectedSourceCylinderId, setSelectedSourceCylinderId] = useState("");
+  const [notes, setNotes] = useState("");
+  useEffect(() => {
+    setSelectedPropertyId("");
+    setSelectedUnitId("");
+    setSelectedSourceCylinderId("");
+    setNotes("");
+  }, [resetVersion]);
+  const selectedUnit = units.find((unit) => unit.id === selectedUnitId) ?? null;
+  const selectedTank = tanks.find((tank) => tank.id === selectedSourceCylinderId) ?? null;
+  const workflowDraft: RefrigerantWorkflowDraft | null = (selectedPropertyId || selectedUnit?.propertyId)
+    ? {
+      propertyId: selectedPropertyId || selectedUnit?.propertyId || "",
+      unitId: selectedUnitId,
+      unitNumber: selectedUnit?.number ?? "",
+      building: selectedUnit?.building ?? "",
+      equipmentQuery: [selectedUnit?.number, selectedTank?.refrigerantType.name].filter(Boolean).join(" / "),
+      query: notes,
+    }
+    : null;
   return (
     <form className="refrigerant-card compact-form" onSubmit={onSubmit}>
       <h2>{title}</h2>
-      <UnitSelect properties={properties} units={units} />
+      <UnitSelect
+        properties={properties}
+        units={units}
+        selectedPropertyId={selectedPropertyId}
+        selectedUnitId={selectedUnitId}
+        onPropertyChange={setSelectedPropertyId}
+        onUnitChange={setSelectedUnitId}
+      />
       <label>Virgin tank
-        <select name="sourceCylinderId" required>
+        <select name="sourceCylinderId" value={selectedSourceCylinderId} onChange={(event) => setSelectedSourceCylinderId(event.target.value)} required>
           <option value="">Select active tank</option>
           {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name} / {tank.currentWeight} lb</option>)}
         </select>
@@ -475,13 +548,25 @@ function QuickChargeForm({ title, properties, units, tanks, onSubmit, loading }:
         <label>Start weight <input name="startWeight" type="number" step="0.01" required /></label>
         <label>End weight <input name="endWeight" type="number" step="0.01" required /></label>
       </div>
-      <label>Notes <input name="notes" placeholder="Work order, leak context, system notes..." /></label>
+      <label>Notes <input name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Work order, leak context, system notes..." /></label>
+      {workflowDraft?.propertyId ? (
+        <PropertyWikiWorkflowPanel
+          title="Live Equipment, SOPs, and HVAC Notes"
+          module="REFRIGERANT"
+          propertyId={workflowDraft.propertyId}
+          unitNumber={workflowDraft.unitNumber || undefined}
+          building={workflowDraft.building || undefined}
+          equipmentQuery={workflowDraft.equipmentQuery || undefined}
+          query={workflowDraft.query || undefined}
+          canEdit={canEdit}
+        />
+      ) : null}
       <button type="submit" className="button button-primary" disabled={loading || tanks.length === 0}>Log charge</button>
     </form>
   );
 }
 
-function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryType, onSubmit, loading }: {
+function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryType, onSubmit, canEdit, loading, resetVersion }: {
   title: string;
   properties: Property[];
   units: Unit[];
@@ -489,20 +574,54 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
   types: Array<{ id: string; name: string }>;
   recoveryType: "CLEAN" | "DIRTY";
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  canEdit: boolean;
   loading: boolean;
+  resetVersion: number;
 }) {
+  const [selectedPropertyId, setSelectedPropertyId] = useState("");
+  const [selectedUnitId, setSelectedUnitId] = useState("");
+  const [selectedRefrigerantTypeId, setSelectedRefrigerantTypeId] = useState("");
+  const [selectedRecoveryCylinderId, setSelectedRecoveryCylinderId] = useState("");
+  const [notes, setNotes] = useState("");
+  useEffect(() => {
+    setSelectedPropertyId("");
+    setSelectedUnitId("");
+    setSelectedRefrigerantTypeId("");
+    setSelectedRecoveryCylinderId("");
+    setNotes("");
+  }, [resetVersion]);
+  const selectedUnit = units.find((unit) => unit.id === selectedUnitId) ?? null;
+  const selectedType = types.find((type) => type.id === selectedRefrigerantTypeId) ?? null;
+  const selectedTank = tanks.find((tank) => tank.id === selectedRecoveryCylinderId) ?? null;
+  const workflowDraft: RefrigerantWorkflowDraft | null = (selectedPropertyId || selectedUnit?.propertyId)
+    ? {
+      propertyId: selectedPropertyId || selectedUnit?.propertyId || "",
+      unitId: selectedUnitId,
+      unitNumber: selectedUnit?.number ?? "",
+      building: selectedUnit?.building ?? "",
+      equipmentQuery: [selectedUnit?.number, selectedType?.name ?? selectedTank?.refrigerantType.name].filter(Boolean).join(" / "),
+      query: notes,
+    }
+    : null;
   return (
     <form className="refrigerant-card compact-form" onSubmit={onSubmit}>
       <h2>{title}</h2>
-      <UnitSelect properties={properties} units={units} />
+      <UnitSelect
+        properties={properties}
+        units={units}
+        selectedPropertyId={selectedPropertyId}
+        selectedUnitId={selectedUnitId}
+        onPropertyChange={setSelectedPropertyId}
+        onUnitChange={setSelectedUnitId}
+      />
       <label>Refrigerant type
-        <select name="refrigerantTypeId" required>
+        <select name="refrigerantTypeId" value={selectedRefrigerantTypeId} onChange={(event) => setSelectedRefrigerantTypeId(event.target.value)} required>
           <option value="">Select type</option>
           {types.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
         </select>
       </label>
       <label>{recoveryType === "DIRTY" ? "Dirty" : "Clean"} recovery tank
-        <select name="recoveryCylinderId" required>
+        <select name="recoveryCylinderId" value={selectedRecoveryCylinderId} onChange={(event) => setSelectedRecoveryCylinderId(event.target.value)} required>
           <option value="">Select recovery tank</option>
           {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name} / {tank.currentWeight} lb</option>)}
         </select>
@@ -511,13 +630,25 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
         <label>Start weight <input name="startWeight" type="number" step="0.01" required /></label>
         <label>End weight <input name="endWeight" type="number" step="0.01" required /></label>
       </div>
-      <label>Notes <input name="notes" placeholder="Recovered from unit, reclaim note, disposition..." /></label>
+      <label>Notes <input name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Recovered from unit, reclaim note, disposition..." /></label>
+      {workflowDraft?.propertyId ? (
+        <PropertyWikiWorkflowPanel
+          title="Live Equipment, SOPs, and HVAC Notes"
+          module="REFRIGERANT"
+          propertyId={workflowDraft.propertyId}
+          unitNumber={workflowDraft.unitNumber || undefined}
+          building={workflowDraft.building || undefined}
+          equipmentQuery={workflowDraft.equipmentQuery || undefined}
+          query={workflowDraft.query || undefined}
+          canEdit={canEdit}
+        />
+      ) : null}
       <button type="submit" className="button button-primary" disabled={loading || tanks.length === 0}>Log recovery</button>
     </form>
   );
 }
 
-function TankWorkspace({ title, canEdit, canAdmin, category, types, tanks, properties = [], units = [], recoveryTanks = [], onCreate, onUpdate, onRecovery, onFinalRecovery, loading }: {
+function TankWorkspace({ title, canEdit, canAdmin, category, types, tanks, properties = [], units = [], recoveryTanks = [], onCreate, onUpdate, onRecovery, onFinalRecovery, loading, resetVersion = 0 }: {
   title: string;
   canEdit: boolean;
   canAdmin: boolean;
@@ -532,6 +663,7 @@ function TankWorkspace({ title, canEdit, canAdmin, category, types, tanks, prope
   onRecovery?: (event: FormEvent<HTMLFormElement>) => void;
   onFinalRecovery?: (event: FormEvent<HTMLFormElement>) => void;
   loading: boolean;
+  resetVersion?: number;
 }) {
   return (
     <>
@@ -556,7 +688,7 @@ function TankWorkspace({ title, canEdit, canAdmin, category, types, tanks, prope
       ) : null}
 
       {onRecovery ? (
-        <QuickRecoveryForm title={`Log ${categoryLabel[category]} Recovery`} properties={properties} units={units} tanks={tanks.filter((tank) => tank.status === "ACTIVE")} types={types} recoveryType={category === "DIRTY_RECOVERY" ? "DIRTY" : "CLEAN"} onSubmit={onRecovery} loading={loading} />
+        <QuickRecoveryForm title={`Log ${categoryLabel[category]} Recovery`} properties={properties} units={units} tanks={tanks.filter((tank) => tank.status === "ACTIVE")} types={types} recoveryType={category === "DIRTY_RECOVERY" ? "DIRTY" : "CLEAN"} onSubmit={onRecovery} canEdit={canEdit} loading={loading} resetVersion={resetVersion} />
       ) : null}
 
       {onFinalRecovery ? (

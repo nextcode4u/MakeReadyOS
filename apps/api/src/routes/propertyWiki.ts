@@ -219,6 +219,21 @@ function snippet(text: string, query: string) {
   return `${start > 0 ? "..." : ""}${normalized.slice(start, end)}${end < normalized.length ? "..." : ""}`;
 }
 
+function uniqueTokens(...values: Array<unknown>) {
+  return Array.from(new Set(
+    values
+      .flatMap((value) => (Array.isArray(value) ? value : [value]))
+      .flatMap((value) => String(value ?? "").toLowerCase().split(/[^a-z0-9]+/))
+      .map((value) => value.trim())
+      .filter((value) => value.length >= 2),
+  ));
+}
+
+function tokenOverlapCount(left: string[], right: string[]) {
+  const rightSet = new Set(right);
+  return left.reduce((count, token) => count + (rightSet.has(token) ? 1 : 0), 0);
+}
+
 function requireWikiView(request: FastifyRequest) {
   const access = wikiAccess(request.currentUser?.role ?? "VIEWER");
   if (!access.view) throw Object.assign(new Error("Property Wiki access denied"), { statusCode: 403 });
@@ -382,7 +397,7 @@ function multipartFieldValue(fields: Record<string, unknown>, key: string) {
   return field.value === undefined ? undefined : String(field.value);
 }
 
-const profileSchema = z.object({
+export const profileSchema = z.object({
   propertyId: z.string().min(1),
   address: z.string().nullable().optional(),
   unitCount: z.number().int().nullable().optional(),
@@ -395,7 +410,7 @@ const profileSchema = z.object({
   generalNotes: z.string().nullable().optional(),
 });
 
-const entrySchema = z.object({
+export const entrySchema = z.object({
   propertyId: z.string().min(1),
   section: z.enum(wikiSections),
   title: z.string().trim().min(1).max(140),
@@ -443,7 +458,7 @@ const entrySchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-const vendorSchema = z.object({
+export const vendorSchema = z.object({
   propertyId: z.string().min(1),
   vendorType: z.string().trim().min(1).max(80),
   companyName: z.string().trim().min(1).max(140),
@@ -455,7 +470,7 @@ const vendorSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-const assetMetadataSchema = z.object({
+export const assetMetadataSchema = z.object({
   propertyId: z.string().min(1),
   kind: z.enum(wikiAssetKinds),
   title: z.string().trim().min(1).max(140),
@@ -468,7 +483,7 @@ const assetMetadataSchema = z.object({
   vendorId: z.string().nullable().optional(),
 });
 
-const favoriteSchema = z.object({
+export const favoriteSchema = z.object({
   targetType: z.enum(wikiTargetTypes),
   targetId: z.string().min(1),
 });
@@ -479,6 +494,8 @@ const wikiReferenceRecordTypes = [
   "POOL_LOG_ENTRY",
   "PM_TEMPLATE",
   "PM_TASK",
+  "PROJECT_RECORD",
+  "LEASE_COMPLIANCE_ISSUE",
   "FUTURE_WORK_ORDER",
 ] as const;
 
@@ -488,17 +505,19 @@ const wikiWorkflowModules = [
   "REFRIGERANT",
   "POOL_LOG",
   "PREVENTIVE_MAINTENANCE",
+  "PROJECTS",
+  "LEASE_COMPLIANCE",
   "FUTURE_WORK_ORDER",
 ] as const;
 
-const wikiReferenceSchema = z.object({
+export const wikiReferenceSchema = z.object({
   recordType: z.enum(wikiReferenceRecordTypes),
   recordId: z.string().min(1),
   targetType: z.enum(wikiTargetTypes),
   targetId: z.string().min(1),
 });
 
-const wikiContextQuerySchema = z.object({
+export const wikiContextQuerySchema = z.object({
   module: z.enum(wikiWorkflowModules),
   propertyId: z.string().optional(),
   recordType: z.enum(wikiReferenceRecordTypes).optional(),
@@ -617,6 +636,52 @@ async function resolveWikiReferenceRecord(recordType: (typeof wikiReferenceRecor
       query: searchTokens(task.taskName, task.category, task.description, task.instructions, task.template.name),
     };
   }
+  if (recordType === "PROJECT_RECORD") {
+    const record = await prisma.projectRecord.findUnique({
+      where: { id: recordId },
+      include: { property: true },
+    });
+    if (!record) return null;
+    return {
+      recordType,
+      recordId: record.id,
+      propertyId: record.propertyId,
+      property: record.property,
+      floorPlan: null,
+      unitNumber: null,
+      building: record.building,
+      facilityName: null,
+      equipmentQuery: record.title,
+      query: searchTokens(record.title, record.description, record.categoryName, record.locationNotes, record.companyName, record.bidNotes, record.tags),
+    };
+  }
+  if (recordType === "LEASE_COMPLIANCE_ISSUE") {
+    const issue = await prisma.leaseComplianceIssue.findUnique({
+      where: { id: recordId },
+      include: { property: true, unit: true, issueType: true },
+    });
+    if (!issue) return null;
+    return {
+      recordType,
+      recordId: issue.id,
+      propertyId: issue.propertyId,
+      property: issue.property,
+      floorPlan: null,
+      unitNumber: issue.unit?.number ?? null,
+      building: issue.building ?? issue.unit?.building ?? null,
+      facilityName: null,
+      equipmentQuery: issue.issueType?.name ?? issue.issueTypeName ?? null,
+      query: searchTokens(
+        issue.issueType?.name,
+        issue.issueTypeName,
+        issue.additionalIssueType,
+        issue.description,
+        issue.locationNotes,
+        issue.area,
+        issue.tags,
+      ),
+    };
+  }
   return null;
 }
 
@@ -635,17 +700,22 @@ function scoreWikiSummary(
 ) {
   let score = 0;
   const haystack = searchTokens(summary.title, summary.section, summary.snippet, summary.tags, summary.building);
+  const titleTokens = uniqueTokens(summary.title);
+  const queryTokens = uniqueTokens(options.query, options.equipmentQuery, options.unitNumber, options.floorPlan, options.building, options.facilityName);
   for (const token of contextTokens) {
     if (haystack.includes(token)) score += 3;
     if (summary.title.toLowerCase().includes(token)) score += 2;
     if (summary.building?.toLowerCase().includes(token)) score += 2;
     if (summary.tags.some((tag) => tag.toLowerCase().includes(token))) score += 2;
   }
+  score += tokenOverlapCount(titleTokens, queryTokens) * 4;
+  score += tokenOverlapCount(uniqueTokens(summary.tags), queryTokens) * 3;
   if (options.building && summary.building?.toLowerCase() === options.building.toLowerCase()) score += 5;
   if (options.floorPlan && haystack.includes(options.floorPlan.toLowerCase())) score += 6;
   if (options.unitNumber && haystack.includes(options.unitNumber.toLowerCase())) score += 2;
   if (options.facilityName && haystack.includes(options.facilityName.toLowerCase())) score += 5;
   if (options.equipmentQuery && haystack.includes(options.equipmentQuery.toLowerCase())) score += 3;
+  if (summary.isFavorite) score += 1;
   if (summary.isEmergency) score += options.module === "POOL_LOG" ? 2 : 1;
   if (summary.section === "KNOWN_ISSUES") score += 2;
   if (options.module === "MAKE_READY" && summary.section === "UNIT_STANDARDS") score += 4;
@@ -653,6 +723,91 @@ function scoreWikiSummary(
   if (options.module === "REFRIGERANT" && ["EQUIPMENT_REGISTRY", "KNOWN_ISSUES", "SOP_LIBRARY"].includes(summary.section)) score += 3;
   if (options.module === "POOL_LOG" && ["POOLS", "SOP_LIBRARY", "EMERGENCY_PROCEDURES"].includes(summary.section)) score += 3;
   if (options.module === "PREVENTIVE_MAINTENANCE" && ["EQUIPMENT_REGISTRY", "SOP_LIBRARY", "KNOWN_ISSUES", "VENDORS", "PHOTOS", "DOCUMENTS"].includes(summary.section)) score += 3;
+  if (options.module === "LEASE_COMPLIANCE" && ["KNOWN_ISSUES", "SOP_LIBRARY", "DOCUMENTS", "PHOTOS", "VENDORS", "CUSTOM_PAGES"].includes(summary.section)) score += 3;
+  return score;
+}
+
+function scoreRelatedEntry(
+  source: {
+    tags: string[];
+    category: string | null;
+    building: string | null;
+    leadTokens: string[];
+    relatedEntryIds: string[];
+    relatedVendorIds: string[];
+    sourceEntryId: string | null;
+    sourceVendorId: string | null;
+  },
+  entry: {
+    id: string;
+    section: string;
+    title: string;
+    category: string | null;
+    building: string | null;
+    tags: string[];
+  },
+) {
+  let score = 0;
+  if (source.relatedEntryIds.includes(entry.id)) score += 20;
+  if (source.sourceEntryId && entry.id === source.sourceEntryId) score -= 100;
+  if (source.building && entry.building && source.building === entry.building) score += 8;
+  if (source.category && entry.category && source.category === entry.category) score += 6;
+  score += tokenOverlapCount(uniqueTokens(source.tags), uniqueTokens(entry.tags)) * 5;
+  score += tokenOverlapCount(source.leadTokens, uniqueTokens(entry.title, entry.category, entry.tags)) * 3;
+  if (entry.section === "KNOWN_ISSUES") score += 2;
+  return score;
+}
+
+function scoreRelatedAsset(
+  source: {
+    tags: string[];
+    category: string | null;
+    building: string | null;
+    leadTokens: string[];
+    sourceEntryId: string | null;
+    sourceVendorId: string | null;
+  },
+  asset: {
+    id: string;
+    title: string;
+    category: string | null;
+    building: string | null;
+    tags: string[];
+    entryId: string | null;
+    vendorId: string | null;
+  },
+) {
+  let score = 0;
+  if (source.sourceEntryId && asset.entryId === source.sourceEntryId) score += 14;
+  if (source.sourceVendorId && asset.vendorId === source.sourceVendorId) score += 14;
+  if (source.building && asset.building && source.building === asset.building) score += 7;
+  if (source.category && asset.category && source.category === asset.category) score += 5;
+  score += tokenOverlapCount(uniqueTokens(source.tags), uniqueTokens(asset.tags)) * 5;
+  score += tokenOverlapCount(source.leadTokens, uniqueTokens(asset.title, asset.category, asset.tags)) * 3;
+  return score;
+}
+
+function scoreRelatedVendor(
+  source: {
+    category: string | null;
+    leadTokens: string[];
+    relatedVendorIds: string[];
+    linkedVendorIds: string[];
+    sourceVendorId: string | null;
+  },
+  vendor: {
+    id: string;
+    vendorType: string;
+    companyName: string;
+    notes: string | null;
+  },
+) {
+  let score = 0;
+  if (source.relatedVendorIds.includes(vendor.id)) score += 20;
+  if (source.linkedVendorIds.includes(vendor.id)) score += 10;
+  if (source.category && vendor.vendorType === source.category) score += 6;
+  score += tokenOverlapCount(source.leadTokens, uniqueTokens(vendor.companyName, vendor.vendorType, vendor.notes)) * 3;
+  if (source.sourceVendorId && vendor.id === source.sourceVendorId) score -= 100;
   return score;
 }
 
@@ -1536,10 +1691,6 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
       }),
     ]);
 
-    const sourceTags =
-      resolved.targetType === "ENTRY" ? resolved.entry.tags
-        : resolved.targetType === "ASSET" ? resolved.asset.tags
-          : [];
     const sourceCategory =
       resolved.targetType === "ENTRY" ? resolved.entry.category
         : resolved.targetType === "VENDOR" ? resolved.vendor.vendorType
@@ -1548,40 +1699,50 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
       resolved.targetType === "ENTRY" ? resolved.entry.building
         : resolved.targetType === "ASSET" ? resolved.asset.building
           : null;
-    const sourceText =
-      resolved.targetType === "ENTRY" ? searchTokens(resolved.entry.title, resolved.entry.category, resolved.entry.tags, resolved.entry.building)
-        : resolved.targetType === "VENDOR" ? searchTokens(resolved.vendor.companyName, resolved.vendor.vendorType)
-          : searchTokens(resolved.asset.title, resolved.asset.category, resolved.asset.tags, resolved.asset.building);
-    const leadToken = sourceText.split(" ").find(Boolean) ?? "";
+    const relatedSource = {
+      tags: resolved.targetType === "ENTRY" ? resolved.entry.tags : resolved.targetType === "ASSET" ? resolved.asset.tags : [],
+      category: sourceCategory,
+      building: sourceBuilding,
+      leadTokens:
+        resolved.targetType === "ENTRY" ? uniqueTokens(resolved.entry.title, resolved.entry.category, resolved.entry.tags, resolved.entry.building, resolved.entry.equipmentModel, resolved.entry.manufacturer)
+          : resolved.targetType === "VENDOR" ? uniqueTokens(resolved.vendor.companyName, resolved.vendor.vendorType, resolved.vendor.notes)
+            : uniqueTokens(resolved.asset.title, resolved.asset.category, resolved.asset.tags, resolved.asset.building, resolved.asset.entry?.title, resolved.asset.vendor?.companyName),
+      relatedEntryIds: resolved.targetType === "ENTRY" ? resolved.entry.relatedEntryIds : [],
+      relatedVendorIds: resolved.targetType === "ENTRY" ? resolved.entry.relatedVendorIds : [],
+      sourceEntryId: resolved.targetType === "ENTRY" ? resolved.entry.id : resolved.targetType === "ASSET" ? resolved.asset.entryId : null,
+      sourceVendorId: resolved.targetType === "VENDOR" ? resolved.vendor.id : resolved.targetType === "ASSET" ? resolved.asset.vendorId : null,
+    };
 
     const entryMatches = entries
       .filter((entry) => !(resolved.targetType === "ENTRY" && entry.id === resolved.entry.id))
-      .filter((entry) => {
-        const sharedTag = sourceTags.length ? entry.tags.some((tag) => sourceTags.includes(tag)) : false;
-        const sameBuilding = Boolean(sourceBuilding && entry.building && sourceBuilding === entry.building);
-        const sameCategory = Boolean(sourceCategory && entry.category && sourceCategory === entry.category);
-        const textMatch = leadToken ? searchTokens(entry.title, entry.category, entry.notes, entry.tags).includes(leadToken) : false;
-        return sharedTag || sameBuilding || sameCategory || textMatch;
-      })
+      .map((entry) => ({ entry, score: scoreRelatedEntry(relatedSource, entry) }))
+      .filter((item) => item.score > 0)
+      .sort((left, right) => right.score - left.score || right.entry.updatedAt.getTime() - left.entry.updatedAt.getTime())
+      .map((item) => item.entry)
       .slice(0, 18);
     const assetMatches = assets
       .filter((asset) => !(resolved.targetType === "ASSET" && asset.id === resolved.asset.id))
-      .filter((asset) => {
-        const sharedTag = sourceTags.length ? asset.tags.some((tag) => sourceTags.includes(tag)) : false;
-        const sameBuilding = Boolean(sourceBuilding && asset.building && sourceBuilding === asset.building);
-        const sameCategory = Boolean(sourceCategory && asset.category && sourceCategory === asset.category);
-        const propertyLink = resolved.targetType === "ENTRY" ? asset.entryId === resolved.entry.id : resolved.targetType === "VENDOR" ? asset.vendorId === resolved.vendor.id : false;
-        return sharedTag || sameBuilding || sameCategory || propertyLink;
-      })
+      .map((asset) => ({ asset, score: scoreRelatedAsset(relatedSource, asset) }))
+      .filter((item) => item.score > 0)
+      .sort((left, right) => right.score - left.score || right.asset.createdAt.getTime() - left.asset.createdAt.getTime())
+      .map((item) => item.asset)
       .slice(0, 18);
+    const linkedVendorIds = Array.from(new Set(assetMatches.flatMap((asset) => asset.vendorId ? [asset.vendorId] : [])));
     const vendorMatches = vendors
       .filter((vendor) => !(resolved.targetType === "VENDOR" && vendor.id === resolved.vendor.id))
-      .filter((vendor) => {
-        const sameCategory = Boolean(sourceCategory && vendor.vendorType === sourceCategory);
-        const textMatch = leadToken ? searchTokens(vendor.companyName, vendor.vendorType, vendor.notes).includes(leadToken) : false;
-        const linkedAsset = assetMatches.some((asset) => asset.vendorId === vendor.id);
-        return sameCategory || textMatch || linkedAsset;
-      })
+      .map((vendor) => ({
+        vendor,
+        score: scoreRelatedVendor({
+          category: sourceCategory,
+          leadTokens: relatedSource.leadTokens,
+          relatedVendorIds: relatedSource.relatedVendorIds,
+          linkedVendorIds,
+          sourceVendorId: relatedSource.sourceVendorId,
+        }, vendor),
+      }))
+      .filter((item) => item.score > 0)
+      .sort((left, right) => right.score - left.score || right.vendor.updatedAt.getTime() - left.vendor.updatedAt.getTime())
+      .map((item) => item.vendor)
       .slice(0, 12);
 
     const entryAssetIds = resolved.targetType === "ENTRY" ? resolved.entry.assets.map((asset) => asset.id) : [];

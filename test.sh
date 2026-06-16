@@ -35,7 +35,7 @@ mkdir -p "$LOG_DIR"
   echo
 
   echo "Checking database backup/restore helper scripts"
-  for helper_script in backup-db.sh restore-db.sh backup-uploads.sh restore-uploads.sh move-uploads.sh route-existing-uploads.sh prune-backups.sh run-automations.sh run-analytics-snapshot.sh run-webhooks.sh seed-large.sh reset-demo.sh doctor.sh; do
+  for helper_script in backup-db.sh restore-db.sh backup-uploads.sh restore-uploads.sh move-uploads.sh route-existing-uploads.sh prune-backups.sh run-automations.sh run-analytics-snapshot.sh run-webhooks.sh seed-large.sh reset-demo.sh check-migration-hygiene.sh doctor.sh update.sh; do
     if [ ! -f "$helper_script" ] || [ ! -x "$helper_script" ]; then
       echo "ERROR: $helper_script is missing or is not executable"
       exit 1
@@ -102,6 +102,17 @@ mkdir -p "$LOG_DIR"
     exit 1
   fi
   rm -f /tmp/makereadyos-route-existing-uploads-help.txt
+  if ! ./check-migration-hygiene.sh --help >/tmp/makereadyos-migration-hygiene-help.txt 2>&1; then
+    cat /tmp/makereadyos-migration-hygiene-help.txt
+    echo "ERROR: check-migration-hygiene.sh help failed"
+    exit 1
+  fi
+  if ! grep -q "non-destructive Prisma migration checks" /tmp/makereadyos-migration-hygiene-help.txt; then
+    cat /tmp/makereadyos-migration-hygiene-help.txt
+    echo "ERROR: check-migration-hygiene.sh help does not clearly explain its purpose"
+    exit 1
+  fi
+  rm -f /tmp/makereadyos-migration-hygiene-help.txt
 
   RETENTION_TEST_FILE="backups/makereadyos-db-retention-test.dump"
   mkdir -p backups
@@ -565,6 +576,14 @@ mkdir -p "$LOG_DIR"
         exit 1
       fi
     fi
+    TOKEN_USAGE_STATUS="$(curl -s -o /tmp/makereadyos-integrations-token-usage.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/admin/integrations")"
+    if [ "$TOKEN_USAGE_STATUS" != "200" ]; then
+      cat /tmp/makereadyos-integrations-token-usage.json
+      echo "ERROR: integration token usage snapshot failed"
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const token=body.apiTokens?.find((entry)=>entry.id===process.argv[2]); if (!token || token.useCount < 1 || token.lastUsedMethod !== "GET" || !String(token.lastUsedPath || "").includes("/api/make-ready-items")) process.exit(1);' /tmp/makereadyos-integrations-token-usage.json "$API_TOKEN_ID"
     REVOKE_TOKEN_STATUS="$(curl -s -o /tmp/makereadyos-token-revoke.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
       -X POST "http://localhost:${API_PORT:-4000}/api/admin/integrations/api-tokens/$API_TOKEN_ID/revoke")"
@@ -1620,6 +1639,52 @@ NODE
     fi
     node -e 'const fs=require("fs"); const preview=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const run=JSON.parse(fs.readFileSync(process.argv[2],"utf8")).execution; const items=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); const item=items.find((entry) => entry.id === process.argv[4]); if (!preview.preview || preview.matchingItemCount < 1 || !preview.affectedItems[0].proposedActions.some((action) => action.type === "setDateFromField") || run.actionCount < 1 || !item || !String(item.flooringDate || "").startsWith("2026-06-02")) process.exit(1);' /tmp/makereadyos-offset-preview.json /tmp/makereadyos-offset-run.json /tmp/makereadyos-offset-items-after.json "$OFFSET_ITEM_ID"
     echo "Operating-calendar business-day date offset validation passed"
+
+    echo "Checking least-loaded assignment automation preview and execution"
+    ASSIGN_UNIT_NUMBER="QAASSIGN${TIMESTAMP//-/}"
+    ASSIGN_UNIT_JSON="$(mktemp)"
+    CREATE_ASSIGN_UNIT_STATUS="$(curl -s -o "$ASSIGN_UNIT_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"number\":\"$ASSIGN_UNIT_NUMBER\",\"floorPlan\":\"QA ASSIGN\",\"squareFeet\":799}" \
+      "http://localhost:${API_PORT:-4000}/api/operations/units")"
+    ASSIGN_UNIT_ID="$(node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(body.unit?.id || "");' "$ASSIGN_UNIT_JSON")"
+    ASSIGN_ITEM_JSON="$(mktemp)"
+    CREATE_ASSIGN_ITEM_STATUS="$(curl -s -o "$ASSIGN_ITEM_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"unitId\":\"$ASSIGN_UNIT_ID\",\"boardGroup\":\"$TEST_MAKE_READY_GROUP\",\"itemName\":\"$ASSIGN_UNIT_NUMBER\",\"unitNumber\":\"$ASSIGN_UNIT_NUMBER\",\"floorPlan\":\"QA ASSIGN\",\"vacancyStatus\":\"TO WALK\",\"makeReadyStatus\":\"LITE\",\"completionStatus\":\"NO\",\"assignedTech\":null,\"makeReadyDate\":\"2026-06-05\"}" \
+      "http://localhost:${API_PORT:-4000}/api/make-ready-items")"
+    ASSIGN_ITEM_ID="$(node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(body.id || "");' "$ASSIGN_ITEM_JSON")"
+    if [ "$CREATE_ASSIGN_UNIT_STATUS" != "201" ] || [ "$CREATE_ASSIGN_ITEM_STATUS" != "201" ] || [ -z "$ASSIGN_ITEM_ID" ]; then
+      cat "$ASSIGN_UNIT_JSON" "$ASSIGN_ITEM_JSON"
+      echo "ERROR: least-loaded assignment smoke setup failed"
+      exit 1
+    fi
+    ASSIGN_AUTOMATION_JSON="$(mktemp)"
+    CREATE_ASSIGN_AUTOMATION_STATUS="$(curl -s -o "$ASSIGN_AUTOMATION_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"name\":\"QA Least Loaded Assign $(date +%s)\",\"description\":\"Least-loaded assignment smoke test\",\"enabled\":true,\"triggerType\":\"SCHEDULED_CHECK\",\"propertyId\":\"$TEST_PROPERTY_ID\",\"conditions\":{\"all\":[{\"field\":\"unitNumber\",\"operator\":\"equals\",\"value\":\"$ASSIGN_UNIT_NUMBER\"},{\"field\":\"assignedTech\",\"operator\":\"isEmpty\"}]},\"actions\":[{\"type\":\"assignLeastLoadedStaff\",\"eligibleRoles\":[\"ADMIN\"],\"lookAheadDays\":7,\"includePlannedWork\":false,\"onlyWhenUnassigned\":true,\"targetDateField\":\"makeReadyDate\"}]}" \
+      "http://localhost:${API_PORT:-4000}/api/automations")"
+    ASSIGN_AUTOMATION_ID="$(node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(body.rule?.id || "");' "$ASSIGN_AUTOMATION_JSON")"
+    ASSIGN_PREVIEW_STATUS="$(curl -s -o /tmp/makereadyos-assign-preview.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"ruleId\":\"$ASSIGN_AUTOMATION_ID\",\"propertyId\":\"$TEST_PROPERTY_ID\",\"limit\":5}" \
+      "http://localhost:${API_PORT:-4000}/api/automations/preview")"
+    ASSIGN_RUN_STATUS="$(curl -s -o /tmp/makereadyos-assign-run.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -X POST "http://localhost:${API_PORT:-4000}/api/automations/$ASSIGN_AUTOMATION_ID/run")"
+    curl -fsS -o /tmp/makereadyos-assign-items-after.json -b "$COOKIE_JAR" \
+      "http://localhost:${API_PORT:-4000}/api/make-ready-items?propertyId=$TEST_PROPERTY_ID&includeArchived=true&limit=400"
+    if [ "$CREATE_ASSIGN_AUTOMATION_STATUS" != "201" ] || [ "$ASSIGN_PREVIEW_STATUS" != "200" ] || [ "$ASSIGN_RUN_STATUS" != "200" ]; then
+      cat "$ASSIGN_AUTOMATION_JSON" /tmp/makereadyos-assign-preview.json /tmp/makereadyos-assign-run.json
+      echo "ERROR: least-loaded assignment automation smoke failed"
+      exit 1
+    fi
+    node -e 'const fs=require("fs"); const preview=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const run=JSON.parse(fs.readFileSync(process.argv[2],"utf8")).execution; const items=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); const item=items.find((entry) => entry.id === process.argv[4]); const affected=preview.affectedItems?.find((entry) => entry.id === process.argv[4]); const proposed=affected?.proposedActions?.find((action) => action.type === "assignLeastLoadedStaff"); if (!preview.preview || preview.matchingItemCount < 1 || !affected || !proposed || proposed.proposedValue !== process.argv[5] || !String(proposed.summary || "").includes(process.argv[5]) || run.actionCount < 1 || !item || item.assignedTech !== process.argv[5]) process.exit(1);' /tmp/makereadyos-assign-preview.json /tmp/makereadyos-assign-run.json /tmp/makereadyos-assign-items-after.json "$ASSIGN_ITEM_ID" "$ADMIN_STAFF_NAME"
+    echo "Least-loaded assignment automation validation passed"
 
     TOGGLE_AUTOMATION_STATUS="$(curl -s -o /tmp/makereadyos-toggle-automation.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
