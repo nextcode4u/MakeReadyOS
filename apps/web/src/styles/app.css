@@ -7312,7 +7312,7 @@ textarea {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 860px), (pointer: coarse) and (hover: none) {
   .app-shell,
   .compact-mode {
     --control-height: 2.7rem;
@@ -7845,7 +7845,7 @@ textarea {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (pointer: coarse) and (hover: none) {
   .mobile-filterbar-actions,
   .mobile-filterbar .filters.mobile-filters-panel,
   .activity-filters,
