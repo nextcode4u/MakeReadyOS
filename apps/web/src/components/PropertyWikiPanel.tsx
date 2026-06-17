@@ -653,6 +653,7 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
           </select>
           <input
+            data-testid="property-wiki-search-input"
             placeholder="Search records, buildings, tags, docs..."
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
@@ -663,8 +664,8 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
               }
             }}
           />
-          <button type="button" className="button button-secondary" onClick={() => setActiveTab("search")}>Search</button>
-          <button type="button" className="button button-primary" onClick={() => setActiveTab("emergencyMode")}>Emergency Mode</button>
+          <button data-testid="property-wiki-search-submit" type="button" className="button button-secondary" onClick={() => setActiveTab("search")}>Search</button>
+          <button data-testid="property-wiki-emergency-mode" type="button" className="button button-primary" onClick={() => setActiveTab("emergencyMode")}>Emergency Mode</button>
         </div>
       </div>
 

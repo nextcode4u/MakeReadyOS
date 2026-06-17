@@ -2,6 +2,39 @@
 
 Use this checklist after major UI changes, especially when new dense panels or forms land.
 
+## Capture Baseline
+
+Generate the desktop visual review bundle before doing subjective sign-off:
+
+```bash
+E2E_BASE_URL=http://localhost:5173 npx playwright test --project=visual-chrome e2e/visual-qa-capture.spec.ts
+```
+
+The capture lane writes review screenshots to:
+
+```text
+test-results/visual-qa/
+```
+
+Current capture coverage includes:
+
+- `Default`
+- `Light`
+- `Eye-Strain`
+- `Dyslexia`
+
+Across:
+
+- Make Ready table
+- Dashboard
+- Projects
+- Pest Control
+- Lease Compliance
+- Preventive Maintenance
+- Property Wiki
+- Property Maps
+- Admin
+
 ## Theme Pass
 
 Verify each workspace in:

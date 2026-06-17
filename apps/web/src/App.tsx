@@ -1,8 +1,8 @@
-import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ActiveFilterBar } from "./components/ActiveFilterBar";
 import { BoardTable } from "./components/BoardTable";
-import { CommandPalette } from "./components/CommandPalette";
+import { CommandPalette, type CommandPaletteWorkspaceGroup } from "./components/CommandPalette";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { FilterBar, type ThemeMode } from "./components/FilterBar";
 import { LoginScreen } from "./components/LoginScreen";
@@ -139,6 +139,7 @@ import { openWikiRecordEventName, type OpenWikiRecordRequest } from "./lib/wikiN
 import { openProjectCreateEventName, openProjectRecordEventName, type OpenProjectCreateRequest, type OpenProjectRecordRequest } from "./lib/projectNavigation";
 import { openPestQuickAddEventName, openPestWorkspaceEventName, type OpenPestQuickAddRequest, type OpenPestWorkspaceRequest } from "./lib/pestNavigation";
 import { openLeaseQuickAddEventName, type OpenLeaseQuickAddRequest } from "./lib/leaseNavigation";
+import { isTouchMobileViewport } from "./lib/responsive";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel").then((module) => ({ default: module.AdminPanel })));
 const ActivityPanel = lazy(() => import("./components/ActivityPanel").then((module) => ({ default: module.ActivityPanel })));
@@ -165,6 +166,7 @@ const VendorsPanel = lazy(() => import("./components/VendorsPanel").then((module
 
 type AppView = "dashboard" | "mywork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "fields" | "automations" | "activity" | "admin";
 type KanbanGroupKey = string;
+type NavigationHistoryState = { view?: AppView; selectedItemId?: string | null };
 const compactModeStorageKey = "makereadyos.compactMode";
 const themeModeStorageKey = "makereadyos.themeMode";
 const eyeStrainModeStorageKey = "makereadyos.eyeStrainMode";
@@ -248,6 +250,13 @@ function moduleRailMask(path: string) {
   return { "--icon-mask": `url("${path}")` } as React.CSSProperties;
 }
 
+function isAppView(value: unknown): value is AppView {
+  return typeof value === "string" && [
+    "dashboard", "mywork", "planning", "table", "kanban", "calendar", "maps", "pond", "operations", "vendors",
+    "refrigerant", "pool", "pest", "lease", "pm", "projects", "wiki", "fields", "automations", "activity", "admin",
+  ].includes(value);
+}
+
 function replaceAdminUser(users: ManagedUser[] | undefined, nextUser: ManagedUser) {
   if (!users) {
     return users;
@@ -275,7 +284,7 @@ function App() {
   const [structuredFilters, setStructuredFilters] = useState<StructuredFilters>(defaultStructuredFilters);
   const [visibleColumns, setVisibleColumns] = useState<string[] | null>(null);
   const [customFieldToAdd, setCustomFieldToAdd] = useState("");
-  const [tableFiltersOpen, setTableFiltersOpen] = useState(() => typeof window !== "undefined" ? window.innerWidth > 860 : true);
+  const [tableFiltersOpen, setTableFiltersOpen] = useState(() => !isTouchMobileViewport());
   const [loginError, setLoginError] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
   const [adminError, setAdminError] = useState("");
@@ -324,6 +333,12 @@ function App() {
   const [pestWorkspaceRequest, setPestWorkspaceRequest] = useState<(OpenPestWorkspaceRequest & { nonce: number }) | null>(null);
   const [leaseQuickAddRequest, setLeaseQuickAddRequest] = useState<(OpenLeaseQuickAddRequest & { nonce: number }) | null>(null);
   const queryClient = useQueryClient();
+  const hasInitializedHistoryRef = useRef(false);
+  const suppressHistorySyncRef = useRef(false);
+
+  const setAppView = (view: AppView) => setActiveView(view);
+  const openItemDrawer = (id: string) => setSelectedItemId(id);
+  const closeItemDrawer = () => setSelectedItemId(null);
 
   const pushToast = (title: string, message: string | undefined, tone: ToastItem["tone"]) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
@@ -359,7 +374,7 @@ function App() {
       if (!detail?.id || !detail?.targetType) return;
       if (detail.propertyId) setPropertyId(detail.propertyId);
       setWikiRecordRequest({ ...detail, nonce: Date.now() });
-      setActiveView("wiki");
+      setAppView("wiki");
     };
     window.addEventListener(openWikiRecordEventName, handleOpenWikiRecord as EventListener);
     return () => window.removeEventListener(openWikiRecordEventName, handleOpenWikiRecord as EventListener);
@@ -371,7 +386,7 @@ function App() {
       if (!detail?.id) return;
       if (detail.propertyId) setPropertyId(detail.propertyId);
       setProjectRecordRequest({ ...detail, nonce: Date.now() });
-      setActiveView("projects");
+      setAppView("projects");
     };
     window.addEventListener(openProjectRecordEventName, handleOpenProjectRecord as EventListener);
     return () => window.removeEventListener(openProjectRecordEventName, handleOpenProjectRecord as EventListener);
@@ -383,7 +398,7 @@ function App() {
       if (!detail?.propertyId) return;
       setPropertyId(detail.propertyId);
       setProjectCreateRequest({ ...detail, nonce: Date.now() });
-      setActiveView("projects");
+      setAppView("projects");
     };
     window.addEventListener(openProjectCreateEventName, handleOpenProjectCreate as EventListener);
     return () => window.removeEventListener(openProjectCreateEventName, handleOpenProjectCreate as EventListener);
@@ -395,7 +410,7 @@ function App() {
       if (!detail?.propertyId) return;
       setPropertyId(detail.propertyId);
       setPestQuickAddRequest({ ...detail, nonce: Date.now() });
-      setActiveView("pest");
+      setAppView("pest");
     };
     window.addEventListener(openPestQuickAddEventName, handleOpenPestQuickAdd as EventListener);
     return () => window.removeEventListener(openPestQuickAddEventName, handleOpenPestQuickAdd as EventListener);
@@ -407,7 +422,7 @@ function App() {
       if (!detail?.propertyId) return;
       setPropertyId(detail.propertyId);
       setPestWorkspaceRequest({ ...detail, nonce: Date.now() });
-      setActiveView("pest");
+      setAppView("pest");
     };
     window.addEventListener(openPestWorkspaceEventName, handleOpenPestWorkspace as EventListener);
     return () => window.removeEventListener(openPestWorkspaceEventName, handleOpenPestWorkspace as EventListener);
@@ -419,7 +434,7 @@ function App() {
       if (!detail?.propertyId) return;
       setPropertyId(detail.propertyId);
       setLeaseQuickAddRequest({ ...detail, nonce: Date.now() });
-      setActiveView("lease");
+      setAppView("lease");
     };
     window.addEventListener(openLeaseQuickAddEventName, handleOpenLeaseQuickAdd as EventListener);
     return () => window.removeEventListener(openLeaseQuickAddEventName, handleOpenLeaseQuickAdd as EventListener);
@@ -430,11 +445,55 @@ function App() {
       const detail = (event as CustomEvent<{ view?: AppView; propertyId?: string }>).detail;
       if (!detail?.view) return;
       if (detail.propertyId) setPropertyId(detail.propertyId);
-      setActiveView(detail.view);
+      setAppView(detail.view);
     };
     window.addEventListener("makereadyos:set-active-view", handleSetActiveView as EventListener);
     return () => window.removeEventListener("makereadyos:set-active-view", handleSetActiveView as EventListener);
   }, []);
+
+  useEffect(() => {
+    const applyHistoryState = (state: NavigationHistoryState | null | undefined) => {
+      const nextView = isAppView(state?.view) ? state.view : "table";
+      const nextSelectedItemId = typeof state?.selectedItemId === "string" ? state.selectedItemId : null;
+      suppressHistorySyncRef.current = true;
+      setActiveView(nextView);
+      setSelectedItemId(nextSelectedItemId);
+    };
+
+    const initialState = window.history.state as NavigationHistoryState | null;
+    if (initialState && (isAppView(initialState.view) || typeof initialState.selectedItemId === "string")) {
+      applyHistoryState(initialState);
+    } else {
+      window.history.replaceState({ view: activeView, selectedItemId }, "", window.location.href);
+    }
+
+    const handlePopState = (event: PopStateEvent) => {
+      applyHistoryState((event.state as NavigationHistoryState | null) ?? null);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const nextState: NavigationHistoryState = { view: activeView, selectedItemId };
+    if (!hasInitializedHistoryRef.current) {
+      hasInitializedHistoryRef.current = true;
+      window.history.replaceState(nextState, "", window.location.href);
+      return;
+    }
+    if (suppressHistorySyncRef.current) {
+      suppressHistorySyncRef.current = false;
+      window.history.replaceState(nextState, "", window.location.href);
+      return;
+    }
+    const current = window.history.state as NavigationHistoryState | null;
+    if (current?.view === nextState.view && (current?.selectedItemId ?? null) === nextState.selectedItemId) {
+      return;
+    }
+    window.history.pushState(nextState, "", window.location.href);
+  }, [activeView, selectedItemId]);
 
   const meQuery = useQuery({
     queryKey: ["auth", "me"],
@@ -1866,6 +1925,91 @@ function App() {
   const scheduleFieldOptions = useMemo(() => configuredScheduleTracks(metaQuery.data?.scheduleTracks ?? [], metaQuery.data?.customFields ?? []), [metaQuery.data?.customFields, metaQuery.data?.scheduleTracks]);
   const activeScheduleTrack = scheduleFieldOptions.find((track) => track.id === activeCalendarField || track.sourceField === activeCalendarField) ?? scheduleFieldOptions[0];
   const currentUser = forceLoggedOut ? undefined : meQuery.data?.user;
+  const commandPaletteWorkspaceGroups = useMemo<CommandPaletteWorkspaceGroup[]>(() => {
+    if (!currentUser) {
+      return [];
+    }
+
+    const groups: CommandPaletteWorkspaceGroup[] = [
+      {
+        id: "operations",
+        label: "Operations",
+        actions: [
+          { id: "table", label: "Board", description: "Open the main spreadsheet-style board.", view: "table" as const },
+          { id: "kanban", label: "Kanban", description: "Open lane-based turn management.", view: "kanban" as const },
+          { id: "calendar", label: "Schedule", description: "Open the scheduling calendar workspace.", view: "calendar" as const },
+          { id: "mywork", label: "My Work", description: "Open assigned field work.", view: "mywork" as const },
+          { id: "planning", label: "Planning", description: "Open workload planning and coverage.", view: "planning" as const },
+        ] as CommandPaletteWorkspaceGroup["actions"],
+      },
+      {
+        id: "visibility",
+        label: "Visibility",
+        actions: [
+          { id: "dashboard", label: "Dashboard", description: "Open KPI, risk, and recent-change dashboards.", view: "dashboard" as const },
+          { id: "activity", label: "Activity", description: "Open the audit and reporting activity feed.", view: "activity" as const },
+          { id: "maps", label: "Maps", description: "Open property maps and pin overlays.", view: "maps" as const },
+          { id: "pond", label: "Pond", description: "Open the Frog Pond visualization.", view: "pond" as const },
+        ].filter((action) => action.view !== "activity" || currentUser.role === "ADMIN" || currentUser.role === "MANAGER") as CommandPaletteWorkspaceGroup["actions"],
+      },
+      {
+        id: "modules",
+        label: "Modules",
+        actions: [
+          { id: "refrigerant", label: "Refrigerant", description: "Open refrigerant tracking and compliance logs.", view: "refrigerant" as const },
+          { id: "pool", label: "Pool Log", description: "Open pool readings, chemicals, and safety logs.", view: "pool" as const },
+          { id: "pest", label: "Pest Control", description: "Open pest requests, vendors, and follow-ups.", view: "pest" as const },
+          { id: "lease", label: "Lease Compliance", description: "Open lease-issue capture and notice workflows.", view: "lease" as const },
+          { id: "pm", label: "Preventive Maintenance", description: "Open recurring PM templates and tasks.", view: "pm" as const },
+          { id: "projects", label: "Projects", description: "Open recommendations, bids, and project tracking.", view: "projects" as const },
+          { id: "wiki", label: "Property Wiki", description: "Open property knowledge, SOPs, and emergency references.", view: "wiki" as const },
+        ].filter((action) => {
+          if (action.view === "refrigerant") {
+            return currentUser.role !== "CLEANER" && currentUser.role !== "LEASING";
+          }
+          if (action.view === "projects") {
+            return currentUser.role !== "CLEANER";
+          }
+          return true;
+        }),
+      },
+    ];
+
+    const managementActions: CommandPaletteWorkspaceGroup["actions"] = [
+      { id: "vendors", label: "Vendors", description: "Open vendor directories and assignments.", view: "vendors" as const },
+      { id: "automations", label: "Automations", description: "Open rules, templates, and rollout checks.", view: "automations" as const },
+    ].filter((action) => {
+      if (action.view === "vendors") {
+        return currentUser.role !== "VIEWER" && currentUser.role !== "CLEANER" && currentUser.role !== "LEASING";
+      }
+      if (action.view === "automations") {
+        return currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
+      }
+      return true;
+    });
+    if (managementActions.length) {
+      groups.push({ id: "management", label: "Management", actions: managementActions });
+    }
+
+    const adminActions: CommandPaletteWorkspaceGroup["actions"] = [
+      { id: "operations", label: "Setup", description: "Open imports, options, templates, and configuration.", view: "operations" as const },
+      { id: "fields", label: "Fields", description: "Open custom field management.", view: "fields" as const },
+      { id: "admin", label: "Admin", description: "Open users, API tokens, and deployment controls.", view: "admin" as const },
+    ].filter((action) => {
+      if (action.view === "operations" || action.view === "fields") {
+        return currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
+      }
+      if (action.view === "admin") {
+        return currentUser.role === "ADMIN";
+      }
+      return true;
+    });
+    if (adminActions.length) {
+      groups.push({ id: "admin", label: "Admin / Setup", actions: adminActions });
+    }
+
+    return groups;
+  }, [currentUser]);
 
   useEffect(() => {
     if (!currentUser || defaultWorkspaceAppliedForUser === currentUser.id) {
@@ -2289,7 +2433,7 @@ function App() {
               analyticsLoading={analyticsQuery.isLoading}
               error={dashboardQuery.isError}
               propertyId={propertyId}
-              onOpenItem={setSelectedItemId}
+              onOpenItem={openItemDrawer}
               onDrillDown={({ type, value }) => {
                 setActiveView("table");
                 clearBoardFilters(true);
@@ -2350,7 +2494,7 @@ function App() {
               labelsByField={labelsByField}
               selectedUserId={myWorkUserId}
               onUserChange={setMyWorkUserId}
-              onOpenItem={setSelectedItemId}
+              onOpenItem={openItemDrawer}
               onRetry={() => void myWorkQuery.refetch()}
               onQuickStatusChange={async (id, value) => {
                 await patchMutation.mutateAsync({ id, data: { makeReadyStatus: value } });
@@ -2368,7 +2512,7 @@ function App() {
               canManage={currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "TECH"}
               onCreateBlock={async (input) => { await workBlockCreateMutation.mutateAsync(input); }}
               onUpdateBlock={async (id, input) => { await workBlockUpdateMutation.mutateAsync({ id, data: input }); }}
-              onOpenItem={setSelectedItemId}
+              onOpenItem={openItemDrawer}
             />
           ) : activeView === "operations" && (currentUser.role === "ADMIN" || currentUser.role === "MANAGER") ? (
             operationsPropertiesQuery.isLoading || operationsUnitsQuery.isLoading || operationsOptionsQuery.isLoading || floorPlansQuery.isLoading || scheduleTracksQuery.isLoading || operatingCalendarsQuery.isLoading || riskPoliciesQuery.isLoading ? (
@@ -2416,7 +2560,7 @@ function App() {
                 onDeleteUnit={async (id) => { await deleteUnitMutation.mutateAsync(id); }}
                 onCreateItem={async (input) => { await createItemMutation.mutateAsync(input); }}
                 onArchiveItem={async (id, restore) => { await itemLifecycleMutation.mutateAsync({ id, restore }); }}
-                onOpenItem={setSelectedItemId}
+                onOpenItem={openItemDrawer}
                 onUpdateOperatingCalendar={async (propertyId, input) => { await operatingCalendarUpdateMutation.mutateAsync({ propertyId, data: input }); }}
                 onUpdateRiskPolicy={async (propertyId, input) => { await riskPolicyUpdateMutation.mutateAsync({ propertyId, data: input }); }}
               />
@@ -2468,7 +2612,7 @@ function App() {
               onCreateArea={async (input) => { await propertyMapAreaCreateMutation.mutateAsync(input); }}
               onUpdateArea={async (id, input) => { await propertyMapAreaUpdateMutation.mutateAsync({ id, data: input }); }}
               onRemoveArea={async (id) => { await propertyMapAreaRemoveMutation.mutateAsync(id); }}
-              onOpenItem={setSelectedItemId}
+              onOpenItem={openItemDrawer}
             />
           ) : activeView === "pond" ? (
             <FrogPondPanel
@@ -2479,7 +2623,7 @@ function App() {
               selectedPropertyId={propertyId}
               loading={metaQuery.isLoading || itemsQuery.isLoading}
               error={metaQuery.isError || itemsQuery.isError}
-              onOpenItem={setSelectedItemId}
+              onOpenItem={openItemDrawer}
               onPropertyChange={setPropertyId}
               onGroupDrillDown={({ type, value }) => {
                 setActiveView("table");
@@ -3054,7 +3198,7 @@ function App() {
                 setSortKey(key);
                 setSortDirection(direction);
               }}
-              onOpenItem={setSelectedItemId}
+              onOpenItem={openItemDrawer}
               onAssignFloorPlan={assignFloorPlan}
               onReorderColumns={(columns) => setVisibleColumns(columns)}
               onRenameSection={async (id, displayName) => { await renameSectionMutation.mutateAsync({ id, displayName }); }}
@@ -3070,7 +3214,7 @@ function App() {
               onMove={async (id, data) => {
                 await patchMutation.mutateAsync({ id, data });
               }}
-              onOpenItem={setSelectedItemId}
+              onOpenItem={openItemDrawer}
               colorBy={kanbanColorBy}
               cardFields={kanbanCardFields}
               sortBy={kanbanSortBy}
@@ -3102,7 +3246,7 @@ function App() {
                 setCalendarPanelFields(next);
                 if (index === 0) setActiveCalendarField(value);
               }}
-              onOpenItem={setSelectedItemId}
+              onOpenItem={openItemDrawer}
             />
           )}</>}
           </Suspense>
@@ -3127,7 +3271,7 @@ function App() {
             canEditCustomFields={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
             canManageItems={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
             canViewActivity={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
-            onClose={() => setSelectedItemId(null)}
+            onClose={closeItemDrawer}
             onPatch={async (id, data) => { await patchMutation.mutateAsync({ id, data }); }}
             onPatchCustomField={async (itemId, fieldId, value) => { await customValueMutation.mutateAsync({ itemId, fieldId, value }); }}
             onAssignFloorPlan={assignFloorPlan}
@@ -3146,7 +3290,7 @@ function App() {
         onRead={async (id) => { await readNotificationMutation.mutateAsync(id); }}
         onReadAll={async () => { await readAllNotificationsMutation.mutateAsync(); }}
         onDismiss={async (id) => { await dismissNotificationMutation.mutateAsync(id); }}
-        onOpenItem={(id) => { setSelectedItemId(id); setNotificationsOpen(false); }}
+        onOpenItem={(id) => { openItemDrawer(id); setNotificationsOpen(false); }}
         onPreferenceChange={async (category, enabled) => { await notificationPreferenceMutation.mutateAsync({ category, enabled }); }}
       />
       <CommandPalette
@@ -3156,9 +3300,10 @@ function App() {
         views={savedViewsQuery.data?.views ?? []}
         staff={metaQuery.data?.staff ?? []}
         floorPlans={floorPlansQuery.data?.floorPlans ?? []}
+        workspaceGroups={commandPaletteWorkspaceGroups}
         onClose={() => setCommandPaletteOpen(false)}
-        onOpenItem={setSelectedItemId}
-        onNavigate={(view) => setActiveView(view)}
+        onOpenItem={openItemDrawer}
+        onNavigate={setAppView}
         onOpenNotifications={() => setNotificationsOpen(true)}
         onOpenOnboarding={() => {
           setOnboardingSkipped(false);

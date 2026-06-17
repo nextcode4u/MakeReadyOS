@@ -500,7 +500,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
   }
 
   return (
-    <section className="pool-panel module-panel">
+    <section className="pool-panel module-panel" data-testid="lease-compliance-panel">
       <div className="module-heading">
         <div>
           <span className="eyebrow">Lease Compliance</span>
@@ -535,7 +535,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
           <div className="drawer-section-title">
             <h2>{tab === "grounds" ? "Grounds Walk Capture" : "Quick Capture"}</h2>
           </div>
-          <form className="pool-form" onSubmit={(event) => void submitQuickAdd(event)}>
+          <form data-testid="lease-quick-capture-form" className="pool-form" onSubmit={(event) => void submitQuickAdd(event)}>
             <div className="pool-entry-actions" style={{ marginBottom: 12, flexWrap: "wrap" }}>
               <button className="button button-secondary" type="button" onClick={() => captureInputRef.current?.click()}>Snap Picture</button>
               <button className="button button-secondary" type="button" onClick={() => uploadInputRef.current?.click()}>Upload Evidence</button>
@@ -658,13 +658,13 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
                 />
               </label>
               <label>Building
-                <input value={quickAddDraft.building} onChange={(event) => setQuickAddDraft((current) => ({ ...current, building: event.target.value }))} placeholder="Building 12" />
+                <input data-testid="lease-quick-capture-building" value={quickAddDraft.building} onChange={(event) => setQuickAddDraft((current) => ({ ...current, building: event.target.value }))} placeholder="Building 12" />
               </label>
               <label>Area
-                <input value={quickAddDraft.area} onChange={(event) => setQuickAddDraft((current) => ({ ...current, area: event.target.value }))} placeholder="Patio, breezeway, parking..." />
+                <input data-testid="lease-quick-capture-area" value={quickAddDraft.area} onChange={(event) => setQuickAddDraft((current) => ({ ...current, area: event.target.value }))} placeholder="Patio, breezeway, parking..." />
               </label>
               <label>Issue type
-                <select value={quickAddDraft.issueTypeId} onChange={(event) => {
+                <select data-testid="lease-quick-capture-issue-type" value={quickAddDraft.issueTypeId} onChange={(event) => {
                   const nextId = event.target.value;
                   const selected = issueTypes.find((entry) => entry.id === nextId);
                   setQuickAddDraft((current) => ({ ...current, issueTypeId: nextId, issueTypeName: selected?.name ?? "" }));
@@ -694,13 +694,13 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
               </label>
             </div>
             <label className="pool-textarea-wide">Short description
-              <textarea ref={descriptionInputRef} value={quickAddDraft.description} onChange={(event) => setQuickAddDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Optional if you already snapped a photo. Example: trash still on patio, grill on balcony, broken blinds visible from exterior..." />
+              <textarea data-testid="lease-quick-capture-description" ref={descriptionInputRef} value={quickAddDraft.description} onChange={(event) => setQuickAddDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Optional if you already snapped a photo. Example: trash still on patio, grill on balcony, broken blinds visible from exterior..." />
             </label>
             <label className="pool-textarea-wide">Location notes
               <textarea value={quickAddDraft.locationNotes} onChange={(event) => setQuickAddDraft((current) => ({ ...current, locationNotes: event.target.value }))} placeholder="Facing courtyard, second floor, left side of breezeway..." />
             </label>
             <div className="pool-entry-actions">
-              <button className="button button-primary" type="submit" disabled={createIssueMutation.isPending || uploadMutation.isPending || !canSubmitQuickIssue}>Create Issue</button>
+              <button data-testid="lease-quick-capture-submit" className="button button-primary" type="submit" disabled={createIssueMutation.isPending || uploadMutation.isPending || !canSubmitQuickIssue}>Create Issue</button>
               {tab === "grounds" ? (
                 <button
                   className="button button-secondary"

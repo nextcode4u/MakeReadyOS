@@ -378,7 +378,7 @@ export function PestControlPanel({ properties, units, users, userRole, selectedP
   }
 
   return (
-    <section className="pool-panel module-panel pest-control-panel">
+    <section className="pool-panel module-panel pest-control-panel" data-testid="pest-control-panel">
       <div className="module-heading">
         <div>
           <span className="eyebrow">Pest Control</span>
@@ -420,7 +420,7 @@ export function PestControlPanel({ properties, units, users, userRole, selectedP
           <div className="drawer-section-title">
             <h2>Quick Add Pest Request</h2>
           </div>
-          <form className="pool-form" onSubmit={(event) => void submitQuickAdd(event)}>
+          <form data-testid="pest-quick-add-form" className="pool-form" onSubmit={(event) => void submitQuickAdd(event)}>
             <div className="form-grid pest-quick-grid">
               <label>Unit
                 <UnitSearchSelect
@@ -433,7 +433,7 @@ export function PestControlPanel({ properties, units, users, userRole, selectedP
                 />
               </label>
               <label>Area
-                <input name="area" value={quickAddDraft.area} onChange={(event) => setQuickAddDraft((current) => ({ ...current, area: event.target.value }))} placeholder="Pool Area, Breezeway, Clubhouse..." />
+                <input data-testid="pest-quick-add-area" name="area" value={quickAddDraft.area} onChange={(event) => setQuickAddDraft((current) => ({ ...current, area: event.target.value }))} placeholder="Pool Area, Breezeway, Clubhouse..." />
               </label>
               <label>Pest type
                 <select name="pestType" value={quickAddDraft.pestType} onChange={(event) => setQuickAddDraft((current) => ({ ...current, pestType: event.target.value as PestType }))}>
@@ -464,10 +464,10 @@ export function PestControlPanel({ properties, units, users, userRole, selectedP
               </label>
             </div>
             <label className="pool-textarea-wide">Notes
-              <textarea name="description" value={quickAddDraft.description} onChange={(event) => setQuickAddDraft((current) => ({ ...current, description: event.target.value }))} placeholder="INT, EXT, privacy lock, no more activity, resident not home..." />
+              <textarea data-testid="pest-quick-add-description" name="description" value={quickAddDraft.description} onChange={(event) => setQuickAddDraft((current) => ({ ...current, description: event.target.value }))} placeholder="INT, EXT, privacy lock, no more activity, resident not home..." />
             </label>
             <div className="pool-entry-actions" style={{ alignItems: "flex-end" }}>
-              <button className="button button-primary" type="submit" disabled={createIssueMutation.isPending}>Quick Add Pest Request</button>
+              <button data-testid="pest-quick-add-submit" className="button button-primary" type="submit" disabled={createIssueMutation.isPending}>Quick Add Pest Request</button>
             </div>
           </form>
         </section>

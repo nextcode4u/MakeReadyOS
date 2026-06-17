@@ -68,7 +68,7 @@
 .notification-item { display: grid; gap: .18rem; padding: .55rem; border: 1px solid var(--border); border-radius: .45rem; background: var(--panel); color: var(--text); text-align: left; }
 .notification-item.unread { border-left: 3px solid var(--accent); }
 .notification-category { color: var(--accent); font-size: .65rem; text-transform: uppercase; }
-@media (max-width: 860px) {
+@media (max-width: 860px), (pointer: coarse) and (hover: none) {
   .dashboard-grid, .calendar-layout-split .calendar-panels, .calendar-layout-grid .calendar-panels, .dashboard-frog-preview { grid-template-columns: 1fr; }
 }
 
@@ -994,6 +994,25 @@
 .command-palette > input { width: 100%; font-size: .95rem; }
 .palette-actions,
 .palette-results { display: grid; gap: .3rem; overflow: auto; }
+.palette-section {
+  display: grid;
+  gap: .35rem;
+  padding: .3rem 0 0;
+}
+.palette-section + .palette-section {
+  border-top: 1px solid var(--border);
+  padding-top: .55rem;
+}
+.palette-section-label {
+  color: var(--text-muted);
+  font-size: .68rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.palette-section-grid {
+  display: grid;
+  gap: .3rem;
+}
 .palette-actions button,
 .palette-results button,
 .palette-results div {
@@ -1027,7 +1046,7 @@
 }
 .notification-preferences small { display: block; margin-top: .55rem; color: var(--text-muted); }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (pointer: coarse) and (hover: none) {
   .my-work-panel { padding: .45rem; }
   .my-work-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .my-work-list { grid-template-columns: 1fr; }
@@ -6788,6 +6807,7 @@ textarea {
     position: static;
     grid-auto-flow: column;
     justify-content: start;
+    overflow-x: auto;
   }
 
   .module-rail-button {
@@ -7304,6 +7324,10 @@ textarea {
     padding: 0.58rem;
   }
 
+  .workspace.module-rail-layout {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+
   .filterbar {
     position: static;
     display: grid;
@@ -7314,22 +7338,6 @@ textarea {
   .mobile-filterbar {
     gap: 0.7rem;
     padding: 0.65rem 0.58rem;
-  }
-
-  .mobile-operations-brand {
-    justify-content: space-between;
-    align-items: start;
-  }
-
-  .mobile-operations-brand-copy {
-    display: grid;
-    gap: 0.16rem;
-    min-width: 0;
-  }
-
-  .mobile-operations-brand .operations-user {
-    max-width: none;
-    font-size: 0.75rem;
   }
 
   .mobile-filterbar-main {
@@ -7343,6 +7351,48 @@ textarea {
     gap: 0.45rem;
   }
 
+  .module-panel,
+  .property-map-panel,
+  .refrigerant-panel {
+    gap: 0.65rem;
+  }
+
+  .module-panel .module-heading,
+  .refrigerant-panel .module-heading,
+  .property-wiki-panel .module-heading,
+  .pool-panel .module-heading {
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+    padding: 0.7rem;
+  }
+
+  .module-panel .module-heading h1,
+  .refrigerant-panel .module-heading h1,
+  .property-map-panel .panel-heading h1,
+  .property-wiki-panel .module-heading h1,
+  .pool-panel .module-heading h1 {
+    font-size: clamp(1.65rem, 6vw, 2.15rem);
+    line-height: 1.04;
+  }
+
+  .module-panel .module-heading p:last-child,
+  .refrigerant-panel .module-heading p:last-child,
+  .property-wiki-panel .module-heading p,
+  .pool-panel .module-heading p {
+    font-size: 0.9rem;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .module-panel .module-heading .eyebrow,
+  .refrigerant-panel .module-heading .eyebrow,
+  .property-wiki-panel .module-heading .eyebrow,
+  .pool-panel .module-heading .eyebrow {
+    display: none;
+  }
+
   .mobile-filter-toggle {
     width: 100%;
     justify-content: center;
@@ -7353,6 +7403,8 @@ textarea {
     width: 100%;
     overflow-x: auto;
     padding-bottom: 0.2rem;
+    position: relative;
+    z-index: 42;
   }
 
   .mobile-filterbar .nav-group-label {
@@ -7367,6 +7419,8 @@ textarea {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.5rem;
+    position: relative;
+    z-index: 42;
   }
 
   .mobile-filterbar .filters.mobile-filters-panel > * {
@@ -7388,6 +7442,194 @@ textarea {
   .mobile-filterbar .filters.mobile-filters-panel .export-button,
   .mobile-filterbar .filters.mobile-filters-panel [data-testid="logout-button"] {
     justify-content: center;
+  }
+
+  .module-panel .module-tabs,
+  .subtab-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    padding-bottom: 0.12rem;
+    gap: 0.35rem;
+    scroll-snap-type: x proximity;
+  }
+
+  .module-panel .module-tabs button,
+  .subtab-row button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    min-height: 2.3rem;
+    padding: 0.46rem 0.72rem;
+    font-size: 0.9rem;
+    scroll-snap-align: start;
+  }
+
+  .drawer-section-title {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .drawer-section-title .button,
+  .drawer-section-title select,
+  .drawer-section-title label {
+    width: 100%;
+  }
+
+  .property-map-panel .toolbar,
+  .property-map-panel .compact-toolbar,
+  .projects-map-toolbar,
+  .map-card-header,
+  .projects-map-card-header,
+  .projects-detail-section,
+  .projects-photo-toolbar,
+  .projects-category-row,
+  .map-file-actions,
+  .inline-form,
+  .three-column-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .property-map-panel .toolbar > *,
+  .property-map-panel .compact-toolbar > *,
+  .projects-map-toolbar > *,
+  .map-card-header > *,
+  .projects-map-card-header > *,
+  .projects-detail-section > *,
+  .projects-photo-toolbar > *,
+  .projects-category-row > *,
+  .map-file-actions > *,
+  .inline-form > *,
+  .three-column-form > * {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .module-panel .module-actions,
+  .property-wiki-panel .module-actions,
+  .pool-panel .module-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    justify-content: stretch;
+    gap: 0.45rem;
+  }
+
+  .module-panel .module-actions > :first-child,
+  .property-wiki-panel .module-actions > :first-child,
+  .pool-panel .module-actions > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  .module-panel .module-actions > *,
+  .property-wiki-panel .module-actions > *,
+  .pool-panel .module-actions > * {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .module-panel .module-actions .button,
+  .module-panel .module-actions a,
+  .module-panel .module-actions select,
+  .module-panel .module-actions input,
+  .property-wiki-panel .module-actions .button,
+  .property-wiki-panel .module-actions a,
+  .property-wiki-panel .module-actions select,
+  .property-wiki-panel .module-actions input,
+  .pool-panel .module-actions .button,
+  .pool-panel .module-actions a,
+  .pool-panel .module-actions select,
+  .pool-panel .module-actions input {
+    width: 100%;
+  }
+
+  .projects-capture-preview-grid,
+  .projects-capture-grid,
+  .projects-dashboard-grid,
+  .projects-work-grid,
+  .projects-photo-grid,
+  .property-wiki-grid,
+  .property-wiki-emergency-mode,
+  .property-wiki-quick-actions,
+  .pool-safety-grid,
+  .map-summary-grid,
+  .projects-map-meta,
+  .projects-map-photo-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .projects-record-card,
+  .property-wiki-detail-header {
+    grid-template-columns: 1fr;
+  }
+
+  .projects-record-thumb {
+    width: 100%;
+    height: 10rem;
+  }
+
+  .projects-map-canvas,
+  .projects-map-canvas img {
+    min-height: 22rem;
+  }
+
+  .property-map-canvas {
+    min-height: 20rem;
+  }
+
+  .map-building-summary,
+  .map-layer-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .map-building-summary button {
+    width: 100%;
+  }
+
+  .module-rail {
+    position: fixed;
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: calc(0.45rem + env(safe-area-inset-bottom));
+    z-index: 40;
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    gap: 0.38rem;
+    padding: 0.38rem;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: rgba(12, 22, 34, 0.94);
+    backdrop-filter: blur(16px);
+    box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.28);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  :root.mobile-tray-open .module-rail {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(calc(100% + 1rem));
+  }
+
+  :root[data-theme="light"] .module-rail {
+    background: rgba(249, 245, 239, 0.96);
+  }
+
+  .module-rail-button {
+    width: 2.85rem;
+    min-height: 2.85rem;
+    border-radius: 14px;
+    flex: 0 0 auto;
+  }
+
+  .module-rail-button.active {
+    box-shadow: inset 0 3px 0 rgba(86, 179, 255, 0.55);
+  }
+
+  .rail-filter-count {
+    min-width: 2.85rem;
   }
 
   .tabset {
@@ -7464,6 +7706,10 @@ textarea {
   }
 
   .board-window-controls {
+    display: none;
+  }
+
+  .table-workflow-bar {
     display: none;
   }
 
@@ -7600,6 +7846,42 @@ textarea {
 }
 
 @media (max-width: 640px) {
+  .mobile-filterbar-actions,
+  .mobile-filterbar .filters.mobile-filters-panel,
+  .activity-filters,
+  .table-filter-row-flags {
+    grid-template-columns: 1fr;
+  }
+
+  .projects-map-footer,
+  .property-wiki-contact-actions,
+  .property-wiki-asset-links,
+  .pool-entry-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .projects-map-footer > *,
+  .property-wiki-contact-actions > *,
+  .property-wiki-asset-links > *,
+  .pool-entry-actions > * {
+    width: 100%;
+  }
+
+  .projects-map-canvas,
+  .projects-map-canvas img,
+  .property-map-canvas {
+    min-height: 18rem;
+  }
+
+  .module-panel .module-actions,
+  .property-wiki-panel .module-actions,
+  .pool-panel .module-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
   .schedule-track-create {
     grid-template-columns: 1fr;
   }
@@ -7639,7 +7921,25 @@ textarea {
   }
 
   .item-drawer {
+    inset: 0;
     width: min(100vw, 33rem);
+    border-left: 0;
+  }
+
+  .item-drawer-header {
+    padding: 0.85rem 0.9rem 0.8rem;
+  }
+
+  .item-drawer-header h2 {
+    margin: 0.14rem 0 0.42rem;
+    font-size: 1.28rem;
+  }
+
+  .drawer-close {
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 12px;
+    font-size: 1.25rem;
   }
 
   .drawer-fields {

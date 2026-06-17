@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
-const adminPassword = process.env.ADMIN_PASSWORD || "MakeReadyAdmin!23456";
+const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
@@ -122,6 +122,18 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("onboarding-panel")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("onboarding-panel")).toHaveCount(0);
+    await page.getByTestId("command-palette-button").click();
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+    await expect(page.getByTestId("command-palette-group-operations")).toContainText("Operations");
+    await expect(page.getByTestId("command-palette-group-visibility")).toContainText("Visibility");
+    await expect(page.getByTestId("command-palette-group-modules")).toContainText("Modules");
+    await page.getByTestId("command-search").fill("property wiki");
+    await page.getByTestId("command-palette-result-wiki").click();
+    await expect(page.getByTestId("property-wiki-panel")).toBeVisible();
+    await page.getByTestId("command-palette-button").click();
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+    await page.getByTestId("command-palette-action-table").click();
+    await expect(page.getByTestId("board-table-view")).toBeVisible();
     await expect(page.locator(".module-rail")).toBeVisible();
     await expect(page.locator(".module-rail-button.placeholder")).toHaveCount(0);
     await expect(page.getByTestId("board-table-view")).toBeVisible();
@@ -140,7 +152,10 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("needs-attention-panel")).toBeVisible();
     await page.getByTestId("notifications-button").click();
     await expect(page.getByTestId("notification-drawer")).toBeVisible();
-    await page.getByTestId("notifications-read-all").click();
+    const readAllButton = page.getByTestId("notifications-read-all");
+    if (await readAllButton.isEnabled()) {
+      await readAllButton.click();
+    }
     await page.getByRole("button", { name: "Close notifications" }).click();
     await page.getByTestId("tab-table").click();
 
@@ -1199,6 +1214,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("automation-panel")).toBeVisible();
 
     await page.getByTestId("automation-template-category").selectOption("Assignment");
+    await page.getByTestId("automation-template-property").selectOption({ index: 1 });
     await expect(page.getByTestId("automation-template-balanced-tech-auto-assignment")).toBeVisible();
     await expect(page.getByTestId("automation-template-auto-assign-cleaner-balanced")).toBeVisible();
     await expect(page.getByTestId("automation-template-enable")).not.toBeChecked();
@@ -1211,6 +1227,9 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("automation-preview-panel")).toBeVisible();
     await expect(page.getByTestId("automation-preview-panel")).toContainText("This rule is disabled. Preview evaluates it as if enabled.");
     await expect(page.getByTestId("automation-preview-panel")).toContainText("No active eligible staff were available for this property.");
+    await expect(page.getByTestId("assignment-rollout-pack")).toBeVisible();
+    await expect(page.getByTestId("assignment-rollout-pack")).toContainText("Keep review-only by default");
+    await expect(page.getByTestId("copy-assignment-validation-notes")).toBeVisible();
 
     const installResponse = page.waitForResponse((response) =>
       response.url().includes("/api/automations/templates/balanced-tech-auto-assignment/install") && response.request().method() === "POST",

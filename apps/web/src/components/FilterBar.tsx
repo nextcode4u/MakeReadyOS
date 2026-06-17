@@ -3,6 +3,7 @@ import { makeReadyExportCsvUrl, makeReadyPdfReportUrl, type CurrentUser, type Pr
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import type { ClockMode } from "../lib/dateTime";
 import { languageOptions, t } from "../lib/i18n";
+import { isTouchMobileViewport } from "../lib/responsive";
 
 export type ThemeMode = "default" | "dark" | "light";
 export type ArchiveMode = ArchiveFilter;
@@ -78,15 +79,29 @@ export function FilterBar({
   onOpenOnboarding,
   onLogout,
 }: Props) {
-  const [isMobileLayout, setIsMobileLayout] = useState(() => typeof window !== "undefined" && window.innerWidth <= 860);
+  const [isMobileLayout, setIsMobileLayout] = useState(() => isTouchMobileViewport());
   const [mobileViewsOpen, setMobileViewsOpen] = useState(false);
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
 
   useEffect(() => {
-    const update = () => setIsMobileLayout(window.innerWidth <= 860);
+    const viewportMedia = window.matchMedia("(max-width: 860px)");
+    const coarsePointerMedia = window.matchMedia("(pointer: coarse) and (hover: none)");
+    const update = () => setIsMobileLayout(isTouchMobileViewport());
     update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
+    if (typeof viewportMedia.addEventListener === "function") {
+      viewportMedia.addEventListener("change", update);
+      coarsePointerMedia.addEventListener("change", update);
+      return () => {
+        viewportMedia.removeEventListener("change", update);
+        coarsePointerMedia.removeEventListener("change", update);
+      };
+    }
+    viewportMedia.addListener(update);
+    coarsePointerMedia.addListener(update);
+    return () => {
+      viewportMedia.removeListener(update);
+      coarsePointerMedia.removeListener(update);
+    };
   }, []);
 
   useEffect(() => {
@@ -95,6 +110,20 @@ export function FilterBar({
       setMobileToolsOpen(false);
     }
   }, [isMobileLayout]);
+
+  useEffect(() => {
+    if (isMobileLayout) {
+      setMobileViewsOpen(false);
+      setMobileToolsOpen(false);
+    }
+  }, [activeView, isMobileLayout]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const trayOpen = isMobileLayout && (mobileViewsOpen || mobileToolsOpen);
+    root.classList.toggle("mobile-tray-open", trayOpen);
+    return () => root.classList.remove("mobile-tray-open");
+  }, [isMobileLayout, mobileToolsOpen, mobileViewsOpen]);
 
   function viewLabel(view: Props["activeView"]) {
     switch (view) {
@@ -119,6 +148,26 @@ export function FilterBar({
   const handleMobileViewChange = (value: Props["activeView"]) => {
     onViewChange(value);
     setMobileViewsOpen(false);
+  };
+
+  const toggleMobileViews = () => {
+    setMobileViewsOpen((current) => {
+      const next = !current;
+      if (next) {
+        setMobileToolsOpen(false);
+      }
+      return next;
+    });
+  };
+
+  const toggleMobileTools = () => {
+    setMobileToolsOpen((current) => {
+      const next = !current;
+      if (next) {
+        setMobileViewsOpen(false);
+      }
+      return next;
+    });
   };
 
   const operationViews = (
@@ -199,14 +248,6 @@ export function FilterBar({
   if (isMobileLayout) {
     return (
       <header className="filterbar mobile-filterbar">
-        <div className="operations-brand mobile-operations-brand">
-          <div className="mobile-operations-brand-copy">
-            <h1>MakeReadyOS</h1>
-            <span className="operations-user">{currentUser.fullName}</span>
-          </div>
-          <span className="role-chip">{currentUser.role}</span>
-        </div>
-
         <div className="mobile-filterbar-main" aria-label="Board essentials">
           <select data-testid="property-filter" value={selectedPropertyId} onChange={(event) => onPropertyChange(event.target.value)} aria-label="Filter by property">
             <option value="">{t(language, "nav.allProperties")}</option>
@@ -224,10 +265,10 @@ export function FilterBar({
             aria-label="Search board items"
           />
           <div className="mobile-filterbar-actions">
-            <button type="button" className={mobileViewsOpen ? "button mobile-filter-toggle active" : "button button-secondary mobile-filter-toggle"} onClick={() => setMobileViewsOpen((current) => !current)}>
+            <button type="button" className={mobileViewsOpen ? "button mobile-filter-toggle active" : "button button-secondary mobile-filter-toggle"} onClick={toggleMobileViews}>
               View: {viewLabel(activeView)}
             </button>
-            <button type="button" className={mobileToolsOpen ? "button mobile-filter-toggle active" : "button button-secondary mobile-filter-toggle"} onClick={() => setMobileToolsOpen((current) => !current)}>
+            <button type="button" className={mobileToolsOpen ? "button mobile-filter-toggle active" : "button button-secondary mobile-filter-toggle"} onClick={toggleMobileTools}>
               Tools
             </button>
           </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AutomationAction, AutomationActionSummary, AutomationCondition, AutomationPreviewResponse, AutomationRule, AutomationRun, AutomationTemplate, AutomationTriggerType, CustomField, OperationalLibraryPack, Property, PropertyTemplate, PropertyTemplateInclude, UserRole } from "../lib/api";
 import { formatDateDisplay, formatDateTime } from "../lib/dateTime";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -240,6 +240,93 @@ function templateHasLeastLoadedAssignment(template: AutomationTemplate) {
   return Boolean(template.draft?.actions.some((action) => action.type === "assignLeastLoadedStaff"));
 }
 
+function draftHasLeastLoadedAssignment(draft: Draft) {
+  return draft.actions.some((action) => action.type === "assignLeastLoadedStaff");
+}
+
+function ruleHasLeastLoadedAssignment(rule: AutomationRule | null) {
+  return Boolean(rule?.actions.some((action) => action.type === "assignLeastLoadedStaff"));
+}
+
+function runHasAssignmentDiagnostics(run: AutomationRun) {
+  if (run.context?.actionSummaries?.some((action) => action.diagnostics?.assignment)) {
+    return true;
+  }
+  return Boolean(run.context?.matchedItems?.some((item) => item.actionSummaries.some((action) => action.diagnostics?.assignment)));
+}
+
+function assignmentValidationDecision(preview: AutomationPreviewResponse["assignmentSummary"], runs: AutomationRun[]) {
+  const relevantRuns = runs.filter(runHasAssignmentDiagnostics);
+  const successfulRuns = relevantRuns.filter((run) => run.success);
+  const warningRuns = relevantRuns.filter((run) => (run.warnings?.length ?? 0) > 0 || (run.errors?.length ?? 0) > 0);
+  const matchedRuns = relevantRuns.filter((run) => (run.matchedCount ?? 0) > 0);
+  const actionRuns = relevantRuns.filter((run) => (run.actionCount ?? 0) > 0);
+
+  const previewSafe = Boolean(
+    preview
+    && preview.assignedItemCount > 0
+    && preview.noEligibleStaffItemCount === 0
+    && preview.otherBlockedItemCount === 0,
+  );
+  const previewCaution = Boolean(
+    preview
+    && (preview.dailyCapBlockedItemCount > 0 || preview.alreadyAssignedItemCount > 0),
+  );
+  const liveReady = previewSafe && successfulRuns.length >= 2 && warningRuns.length === 0 && matchedRuns.length >= 1 && actionRuns.length >= 1;
+
+  let tone: "safe" | "caution" | "unsafe" = "unsafe";
+  let title = "Keep review-only by default";
+
+  if (liveReady) {
+    tone = "safe";
+    title = "Ready for controlled property rollout";
+  } else if (previewSafe || previewCaution || successfulRuns.length > 0) {
+    tone = "caution";
+    title = "Continue single-property validation";
+  }
+
+  return {
+    tone,
+    title,
+    relevantRuns,
+    successfulRuns,
+    warningRuns,
+    matchedRuns,
+    actionRuns,
+    liveReady,
+  };
+}
+
+function buildAssignmentValidationNotes(preview: NonNullable<AutomationPreviewResponse["assignmentSummary"]> | null, runs: AutomationRun[]) {
+  const decision = assignmentValidationDecision(preview, runs);
+  const notes: string[] = [
+    `Starter default policy: keep least-loaded auto-assignment starters review-only by default until a property passes validation.`,
+  ];
+
+  if (!preview) {
+    notes.push("No assignment preview is loaded yet.");
+  } else {
+    notes.push(`Preview summary: ${preview.assignedItemCount} would assign, ${preview.alreadyAssignedItemCount} already assigned, ${preview.noEligibleStaffItemCount} with no eligible staff, ${preview.dailyCapBlockedItemCount} blocked by daily cap, ${preview.otherBlockedItemCount} blocked for other reasons.`);
+    if (preview.selectedUsers.length) {
+      notes.push(`Preview selected users: ${preview.selectedUsers.map((entry) => `${entry.fullName} (${entry.count})`).join(", ")}.`);
+    }
+  }
+
+  notes.push(`Recent assignment-aware runs: ${decision.relevantRuns.length} total, ${decision.successfulRuns.length} successful, ${decision.warningRuns.length} with warnings/errors, ${decision.matchedRuns.length} with matches, ${decision.actionRuns.length} with actions.`);
+
+  if (decision.liveReady) {
+    notes.push("Recommendation: keep the starter disabled globally, but this property has enough clean signals for an opt-in live rollout with close monitoring.");
+  } else if (decision.tone === "caution") {
+    notes.push("Recommendation: continue property-level validation only. Do not change the default starter posture yet.");
+  } else {
+    notes.push("Recommendation: remain review-only. Fix staffing coverage, eligibility, or rule constraints before enabling live assignment.");
+  }
+
+  notes.push("Required field-validation steps: preview on one property, install the starter disabled for that property only, enable during an observed work window, review at least two clean recent runs, and confirm assignments match supervisor expectations before broader reuse.");
+
+  return notes.join("\n");
+}
+
 function formatPreviewActionDiagnostics(action: AutomationActionSummary) {
   const assignment = action.diagnostics?.assignment;
   if (!assignment) {
@@ -359,6 +446,43 @@ function formatAutomationRunContext(run: AutomationRun) {
   return null;
 }
 
+function renderAssignmentRolloutPack(preview: NonNullable<AutomationPreviewResponse["assignmentSummary"]> | null, runs: AutomationRun[], validationNotes: string, onCopy: () => void) {
+  const decision = assignmentValidationDecision(preview, runs);
+  const checklist = [
+    "Preview the rule for one property only and confirm there are no missing eligible staff blockers.",
+    "Install the starter disabled for that same property only.",
+    "Enable it during a supervised work window and confirm supervisors expect the target assignment distribution.",
+    "Review at least two recent assignment-aware runs and confirm they are successful with no unexpected warnings/errors.",
+    "Keep the global starter default review-only unless real-property validation repeatedly passes.",
+  ];
+
+  return (
+    <section className={`automation-preview-validation ${decision.tone}`} data-testid="assignment-rollout-pack">
+      <div className="admin-section-head">
+        <div>
+          <p className="eyebrow">Assignment Rollout Pack</p>
+          <h4>{decision.title}</h4>
+        </div>
+        <button type="button" className="button button-secondary" data-testid="copy-assignment-validation-notes" onClick={onCopy}>
+          Copy Validation Notes
+        </button>
+      </div>
+      <ul>
+        {checklist.map((entry) => (
+          <li key={entry}>{entry}</li>
+        ))}
+      </ul>
+      <div className="automation-preview-diagnostics">
+        <small>
+          Recent assignment-aware runs: {decision.relevantRuns.length}
+          {decision.relevantRuns.length ? ` · ${decision.successfulRuns.length} successful · ${decision.warningRuns.length} with warnings/errors · ${decision.matchedRuns.length} with matches · ${decision.actionRuns.length} with actions` : " · none yet"}
+        </small>
+        <textarea readOnly value={validationNotes} rows={8} aria-label="Assignment validation notes" />
+      </div>
+    </section>
+  );
+}
+
 const defaultTemplateInclude: PropertyTemplateInclude = {
   boardSections: true,
   optionSets: true,
@@ -385,12 +509,18 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
   const [templateDraft, setTemplateDraft] = useState({ propertyId: properties[0]?.id ?? "", name: "", description: "", category: "Make Ready", notes: "" });
   const [templateInclude, setTemplateInclude] = useState<PropertyTemplateInclude>(defaultTemplateInclude);
   const [applyTarget, setApplyTarget] = useState({ templateId: "", propertyId: properties[0]?.id ?? "", newName: "", newCode: "", createNew: false, enableAutomations: false });
+  const [validationCopyMessage, setValidationCopyMessage] = useState("");
   const selected = rules.find((rule) => rule.id === selectedId) ?? rules[0] ?? null;
   const canEditSelected = role === "ADMIN" || Boolean(selected?.propertyId);
   const incompleteCondition = draft.conditions.some((condition) => !noValueOperators.includes(condition.operator) && !condition.value.trim());
   const categories = ["All", ...Array.from(new Set(templates.map((template) => template.category)))];
   const visibleTemplates = templateCategory === "All" ? templates : templates.filter((template) => template.category === templateCategory);
   const templateScopeId = templatePropertyId || null;
+  const assignmentValidationActive = Boolean(preview?.assignmentSummary || ruleHasLeastLoadedAssignment(selected) || draftHasLeastLoadedAssignment(draft) || runs.some(runHasAssignmentDiagnostics));
+  const assignmentValidationNotes = useMemo(
+    () => buildAssignmentValidationNotes(preview?.assignmentSummary ?? null, runs),
+    [preview?.assignmentSummary, runs],
+  );
 
   useEffect(() => {
     if (creating) return;
@@ -403,6 +533,17 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
     setCreating(false);
     setSelectedId(rule.id);
     onSelectRule(rule.id);
+  };
+
+  const copyAssignmentValidationNotes = async () => {
+    try {
+      await navigator.clipboard.writeText(assignmentValidationNotes);
+      setValidationCopyMessage("Validation notes copied.");
+      window.setTimeout(() => setValidationCopyMessage(""), 2500);
+    } catch {
+      setValidationCopyMessage("Copy failed. Select the notes manually.");
+      window.setTimeout(() => setValidationCopyMessage(""), 2500);
+    }
   };
 
   return (
@@ -1104,6 +1245,13 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
             </div>
           )}
         </section>
+      ) : null}
+
+      {assignmentValidationActive ? (
+        <div className="span-full">
+          {renderAssignmentRolloutPack(preview?.assignmentSummary ?? null, runs, assignmentValidationNotes, () => void copyAssignmentValidationNotes())}
+          {validationCopyMessage ? <p className="subtitle">{validationCopyMessage}</p> : null}
+        </div>
       ) : null}
 
       <section id="automation-history-section" className="automation-history span-full">

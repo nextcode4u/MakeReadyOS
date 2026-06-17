@@ -477,13 +477,13 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
 
       {tab === "templates" ? (
         <div className="pool-grid">
-          <form className="pool-card pool-form" onSubmit={(event: FormEvent<HTMLFormElement>) => {
+          <form data-testid="pm-template-form" className="pool-card pool-form" onSubmit={(event: FormEvent<HTMLFormElement>) => {
             event.preventDefault();
             saveTemplateMutation.mutate();
           }}>
             <h2>{editingTemplateId ? "Edit Template" : "Create Template"}</h2>
             <div className="form-grid">
-              <label>Template name<input required value={templateDraft.name} onChange={(event) => setTemplateDraft((current) => ({ ...current, name: event.target.value }))} /></label>
+              <label>Template name<input data-testid="pm-template-name" required value={templateDraft.name} onChange={(event) => setTemplateDraft((current) => ({ ...current, name: event.target.value }))} /></label>
               <label>Category
                 <select value={templateDraft.category} onChange={(event) => setTemplateDraft((current) => ({ ...current, category: event.target.value as PreventiveMaintenanceCategory }))}>
                   {categories.map((category) => <option key={category} value={category}>{category}</option>)}
@@ -521,7 +521,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
             <label className="checkbox-row"><input type="checkbox" checked={templateDraft.passFailRequired} onChange={(event) => setTemplateDraft((current) => ({ ...current, passFailRequired: event.target.checked }))} /> Pass / fail required</label>
             <label className="checkbox-row"><input type="checkbox" checked={templateDraft.isActive} onChange={(event) => setTemplateDraft((current) => ({ ...current, isActive: event.target.checked }))} /> Active</label>
             <div className="pool-entry-actions">
-              <button type="submit" className="button button-primary" disabled={!canEdit}>{editingTemplateId ? "Save Template" : "Create Template"}</button>
+              <button data-testid="pm-template-submit" type="submit" className="button button-primary" disabled={!canEdit}>{editingTemplateId ? "Save Template" : "Create Template"}</button>
               {editingTemplateId ? <button type="button" className="button button-secondary" onClick={() => { setEditingTemplateId(null); setTemplateDraft(templateDraftState()); }}>Cancel</button> : null}
             </div>
             {!canEdit ? <p className="muted">Your role can view templates but cannot create or edit them.</p> : null}

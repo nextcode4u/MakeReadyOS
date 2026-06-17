@@ -17,7 +17,21 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
+      testMatch: ["**/auth-and-shell.spec.ts"],
       use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "visual-chrome",
+      testMatch: ["**/visual-*.spec.ts"],
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "mobile-chrome",
+      testMatch: ["**/mobile-*.spec.ts"],
+      use: {
+        ...devices["Pixel 5"],
+        viewport: { width: 412, height: 915 },
+      },
     },
   ],
 });

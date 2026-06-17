@@ -224,7 +224,7 @@ function DashboardMapsWidget({ data, propertyId }: { data?: DashboardResponse["p
           <strong>{data.defaultMapName ?? "No default map"}</strong>
           <span>{data.activeMaps} active map{data.activeMaps === 1 ? "" : "s"} / {data.utilityPins} utility-style pin{data.utilityPins === 1 ? "" : "s"}</span>
         </button>
-        {data.recentPins.map((pin) => (
+        {(data.recentPins ?? []).map((pin) => (
           <button key={pin.id} type="button" className="dashboard-row-action" onClick={() => openMapsView(propertyId)}>
             <strong>{pin.title}{pin.isEmergency ? " / Emergency" : ""}</strong>
             <span>{[pin.pinType, pin.mapName, pin.building, pin.unitLabel, pin.area].filter(Boolean).join(" / ")}</span>
@@ -238,6 +238,8 @@ function DashboardMapsWidget({ data, propertyId }: { data?: DashboardResponse["p
 export function DashboardPanel({ data, analytics, loading, analyticsLoading, error, onOpenItem, onDrillDown, onOpenPond, layout, onLayoutChange, propertyId }: Props) {
   if (loading) return <StatusState title="Loading dashboard" description="Calculating operational risk and workload totals." />;
   if (error || !data) return <StatusState title="Dashboard unavailable" description="Refresh to recalculate dashboard summaries." tone="error" />;
+  const needsAttention = data.needsAttention ?? [];
+  const recentStatusChanges = data.recentStatusChanges ?? [];
   return (
     <section className={`dashboard-shell dashboard-layout-${layout}`} data-testid="dashboard-panel">
       <header className="panel-heading">
@@ -282,9 +284,9 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
       </section>
       <section className="attention-panel" data-testid="needs-attention-panel">
         <h3>Needs Attention</h3>
-        {data.needsAttention.length === 0 ? <p className="empty-copy">No immediate attention flags in the current property scope.</p> : (
+        {needsAttention.length === 0 ? <p className="empty-copy">No immediate attention flags in the current property scope.</p> : (
           <div className="attention-list">
-            {data.needsAttention.map((item) => (
+            {needsAttention.map((item) => (
               <button type="button" key={item.itemId} onClick={() => onOpenItem(item.itemId)}>
                 <strong>{displayUnitNumber(item.property.code, item.unitNumber)}</strong>
                 {item.riskLevel ? <em className={`risk-level-badge ${item.riskLevel.toLowerCase()}`}>{item.riskLevel} / {item.riskScore}</em> : null}
@@ -297,9 +299,9 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
       <section className="attention-panel" data-testid="recent-status-changes-panel">
         <h3>Recent Status Changes</h3>
         <p className="muted">Last 24 hours of vacancy, ready, move-in/archive, and availability-driven board changes.</p>
-        {data.recentStatusChanges.length === 0 ? <p className="empty-copy">No status changes recorded in the last 24 hours for this scope.</p> : (
+        {recentStatusChanges.length === 0 ? <p className="empty-copy">No status changes recorded in the last 24 hours for this scope.</p> : (
           <div className="attention-list">
-            {data.recentStatusChanges.map((entry) => (
+            {recentStatusChanges.map((entry) => (
               <button type="button" key={entry.key} onClick={() => onOpenItem(entry.itemId)}>
                 <strong>{displayUnitNumber(entry.property.code, entry.unitNumber)}</strong>
                 <em className={`risk-level-badge ${entry.source === "availability" ? "medium" : "low"}`}>{entry.title}</em>

@@ -614,12 +614,12 @@ export function PropertyMapsPanel({
 
       <div className="toolbar compact-toolbar map-toolbar">
         <label>Property
-          <select value={propertyId} onChange={(event) => updateProperty(event.target.value)}>
+          <select data-testid="property-maps-property-select" value={propertyId} onChange={(event) => updateProperty(event.target.value)}>
             {properties.map((entry) => <option key={entry.id} value={entry.id}>{entry.code} - {entry.name}</option>)}
           </select>
         </label>
         <label>Map
-          <select value={selectedMap?.id ?? ""} onChange={(event) => setSelectedMapId(event.target.value)}>
+          <select data-testid="property-maps-map-select" value={selectedMap?.id ?? ""} onChange={(event) => setSelectedMapId(event.target.value)}>
             <option value="">No map selected</option>
             {propertyMaps.map((map) => <option key={map.id} value={map.id}>{map.name}{map.isDefault ? " / default" : ""}</option>)}
           </select>
@@ -651,8 +651,8 @@ export function PropertyMapsPanel({
               await onCreateMap({ propertyId, name: draftName.trim() });
               setDraftName("");
             }}>
-              <input value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder="New map name" />
-              <button className="button button-primary" disabled={!draftName.trim()}>Create Map</button>
+              <input data-testid="property-maps-create-name" value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder="New map name" />
+              <button data-testid="property-maps-create-submit" className="button button-primary" disabled={!draftName.trim()}>Create Map</button>
             </form>
             {selectedMap ? (
               <div className="map-file-actions">
@@ -702,7 +702,7 @@ export function PropertyMapsPanel({
           </div>
           <div className="property-map-scroll">
             <div
-              className={`property-map-canvas ${imagePreview ? "" : "no-preview"}`}
+              data-testid="property-maps-canvas" className={`property-map-canvas ${imagePreview ? "" : "no-preview"}`}
               onClick={handleMapClick}
               style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}
             >
@@ -816,7 +816,7 @@ export function PropertyMapsPanel({
 
           <div className="map-mode-stack">
             <label>Placement mode
-              <select value={placementMode} onChange={(event) => setPlacementMode(event.target.value as PlacementMode)}>
+              <select data-testid="property-maps-placement-mode" value={placementMode} onChange={(event) => setPlacementMode(event.target.value as PlacementMode)}>
                 <option value="none">Browse only</option>
                 <option value="unit">Place unit</option>
                 <option value="area">Place building / area</option>

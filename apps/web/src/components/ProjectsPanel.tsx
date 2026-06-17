@@ -1027,7 +1027,7 @@ export function ProjectsPanel({ properties, users, userRole, selectedPropertyId,
           <p>Track recommendations, approved projects, bids, photos, location notes, and assigned work.</p>
         </div>
         <div className="module-actions">
-          {canEdit ? <button className="button button-primary" type="button" onClick={() => { setQuickCaptureOpen(true); setPropertyWalkSummary(null); }}>Quick Capture</button> : null}
+          {canEdit ? <button data-testid="projects-quick-capture-open" className="button button-primary" type="button" onClick={() => { setQuickCaptureOpen(true); setPropertyWalkSummary(null); }}>Quick Capture</button> : null}
           {canEdit && !propertyWalkActive ? <button className="button button-secondary" type="button" onClick={() => { setPropertyWalkActive(true); setPropertyWalkStats({ count: 0, highPriority: 0, needsBid: 0 }); setPropertyWalkSummary(null); setQuickCaptureOpen(true); }}>Start Property Walk</button> : null}
           {canEdit && propertyWalkActive ? <button className="button button-secondary" type="button" onClick={() => { setPropertyWalkActive(false); setPropertyWalkSummary(propertyWalkStats); }}>End Walk</button> : null}
           <label>Property
@@ -1164,7 +1164,7 @@ export function ProjectsPanel({ properties, users, userRole, selectedPropertyId,
               </div>
             </div>
           ) : (
-            <form className="pool-form" onSubmit={(event: FormEvent) => {
+            <form data-testid="projects-quick-capture-form" className="pool-form" onSubmit={(event: FormEvent) => {
               event.preventDefault();
               void saveQuickCapture();
             }}>
@@ -1203,7 +1203,7 @@ export function ProjectsPanel({ properties, users, userRole, selectedPropertyId,
                 </div>
               ) : null}
               <div className="form-grid projects-capture-grid">
-                <label>Short title<input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Front gate hinge" /></label>
+                <label>Short title<input data-testid="projects-quick-capture-title" value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Front gate hinge" /></label>
                 <label>Recommendation / Project
                   <select value={draft.recordType} onChange={(event) => {
                     const nextType = event.target.value as ProjectRecordType;
@@ -1225,9 +1225,9 @@ export function ProjectsPanel({ properties, users, userRole, selectedPropertyId,
                   </select>
                 </label>
               </div>
-              <label>Short description<textarea value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Loose concrete at Building 4 sidewalk. Trip hazard." /></label>
+              <label>Short description<textarea data-testid="projects-quick-capture-description" value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Loose concrete at Building 4 sidewalk. Trip hazard." /></label>
               <div className="pool-entry-actions">
-                <button className="button button-primary" type="submit" disabled={!hasQuickCaptureContent(draft, captureFiles) || createMutation.isPending || uploadMutation.isPending}>Save</button>
+                <button data-testid="projects-quick-capture-save" className="button button-primary" type="submit" disabled={!hasQuickCaptureContent(draft, captureFiles) || createMutation.isPending || uploadMutation.isPending}>Save</button>
               </div>
               <details open={showMoreDetails} onToggle={(event) => setShowMoreDetails((event.currentTarget as HTMLDetailsElement).open)}>
                 <summary>More Details</summary>
