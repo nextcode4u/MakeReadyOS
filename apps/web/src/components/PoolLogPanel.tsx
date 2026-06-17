@@ -12,12 +12,14 @@ import {
   uploadPoolLogAttachment,
   updatePoolChemical,
   updatePoolFacility,
+  isApiError,
   type PoolChemical,
   type PoolFacility,
   type PoolLogEntry,
   type Property,
   type UserRole,
 } from "../lib/api";
+import { enqueuePoolCreate, enqueuePoolUpload } from "../lib/offlineSync";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { StatusState } from "./StatusState";
 import { openProjectCreate } from "../lib/projectNavigation";
@@ -227,7 +229,17 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId }: Props
     onSuccess: invalidate,
   });
   const attachmentUploadMutation = useMutation({
-    mutationFn: ({ entryId, file }: { entryId: string; file: File }) => uploadPoolLogAttachment(entryId, file),
+    mutationFn: async ({ entryId, file }: { entryId: string; file: File }) => {
+      try {
+        return await uploadPoolLogAttachment(entryId, file);
+      } catch (error) {
+        if (isApiError(error) && error.status === 0) {
+          await enqueuePoolUpload(entryId, [file]);
+          return { attachment: null };
+        }
+        throw error;
+      }
+    },
     onSuccess: invalidate,
   });
 
@@ -273,7 +285,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId }: Props
         ? normalizeSolidChemicalAmount(formNumber(formData, "chemicalAmountPounds"), formNumber(formData, "chemicalAmountOunces"))
         : formNumber(formData, "chemicalAmount")
       : null;
-    await entryCreateMutation.mutateAsync({
+    const entryInput = {
       propertyId,
       facilityId,
       logDate: String(formData.get("logDate") ?? today()),
@@ -305,9 +317,17 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId }: Props
         chemicalId: chemical.id,
         chemicalName: chemical.name,
         amount,
-        unit: isSolidChemicalUnit(chemical.unit) ? "OUNCES" : chemical.unit,
+        unit: isSolidChemicalUnit(chemical.unit) ? "OUNCES" as PoolChemical["unit"] : chemical.unit,
       }] : [],
-    });
+    };
+    try {
+      await entryCreateMutation.mutateAsync(entryInput);
+    } catch (error) {
+      if (!(isApiError(error) && error.status === 0)) {
+        throw error;
+      }
+      await enqueuePoolCreate(entryInput);
+    }
     event.currentTarget.reset();
     setSelectedChemicalId("");
   }

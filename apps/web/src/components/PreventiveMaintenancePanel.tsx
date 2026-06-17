@@ -15,6 +15,7 @@ import {
   skipPreventiveMaintenanceTask,
   updatePreventiveMaintenanceTemplate,
   uploadPreventiveMaintenanceAttachment,
+  isApiError,
   type PreventiveMaintenanceCategory,
   type PreventiveMaintenanceFrequency,
   type PreventiveMaintenancePriority,
@@ -24,6 +25,7 @@ import {
   type Property,
   type UserRole,
 } from "../lib/api";
+import { enqueuePmComplete, enqueuePmSkip, enqueuePmUpload } from "../lib/offlineSync";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { StatusState } from "./StatusState";
 import { openProjectCreate } from "../lib/projectNavigation";
@@ -291,17 +293,47 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   });
 
   const completeMutation = useMutation({
-    mutationFn: ({ id, outcome, notes }: { id: string; outcome: "PASS" | "FAIL" | "COMPLETE"; notes: string }) => completePreventiveMaintenanceTask(id, { outcome, notes: notes || null }),
+    mutationFn: async ({ id, outcome, notes }: { id: string; outcome: "PASS" | "FAIL" | "COMPLETE"; notes: string }) => {
+      try {
+        return await completePreventiveMaintenanceTask(id, { outcome, notes: notes || null });
+      } catch (error) {
+        if (isApiError(error) && error.status === 0) {
+          await enqueuePmComplete(id, { outcome, notes: notes || null });
+          return { task: null };
+        }
+        throw error;
+      }
+    },
     onSuccess: () => void invalidate(),
   });
 
   const skipMutation = useMutation({
-    mutationFn: ({ id, notes }: { id: string; notes: string }) => skipPreventiveMaintenanceTask(id, { notes: notes || null }),
+    mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
+      try {
+        return await skipPreventiveMaintenanceTask(id, { notes: notes || null });
+      } catch (error) {
+        if (isApiError(error) && error.status === 0) {
+          await enqueuePmSkip(id, { notes: notes || null });
+          return { task: null };
+        }
+        throw error;
+      }
+    },
     onSuccess: () => void invalidate(),
   });
 
   const uploadMutation = useMutation({
-    mutationFn: ({ taskId, file }: { taskId: string; file: File }) => uploadPreventiveMaintenanceAttachment(taskId, file),
+    mutationFn: async ({ taskId, file }: { taskId: string; file: File }) => {
+      try {
+        return await uploadPreventiveMaintenanceAttachment(taskId, file);
+      } catch (error) {
+        if (isApiError(error) && error.status === 0) {
+          await enqueuePmUpload(taskId, [file]);
+          return { attachment: null };
+        }
+        throw error;
+      }
+    },
     onSuccess: () => void invalidate(),
   });
 

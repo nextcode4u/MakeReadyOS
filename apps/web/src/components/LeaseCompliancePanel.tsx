@@ -23,6 +23,7 @@ import {
   updateLeaseComplianceIssueType,
   updateLeaseComplianceSettings,
   uploadLeaseComplianceIssuePhoto,
+  isApiError,
   type LeaseComplianceIssue,
   type LeaseComplianceNoticeAction,
   type LeaseComplianceNoticeStage,
@@ -34,6 +35,7 @@ import {
   type Unit,
   type UserRole,
 } from "../lib/api";
+import { enqueueLeaseCreate, enqueueLeaseUpload } from "../lib/offlineSync";
 import type { OpenLeaseQuickAddRequest } from "../lib/leaseNavigation";
 import { StatusState } from "./StatusState";
 import { UnitSearchSelect } from "./UnitSearchSelect";
@@ -369,7 +371,20 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
   const resolveMutation = useMutation({ mutationFn: ({ id, resolutionNotes }: { id: string; resolutionNotes: string }) => resolveLeaseComplianceIssue(id, resolutionNotes), onSuccess: invalidate });
   const archiveMutation = useMutation({ mutationFn: ({ id, notes }: { id: string; notes?: string }) => archiveLeaseComplianceIssue(id, notes), onSuccess: invalidate });
   const dismissRecurringMutation = useMutation({ mutationFn: ({ id, notes }: { id: string; notes: string }) => dismissLeaseComplianceRecurringFlag(id, notes), onSuccess: invalidate });
-  const uploadMutation = useMutation({ mutationFn: ({ issueId, file }: { issueId: string; file: File }) => uploadLeaseComplianceIssuePhoto(issueId, file), onSuccess: invalidate });
+  const uploadMutation = useMutation({
+    mutationFn: async ({ issueId, file }: { issueId: string; file: File }) => {
+      try {
+        return await uploadLeaseComplianceIssuePhoto(issueId, file);
+      } catch (error) {
+        if (isApiError(error) && error.status === 0) {
+          await enqueueLeaseUpload(issueId, [{ file }]);
+          return { photo: null };
+        }
+        throw error;
+      }
+    },
+    onSuccess: invalidate,
+  });
   const deletePhotoMutation = useMutation({ mutationFn: deleteLeaseComplianceIssuePhoto, onSuccess: invalidate });
   const createIssueTypeMutation = useMutation({ mutationFn: createLeaseComplianceIssueType, onSuccess: invalidate });
   const updateIssueTypeMutation = useMutation({ mutationFn: ({ id, input }: { id: string; input: Partial<Parameters<typeof createLeaseComplianceIssueType>[0]> }) => updateLeaseComplianceIssueType(id, input), onSuccess: invalidate });
@@ -412,7 +427,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
   }, [tab]);
 
   async function createQuickIssue(mode: "create" | "keep-walking" = "create") {
-    const created = await createIssueMutation.mutateAsync({
+    const quickIssueInput = {
       propertyId,
       unitId: quickAddUnitId || null,
       issueTypeId: quickAddDraft.issueTypeId || null,
@@ -425,7 +440,33 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
       description: quickAddDraft.description.trim() || null,
       locationNotes: quickAddDraft.locationNotes.trim() || null,
       assignedUserId: quickAddDraft.assignedUserId || null,
-    });
+    };
+    let created;
+    try {
+      created = await createIssueMutation.mutateAsync(quickIssueInput);
+    } catch (error) {
+      if (!(isApiError(error) && error.status === 0)) {
+        throw error;
+      }
+      await enqueueLeaseCreate(quickIssueInput, quickAddPhotos.map((file) => ({ file })));
+      setQuickAddUnitId("");
+      setQuickAddPhotos([]);
+      setQuickAddDraft({
+        building: "",
+        area: "",
+        issueTypeId: "",
+        issueTypeName: "",
+        additionalIssueType: "",
+        priority: "Normal",
+        source: tab === "grounds" ? "Grounds Walk" : "Grounds Walk",
+        description: "",
+        locationNotes: "",
+        assignedUserId: "",
+      });
+      if (captureInputRef.current) captureInputRef.current.value = "";
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+      return;
+    }
     if (openQuickAddRequest?.mapPin && openQuickAddRequest.propertyId === propertyId) {
       void createPropertyMapPin({
         propertyId,

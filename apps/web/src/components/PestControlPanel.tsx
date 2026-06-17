@@ -19,6 +19,7 @@ import {
   updatePestIssue,
   updatePestVendor,
   uploadPestIssueAttachment,
+  isApiError,
   type PestIssue,
   type PestPriority,
   type PestSource,
@@ -28,6 +29,7 @@ import {
   type Unit,
   type UserRole,
 } from "../lib/api";
+import { enqueuePestCreate, enqueuePestUpload } from "../lib/offlineSync";
 import type { OpenPestQuickAddRequest, OpenPestWorkspaceRequest } from "../lib/pestNavigation";
 import { StatusState } from "./StatusState";
 import { UnitSearchSelect } from "./UnitSearchSelect";
@@ -290,7 +292,20 @@ export function PestControlPanel({ properties, units, users, userRole, selectedP
   const dismissRecurringMutation = useMutation({ mutationFn: ({ id, notes }: { id: string; notes: string }) => dismissPestRecurringFlag(id, notes), onSuccess: invalidate });
   const vendorCreateMutation = useMutation({ mutationFn: createPestVendor, onSuccess: invalidate });
   const vendorUpdateMutation = useMutation({ mutationFn: ({ id, input }: { id: string; input: Partial<Parameters<typeof createPestVendor>[0]> }) => updatePestVendor(id, input), onSuccess: invalidate });
-  const uploadMutation = useMutation({ mutationFn: ({ issueId, file }: { issueId: string; file: File }) => uploadPestIssueAttachment(issueId, file), onSuccess: invalidate });
+  const uploadMutation = useMutation({
+    mutationFn: async ({ issueId, file }: { issueId: string; file: File }) => {
+      try {
+        return await uploadPestIssueAttachment(issueId, file);
+      } catch (error) {
+        if (isApiError(error) && error.status === 0) {
+          await enqueuePestUpload(issueId, [{ file }]);
+          return { attachment: null };
+        }
+        throw error;
+      }
+    },
+    onSuccess: invalidate,
+  });
   const deleteAttachmentMutation = useMutation({ mutationFn: deletePestIssueAttachment, onSuccess: invalidate });
 
   const assignableUsers = useMemo(() => users.filter((user) => user.role !== "CLEANER"), [users]);
@@ -334,7 +349,7 @@ export function PestControlPanel({ properties, units, users, userRole, selectedP
   async function submitQuickAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const linkedMakeReadyId = (openQuickAddRequest?.makeReadyItemId ?? linkedMakeReadyItemId) || null;
-    await createIssueMutation.mutateAsync({
+    const quickIssueInput = {
       propertyId,
       unitId: quickAddUnitId || null,
       makeReadyItemId: linkedMakeReadyId,
@@ -347,7 +362,15 @@ export function PestControlPanel({ properties, units, users, userRole, selectedP
       source: quickAddDraft.source,
       priority: quickAddDraft.priority,
       requestDate: today(),
-    });
+    };
+    try {
+      await createIssueMutation.mutateAsync(quickIssueInput);
+    } catch (error) {
+      if (!(isApiError(error) && error.status === 0)) {
+        throw error;
+      }
+      await enqueuePestCreate(quickIssueInput);
+    }
     event.currentTarget.reset();
     resetQuickAddForm();
   }

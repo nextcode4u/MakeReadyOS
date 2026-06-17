@@ -58,9 +58,9 @@ API token scopes are enforced, token requests now use a shared PostgreSQL-backed
 
 Remaining work: keep internet-facing deployments behind a trusted reverse proxy or edge limiter and add stronger operator-facing diagnostics only if real public traffic justifies them.
 
-## Offline Sync Missing
+## Offline Sync Gaps
 
-The app is self-host friendly but not offline-capable. Mobile field use in weak-signal areas needs a dedicated sync design.
+The app is now self-host friendly and weak-signal tolerant for supported mobile workflows through cached GET data plus an IndexedDB-backed mutation/upload queue. Remaining debt is deeper conflict handling, per-record pending-sync affordances, and queue coverage for comments/checklists/secondary edit paths.
 
 ## Importer Boundaries
 

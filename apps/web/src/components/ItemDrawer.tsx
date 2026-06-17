@@ -1,7 +1,8 @@
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BoardColumnDefinition, BoardSection, ChargePriceSheetItem, CurrentUser, CustomField, FloorPlan, ItemCollaboration, LabelDefinition, MakeReadyItem, StaffOption, UnitHistoryResponse, Vendor, VendorAssignment, WorkAssignmentBlock } from "../lib/api";
-import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, chargeReportCsvUrl, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getPestIssues, getUnitHistory, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
+import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, chargeReportCsvUrl, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getPestIssues, getUnitHistory, isApiError, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
+import { enqueueMakeReadyAttachmentUpload } from "../lib/offlineSync";
 import { boardGroupLabel, configuredBoardColumns } from "../lib/board";
 import { formatDateTime } from "../lib/dateTime";
 import { openPestQuickAdd, openPestWorkspace } from "../lib/pestNavigation";
@@ -337,7 +338,14 @@ export function ItemDrawer({
     if (!selected.length) return;
     void operation("attachments-upload", async () => {
       for (const file of selected) {
-        await uploadItemAttachment(item.id, file);
+        try {
+          await uploadItemAttachment(item.id, file);
+        } catch (error) {
+          if (!(isApiError(error) && error.status === 0)) {
+            throw error;
+          }
+          await enqueueMakeReadyAttachmentUpload(item.id, [file]);
+        }
       }
     });
   };

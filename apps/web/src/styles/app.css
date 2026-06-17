@@ -10996,6 +10996,36 @@ textarea {
   color: var(--text);
 }
 
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.metric-card {
+  display: grid;
+  gap: 0.22rem;
+  align-content: start;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--panel);
+}
+
+.metric-card strong {
+  display: block;
+  font-size: 1.5rem;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.metric-card span {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
 .refrigerant-quick-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -11106,7 +11136,8 @@ textarea {
 :root[data-theme="light"] .refrigerant-card,
 :root[data-theme="light"] .toolbar-card,
 :root[data-theme="light"] .refrigerant-panel .module-heading,
-:root[data-theme="light"] .subtab-row {
+:root[data-theme="light"] .subtab-row,
+:root[data-theme="light"] .metric-card {
   background: var(--light-panel);
   border-color: var(--light-line);
 }
@@ -11118,11 +11149,30 @@ textarea {
 }
 
 @media (max-width: 980px) {
+  .metric-grid,
   .refrigerant-quick-grid,
   .form-grid-two,
   .form-grid-four,
   .refrigerant-row,
   .refrigerant-tank-row {
     grid-template-columns: 1fr;
+  }
+
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-card {
+    padding: 0.65rem 0.72rem;
+  }
+
+  .metric-card strong {
+    font-size: 1.28rem;
   }
 }

@@ -42,11 +42,10 @@ import {
 import {
   enqueueProjectAttachmentUpload,
   enqueueProjectCapture,
-  getQueuedProjectCaptures,
   listQueuedProjectCaptures,
-  removeQueuedProjectCapture,
   type QueuedProjectCaptureSummary,
 } from "../lib/projectsOfflineQueue";
+import { syncOfflineJobs } from "../lib/offlineSync";
 import { StatusState } from "./StatusState";
 import type { OpenProjectCreateRequest, OpenProjectRecordRequest } from "../lib/projectNavigation";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
@@ -817,29 +816,7 @@ export function ProjectsPanel({ properties, users, userRole, selectedPropertyId,
     }
     setQueueSyncing(true);
     try {
-      const queued = await getQueuedProjectCaptures();
-      for (const entry of queued) {
-        try {
-          if (entry.job.kind === "createRecord") {
-            const { record } = await createProjectRecord(entry.job.recordInput);
-            for (const attachment of entry.attachments) {
-              const file = new File([attachment.blob], attachment.name, { type: attachment.mimeType, lastModified: attachment.lastModified });
-              await uploadProjectAttachment(record.id, file, attachment.attachmentType, attachment.caption ?? undefined);
-            }
-          } else {
-            for (const attachment of entry.attachments) {
-              const file = new File([attachment.blob], attachment.name, { type: attachment.mimeType, lastModified: attachment.lastModified });
-              await uploadProjectAttachment(entry.job.recordId, file, attachment.attachmentType, attachment.caption ?? undefined);
-            }
-          }
-          await removeQueuedProjectCapture(entry.id);
-        } catch (error) {
-          if (isApiError(error) && error.status === 0) {
-            break;
-          }
-          throw error;
-        }
-      }
+      await syncOfflineJobs();
       await invalidate();
       await refreshOfflineQueue();
     } finally {

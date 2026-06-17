@@ -126,5 +126,5 @@ This inventory captures the current MakeReadyOS architecture so future work can 
 - Make-ready list supports query params, but deeper server-side filtering/pagination is still future work.
 - Webhook delivery has no queue/retry worker.
 - Upload storage is local filesystem only.
-- Offline sync is not implemented.
+- Offline sync is now browser-local and IndexedDB-backed for supported mobile-field workflows, with cached JSON GET fallback through the service worker and confirmed-success deletion semantics for queued uploads. Remaining gaps are comment/checklist queue coverage and explicit conflict-resolution UX.
 - The web build lazy-loads secondary workspaces and separates React/query/vendor chunks; the previous Vite main chunk-size warning has been removed.

@@ -191,7 +191,7 @@ MakeReadyOS ships a Progressive Web App manifest and service worker so mobile br
 
 For real mobile deployments, use HTTPS through a reverse proxy. Many browsers require a secure origin before they will offer installation or service-worker behavior outside `localhost`.
 
-The service worker intentionally avoids caching `/api/` and `/uploads/` requests. MakeReadyOS currently supports app-like launch and static shell caching, not offline operational editing.
+The service worker caches the app shell plus previously fetched same-origin JSON `GET /api/...` responses with a network-first fallback. Upload/download/report routes remain network-bound, while supported mobile-field writes use the browser-local IndexedDB sync queue and are deleted only after the server confirms success.
 
 ## Demo Reset
 

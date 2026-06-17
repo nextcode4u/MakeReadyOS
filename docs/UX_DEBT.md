@@ -12,8 +12,8 @@ This list captures usability debt without turning it into immediate feature work
 
 - Mobile uses card/drawer patterns, but the full table remains hard on small screens.
 - Batch operations and column configuration are still desktop-first.
-- My Work now has quick status controls and connection retry messaging, but full offline-safe edits are not implemented.
-- Recommended polish: mobile bulk mode, better drawer bottom actions, larger field touch targets, and queued offline sync with conflict handling.
+- My Work and the main field modules now have queue-aware offline-safe status/photo flows for supported operations, but comments, checklist edits, and conflict-resolution UX are still missing.
+- Recommended polish: mobile bulk mode, better drawer bottom actions, larger field touch targets, comment/checklist offline coverage, and clearer per-record pending-sync indicators.
 
 ## Dropdown And Option Complexity
 

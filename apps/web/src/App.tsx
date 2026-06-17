@@ -12,6 +12,12 @@ import { PWAInstallPrompt } from "./components/PWAInstallPrompt";
 import { StatusState } from "./components/StatusState";
 import { ToastItem, ToastViewport } from "./components/ToastViewport";
 import {
+  enqueueMakeReadyPatch,
+  getOfflineSyncEventName,
+  getOfflineSyncPendingCount,
+  syncOfflineJobs,
+} from "./lib/offlineSync";
+import {
   createAdminUser,
   createAutomation,
   createCustomField,
@@ -60,6 +66,7 @@ import {
   getDashboard,
   getMakeReadyItemPage,
   MakeReadyItem,
+  MakeReadyItemsPage,
   ManagedUser,
   getMeta,
   getNotifications,
@@ -326,6 +333,8 @@ function App() {
   const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
   const [apiDegraded, setApiDegraded] = useState(false);
   const [lastConnectionIssueAt, setLastConnectionIssueAt] = useState<string | null>(null);
+  const [offlineQueuePendingCount, setOfflineQueuePendingCount] = useState(0);
+  const [offlineQueueSyncing, setOfflineQueueSyncing] = useState(false);
   const [wikiRecordRequest, setWikiRecordRequest] = useState<(OpenWikiRecordRequest & { nonce: number }) | null>(null);
   const [projectRecordRequest, setProjectRecordRequest] = useState<(OpenProjectRecordRequest & { nonce: number }) | null>(null);
   const [projectCreateRequest, setProjectCreateRequest] = useState<(OpenProjectCreateRequest & { nonce: number }) | null>(null);
@@ -366,6 +375,26 @@ function App() {
     setApiDegraded(false);
     void queryClient.invalidateQueries();
     pushToast("Retrying connection", "Refreshing active MakeReadyOS data.", "info");
+    void syncQueuedOfflineChanges();
+  };
+
+  const syncQueuedOfflineChanges = async () => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    const result = await syncOfflineJobs();
+    if (result.synced > 0) {
+      pushToast("Offline changes synced", `${result.synced} queued change${result.synced === 1 ? "" : "s"} reached the server.`, "success");
+      await queryClient.invalidateQueries();
+    }
+  };
+
+  const applyQueuedMakeReadyPatch = (id: string, data: Record<string, unknown>) => {
+    queryClient.setQueriesData<MakeReadyItemsPage>({ queryKey: ["make-ready-items"] }, (current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        items: current.items.map((item) => (item.id === id ? { ...item, ...data } : item)),
+      };
+    });
   };
 
   useEffect(() => {
@@ -791,9 +820,25 @@ function App() {
   });
 
   const patchMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => patchMakeReadyItem(id, data),
-    onSuccess: (_, variables) => {
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, unknown> }) => {
+      try {
+        await patchMakeReadyItem(id, data);
+        return { queued: false };
+      } catch (error) {
+        if (isApiError(error) && error.status === 0) {
+          await enqueueMakeReadyPatch(id, data);
+          return { queued: true };
+        }
+        throw error;
+      }
+    },
+    onSuccess: (result, variables) => {
       const field = Object.keys(variables.data)[0] ?? "item";
+      if (result.queued) {
+        applyQueuedMakeReadyPatch(variables.id, variables.data);
+        pushToast("Change queued", `${humanizeField(field)} will sync after the device reconnects.`, "info");
+        return;
+      }
       const title = activeView === "kanban" ? "Card moved" : "Item updated";
       pushToast(title, `${humanizeField(field)} saved successfully.`, "success");
       queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
@@ -1870,16 +1915,32 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const queueEventName = getOfflineSyncEventName();
+    const refreshQueueState = async () => {
+      setOfflineQueuePendingCount(await getOfflineSyncPendingCount());
+    };
+    const handleQueueState = (event: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail as { pendingCount?: number; syncing?: boolean } : {};
+      setOfflineQueuePendingCount(detail.pendingCount ?? 0);
+      setOfflineQueueSyncing(Boolean(detail.syncing));
+    };
+    void refreshQueueState();
+    window.addEventListener(queueEventName, handleQueueState as EventListener);
+    return () => window.removeEventListener(queueEventName, handleQueueState as EventListener);
+  }, []);
+
+  useEffect(() => {
     const online = () => {
       setIsOnline(true);
       setApiDegraded(false);
       pushToast("Back online", "Refreshing current workspace data.", "success");
       void queryClient.invalidateQueries();
+      void syncQueuedOfflineChanges();
     };
     const offline = () => {
       setIsOnline(false);
       setLastConnectionIssueAt(new Date().toISOString());
-      pushToast("Offline", "Do not close this screen. Save changes after reconnecting.", "error");
+      pushToast("Offline", "Cached screens stay available. Queued edits and uploads will sync after reconnecting.", "error");
     };
     const unreachable = (event: Event) => {
       const detail = event instanceof CustomEvent ? event.detail as { at?: string } : {};
@@ -1889,10 +1950,15 @@ function App() {
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
     window.addEventListener("makereadyos:api-unreachable", unreachable);
+    window.addEventListener("focus", syncQueuedOfflineChanges);
+    document.addEventListener("visibilitychange", syncQueuedOfflineChanges);
+    void syncQueuedOfflineChanges();
     return () => {
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
       window.removeEventListener("makereadyos:api-unreachable", unreachable);
+      window.removeEventListener("focus", syncQueuedOfflineChanges);
+      document.removeEventListener("visibilitychange", syncQueuedOfflineChanges);
     };
   }, [queryClient]);
 
@@ -2419,7 +2485,14 @@ function App() {
         </aside>
 
         <section className="primary-panel">
-          <ConnectionStatus online={isOnline} degraded={apiDegraded} lastIssueAt={lastConnectionIssueAt} onRetry={retryConnection} />
+          <ConnectionStatus
+            online={isOnline}
+            degraded={apiDegraded}
+            lastIssueAt={lastConnectionIssueAt}
+            pendingSyncCount={offlineQueuePendingCount}
+            syncing={offlineQueueSyncing}
+            onRetry={retryConnection}
+          />
           <Suspense fallback={
             <div className="panel-state-wrap">
               <StatusState title="Loading workspace" description="Preparing this MakeReadyOS view." />

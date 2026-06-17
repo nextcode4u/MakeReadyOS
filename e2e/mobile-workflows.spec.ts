@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
 const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
@@ -63,6 +63,15 @@ async function openModuleRailPanel(page: Page, trigger: string, view: string, pa
   await assertNoPageHorizontalOverflow(page);
 }
 
+async function selectFirstRealOption(select: Locator) {
+  const optionCount = await select.locator("option").count();
+  if (optionCount > 1) {
+    await select.selectOption({ index: 1 });
+    return true;
+  }
+  return false;
+}
+
 test.describe("mobile workflow coverage", () => {
   test("mobile shell supports view switching, tools, and browser-back drawer behavior", async ({ page }) => {
     await loginMobile(page);
@@ -119,7 +128,8 @@ test.describe("mobile workflow coverage", () => {
     await page.getByTestId("pool-facility-submit").click();
     await page.getByRole("button", { name: "Daily log" }).click();
     await expect(page.getByTestId("pool-daily-form")).toBeVisible();
-    await expect(page.locator('select[name="facilityId"]')).toContainText(poolFacility);
+    await page.locator('select[name="facilityId"]').selectOption({ label: poolFacility });
+    await expect(page.locator('select[name="facilityId"]')).not.toHaveValue("");
     await page.getByTestId("pool-reading-ph").fill("7.4");
     await page.getByTestId("pool-reading-free-chlorine").fill("2.1");
     await page.getByTestId("pool-daily-submit").click();
@@ -183,6 +193,74 @@ test.describe("mobile workflow coverage", () => {
     await page.getByTestId("property-maps-create-submit").click();
     await expect(page.getByTestId("property-maps-map-select")).toContainText(mapName);
     await expect(page.getByTestId("property-maps-canvas")).toBeVisible();
+    await assertNoPageHorizontalOverflow(page);
+  });
+
+  test("mobile create and update flows stay usable for vendors, planning, refrigerant, activity, setup, automations, and admin", async ({ page }) => {
+    const vendorName = uniqueTag("Vendor");
+    const vendorTrade = uniqueTag("Trade");
+    const refrigerantType = uniqueTag("R");
+    const tankId = uniqueTag("Tank");
+
+    await loginMobile(page);
+
+    await openWorkspaceFromViews(page, "tab-vendors", "vendors", "vendors-panel");
+    await page.getByTestId("vendor-create-name").fill(vendorName);
+    await page.getByTestId("vendor-create-trade").fill(vendorTrade);
+    await page.getByTestId("vendor-create-submit").click();
+    const createdVendor = page.locator(".vendor-row").filter({ hasText: vendorName }).first();
+    await expect(createdVendor).toBeVisible();
+
+    const vendorAssignmentItem = page.getByTestId("vendor-assignment-item");
+    const hasAssignableItem = await selectFirstRealOption(vendorAssignmentItem);
+    if (hasAssignableItem) {
+      await page.getByTestId("vendor-assignment-vendor").selectOption({ label: `${vendorName} - ${vendorTrade}` });
+      await page.getByTestId("vendor-assignment-create-submit").click();
+      await expect(page.locator("[data-testid^='vendor-assignment-']").last()).toBeVisible();
+    }
+    await assertNoPageHorizontalOverflow(page);
+
+    await openWorkspaceFromViews(page, "tab-planning", "planning", "planning-panel");
+    const hasPlanningStaff = await selectFirstRealOption(page.getByTestId("planning-assigned-user"));
+    const hasPlanningItem = await selectFirstRealOption(page.getByTestId("planning-item"));
+    if (hasPlanningStaff && hasPlanningItem) {
+      await page.getByTestId("planning-create-submit").click();
+      await expect(page.locator("[data-testid^='planning-block-']").first()).toBeVisible();
+    }
+    await assertNoPageHorizontalOverflow(page);
+
+    await openModuleRailPanel(page, "module-rail-refrigerant", "refrigerant", "refrigerant-panel");
+    await page.getByText("Refrigerant Types", { exact: true }).scrollIntoViewIfNeeded();
+    await page.getByPlaceholder("R454B, R32, R410A...").fill(refrigerantType);
+    await page.getByRole("button", { name: "Add type" }).click();
+    await expect(page.locator(".refrigerant-row").filter({ hasText: refrigerantType }).first()).toBeVisible();
+    await page.getByTestId("refrigerant-tab-virgin").click();
+    const addTankCard = page.locator(".refrigerant-card").filter({ hasText: "Add Virgin Tank" }).first();
+    await addTankCard.locator('input[name="identifier"]').fill(tankId);
+    await addTankCard.locator('select[name="refrigerantTypeId"]').selectOption({ label: refrigerantType });
+    await addTankCard.locator('input[name="currentWeight"]').fill("28");
+    await addTankCard.getByRole("button", { name: "Add tank" }).click();
+    await expect(page.locator(".refrigerant-tank-row").filter({ hasText: tankId }).first()).toBeVisible();
+    await assertNoPageHorizontalOverflow(page);
+
+    await openWorkspaceFromViews(page, "tab-activity", "activity", "activity-panel");
+    await expect(page.getByTestId("activity-table")).toBeVisible();
+    await expect(page.getByTestId("daily-manager-report")).toBeVisible();
+    await assertNoPageHorizontalOverflow(page);
+
+    await openWorkspaceFromViews(page, "tab-operations", "operations", "operations-panel");
+    await expect(page.getByTestId("property-management")).toBeVisible();
+    await expect(page.getByTestId("unit-management")).toBeVisible();
+    await assertNoPageHorizontalOverflow(page);
+
+    await openWorkspaceFromViews(page, "tab-automations", "automations", "automation-panel");
+    await expect(page.getByTestId("automation-template-library")).toBeVisible();
+    await expect(page.getByTestId("property-template-library")).toBeVisible();
+    await assertNoPageHorizontalOverflow(page);
+
+    await openWorkspaceFromViews(page, "tab-admin", "admin", "admin-panel");
+    await expect(page.getByTestId("admin-updates-panel")).toBeVisible();
+    await expect(page.getByTestId("admin-user-search")).toBeVisible();
     await assertNoPageHorizontalOverflow(page);
   });
 });

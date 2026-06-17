@@ -21,7 +21,13 @@ This lane currently verifies:
 - Browser-back drawer and workspace history behavior
 - No page-level horizontal overflow across primary mobile navigation
 - Quick workflow coverage for Pool Log, Pest Control, Lease Compliance, Projects, Preventive Maintenance, Property Wiki, and Property Maps
+- Create/update workflow coverage for Vendors, Planning, and Refrigerant
+- Reachability for Activity, Setup, Automations, and Admin on phone layouts
 - Touch/coarse-pointer devices activate the collapsed mobile shell instead of the desktop toolbar layout
+
+Recent findings already fixed in source:
+
+- Searchable unit pickers now close on touch/pointer outside press instead of only desktop `mousedown`, which was causing sticky dropdown behavior on phones.
 
 It does not replace the real-phone audit. Use it to catch regressions before the manual pass.
 
