@@ -7348,11 +7348,17 @@ textarea {
   .mobile-filterbar {
     gap: 0.7rem;
     padding: 0.65rem 0.58rem;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: none;
   }
 
   .mobile-filterbar-main {
     display: grid;
     gap: 0.55rem;
+    grid-column: 1 / -1;
+    grid-area: auto;
+    width: 100%;
+    min-width: 0;
   }
 
   .mobile-filterbar-actions {
@@ -7411,7 +7417,10 @@ textarea {
   .mobile-filterbar .mobile-tabset {
     display: flex;
     flex-direction: column;
+    grid-column: 1 / -1;
+    grid-area: auto;
     width: 100%;
+    min-width: 0;
     gap: 0.45rem;
     overflow-x: hidden;
     overflow-y: visible;
@@ -7447,6 +7456,9 @@ textarea {
   .mobile-filterbar .filters.mobile-filters-panel {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-column: 1 / -1;
+    grid-area: auto;
+    width: 100%;
     gap: 0.5rem;
     position: relative;
     z-index: 42;
