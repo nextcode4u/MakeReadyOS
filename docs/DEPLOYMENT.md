@@ -6,18 +6,18 @@ MakeReadyOS is designed for Docker Compose on a Raspberry Pi, mini PC, VM, or VP
 
 1. Install Docker and Docker Compose.
 2. Copy `.env.example` to `.env`.
-3. Set strong values for `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `POSTGRES_PASSWORD`, `SESSION_COOKIE_SECRET`, and `WEBHOOK_SECRET_ENCRYPTION_KEY`.
+3. Set strong values for `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `POSTGRES_PASSWORD`, `SESSION_COOKIE_SECRET`, and `WEBHOOK_SECRET_ENCRYPTION_KEY`. `ADMIN_EMAIL` remains optional unless you want email-based sign-in or invite emails.
 4. Run `./doctor.sh`.
 5. Run `docker compose up --build -d`.
 6. Sign in with the configured admin account and complete the setup guide.
 
 Minimum production-sensitive environment values:
 
+- `ADMIN_USERNAME` or `ADMIN_EMAIL`
 - `POSTGRES_DB`
 - `POSTGRES_USER`
 - `POSTGRES_PASSWORD`
 - `DATABASE_URL`
-- `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 - `SESSION_COOKIE_SECRET`
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`
@@ -31,6 +31,13 @@ Minimum production-sensitive environment values:
 - `EXTRA_ALLOWED_ORIGINS`
 - `SELF_HOSTED`
 - `TRUST_PROXY`
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_SECURE`
+- `SMTP_USER`
+- `SMTP_PASS`
+- `SMTP_FROM`
+- `SMTP_REPLY_TO`
 - `UPLOAD_DIR`
 - `UPLOADS_HOST_PATH`
 - `MAX_UPLOAD_MB`
@@ -63,6 +70,26 @@ EXTRA_ALLOWED_ORIGINS=http://localhost:5173,http://192.168.0.105:8080
 Set `TRUST_PROXY=true` when MakeReadyOS is running behind Caddy, Nginx, Traefik, Cloudflare Tunnel, or another reverse proxy that terminates HTTPS and forwards `X-Forwarded-*` headers. Leave it `false` for direct local Docker access.
 
 `SELF_HOSTED=true` is the default deployment model and keeps origin handling centered on `APP_URL` plus `EXTRA_ALLOWED_ORIGINS`. `CORS_ORIGIN` remains as a deprecated fallback only for older installs.
+
+## Optional User Invite Emails
+
+If admins should email new users their login details from `Admin -> User Management`, configure SMTP in `.env`:
+
+```bash
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=mailer@example.com
+SMTP_PASS=replace-with-mail-password
+SMTP_FROM=MakeReadyOS <mailer@example.com>
+SMTP_REPLY_TO=operations@example.com
+```
+
+Notes:
+
+- Invite delivery is optional and only runs when the admin checks `Send invite email` during user creation.
+- If SMTP is not configured, user creation still works; the invite checkbox should be left off.
+- If the user account is created but SMTP delivery fails, MakeReadyOS keeps the user and reports that invite delivery failed so credentials can be shared another way.
 
 ## Common Self-Hosted Origin Setups
 

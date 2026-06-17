@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ManagedUser, MetaResponse, Property, UserLanguage, UserRole } from "../lib/api";
-import { languageOptions, t } from "../lib/i18n";
+import { languageOptions, t, translateUserRole } from "../lib/i18n";
 import { BackupTransferPanel } from "./BackupTransferPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { IntegrationsPanel } from "./IntegrationsPanel";
@@ -16,21 +16,25 @@ type Props = {
   properties: Property[];
   appInfo: MetaResponse["app"] | null;
   currentUserId: string;
+  language: UserLanguage;
   loading?: boolean;
   successMessage?: string;
   errorMessage?: string;
   onCreateUser: (input: {
     fullName: string;
-    email: string;
+    username: string;
+    email?: string | null;
     role: UserRole;
     language: UserLanguage;
     password: string;
     isActive: boolean;
     propertyIds: string[];
+    sendInviteEmail?: boolean;
   }) => Promise<void>;
   onUpdateUser: (id: string, input: {
     fullName?: string;
-    email?: string;
+    username?: string;
+    email?: string | null;
     role?: UserRole;
     language?: UserLanguage;
     isActive?: boolean;
@@ -50,6 +54,7 @@ export function AdminPanel({
   properties,
   appInfo,
   currentUserId,
+  language,
   loading,
   successMessage,
   errorMessage,
@@ -66,15 +71,18 @@ export function AdminPanel({
   const [statusFilter, setStatusFilter] = useState<(typeof statusFilterOptions)[number]>("ALL");
   const [createState, setCreateState] = useState({
     fullName: "",
+    username: "",
     email: "",
     role: "TECH" as UserRole,
     language: "en" as UserLanguage,
     password: "",
     isActive: true,
     propertyIds: [] as string[],
+    sendInviteEmail: false,
   });
   const [editState, setEditState] = useState({
     fullName: "",
+    username: "",
     email: "",
     role: "TECH" as UserRole,
     language: "en" as UserLanguage,
@@ -87,7 +95,7 @@ export function AdminPanel({
 
   const filteredUsers = useMemo(() => {
     return users.filter((user) => {
-      const matchesSearch = !search || [user.fullName, user.email, user.role]
+      const matchesSearch = !search || [user.fullName, user.username, user.email ?? "", user.role]
         .join(" ")
         .toLowerCase()
         .includes(search.toLowerCase());
@@ -129,7 +137,8 @@ export function AdminPanel({
 
     setEditState({
       fullName: selectedUser.fullName,
-      email: selectedUser.email,
+      username: selectedUser.username,
+      email: selectedUser.email ?? "",
       role: selectedUser.role,
       language: selectedUser.language,
       isActive: selectedUser.isActive,
@@ -167,15 +176,26 @@ export function AdminPanel({
     window.setTimeout(() => setCopiedCommand((current) => (current === mode ? null : current)), 1800);
   };
 
+  const translateRoleFilter = (option: (typeof roleFilterOptions)[number]) => {
+    if (option === "ALL") return t(language, "admin.allRoles");
+    return translateUserRole(language, option);
+  };
+
+  const translateStatusFilter = (option: (typeof statusFilterOptions)[number]) => {
+    if (option === "ALL") return t(language, "admin.allStatuses");
+    if (option === "ACTIVE") return t(language, "admin.activeOnly");
+    return t(language, "admin.inactiveOnly");
+  };
+
   return (
     <div className="admin-shell" data-testid="admin-panel">
       <section className="admin-card">
         <header className="admin-card-header">
           <div>
             <p className="eyebrow">Admin</p>
-            <h2>{t(createState.language, "admin.userManagement")}</h2>
+            <h2>{t(language, "admin.userManagement")}</h2>
           </div>
-          <span className="subtitle">{t(createState.language, "admin.userManagementCopy")}</span>
+          <span className="subtitle">{t(language, "admin.userManagementCopy")}</span>
         </header>
 
         {successMessage ? <div className="admin-message success">{successMessage}</div> : null}
@@ -183,10 +203,10 @@ export function AdminPanel({
 
         <div className="admin-grid">
           <section className="admin-section">
-            <h3>{t(createState.language, "admin.createUser")}</h3>
+            <h3>{t(language, "admin.createUser")}</h3>
             <div className="admin-form-grid">
               <label>
-                {t(createState.language, "admin.fullName")}
+                {t(language, "admin.fullName")}
                 <input
                   data-testid="admin-create-full-name"
                   value={createState.fullName}
@@ -194,16 +214,34 @@ export function AdminPanel({
                 />
               </label>
               <label>
-                {t(createState.language, "auth.email")}
+                {t(language, "admin.username")}
+                <input
+                  data-testid="admin-create-username"
+                  value={createState.username}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  onChange={(event) => setCreateState((current) => ({ ...current, username: event.target.value }))}
+                />
+                <span className="field-help">{t(language, "admin.usernameHelp")}</span>
+              </label>
+              <label>
+                {t(language, "auth.email")}
                 <input
                   data-testid="admin-create-email"
                   type="email"
                   value={createState.email}
-                  onChange={(event) => setCreateState((current) => ({ ...current, email: event.target.value }))}
+                  onChange={(event) => setCreateState((current) => {
+                    const email = event.target.value;
+                    return {
+                      ...current,
+                      email,
+                      sendInviteEmail: email.trim() ? current.sendInviteEmail : false,
+                    };
+                  })}
                 />
               </label>
               <label>
-                {t(createState.language, "admin.role")}
+                {t(language, "admin.role")}
                 <select
                   data-testid="admin-create-role"
                   value={createState.role}
@@ -211,13 +249,13 @@ export function AdminPanel({
                 >
                   {roles.map((role) => (
                     <option key={role} value={role}>
-                      {role}
+                      {translateUserRole(language, role)}
                     </option>
                   ))}
                 </select>
               </label>
               <label>
-                {t(createState.language, "auth.password")}
+                {t(language, "auth.password")}
                 <input
                   data-testid="admin-create-password"
                   type="password"
@@ -226,7 +264,7 @@ export function AdminPanel({
                 />
               </label>
               <label>
-                {t(createState.language, "language.label")}
+                {t(language, "language.label")}
                 <select
                   data-testid="admin-create-language"
                   value={createState.language}
@@ -248,13 +286,24 @@ export function AdminPanel({
                 checked={createState.isActive}
                 onChange={(event) => setCreateState((current) => ({ ...current, isActive: event.target.checked }))}
               />
-              {t(createState.language, "admin.activeAccount")}
+              {t(language, "admin.activeAccount")}
+            </label>
+
+            <label className="toggle-row" title={t(language, "admin.sendInviteEmailHelp")}>
+              <input
+                data-testid="admin-create-send-invite"
+                type="checkbox"
+                checked={createState.sendInviteEmail}
+                disabled={!createState.email.trim()}
+                onChange={(event) => setCreateState((current) => ({ ...current, sendInviteEmail: event.target.checked }))}
+              />
+              {t(language, "admin.sendInviteEmail")}
             </label>
 
             <div className="property-access-block">
-              <p className="section-label">{t(createState.language, "admin.propertyAccess")}</p>
+              <p className="section-label">{t(language, "admin.propertyAccess")}</p>
               {properties.length === 0 ? (
-                <div className="admin-empty-state">No active properties are available for assignment yet.</div>
+                <div className="admin-empty-state">{t(language, "admin.noActivePropertiesForAssignment")}</div>
               ) : (
                 <div className="checkbox-grid">
                   {properties.map((property) => (
@@ -280,70 +329,76 @@ export function AdminPanel({
               onClick={() => onCreateUser(createState).then(() => {
                 setCreateState({
                   fullName: "",
+                  username: "",
                   email: "",
                   role: "TECH",
                   language: "en",
                   password: "",
                   isActive: true,
                   propertyIds: [],
+                  sendInviteEmail: false,
                 });
               })}
             >
-              {t(createState.language, "admin.createUserButton")}
+              {t(language, "admin.createUserButton")}
             </button>
           </section>
 
           <section className="admin-section">
             <div className="admin-section-head">
-              <h3>{t(createState.language, "admin.users")}</h3>
+              <h3>{t(language, "admin.users")}</h3>
               <span className="subtitle">{filteredUsers.length} shown · {users.length} total</span>
             </div>
 
             <div className="admin-filter-grid">
-              <input data-testid="admin-user-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, email, or role" />
+              <input data-testid="admin-user-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t(language, "admin.searchUsersPlaceholder")} />
               <select data-testid="admin-role-filter" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as (typeof roleFilterOptions)[number])}>
                 {roleFilterOptions.map((option) => (
                   <option key={option} value={option}>
-                    {option === "ALL" ? "All roles" : option}
+                    {translateRoleFilter(option)}
                   </option>
                 ))}
               </select>
               <select data-testid="admin-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as (typeof statusFilterOptions)[number])}>
-                <option value="ALL">All statuses</option>
-                <option value="ACTIVE">Active only</option>
-                <option value="INACTIVE">Inactive only</option>
+                {statusFilterOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {translateStatusFilter(option)}
+                  </option>
+                ))}
               </select>
             </div>
 
             {filteredUsers.length === 0 ? (
-              <StatusState title="No matching users" description="Try widening the search or switching the active role and status filters." tone="subtle" />
+              <StatusState title={t(language, "admin.noMatchingUsers")} description={t(language, "admin.noMatchingUsersCopy")} tone="subtle" />
             ) : (
               <div className="admin-user-table-wrap">
                 <table className="admin-user-table">
                   <thead>
                     <tr>
-                      <th>Name</th>
-                      <th>Email</th>
-                      <th>Role</th>
-                      <th>{t(createState.language, "language.label")}</th>
-                      <th>Status</th>
+                      <th>{t(language, "admin.name")}</th>
+                      <th>{t(language, "admin.username")}</th>
+                      <th>{t(language, "admin.email")}</th>
+                      <th>{t(language, "admin.role")}</th>
+                      <th>{t(language, "language.label")}</th>
+                      <th>{t(language, "admin.status")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredUsers.map((user) => (
                       <tr
                         key={user.id}
-                        data-testid={`admin-user-row-${user.email.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase()}`}
+                        data-testid={`admin-user-row-${user.username.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase()}`}
                         className={selectedUser?.id === user.id ? "selected" : ""}
                         onClick={() => setSelectedUserId(user.id)}
                       >
-                        <td>{user.fullName}{user.id === currentUserId ? " (You)" : ""}</td>
-                        <td>{user.email}</td>
-                        <td>{user.role}</td>
+                        <td>{user.fullName}{user.id === currentUserId ? ` (${t(language, "admin.you")})` : ""}</td>
+                        <td>{user.username}</td>
+                        <td>{user.email || t(language, "admin.noEmail")}</td>
+                        <td>{translateUserRole(language, user.role)}</td>
                         <td>{languageOptions.find((option) => option.value === user.language)?.nativeLabel ?? user.language}</td>
                         <td>
                           <span className={user.isActive ? "status-chip active" : "status-chip inactive"}>
-                            {user.isActive ? "Active" : "Inactive"}
+                            {user.isActive ? t(language, "admin.active") : t(language, "admin.inactive")}
                           </span>
                         </td>
                       </tr>
@@ -358,19 +413,19 @@ export function AdminPanel({
         {selectedUser ? (
           <section className="admin-section admin-editor">
             <div className="admin-section-head">
-              <h3>{t(editState.language, "admin.editUser")}</h3>
-              <span className="subtitle">{selectedUser.email}</span>
+              <h3>{t(language, "admin.editUser")}</h3>
+              <span className="subtitle">{selectedUser.username}</span>
             </div>
 
             {isSelf ? (
               <div className="admin-message warning">
-                Your own account cannot be deactivated here, and your role cannot be changed from this panel.
+                {t(language, "admin.selfWarning")}
               </div>
             ) : null}
 
             <div className="admin-form-grid">
               <label>
-                {t(editState.language, "admin.fullName")}
+                {t(language, "admin.fullName")}
                 <input
                   data-testid="admin-edit-full-name"
                   value={editState.fullName}
@@ -378,16 +433,27 @@ export function AdminPanel({
                 />
               </label>
               <label>
-                {t(editState.language, "auth.email")}
+                {t(language, "admin.username")}
+                <input
+                  data-testid="admin-edit-username"
+                  value={editState.username}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  onChange={(event) => setEditState((current) => ({ ...current, username: event.target.value }))}
+                />
+                <span className="field-help">{t(language, "admin.usernameHelp")}</span>
+              </label>
+              <label>
+                {t(language, "auth.email")}
                 <input
                   data-testid="admin-edit-email"
                   type="email"
-                  value={editState.email}
+                  value={editState.email ?? ""}
                   onChange={(event) => setEditState((current) => ({ ...current, email: event.target.value }))}
                 />
               </label>
               <label>
-                {t(editState.language, "admin.role")}
+                {t(language, "admin.role")}
                 <select
                   data-testid="admin-edit-role"
                   value={editState.role}
@@ -396,13 +462,13 @@ export function AdminPanel({
                 >
                   {roles.map((role) => (
                     <option key={role} value={role}>
-                      {role}
+                      {translateUserRole(language, role)}
                     </option>
                   ))}
                 </select>
               </label>
               <label>
-                {t(editState.language, "language.label")}
+                {t(language, "language.label")}
                 <select
                   data-testid="admin-edit-language"
                   value={editState.language}
@@ -414,7 +480,7 @@ export function AdminPanel({
                     </option>
                   ))}
                 </select>
-                <span className="field-help">{t(editState.language, "admin.languageHelp")}</span>
+                <span className="field-help">{t(language, "admin.languageHelp")}</span>
               </label>
               <label className="toggle-row">
                 <input
@@ -424,7 +490,7 @@ export function AdminPanel({
                   disabled={isSelf}
                   onChange={(event) => setEditState((current) => ({ ...current, isActive: event.target.checked }))}
                 />
-                {t(editState.language, "admin.activeAccount")}
+                {t(language, "admin.activeAccount")}
               </label>
             </div>
 
@@ -440,6 +506,7 @@ export function AdminPanel({
                   }
                   await onUpdateUser(selectedUser.id, {
                     fullName: editState.fullName,
+                    username: editState.username,
                     email: editState.email,
                     role: editState.role,
                     language: editState.language,
@@ -447,7 +514,7 @@ export function AdminPanel({
                   });
                 }}
               >
-                {t(editState.language, "admin.saveUser")}
+                {t(language, "admin.saveUser")}
               </button>
 
               {selectedUser.isActive ? (
@@ -457,7 +524,7 @@ export function AdminPanel({
                   disabled={loading || isSelf}
                   onClick={() => setConfirmAction("deactivate")}
                 >
-                  Deactivate User
+                  {t(language, "admin.deactivateUser")}
                 </button>
               ) : (
                 <button
@@ -468,15 +535,15 @@ export function AdminPanel({
                     await onUpdateUser(selectedUser.id, { isActive: true });
                   }}
                 >
-                  Reactivate User
+                  {t(language, "admin.reactivateUser")}
                 </button>
               )}
             </div>
 
             <div className="property-access-block">
-              <p className="section-label">{t(editState.language, "admin.propertyAccess")}</p>
+              <p className="section-label">{t(language, "admin.propertyAccess")}</p>
               {properties.length === 0 ? (
-                <div className="admin-empty-state">No properties are available for assignment.</div>
+                <div className="admin-empty-state">{t(language, "admin.noPropertiesForAssignment")}</div>
               ) : (
                 <div className="checkbox-grid">
                   {properties.map((property) => (
@@ -499,19 +566,19 @@ export function AdminPanel({
                 disabled={loading || editState.role === "ADMIN" || !propertyAccessChanged}
                 onClick={() => selectedUser && onUpdatePropertyAccess(selectedUser.id, editState.propertyIds)}
               >
-                Save Property Access
+                {t(language, "admin.savePropertyAccess")}
               </button>
             </div>
 
             <div className="property-access-block">
-              <p className="section-label">Reset password</p>
+              <p className="section-label">{t(language, "admin.resetPassword")}</p>
               <div className="admin-inline-form">
                 <input
                   data-testid="admin-reset-password-input"
                   type="password"
                   value={editState.password}
                   onChange={(event) => setEditState((current) => ({ ...current, password: event.target.value }))}
-                  placeholder="Enter a strong new password"
+                  placeholder={t(language, "admin.enterStrongPassword")}
                 />
                 <button
                   data-testid="admin-reset-password-button"
@@ -519,14 +586,14 @@ export function AdminPanel({
                   disabled={loading || !editState.password}
                   onClick={() => setConfirmAction("password")}
                 >
-                  Reset Password
+                  {t(language, "admin.resetPasswordButton")}
                 </button>
               </div>
             </div>
           </section>
         ) : (
           <section className="admin-section">
-            <StatusState title="No user selected" description="Pick a user from the table or create a new account to start editing access and role settings." tone="subtle" />
+            <StatusState title={t(language, "admin.noUserSelected")} description={t(language, "admin.noUserSelectedCopy")} tone="subtle" />
           </section>
         )}
       </section>
@@ -654,6 +721,7 @@ export function AdminPanel({
           await onUpdateUser(selectedUser.id, {
             fullName: editState.fullName,
             email: editState.email,
+            username: editState.username,
             role: editState.role,
             language: editState.language,
             isActive: editState.isActive,

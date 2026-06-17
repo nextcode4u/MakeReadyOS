@@ -42,7 +42,7 @@
 - Saved-view sidebar removed from the primary board layout; a narrow left module rail now reserves space for MakeReadyOS plus active RefrigerantLogOS and PoolLogOS modules, with future PestLogOS and PropertyWikiOS surfaces still planned.
 - Right-side operational item inspector opened from table/Kanban with existing audited field, lifecycle, activity, and automation paths
 - Browser-local Default/Dark/Light themes plus independent Dyslexia and Eye-Strain modes
-- User language preferences support English and Spanish in the core app shell/sign-in/admin user workflow, with per-user storage and a self-service toolbar selector
+- User language preferences support English and Spanish in the sign-in flow, core app shell, dashboard shell, connection/offline status messaging, and admin user workflow, with per-user storage and a self-service toolbar selector. Broader module-by-module workflow translation remains an active hardening track.
 - AMOLED-black Dark theme, reinforced warm Light contrast, and OFL-licensed OpenDyslexic assets served from tracked `assets/fonts/opendyslexic/`
 - Table-first header menus/popovers for display-label rename/reset, column visibility/order/sort, managed option lifecycle editing, and managed floor-plan lifecycle editing
 - Item-drawer updates, local attachment uploads, checklist templates/instances, seeded make-ready QA front/internal paper workflow templates, `My Work` quick status updates, weak-connection retry messaging, and Ctrl/Cmd+K quick search

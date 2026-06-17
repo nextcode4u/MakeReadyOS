@@ -69,7 +69,7 @@ function publicWebhook(webhook: {
   createdAt: Date;
   updatedAt: Date;
   propertyScopes: Array<{ property: { id: string; name: string; code: string } }>;
-  createdBy: { id: string; fullName: string; email: string };
+  createdBy: { id: string; fullName: string; email: string | null };
   _count?: { deliveryAttempts: number };
 }) {
   return {

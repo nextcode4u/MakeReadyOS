@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { getPropertyWikiOverview, type AnalyticsSummaryResponse, type DashboardResponse } from "../lib/api";
+import { type UserLanguage, getPropertyWikiOverview, type AnalyticsSummaryResponse, type DashboardResponse } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
 import { formatDateTime } from "../lib/dateTime";
+import { t, tWithVars } from "../lib/i18n";
 import { openWikiRecord } from "../lib/wikiNavigation";
 import { StatusState } from "./StatusState";
 
@@ -17,6 +18,7 @@ type Props = {
   layout: "overview" | "focus";
   onLayoutChange: (layout: "overview" | "focus") => void;
   propertyId?: string;
+  language: UserLanguage;
 };
 
 const kpiLabels: Record<string, string> = {
@@ -235,19 +237,22 @@ function DashboardMapsWidget({ data, propertyId }: { data?: DashboardResponse["p
   );
 }
 
-export function DashboardPanel({ data, analytics, loading, analyticsLoading, error, onOpenItem, onDrillDown, onOpenPond, layout, onLayoutChange, propertyId }: Props) {
-  if (loading) return <StatusState title="Loading dashboard" description="Calculating operational risk and workload totals." />;
-  if (error || !data) return <StatusState title="Dashboard unavailable" description="Refresh to recalculate dashboard summaries." tone="error" />;
+export function DashboardPanel({ data, analytics, loading, analyticsLoading, error, onOpenItem, onDrillDown, onOpenPond, layout, onLayoutChange, propertyId, language }: Props) {
+  if (loading) return <StatusState title={t(language, "dashboard.loading")} description={t(language, "dashboard.loadingCopy")} />;
+  if (error || !data) return <StatusState title={t(language, "dashboard.unavailable")} description={t(language, "dashboard.unavailableCopy")} tone="error" />;
   const needsAttention = data.needsAttention ?? [];
   const recentStatusChanges = data.recentStatusChanges ?? [];
   return (
     <section className={`dashboard-shell dashboard-layout-${layout}`} data-testid="dashboard-panel">
       <header className="panel-heading">
-        <div><h2>Operations Dashboard</h2><p>Scoped turnover visibility from the active board. Data as of {formatDateTime(new Date())}.</p></div>
-        <label className="dashboard-layout-select">Layout
+        <div>
+          <h2>{t(language, "dashboard.title")}</h2>
+          <p>{tWithVars(language, "dashboard.asOfNow", { timestamp: formatDateTime(new Date(), undefined, language) })}</p>
+        </div>
+        <label className="dashboard-layout-select">{t(language, "dashboard.layout")}
           <select data-testid="dashboard-layout" value={layout} onChange={(event) => onLayoutChange(event.target.value as "overview" | "focus")}>
-            <option value="overview">Overview</option>
-            <option value="focus">Attention focus</option>
+            <option value="overview">{t(language, "dashboard.layoutOverview")}</option>
+            <option value="focus">{t(language, "dashboard.layoutFocus")}</option>
           </select>
         </label>
       </header>
@@ -283,8 +288,8 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
         <button type="button" className="button button-primary" data-testid="dashboard-open-pond" onClick={onOpenPond}>Open Frog Pond</button>
       </section>
       <section className="attention-panel" data-testid="needs-attention-panel">
-        <h3>Needs Attention</h3>
-        {needsAttention.length === 0 ? <p className="empty-copy">No immediate attention flags in the current property scope.</p> : (
+        <h3>{t(language, "dashboard.needsAttention")}</h3>
+        {needsAttention.length === 0 ? <p className="empty-copy">{t(language, "dashboard.needsAttentionEmpty")}</p> : (
           <div className="attention-list">
             {needsAttention.map((item) => (
               <button type="button" key={item.itemId} onClick={() => onOpenItem(item.itemId)}>
@@ -297,15 +302,15 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
         )}
       </section>
       <section className="attention-panel" data-testid="recent-status-changes-panel">
-        <h3>Recent Status Changes</h3>
-        <p className="muted">Last 24 hours of vacancy, ready, move-in/archive, and availability-driven board changes.</p>
-        {recentStatusChanges.length === 0 ? <p className="empty-copy">No status changes recorded in the last 24 hours for this scope.</p> : (
+        <h3>{t(language, "dashboard.recentStatusChanges")}</h3>
+        <p className="muted">{t(language, "dashboard.recentStatusChangesCopy")}</p>
+        {recentStatusChanges.length === 0 ? <p className="empty-copy">{t(language, "dashboard.recentStatusChangesEmpty")}</p> : (
           <div className="attention-list">
             {recentStatusChanges.map((entry) => (
               <button type="button" key={entry.key} onClick={() => onOpenItem(entry.itemId)}>
                 <strong>{displayUnitNumber(entry.property.code, entry.unitNumber)}</strong>
                 <em className={`risk-level-badge ${entry.source === "availability" ? "medium" : "low"}`}>{entry.title}</em>
-                <span>{entry.detail} / {formatDateTime(entry.changedAt)}</span>
+                <span>{entry.detail} / {formatDateTime(entry.changedAt, undefined, language)}</span>
               </button>
             ))}
           </div>

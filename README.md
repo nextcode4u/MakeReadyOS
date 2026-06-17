@@ -42,7 +42,8 @@ MakeReadyOS is not:
 - Preventive Maintenance includes recurring templates, due-task generation, history, printable reports, attachments, and Property Wiki references.
 - Pool Log includes daily readings, safety checks, chemical additions, printable reports, scoped photos/PDFs, and in-app review reminders.
 - Authentication, roles, property-scoped permissions, audit logs, API tokens, and in-app notifications.
-- English/Spanish user language preferences for the core app shell and user-management workflow.
+- Optional SMTP-backed new-user invite emails from Admin when operators want login details delivered to the user's email address.
+- English/Spanish user language preferences for the sign-in flow, core app shell, dashboard shell, connection/offline status messaging, and user-management workflow. Module-level workflow translation is still an active hardening pass.
 - Mobile browser install support through a Progressive Web App manifest and app-like home-screen launch.
 - Local attachments/photos, item comments, checklist templates, item drawer, unit history, analytics snapshots, and risk scoring.
 - Scoped integration API with examples and a lightweight OpenAPI contract at `/api/openapi.json`.
@@ -92,11 +93,11 @@ Open:
 Default admin credentials come from `.env`. With the provided example values:
 
 ```text
-admin@example.com
+admin
 ChangeThisAdmin!23456
 ```
 
-Change `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and `SESSION_COOKIE_SECRET` before using a real deployment.
+Change `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and `SESSION_COOKIE_SECRET` before using a real deployment. `ADMIN_EMAIL` is optional for sign-in and invite emails, but `ADMIN_USERNAME` or `ADMIN_EMAIL` must be set.
 
 The example environment starts as a blank operational workspace: no sample properties, units, or turns are created, but baseline make-ready labels, table columns, checklist templates, and schedule tracks are ready. Set `SEED_DEMO_DATA=true` only when you want sample properties and records for evaluation.
 

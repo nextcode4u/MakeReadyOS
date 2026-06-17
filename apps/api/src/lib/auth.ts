@@ -13,6 +13,7 @@ let lastApiTokenRateLimitCleanupAt = 0;
 const API_TOKEN_RATE_LIMIT_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
 
 type SessionUser = Pick<User, "id" | "email" | "fullName" | "role" | "language" | "isActive"> & {
+  username: string;
   propertyAccess: Array<Pick<UserPropertyAccess, "propertyId" | "role">>;
 };
 
@@ -195,6 +196,7 @@ export async function loadSessionUser(request: FastifyRequest) {
     };
     request.currentUser = {
       id: token.createdBy.id,
+      username: token.createdBy.username,
       email: token.createdBy.email,
       fullName: token.createdBy.fullName,
       role: token.createdBy.role,
@@ -262,6 +264,7 @@ export async function loadSessionUser(request: FastifyRequest) {
   request.authType = "session";
   request.currentUser = {
     id: session.user.id,
+    username: session.user.username,
     email: session.user.email,
     fullName: session.user.fullName,
     role: session.user.role,
@@ -626,6 +629,7 @@ export function canUpdateMakeReadyField(user: SessionUser, fieldKey: string) {
 export function sanitizeUser(user: SessionUser) {
   return {
     id: user.id,
+    username: user.username,
     email: user.email,
     fullName: user.fullName,
     role: user.role,

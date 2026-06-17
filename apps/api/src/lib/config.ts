@@ -105,7 +105,8 @@ function deriveCookieDomain(origin: string | null) {
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  ADMIN_EMAIL: z.string().email("ADMIN_EMAIL must be a valid email address"),
+  ADMIN_USERNAME: z.string().trim().optional().or(z.literal("")),
+  ADMIN_EMAIL: z.string().trim().optional().or(z.literal("")),
   ADMIN_PASSWORD: z.string().min(1, "ADMIN_PASSWORD is required"),
   SESSION_COOKIE_SECRET: z.string().min(32, "SESSION_COOKIE_SECRET must be at least 32 characters"),
   WEBHOOK_SECRET_ENCRYPTION_KEY: z.string().min(32, "WEBHOOK_SECRET_ENCRYPTION_KEY must be at least 32 characters").optional().or(z.literal("")),
@@ -124,6 +125,13 @@ const envSchema = z.object({
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(50).default(5),
   LOGIN_RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().min(1).max(60).default(15),
+  SMTP_HOST: z.string().trim().optional().or(z.literal("")),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  SMTP_SECURE: booleanEnv.default(false),
+  SMTP_USER: z.string().trim().optional().or(z.literal("")),
+  SMTP_PASS: z.string().optional().or(z.literal("")),
+  SMTP_FROM: z.string().trim().optional().or(z.literal("")),
+  SMTP_REPLY_TO: z.string().trim().optional().or(z.literal("")),
   APP_URL: z.string().optional().or(z.literal("")),
   EXTRA_ALLOWED_ORIGINS: z.string().optional().or(z.literal("")),
   SELF_HOSTED: booleanEnv.default(true),
@@ -140,6 +148,17 @@ const envSchema = z.object({
 
 const parsed = envSchema.parse(process.env);
 
+const normalizedAdminUsername = parsed.ADMIN_USERNAME?.trim().toLowerCase() || "";
+const normalizedAdminEmail = parsed.ADMIN_EMAIL?.trim().toLowerCase() || "";
+
+if (!normalizedAdminUsername && !normalizedAdminEmail) {
+  throw new Error("Set ADMIN_USERNAME or ADMIN_EMAIL so MakeReadyOS can seed the admin account.");
+}
+
+if (normalizedAdminEmail) {
+  z.string().email("ADMIN_EMAIL must be a valid email address").parse(normalizedAdminEmail);
+}
+
 if (parsed.SESSION_COOKIE_SECRET.toLowerCase().includes("change-this")) {
   throw new Error("SESSION_COOKIE_SECRET must not use the insecure example value");
 }
@@ -148,6 +167,10 @@ assertStrongPassword(parsed.ADMIN_PASSWORD, "ADMIN_PASSWORD");
 
 if ((parsed.DEMO_TECH_EMAIL && !parsed.DEMO_TECH_PASSWORD) || (!parsed.DEMO_TECH_EMAIL && parsed.DEMO_TECH_PASSWORD)) {
   throw new Error("DEMO_TECH_EMAIL and DEMO_TECH_PASSWORD must both be set or both be empty");
+}
+
+if ((parsed.SMTP_USER && !parsed.SMTP_PASS) || (!parsed.SMTP_USER && parsed.SMTP_PASS)) {
+  throw new Error("SMTP_USER and SMTP_PASS must both be set or both be empty");
 }
 
 if (parsed.DEMO_TECH_PASSWORD) {
@@ -212,13 +235,10 @@ if (allowedOrigins.length === 0) {
   throw new Error("No valid allowed origins could be derived from APP_URL, EXTRA_ALLOWED_ORIGINS, or CORS_ORIGIN.");
 }
 
-for (const warning of startupWarnings) {
-  console.warn(`[config] ${warning}`);
-}
-
 export const authConfig = {
   nodeEnv: parsed.NODE_ENV,
-  adminEmail: parsed.ADMIN_EMAIL.trim().toLowerCase(),
+  adminUsername: normalizedAdminUsername || normalizedAdminEmail,
+  adminEmail: normalizedAdminEmail || null,
   adminPassword: parsed.ADMIN_PASSWORD,
   demoTechEmail: parsed.DEMO_TECH_EMAIL?.trim().toLowerCase() || null,
   demoTechPassword: parsed.DEMO_TECH_PASSWORD || null,
@@ -249,6 +269,25 @@ export const authConfig = {
   sessionCookieDomain: deriveCookieDomain(primaryOrigin),
   startupWarnings,
 } as const;
+
+export const mailConfig = {
+  enabled: Boolean(parsed.SMTP_HOST?.trim()),
+  host: parsed.SMTP_HOST?.trim() || null,
+  port: parsed.SMTP_PORT,
+  secure: parsed.SMTP_SECURE,
+  user: parsed.SMTP_USER?.trim() || null,
+  password: parsed.SMTP_PASS || null,
+  from: parsed.SMTP_FROM?.trim() || normalizedAdminEmail || normalizedAdminUsername || "makereadyos@localhost",
+  replyTo: parsed.SMTP_REPLY_TO?.trim() || null,
+} as const;
+
+if (!mailConfig.enabled) {
+  startupWarnings.push("SMTP invite email is not configured. New-user invite emails will be unavailable until SMTP_HOST is set.");
+}
+
+for (const warning of startupWarnings) {
+  console.warn(`[config] ${warning}`);
+}
 
 export function deriveRequestOrigin(input: { host?: string; protocol?: string; forwardedHost?: string; forwardedProto?: string }) {
   const hostHeader = authConfig.trustProxy

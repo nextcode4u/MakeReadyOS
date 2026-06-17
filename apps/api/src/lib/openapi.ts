@@ -329,7 +329,8 @@ const generatedResponseSchemas = {
     additionalProperties: true,
     properties: {
       id: { type: "string" },
-      email: { type: "string", format: "email" },
+      username: { type: "string" },
+      email: { type: ["string", "null"], format: "email" },
       fullName: { type: "string" },
       role: { type: "string" },
       propertyAccess: arrayOf({ type: "object", additionalProperties: true }),

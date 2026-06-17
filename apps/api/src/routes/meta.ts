@@ -173,6 +173,7 @@ export async function metaRoutes(app: FastifyInstance) {
       auth: {
         user: {
           id: user.id,
+          username: user.username,
           email: user.email,
           fullName: user.fullName,
           role: user.role,

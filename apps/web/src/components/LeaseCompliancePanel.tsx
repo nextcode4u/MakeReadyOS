@@ -37,6 +37,7 @@ import {
 } from "../lib/api";
 import { enqueueLeaseCreate, enqueueLeaseUpload } from "../lib/offlineSync";
 import type { OpenLeaseQuickAddRequest } from "../lib/leaseNavigation";
+import { isTouchMobileViewport } from "../lib/responsive";
 import { StatusState } from "./StatusState";
 import { UnitSearchSelect } from "./UnitSearchSelect";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
@@ -265,12 +266,14 @@ function IssueCard({
 export function LeaseCompliancePanel({ properties, units, users, userRole, selectedPropertyId, openQuickAddRequest }: Props) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [isMobileLayout, setIsMobileLayout] = useState(() => isTouchMobileViewport());
   const [propertyId, setPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<LeaseComplianceStatus | "">("");
   const [noticeStageFilter, setNoticeStageFilter] = useState<LeaseComplianceNoticeStage | "">("");
   const [quickAddUnitId, setQuickAddUnitId] = useState("");
   const [quickAddPhotos, setQuickAddPhotos] = useState<File[]>([]);
+  const [showAdvancedQuickCapture, setShowAdvancedQuickCapture] = useState(false);
   const [groundsStickyLocation, setGroundsStickyLocation] = useState(true);
   const [lastCreatedIssue, setLastCreatedIssue] = useState<{
     id: string;
@@ -294,6 +297,31 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
   const captureInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const descriptionInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const viewportMedia = window.matchMedia("(max-width: 860px)");
+    const coarsePointerMedia = window.matchMedia("(pointer: coarse) and (hover: none)");
+    const update = () => setIsMobileLayout(isTouchMobileViewport());
+    update();
+    if (typeof viewportMedia.addEventListener === "function") {
+      viewportMedia.addEventListener("change", update);
+      coarsePointerMedia.addEventListener("change", update);
+      return () => {
+        viewportMedia.removeEventListener("change", update);
+        coarsePointerMedia.removeEventListener("change", update);
+      };
+    }
+    viewportMedia.addListener(update);
+    coarsePointerMedia.addListener(update);
+    return () => {
+      viewportMedia.removeListener(update);
+      coarsePointerMedia.removeListener(update);
+    };
+  }, []);
+
+  useEffect(() => {
+    setShowAdvancedQuickCapture(!isMobileLayout);
+  }, [isMobileLayout]);
 
   const permissions = {
     view: ["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "VIEWER"].includes(userRole),
@@ -393,7 +421,19 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
   const issueTypes = issueTypesQuery.data?.issueTypes ?? overviewQuery.data?.issueTypes ?? [];
   const settings = settingsQuery.data?.settings ?? overviewQuery.data?.settings ?? null;
   const issues = issuesQuery.data?.issues ?? [];
+  const selectedQuickAddUnit = useMemo(
+    () => propertyUnits.find((unit) => unit.id === quickAddUnitId) ?? null,
+    [propertyUnits, quickAddUnitId]
+  );
   const activeIssueTypes = useMemo(() => issueTypes.filter((entry) => entry.isActive), [issueTypes]);
+  const matchingUnitIssues = useMemo(
+    () =>
+      issues
+        .filter((issue) => issue.unitId === quickAddUnitId && !issue.isArchived)
+        .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
+    [issues, quickAddUnitId]
+  );
+  const latestMatchingUnitIssue = matchingUnitIssues[0] ?? null;
   const groundsRecentLocations = useMemo(() => {
     const seen = new Set<string>();
     return issues.flatMap((issue) => {
@@ -425,6 +465,57 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
       setQuickAddDraft((current) => ({ ...current, source: "Grounds Walk" }));
     }
   }, [tab]);
+
+  useEffect(() => {
+    if (!latestMatchingUnitIssue || !isMobileLayout) return;
+    setShowAdvancedQuickCapture(false);
+  }, [latestMatchingUnitIssue, isMobileLayout]);
+
+  function applyIssueTemplate(issue: LeaseComplianceIssue) {
+    setQuickAddDraft((current) => ({
+      ...current,
+      building: issue.building ?? current.building,
+      area: issue.area ?? current.area,
+      issueTypeId: issue.issueTypeId ?? current.issueTypeId,
+      issueTypeName: issue.issueTypeName,
+      additionalIssueType: issue.additionalIssueType ?? "",
+      priority: issue.priority,
+      source: issue.source,
+      locationNotes: issue.locationNotes ?? "",
+      assignedUserId: issue.assignedUserId ?? "",
+    }));
+  }
+
+  async function markIssueStillApplies(issue: LeaseComplianceIssue) {
+    const persistSummary = [
+      quickAddDraft.description.trim(),
+      quickAddDraft.locationNotes.trim(),
+    ].filter(Boolean).join(" / ") || "Confirmed still visible from quick capture.";
+    await persistMutation.mutateAsync({ id: issue.id, notes: persistSummary });
+    if (quickAddDraft.description.trim()) {
+      await addNoteMutation.mutateAsync({ id: issue.id, body: quickAddDraft.description.trim() });
+    }
+    for (const file of quickAddPhotos) {
+      await uploadMutation.mutateAsync({ issueId: issue.id, file });
+    }
+    setLastCreatedIssue({
+      id: issue.id,
+      label: issue.unit?.number ?? issue.area ?? issue.building ?? "Area",
+      issueTypeName: issue.issueTypeName,
+      building: issue.building ?? "",
+      area: issue.area ?? "",
+    });
+    setQuickAddPhotos([]);
+    setQuickAddDraft((current) => ({
+      ...current,
+      building: groundsStickyLocation ? current.building : "",
+      area: groundsStickyLocation ? current.area : "",
+      description: "",
+      locationNotes: "",
+    }));
+    if (captureInputRef.current) captureInputRef.current.value = "";
+    if (uploadInputRef.current) uploadInputRef.current.value = "";
+  }
 
   async function createQuickIssue(mode: "create" | "keep-walking" = "create") {
     const quickIssueInput = {
@@ -612,6 +703,56 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
                 </>
               ) : <span className="muted">Snap a photo first or type a short description.</span>}
             </div>
+            {latestMatchingUnitIssue ? (
+              <section className="lease-repeat-card" data-testid="lease-repeat-card">
+                <div className="lease-repeat-card-media">
+                  {latestMatchingUnitIssue.photos[0] ? (
+                    <a href={leaseComplianceIssuePhotoDownloadUrl(latestMatchingUnitIssue.photos[0].id)} target="_blank" rel="noreferrer">
+                      <img
+                        src={leaseComplianceIssuePhotoDownloadUrl(latestMatchingUnitIssue.photos[0].id)}
+                        alt={`${latestMatchingUnitIssue.issueTypeName} evidence`}
+                      />
+                    </a>
+                  ) : (
+                    <div className="lease-repeat-card-placeholder">No prior photo</div>
+                  )}
+                </div>
+                <div className="lease-repeat-card-body">
+                  <span className="eyebrow">Existing issue found</span>
+                  <h3>{selectedQuickAddUnit?.number ?? latestMatchingUnitIssue.area ?? latestMatchingUnitIssue.building ?? "Unit"} / {latestMatchingUnitIssue.issueTypeName}</h3>
+                  <p>
+                    Last reported {formatDate(latestMatchingUnitIssue.createdAt)}
+                    {latestMatchingUnitIssue.description ? ` / ${latestMatchingUnitIssue.description}` : ""}
+                  </p>
+                  <div className="pool-reading-stack">
+                    <span>{latestMatchingUnitIssue.status}</span>
+                    <span>{latestMatchingUnitIssue.noticeStage}</span>
+                    <span>Persisted {latestMatchingUnitIssue.persistenceCount}x</span>
+                  </div>
+                  <div className="pool-entry-actions lease-repeat-card-actions">
+                    <button
+                      className="button button-primary"
+                      type="button"
+                      disabled={persistMutation.isPending || addNoteMutation.isPending || uploadMutation.isPending}
+                      onClick={() => void markIssueStillApplies(latestMatchingUnitIssue)}
+                    >
+                      Still Applies
+                    </button>
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={() => {
+                        applyIssueTemplate(latestMatchingUnitIssue);
+                        setShowAdvancedQuickCapture(true);
+                        window.setTimeout(() => descriptionInputRef.current?.focus(), 0);
+                      }}
+                    >
+                      Report New Issue
+                    </button>
+                  </div>
+                </div>
+              </section>
+            ) : null}
             {tab === "grounds" ? (
               <div className="lease-grounds-capture">
                 <label className="lease-grounds-toggle">
@@ -693,7 +834,17 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
                   name="unitId"
                   units={propertyUnits}
                   value={quickAddUnitId}
-                  onChange={setQuickAddUnitId}
+                  onChange={(value) => {
+                    setQuickAddUnitId(value);
+                    if (!value) return;
+                    const nextIssue = issues
+                      .filter((issue) => issue.unitId === value && !issue.isArchived)
+                      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
+                    if (nextIssue) {
+                      applyIssueTemplate(nextIssue);
+                      setShowAdvancedQuickCapture(false);
+                    }
+                  }}
                   emptyLabel="Area / exterior only"
                   placeholder="Search unit..."
                 />
@@ -714,32 +865,49 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, selec
                   {issueTypes.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
                 </select>
               </label>
-              <label>Additional issue type
-                <input value={quickAddDraft.additionalIssueType} onChange={(event) => setQuickAddDraft((current) => ({ ...current, additionalIssueType: event.target.value }))} placeholder="Optional detail" />
-              </label>
-              <label>Priority
-                <select value={quickAddDraft.priority} onChange={(event) => setQuickAddDraft((current) => ({ ...current, priority: event.target.value as LeaseCompliancePriority }))}>
-                  {priorities.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-                </select>
-              </label>
-              <label>Source
-                <select value={quickAddDraft.source} onChange={(event) => setQuickAddDraft((current) => ({ ...current, source: event.target.value as LeaseComplianceSource }))}>
-                  {sources.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-                </select>
-              </label>
-              <label>Assigned user
-                <select value={quickAddDraft.assignedUserId} onChange={(event) => setQuickAddDraft((current) => ({ ...current, assignedUserId: event.target.value }))}>
-                  <option value="">Unassigned</option>
-                  {assignableUsers.map((user) => <option key={user.id} value={user.id}>{user.fullName} / {user.role}</option>)}
-                </select>
-              </label>
             </div>
             <label className="pool-textarea-wide">Short description
               <textarea data-testid="lease-quick-capture-description" ref={descriptionInputRef} value={quickAddDraft.description} onChange={(event) => setQuickAddDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Optional if you already snapped a photo. Example: trash still on patio, grill on balcony, broken blinds visible from exterior..." />
             </label>
-            <label className="pool-textarea-wide">Location notes
-              <textarea value={quickAddDraft.locationNotes} onChange={(event) => setQuickAddDraft((current) => ({ ...current, locationNotes: event.target.value }))} placeholder="Facing courtyard, second floor, left side of breezeway..." />
-            </label>
+            {isMobileLayout ? (
+              <button
+                className="button button-secondary lease-advanced-toggle"
+                type="button"
+                onClick={() => setShowAdvancedQuickCapture((current) => !current)}
+              >
+                {showAdvancedQuickCapture ? "Hide More Details" : "More Details"}
+              </button>
+            ) : null}
+            {showAdvancedQuickCapture ? (
+              <>
+                <div className="form-grid pest-quick-grid">
+                  <label>Additional issue type
+                    <input value={quickAddDraft.additionalIssueType} onChange={(event) => setQuickAddDraft((current) => ({ ...current, additionalIssueType: event.target.value }))} placeholder="Optional detail" />
+                  </label>
+                  <label>Priority
+                    <select value={quickAddDraft.priority} onChange={(event) => setQuickAddDraft((current) => ({ ...current, priority: event.target.value as LeaseCompliancePriority }))}>
+                      {priorities.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+                    </select>
+                  </label>
+                  {tab !== "grounds" ? (
+                    <label>Source
+                      <select value={quickAddDraft.source} onChange={(event) => setQuickAddDraft((current) => ({ ...current, source: event.target.value as LeaseComplianceSource }))}>
+                        {sources.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+                      </select>
+                    </label>
+                  ) : null}
+                  <label>Assigned user
+                    <select value={quickAddDraft.assignedUserId} onChange={(event) => setQuickAddDraft((current) => ({ ...current, assignedUserId: event.target.value }))}>
+                      <option value="">Unassigned</option>
+                      {assignableUsers.map((user) => <option key={user.id} value={user.id}>{user.fullName} / {user.role}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <label className="pool-textarea-wide">Location notes
+                  <textarea value={quickAddDraft.locationNotes} onChange={(event) => setQuickAddDraft((current) => ({ ...current, locationNotes: event.target.value }))} placeholder="Facing courtyard, second floor, left side of breezeway..." />
+                </label>
+              </>
+            ) : null}
             <div className="pool-entry-actions">
               <button data-testid="lease-quick-capture-submit" className="button button-primary" type="submit" disabled={createIssueMutation.isPending || uploadMutation.isPending || !canSubmitQuickIssue}>Create Issue</button>
               {tab === "grounds" ? (

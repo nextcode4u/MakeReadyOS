@@ -1,3 +1,6 @@
+import type { UserLanguage } from "./api";
+import { localeForLanguage } from "./i18n";
+
 export type ClockMode = "12h" | "24h";
 
 export const clockModeStorageKey = "makereadyos.clockMode";
@@ -11,18 +14,18 @@ function hour12(mode = readClockMode()) {
   return mode === "12h";
 }
 
-export function formatDateTime(value: string | Date | null | undefined, mode = readClockMode()) {
+export function formatDateTime(value: string | Date | null | undefined, mode = readClockMode(), language?: UserLanguage | string) {
   if (!value) return "never";
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(localeForLanguage(language), {
     dateStyle: "medium",
     timeStyle: "short",
     hour12: hour12(mode),
   }).format(new Date(value));
 }
 
-export function formatTime(value: string | Date | null | undefined, mode = readClockMode()) {
+export function formatTime(value: string | Date | null | undefined, mode = readClockMode(), language?: UserLanguage | string) {
   if (!value) return "";
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(localeForLanguage(language), {
     timeStyle: "short",
     hour12: hour12(mode),
   }).format(new Date(value));
@@ -41,10 +44,16 @@ function ordinal(day: number) {
   return `${day}${suffix}`;
 }
 
-export function formatDateDisplay(value: string | Date | null | undefined, now = new Date()) {
+export function formatDateDisplay(value: string | Date | null | undefined, now = new Date(), language?: UserLanguage | string) {
   if (!value) return "";
   const date = parseDateOnly(value);
-  const month = new Intl.DateTimeFormat(undefined, { month: "short" }).format(date);
+  const locale = localeForLanguage(language);
+  if (locale.startsWith("es")) {
+    return date.getFullYear() === now.getFullYear()
+      ? new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }).format(date)
+      : new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", year: "numeric" }).format(date);
+  }
+  const month = new Intl.DateTimeFormat(locale, { month: "short" }).format(date);
   if (date.getFullYear() === now.getFullYear()) {
     return `${month} ${ordinal(date.getDate())}`;
   }

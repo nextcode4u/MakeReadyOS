@@ -28,7 +28,8 @@ export type CustomFieldType = "TEXT" | "LONG_TEXT" | "NUMBER" | "DATE" | "SINGLE
 
 export type CurrentUser = {
   id: string;
-  email: string;
+  username: string;
+  email: string | null;
   fullName: string;
   role: UserRole;
   language: UserLanguage;
@@ -88,7 +89,8 @@ export type OperatingCalendar = {
 
 export type ManagedUser = {
   id: string;
-  email: string;
+  username: string;
+  email: string | null;
   fullName: string;
   role: UserRole;
   language: UserLanguage;
@@ -169,7 +171,7 @@ export type ApiTokenRecord = {
   lastUsedMethod: string | null;
   createdAt: string;
   updatedAt: string;
-  createdBy: { id: string; fullName: string; email: string };
+  createdBy: { id: string; fullName: string; email: string | null };
   properties: Array<Pick<Property, "id" | "name" | "code">>;
 };
 
@@ -209,7 +211,7 @@ export type WebhookEndpointRecord = {
   deliveryAttemptCount?: number;
   createdAt: string;
   updatedAt: string;
-  createdBy: { id: string; fullName: string; email: string };
+  createdBy: { id: string; fullName: string; email: string | null };
   properties: Array<Pick<Property, "id" | "name" | "code">>;
 };
 
@@ -3002,10 +3004,10 @@ export function getCurrentUser() {
   return request<{ user: CurrentUser; roles: UserRole[]; csrfToken: string }>("/auth/me");
 }
 
-export function login(email: string, password: string) {
+export function login(identifier: string, password: string) {
   return request<{ user: CurrentUser; roles: UserRole[]; csrfToken: string }>("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ identifier, password }),
   });
 }
 
@@ -3060,14 +3062,16 @@ export function updatePropertyStorageRouting(input: {
 
 export function createAdminUser(input: {
   fullName: string;
-  email: string;
+  username: string;
+  email?: string | null;
   role: UserRole;
   language?: UserLanguage;
   password: string;
   isActive: boolean;
   propertyIds: string[];
+  sendInviteEmail?: boolean;
 }) {
-  return request<{ user: ManagedUser }>("/admin/users", {
+  return request<{ user: ManagedUser; inviteSent: boolean; inviteError: string | null }>("/admin/users", {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -3075,7 +3079,8 @@ export function createAdminUser(input: {
 
 export function updateAdminUser(id: string, input: {
   fullName?: string;
-  email?: string;
+  username?: string;
+  email?: string | null;
   role?: UserRole;
   language?: UserLanguage;
   isActive?: boolean;

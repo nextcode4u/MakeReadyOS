@@ -722,7 +722,10 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     reply.header("x-offset", String(query.offset));
     reply.header("x-has-more", String(query.limit ? query.offset + items.length < total : false));
     reply.header("x-next-offset", query.limit && query.offset + items.length < total ? String(query.offset + items.length) : "");
-    return items;
+    return items.map((item) => ({
+      ...item,
+      ...computeDerivedFields(item),
+    }));
   });
 
   app.post("/make-ready-items", async (request, reply) => {

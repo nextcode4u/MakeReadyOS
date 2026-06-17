@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { makeReadyExportCsvUrl, makeReadyPdfReportUrl, type CurrentUser, type Property, type UserLanguage } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import type { ClockMode } from "../lib/dateTime";
-import { languageOptions, t } from "../lib/i18n";
+import { languageOptions, t, translateUserRole } from "../lib/i18n";
 import { isTouchMobileViewport } from "../lib/responsive";
 
 export type ThemeMode = "default" | "dark" | "light";
@@ -141,7 +141,7 @@ export function FilterBar({
       case "operations": return t(language, "nav.setup");
       case "fields": return t(language, "nav.fields");
       case "admin": return t(language, "nav.admin");
-      default: return "Workspace";
+      default: return t(language, "nav.workspace");
     }
   }
 
@@ -248,8 +248,8 @@ export function FilterBar({
   if (isMobileLayout) {
     return (
       <header className="filterbar mobile-filterbar">
-        <div className="mobile-filterbar-main" aria-label="Board essentials">
-          <select data-testid="property-filter" value={selectedPropertyId} onChange={(event) => onPropertyChange(event.target.value)} aria-label="Filter by property">
+        <div className="mobile-filterbar-main" aria-label={t(language, "nav.boardEssentials")}>
+          <select data-testid="property-filter" value={selectedPropertyId} onChange={(event) => onPropertyChange(event.target.value)} aria-label={t(language, "nav.filterByProperty")}>
             <option value="">{t(language, "nav.allProperties")}</option>
             {properties.map((property) => (
               <option key={property.id} value={property.id}>
@@ -262,20 +262,20 @@ export function FilterBar({
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder={t(language, "nav.searchPlaceholder")}
-            aria-label="Search board items"
+            aria-label={t(language, "nav.searchBoardItems")}
           />
           <div className="mobile-filterbar-actions">
             <button type="button" className={mobileViewsOpen ? "button mobile-filter-toggle active" : "button button-secondary mobile-filter-toggle"} onClick={toggleMobileViews}>
-              View: {viewLabel(activeView)}
+              {t(language, "nav.view")}: {viewLabel(activeView)}
             </button>
             <button type="button" className={mobileToolsOpen ? "button mobile-filter-toggle active" : "button button-secondary mobile-filter-toggle"} onClick={toggleMobileTools}>
-              Tools
+              {t(language, "nav.tools")}
             </button>
           </div>
         </div>
 
         {mobileViewsOpen ? (
-          <nav className="tabset mobile-tabset" role="tablist" aria-label="Primary workspace views">
+          <nav className="tabset mobile-tabset" role="tablist" aria-label={t(language, "nav.primaryWorkspaceViews")}>
             {operationViews}
             {visibilityViews}
             {managementViews}
@@ -284,8 +284,8 @@ export function FilterBar({
         ) : null}
 
         {mobileToolsOpen ? (
-          <div className="filters mobile-filters-panel" aria-label="Board tools">
-            <button data-testid="command-palette-button" className="button button-secondary command-button" type="button" onClick={onOpenCommandPalette} aria-label="Open quick search">
+          <div className="filters mobile-filters-panel" aria-label={t(language, "nav.boardTools")}>
+            <button data-testid="command-palette-button" className="button button-secondary command-button" type="button" onClick={onOpenCommandPalette} aria-label={t(language, "nav.openQuickSearch")}>
               {t(language, "nav.search")} <kbd>Ctrl K</kbd>
             </button>
             {(showAdmin || showOperations) ? (
@@ -302,19 +302,19 @@ export function FilterBar({
               />
               {t(language, "nav.compact")}
             </label>
-            <label className="toolbar-select" title="Choose workspace color theme">
-              <span className="sr-only">Theme</span>
-              <select data-testid="theme-mode-select" aria-label="Theme mode" value={themeMode} onChange={(event) => onThemeModeChange(event.target.value as ThemeMode)}>
+            <label className="toolbar-select" title={t(language, "nav.themeMode")}>
+              <span className="sr-only">{t(language, "nav.themeMode")}</span>
+              <select data-testid="theme-mode-select" aria-label={t(language, "nav.themeMode")} value={themeMode} onChange={(event) => onThemeModeChange(event.target.value as ThemeMode)}>
                 <option value="default">{t(language, "nav.defaultTheme")}</option>
                 <option value="dark">{t(language, "nav.darkTheme")}</option>
                 <option value="light">{t(language, "nav.lightTheme")}</option>
               </select>
             </label>
-            <label className="toolbar-select compact-clock-select" title="Choose timestamp display">
-              <span className="sr-only">Clock</span>
-              <select data-testid="clock-mode-select" aria-label="Clock mode" value={clockMode} onChange={(event) => onClockModeChange(event.target.value as ClockMode)}>
-                <option value="12h">12 hr</option>
-                <option value="24h">24 hr</option>
+            <label className="toolbar-select compact-clock-select" title={t(language, "nav.clockMode")}>
+              <span className="sr-only">{t(language, "nav.clockMode")}</span>
+              <select data-testid="clock-mode-select" aria-label={t(language, "nav.clockMode")} value={clockMode} onChange={(event) => onClockModeChange(event.target.value as ClockMode)}>
+                <option value="12h">{t(language, "nav.clock12")}</option>
+                <option value="24h">{t(language, "nav.clock24")}</option>
               </select>
             </label>
             <label className="toolbar-select compact-language-select" title="Choose interface language">
@@ -348,9 +348,9 @@ export function FilterBar({
               {t(language, "nav.dyslexia")}
             </label>
             {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
-              <label className="toolbar-select archive-mode-select" title="Choose active turns, archive history, or both">
-                <span className="sr-only">Archive mode</span>
-                <select data-testid="top-archive-mode" aria-label="Archive mode" value={archiveMode} onChange={(event) => onArchiveModeChange(event.target.value as ArchiveMode)}>
+            <label className="toolbar-select archive-mode-select" title={t(language, "nav.archiveMode")}>
+                <span className="sr-only">{t(language, "nav.archiveMode")}</span>
+                <select data-testid="top-archive-mode" aria-label={t(language, "nav.archiveMode")} value={archiveMode} onChange={(event) => onArchiveModeChange(event.target.value as ArchiveMode)}>
                   <option value="active">{t(language, "nav.activeItems")}</option>
                   <option value="archived">{t(language, "nav.archiveOnly")}</option>
                   <option value="occupied">{t(language, "nav.occupied")}</option>
@@ -362,9 +362,9 @@ export function FilterBar({
               {t(language, "nav.export")}
             </a>
             <a data-testid="export-pdf" className="button button-secondary export-button" href={makeReadyPdfReportUrl({ propertyId: selectedPropertyId || undefined })} target="_blank" rel="noreferrer">
-              PDF
+              {t(language, "nav.pdf")}
             </a>
-            <button data-testid="notifications-button" className="button button-secondary notification-button" onClick={onOpenNotifications} aria-label={`${notificationUnreadCount} unread notifications`}>
+            <button data-testid="notifications-button" className="button button-secondary notification-button" onClick={onOpenNotifications} aria-label={`${notificationUnreadCount} ${t(language, "nav.notificationsUnread")}`}>
               {t(language, "nav.alerts")}{notificationUnreadCount > 0 ? <strong>{notificationUnreadCount}</strong> : null}
             </button>
             <button data-testid="logout-button" className="button button-secondary" onClick={() => void onLogout()}>
@@ -381,18 +381,18 @@ export function FilterBar({
       <div className="operations-brand">
         <h1>MakeReadyOS</h1>
         <span className="operations-user">{currentUser.fullName}</span>
-        <span className="role-chip">{currentUser.role}</span>
+        <span className="role-chip">{translateUserRole(language, currentUser.role)}</span>
       </div>
 
-      <nav className="tabset" role="tablist" aria-label="Primary workspace views">
+      <nav className="tabset" role="tablist" aria-label={t(language, "nav.primaryWorkspaceViews")}>
         {operationViews}
         {visibilityViews}
         {managementViews}
         {adminViews}
       </nav>
 
-      <div className="filters" aria-label="Board tools">
-        <select data-testid="property-filter" value={selectedPropertyId} onChange={(event) => onPropertyChange(event.target.value)} aria-label="Filter by property">
+      <div className="filters" aria-label={t(language, "nav.boardTools")}>
+        <select data-testid="property-filter" value={selectedPropertyId} onChange={(event) => onPropertyChange(event.target.value)} aria-label={t(language, "nav.filterByProperty")}>
           <option value="">{t(language, "nav.allProperties")}</option>
           {properties.map((property) => (
             <option key={property.id} value={property.id}>
@@ -405,9 +405,9 @@ export function FilterBar({
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder={t(language, "nav.searchPlaceholder")}
-          aria-label="Search board items"
+          aria-label={t(language, "nav.searchBoardItems")}
         />
-        <button data-testid="command-palette-button" className="button button-secondary command-button" type="button" onClick={onOpenCommandPalette} aria-label="Open quick search">
+        <button data-testid="command-palette-button" className="button button-secondary command-button" type="button" onClick={onOpenCommandPalette} aria-label={t(language, "nav.openQuickSearch")}>
           {t(language, "nav.search")} <kbd>Ctrl K</kbd>
         </button>
         {(showAdmin || showOperations) ? (
@@ -424,19 +424,19 @@ export function FilterBar({
           />
           {t(language, "nav.compact")}
         </label>
-        <label className="toolbar-select" title="Choose workspace color theme">
-          <span className="sr-only">Theme</span>
-          <select data-testid="theme-mode-select" aria-label="Theme mode" value={themeMode} onChange={(event) => onThemeModeChange(event.target.value as ThemeMode)}>
+        <label className="toolbar-select" title={t(language, "nav.themeMode")}>
+          <span className="sr-only">{t(language, "nav.themeMode")}</span>
+          <select data-testid="theme-mode-select" aria-label={t(language, "nav.themeMode")} value={themeMode} onChange={(event) => onThemeModeChange(event.target.value as ThemeMode)}>
             <option value="default">{t(language, "nav.defaultTheme")}</option>
             <option value="dark">{t(language, "nav.darkTheme")}</option>
             <option value="light">{t(language, "nav.lightTheme")}</option>
           </select>
         </label>
-        <label className="toolbar-select compact-clock-select" title="Choose timestamp display">
-          <span className="sr-only">Clock</span>
-          <select data-testid="clock-mode-select" aria-label="Clock mode" value={clockMode} onChange={(event) => onClockModeChange(event.target.value as ClockMode)}>
-            <option value="12h">12 hr</option>
-            <option value="24h">24 hr</option>
+        <label className="toolbar-select compact-clock-select" title={t(language, "nav.clockMode")}>
+          <span className="sr-only">{t(language, "nav.clockMode")}</span>
+          <select data-testid="clock-mode-select" aria-label={t(language, "nav.clockMode")} value={clockMode} onChange={(event) => onClockModeChange(event.target.value as ClockMode)}>
+            <option value="12h">{t(language, "nav.clock12")}</option>
+            <option value="24h">{t(language, "nav.clock24")}</option>
           </select>
         </label>
         <label className="toolbar-select compact-language-select" title="Choose interface language">
@@ -470,9 +470,9 @@ export function FilterBar({
           {t(language, "nav.dyslexia")}
         </label>
         {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
-          <label className="toolbar-select archive-mode-select" title="Choose active turns, archive history, or both">
-            <span className="sr-only">Archive mode</span>
-            <select data-testid="top-archive-mode" aria-label="Archive mode" value={archiveMode} onChange={(event) => onArchiveModeChange(event.target.value as ArchiveMode)}>
+        <label className="toolbar-select archive-mode-select" title={t(language, "nav.archiveMode")}>
+          <span className="sr-only">{t(language, "nav.archiveMode")}</span>
+          <select data-testid="top-archive-mode" aria-label={t(language, "nav.archiveMode")} value={archiveMode} onChange={(event) => onArchiveModeChange(event.target.value as ArchiveMode)}>
               <option value="active">{t(language, "nav.activeItems")}</option>
               <option value="archived">{t(language, "nav.archiveOnly")}</option>
               <option value="occupied">{t(language, "nav.occupied")}</option>
@@ -484,9 +484,9 @@ export function FilterBar({
           {t(language, "nav.export")}
         </a>
         <a data-testid="export-pdf" className="button button-secondary export-button" href={makeReadyPdfReportUrl({ propertyId: selectedPropertyId || undefined })} target="_blank" rel="noreferrer">
-          PDF
+          {t(language, "nav.pdf")}
         </a>
-        <button data-testid="notifications-button" className="button button-secondary notification-button" onClick={onOpenNotifications} aria-label={`${notificationUnreadCount} unread notifications`}>
+        <button data-testid="notifications-button" className="button button-secondary notification-button" onClick={onOpenNotifications} aria-label={`${notificationUnreadCount} ${t(language, "nav.notificationsUnread")}`}>
           {t(language, "nav.alerts")}{notificationUnreadCount > 0 ? <strong>{notificationUnreadCount}</strong> : null}
         </button>
         <button data-testid="logout-button" className="button button-secondary" onClick={() => void onLogout()}>

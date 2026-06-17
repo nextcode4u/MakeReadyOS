@@ -147,7 +147,7 @@ The script requires a running Compose API service and writes `logs/seed-large-<t
 
 This means the following auth settings must be present for realistic local runs:
 
-- `ADMIN_EMAIL`
+- `ADMIN_USERNAME` or `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 - `DEMO_TECH_EMAIL`
 - `DEMO_TECH_PASSWORD`

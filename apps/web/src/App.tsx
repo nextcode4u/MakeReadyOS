@@ -141,6 +141,7 @@ import {
 } from "./lib/api";
 import { configuredScheduleTracks, kanbanGroupOptions, labelMap, normalizeVisibleColumns, visibleColumnOptions } from "./lib/board";
 import { clockModeStorageKey, type ClockMode } from "./lib/dateTime";
+import { t } from "./lib/i18n";
 import { customFieldFilterChipLabel, customOperatorsByType, defaultCustomFilterFor, defaultStructuredFilters, itemMatchesStructuredFilters, normalizeCustomFieldFilters, type CustomFieldFilter, type StructuredFilters } from "./lib/structuredFilters";
 import { openWikiRecordEventName, type OpenWikiRecordRequest } from "./lib/wikiNavigation";
 import { openProjectCreateEventName, openProjectRecordEventName, type OpenProjectCreateRequest, type OpenProjectRecordRequest } from "./lib/projectNavigation";
@@ -774,7 +775,7 @@ function App() {
   });
 
   const loginMutation = useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) => login(email, password),
+    mutationFn: ({ identifier, password }: { identifier: string; password: string }) => login(identifier, password),
     onSuccess: async () => {
       setForceLoggedOut(false);
       setLoginError("");
@@ -1675,8 +1676,21 @@ function App() {
       queryClient.setQueryData<{ users: ManagedUser[] } | undefined>(["admin", "users"], (current) => ({
         users: [...(current?.users ?? []), data.user],
       }));
-      await refreshAdmin(`Created user ${data.user.fullName}`);
-      pushToast("User created", `${data.user.fullName} was added successfully.`, "success");
+      const inviteSuffix = data.inviteSent
+        ? " and sent invite email"
+        : data.inviteError
+          ? ` but invite email failed: ${data.inviteError}`
+          : "";
+      await refreshAdmin(`Created user ${data.user.fullName}${inviteSuffix}`);
+      pushToast(
+        "User created",
+        data.inviteSent
+          ? `${data.user.fullName} was added and the invite email was sent.`
+          : data.inviteError
+            ? `${data.user.fullName} was added, but the invite email failed.`
+            : `${data.user.fullName} was added successfully.`,
+        data.inviteError ? "info" : "success"
+      );
     },
     onError: (error) => {
       setAdminMessage("");
@@ -1693,7 +1707,7 @@ function App() {
       ));
       if (currentUser?.id === data.user.id) {
         queryClient.setQueryData<{ user: CurrentUser; roles: string[]; csrfToken: string } | null | undefined>(["auth", "me"], (current) => (
-          current ? { ...current, user: { ...current.user, fullName: data.user.fullName, email: data.user.email, role: data.user.role, language: data.user.language } } : current
+          current ? { ...current, user: { ...current.user, fullName: data.user.fullName, username: data.user.username, email: data.user.email, role: data.user.role, language: data.user.language } } : current
         ));
       }
       await refreshAdmin(`Updated ${data.user.fullName}`);
@@ -2338,8 +2352,8 @@ function App() {
           errorMessage={loginError || (meQuery.error instanceof Error && !isApiError(meQuery.error) ? meQuery.error.message : "")}
           infoMessage={sessionMessage}
           language="en"
-          onSubmit={async (email, password) => {
-            await loginMutation.mutateAsync({ email, password });
+          onSubmit={async (identifier, password) => {
+            await loginMutation.mutateAsync({ identifier, password });
           }}
         />
         <PWAInstallPrompt />
@@ -2491,11 +2505,12 @@ function App() {
             lastIssueAt={lastConnectionIssueAt}
             pendingSyncCount={offlineQueuePendingCount}
             syncing={offlineQueueSyncing}
+            language={currentUser.language}
             onRetry={retryConnection}
           />
           <Suspense fallback={
             <div className="panel-state-wrap">
-              <StatusState title="Loading workspace" description="Preparing this MakeReadyOS view." />
+              <StatusState title={t(currentUser.language, "status.loadingWorkspace")} description={t(currentUser.language, "status.loadingWorkspaceCopy")} />
             </div>
           }>
           {activeView === "dashboard" ? (
@@ -2507,6 +2522,7 @@ function App() {
               error={dashboardQuery.isError}
               propertyId={propertyId}
               onOpenItem={openItemDrawer}
+              language={currentUser.language}
               onDrillDown={({ type, value }) => {
                 setActiveView("table");
                 clearBoardFilters(true);
@@ -2590,11 +2606,11 @@ function App() {
           ) : activeView === "operations" && (currentUser.role === "ADMIN" || currentUser.role === "MANAGER") ? (
             operationsPropertiesQuery.isLoading || operationsUnitsQuery.isLoading || operationsOptionsQuery.isLoading || floorPlansQuery.isLoading || scheduleTracksQuery.isLoading || operatingCalendarsQuery.isLoading || riskPoliciesQuery.isLoading ? (
               <div className="panel-state-wrap">
-                <StatusState title="Loading board setup" description="Fetching properties, units, and turnover lifecycle records." />
+                <StatusState title={t(currentUser.language, "status.loadingBoardSetup")} description={t(currentUser.language, "status.loadingBoardSetupCopy")} />
               </div>
             ) : operationsPropertiesQuery.isError || operationsUnitsQuery.isError || operationsOptionsQuery.isError || floorPlansQuery.isError || scheduleTracksQuery.isError || operatingCalendarsQuery.isError || riskPoliciesQuery.isError ? (
               <div className="panel-state-wrap">
-                <StatusState title="Board setup failed to load" description="Refresh the workspace and retry." tone="error" />
+                <StatusState title={t(currentUser.language, "status.boardSetupFailed")} description={t(currentUser.language, "status.boardSetupFailedCopy")} tone="error" />
               </div>
             ) : (
               <>
@@ -2782,11 +2798,11 @@ function App() {
           ) : activeView === "fields" && (currentUser.role === "ADMIN" || currentUser.role === "MANAGER") ? (
             customFieldsQuery.isLoading ? (
               <div className="panel-state-wrap">
-                <StatusState title="Loading custom fields" description="Fetching configurable make-ready columns and option sets." />
+                <StatusState title={t(currentUser.language, "status.loadingCustomFields")} description={t(currentUser.language, "status.loadingCustomFieldsCopy")} />
               </div>
             ) : customFieldsQuery.isError ? (
               <div className="panel-state-wrap">
-                <StatusState title="Custom fields failed to load" description="Refresh the workspace and retry." tone="error" />
+                <StatusState title={t(currentUser.language, "status.customFieldsFailed")} description={t(currentUser.language, "status.customFieldsFailedCopy")} tone="error" />
               </div>
             ) : (
               <CustomFieldsPanel
@@ -2820,11 +2836,11 @@ function App() {
           ) : activeView === "automations" && (currentUser.role === "ADMIN" || currentUser.role === "MANAGER") ? (
             automationsQuery.isLoading || automationTemplatesQuery.isLoading || operationalLibraryQuery.isLoading || propertyTemplatesQuery.isLoading ? (
               <div className="panel-state-wrap">
-                <StatusState title="Loading automations" description="Fetching structured rules and recent execution history." />
+                <StatusState title={t(currentUser.language, "status.loadingAutomations")} description={t(currentUser.language, "status.loadingAutomationsCopy")} />
               </div>
             ) : automationsQuery.isError || automationTemplatesQuery.isError || operationalLibraryQuery.isError || propertyTemplatesQuery.isError ? (
               <div className="panel-state-wrap">
-                <StatusState title="Automations failed to load" description="Refresh the workspace and retry." tone="error" />
+                <StatusState title={t(currentUser.language, "status.automationsFailed")} description={t(currentUser.language, "status.automationsFailedCopy")} tone="error" />
               </div>
             ) : (
               <AutomationPanel
@@ -2896,13 +2912,13 @@ function App() {
           ) : activeView === "admin" && currentUser.role === "ADMIN" ? (
             adminUsersQuery.isLoading || adminPropertiesQuery.isLoading ? (
               <div className="panel-state-wrap">
-                <StatusState title="Loading admin workspace" description="Fetching users, roles, and property access settings." />
+                <StatusState title={t(currentUser.language, "status.loadingAdminWorkspace")} description={t(currentUser.language, "status.loadingAdminWorkspaceCopy")} />
               </div>
             ) : adminUsersQuery.isError || adminPropertiesQuery.isError ? (
               <div className="panel-state-wrap">
                 <StatusState
-                  title="Admin data failed to load"
-                  description="Refresh the page or sign in again if your session expired."
+                  title={t(currentUser.language, "status.adminFailed")}
+                  description={t(currentUser.language, "status.adminFailedCopy")}
                   tone="error"
                 />
               </div>
@@ -2912,6 +2928,7 @@ function App() {
                 properties={adminPropertiesQuery.data?.properties ?? []}
                 appInfo={metaQuery.data?.app ?? null}
                 currentUserId={currentUser.id}
+                language={currentUser.language}
                 loading={
                   adminUsersQuery.isLoading ||
                   adminCreateMutation.isPending ||
@@ -2947,24 +2964,24 @@ function App() {
             )
           ) : metaQuery.isLoading || itemsQuery.isLoading ? (
             <div className="panel-state-wrap">
-              <StatusState title="Loading board" description="Preparing properties, labels, and make-ready items." />
+              <StatusState title={t(currentUser.language, "status.loadingBoard")} description={t(currentUser.language, "status.loadingBoardCopy")} />
             </div>
           ) : metaQuery.isError || itemsQuery.isError ? (
             <div className="panel-state-wrap">
               <StatusState
-                title="Board data failed to load"
-                description="Refresh the workspace or sign in again if your session has expired."
+                title={t(currentUser.language, "status.boardFailed")}
+                description={t(currentUser.language, "status.boardFailedCopy")}
                 tone="error"
-                action={{ label: "Reload", onClick: () => window.location.reload() }}
+                action={{ label: t(currentUser.language, "status.reload"), onClick: () => window.location.reload() }}
               />
             </div>
           ) : savedViewsQuery.isLoading ? (
             <div className="panel-state-wrap">
-              <StatusState title="Loading saved views" description="Restoring your view presets and board preferences." />
+              <StatusState title={t(currentUser.language, "status.loadingSavedViews")} description={t(currentUser.language, "status.loadingSavedViewsCopy")} />
             </div>
           ) : savedViewsQuery.isError ? (
             <div className="panel-state-wrap">
-              <StatusState title="Saved views failed to load" description="The board is still available, but your stored views could not be fetched." tone="error" />
+              <StatusState title={t(currentUser.language, "status.savedViewsFailed")} description={t(currentUser.language, "status.savedViewsFailedCopy")} tone="error" />
             </div>
           ) : <>
             {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (

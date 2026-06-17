@@ -263,8 +263,13 @@ function defaultSections(propertyId: string, code: string) {
 
 async function main() {
   const adminPasswordHash = await hashPassword(authConfig.adminPassword);
-  const existingAdmin = await prisma.user.findUnique({
-    where: { email: authConfig.adminEmail },
+  const existingAdmin = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { username: authConfig.adminUsername },
+        ...(authConfig.adminEmail ? [{ email: authConfig.adminEmail }] : []),
+      ],
+    },
   });
   let adminUserId: string;
 
@@ -272,6 +277,8 @@ async function main() {
     const updated = await prisma.user.update({
       where: { id: existingAdmin.id },
       data: {
+        username: authConfig.adminUsername,
+        email: authConfig.adminEmail,
         passwordHash: adminPasswordHash,
         role: UserRole.ADMIN,
         isActive: true,
@@ -281,6 +288,7 @@ async function main() {
   } else {
     const created = await prisma.user.create({
       data: {
+        username: authConfig.adminUsername,
         email: authConfig.adminEmail,
         passwordHash: adminPasswordHash,
         fullName: "Default Admin",
@@ -303,6 +311,8 @@ async function main() {
       const updated = await prisma.user.update({
         where: { id: existingTech.id },
         data: {
+          username: authConfig.demoTechEmail,
+          email: authConfig.demoTechEmail,
           passwordHash: demoTechPasswordHash,
           fullName: "Demo Tech",
           role: UserRole.TECH,
@@ -313,6 +323,7 @@ async function main() {
     } else {
       const created = await prisma.user.create({
         data: {
+          username: authConfig.demoTechEmail,
           email: authConfig.demoTechEmail,
           passwordHash: demoTechPasswordHash,
           fullName: "Demo Tech",
@@ -335,10 +346,10 @@ async function main() {
     const saved = existing
       ? await prisma.user.update({
           where: { id: existing.id },
-          data: { passwordHash, fullName: demoUser.fullName, role: demoUser.role, isActive: true },
+          data: { username: demoUser.email, email: demoUser.email, passwordHash, fullName: demoUser.fullName, role: demoUser.role, isActive: true },
         })
       : await prisma.user.create({
-          data: { email: demoUser.email, passwordHash, fullName: demoUser.fullName, role: demoUser.role },
+          data: { username: demoUser.email, email: demoUser.email, passwordHash, fullName: demoUser.fullName, role: demoUser.role },
         });
     if (demoUser.role === UserRole.LEASING) demoLeasingUserId = saved.id;
     if (demoUser.role === UserRole.CLEANER) demoCleanerUserId = saved.id;

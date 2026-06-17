@@ -1,9 +1,11 @@
 import { useState } from "react";
 import type { UserLanguage } from "../lib/api";
-import { languageOptions, t } from "../lib/i18n";
+import { languageOptions, normalizeLanguage, t } from "../lib/i18n";
+
+const loginLanguageStorageKey = "makereadyos.loginLanguage";
 
 type Props = {
-  onSubmit: (email: string, password: string) => Promise<void>;
+  onSubmit: (identifier: string, password: string) => Promise<void>;
   errorMessage?: string;
   loading?: boolean;
   infoMessage?: string;
@@ -11,9 +13,12 @@ type Props = {
 };
 
 export function LoginScreen({ onSubmit, errorMessage, loading, infoMessage, language = "en" }: Props) {
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-  const [selectedLanguage, setSelectedLanguage] = useState<UserLanguage>(language);
+  const [selectedLanguage, setSelectedLanguage] = useState<UserLanguage>(() => {
+    if (typeof window === "undefined") return normalizeLanguage(language);
+    return normalizeLanguage(window.localStorage.getItem(loginLanguageStorageKey) ?? language);
+  });
 
   return (
     <main className="login-shell">
@@ -27,7 +32,7 @@ export function LoginScreen({ onSubmit, errorMessage, loading, infoMessage, lang
           className="login-form"
           onSubmit={async (event) => {
             event.preventDefault();
-            await onSubmit(email, password);
+            await onSubmit(identifier, password);
           }}
         >
           <label>
@@ -35,7 +40,13 @@ export function LoginScreen({ onSubmit, errorMessage, loading, infoMessage, lang
             <select
               data-testid="login-language"
               value={selectedLanguage}
-              onChange={(event) => setSelectedLanguage(event.target.value as UserLanguage)}
+              onChange={(event) => {
+                const next = normalizeLanguage(event.target.value) as UserLanguage;
+                setSelectedLanguage(next);
+                if (typeof window !== "undefined") {
+                  window.localStorage.setItem(loginLanguageStorageKey, next);
+                }
+              }}
             >
               {languageOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -46,13 +57,15 @@ export function LoginScreen({ onSubmit, errorMessage, loading, infoMessage, lang
           </label>
 
           <label>
-            {t(selectedLanguage, "auth.email")}
+            {t(selectedLanguage, "auth.identifier")}
             <input
               data-testid="login-email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              type="email"
-              placeholder="admin@example.com"
+              value={identifier}
+              onChange={(event) => setIdentifier(event.target.value)}
+              type="text"
+              autoCapitalize="none"
+              autoCorrect="off"
+              placeholder={t(selectedLanguage, "auth.identifierPlaceholder")}
               required
             />
           </label>

@@ -1784,6 +1784,16 @@ textarea {
   min-height: calc(var(--control-height) - 0.05rem);
 }
 
+.filterbar button:focus-visible,
+.filterbar input:focus-visible,
+.filterbar select:focus-visible,
+.filterbar .tab:focus-visible,
+.filterbar .compact-toggle:focus-within {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--border));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
 .toolbar-select select {
   max-width: 8.6rem;
   font-size: 0.8rem;
@@ -7399,10 +7409,12 @@ textarea {
   }
 
   .mobile-filterbar .mobile-tabset {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr;
     width: 100%;
-    overflow-x: auto;
-    padding-bottom: 0.2rem;
+    gap: 0.45rem;
+    overflow: visible;
+    padding-bottom: 0;
     position: relative;
     z-index: 42;
   }
@@ -7412,7 +7424,18 @@ textarea {
   }
 
   .mobile-filterbar .nav-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
     padding: 0.2rem;
+    gap: 0.38rem;
+  }
+
+  .mobile-filterbar .mobile-tabset .tab {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+    text-align: center;
   }
 
   .mobile-filterbar .filters.mobile-filters-panel {
@@ -10640,6 +10663,65 @@ textarea {
   margin-bottom: 0.9rem;
 }
 
+.lease-repeat-card {
+  display: grid;
+  grid-template-columns: minmax(0, 8rem) minmax(0, 1fr);
+  gap: 0.8rem;
+  padding: 0.8rem;
+  border: 1px solid rgba(88, 166, 222, 0.28);
+  border-radius: 0.85rem;
+  background: rgba(88, 166, 222, 0.08);
+}
+
+.lease-repeat-card-media {
+  min-width: 0;
+}
+
+.lease-repeat-card-media a,
+.lease-repeat-card-media img {
+  display: block;
+  width: 100%;
+}
+
+.lease-repeat-card-media img {
+  height: 8rem;
+  object-fit: cover;
+  border-radius: 0.7rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.lease-repeat-card-placeholder {
+  display: grid;
+  place-items: center;
+  min-height: 8rem;
+  border: 1px dashed var(--line);
+  border-radius: 0.7rem;
+  color: var(--muted);
+  background: var(--panel);
+  text-align: center;
+  padding: 0.6rem;
+}
+
+.lease-repeat-card-body {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.lease-repeat-card-body h3,
+.lease-repeat-card-body p {
+  margin: 0;
+}
+
+.lease-repeat-card-actions {
+  justify-content: flex-start;
+}
+
+.lease-advanced-toggle {
+  align-self: start;
+}
+
 .lease-grounds-toggle {
   align-items: center;
   display: inline-flex;
@@ -10955,6 +11037,15 @@ textarea {
   .property-wiki-panel .module-tabs button,
   .pool-panel .module-tabs button {
     flex: 1 1 calc(50% - 0.45rem);
+  }
+
+  .lease-repeat-card {
+    grid-template-columns: 1fr;
+  }
+
+  .lease-repeat-card-media img,
+  .lease-repeat-card-placeholder {
+    height: 12rem;
   }
 }
 

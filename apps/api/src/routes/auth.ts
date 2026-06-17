@@ -8,7 +8,7 @@ import { verifyPassword } from "../lib/password.js";
 import { prisma } from "../lib/prisma.js";
 
 export const loginSchema = z.object({
-  email: z.string().email(),
+  identifier: z.string().trim().min(1).max(120),
   password: z.string().min(8),
 });
 
@@ -19,7 +19,7 @@ const languageSchema = z.object({
 export async function authRoutes(app: FastifyInstance) {
   const rateLimitWindowMs = authConfig.loginRateLimitWindowMinutes * 60 * 1000;
 
-  async function ensureLoginAllowed(request: FastifyRequest, email: string) {
+  async function ensureLoginAllowed(request: FastifyRequest, identifier: string) {
     const ipAddress = clientIpAddress(request);
     const recentFailures = await prisma.auditLog.count({
       where: {
@@ -39,9 +39,9 @@ export async function authRoutes(app: FastifyInstance) {
         request,
         entityType: "AUTH",
         action: "AUTH_LOGIN_RATE_LIMITED",
-        message: `Rate limited login attempt for ${email}`,
+        message: `Rate limited login attempt for ${identifier}`,
         metadata: {
-          email,
+          identifier,
           windowMinutes: authConfig.loginRateLimitWindowMinutes,
           maxAttempts: authConfig.loginRateLimitMax,
         },
@@ -65,15 +65,20 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     const payload = loginSchema.parse(request.body);
-    const email = payload.email.toLowerCase();
+    const identifier = payload.identifier.trim().toLowerCase();
 
-    if (!(await ensureLoginAllowed(request, email))) {
+    if (!(await ensureLoginAllowed(request, identifier))) {
       reply.code(429);
       return { message: "Too many failed login attempts. Try again later." };
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email },
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { username: identifier },
+          { email: identifier },
+        ],
+      },
       include: { propertyAccess: true },
     });
 
@@ -82,9 +87,9 @@ export async function authRoutes(app: FastifyInstance) {
         request,
         entityType: "AUTH",
         action: "AUTH_LOGIN_FAILED",
-        message: `Failed login attempt for ${email}`,
+        message: `Failed login attempt for ${identifier}`,
         metadata: {
-          email,
+          identifier,
           reason: "user_not_found_or_inactive",
         },
       });
@@ -99,9 +104,9 @@ export async function authRoutes(app: FastifyInstance) {
         actorUserId: user.id,
         entityType: "AUTH",
         action: "AUTH_LOGIN_FAILED",
-        message: `Failed login attempt for ${email}`,
+        message: `Failed login attempt for ${identifier}`,
         metadata: {
-          email,
+          identifier,
           reason: "invalid_password",
         },
       });
@@ -121,15 +126,17 @@ export async function authRoutes(app: FastifyInstance) {
       actorUserId: user.id,
       entityType: "AUTH",
       action: "AUTH_LOGIN_SUCCESS",
-      message: `User ${user.email} logged in`,
+      message: `User ${user.username} logged in`,
       metadata: {
         role: user.role,
+        identifier,
       },
     });
 
     return {
       user: sanitizeUser({
         id: user.id,
+        username: user.username,
         email: user.email,
         fullName: user.fullName,
         role: user.role,
@@ -162,7 +169,7 @@ export async function authRoutes(app: FastifyInstance) {
         actorUserId: currentUser.id,
         entityType: "AUTH",
         action: "AUTH_LOGOUT",
-        message: `User ${currentUser.email} logged out`,
+        message: `User ${currentUser.username} logged out`,
       });
     }
 
@@ -185,7 +192,7 @@ export async function authRoutes(app: FastifyInstance) {
       actorUserId: currentUser.id,
       entityType: "AUTH",
       action: "AUTH_LOGOUT_ALL",
-      message: `User ${currentUser.email} logged out all sessions`,
+      message: `User ${currentUser.username} logged out all sessions`,
     });
 
     return { ok: true };
@@ -226,13 +233,14 @@ export async function authRoutes(app: FastifyInstance) {
       entityType: "USER",
       entityId: currentUser.id,
       action: "USER_LANGUAGE_UPDATED",
-      message: `Updated language preference for ${updated.email}`,
+      message: `Updated language preference for ${updated.username}`,
       metadata: { language: updated.language },
     });
 
     return {
       user: sanitizeUser({
         id: updated.id,
+        username: updated.username,
         email: updated.email,
         fullName: updated.fullName,
         role: updated.role,

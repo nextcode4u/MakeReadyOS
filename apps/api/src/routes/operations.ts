@@ -317,6 +317,7 @@ function buildAvailabilityConflict(existingTurn: {
   createdAt: Date;
 }, row: z.infer<typeof availabilityImportRowSchema>, status: string, projectedBoardGroup: string) {
   const fieldChanges: string[] = [];
+  const blockingFieldChanges: string[] = [];
   const nextVacancyStatus = status === "MODEL" ? "VACANT NOT LEASED NOT READY" : status;
   const noticeStatus = status === "NTV" || status === "NTV_LEASED" || status === "NTV NOT LEASED" || status === "NTV LEASED";
   const reportMoveOut = row.moveOutDate !== undefined ? (noticeStatus ? normalizeDateString(row.moveOutDate) : "") : normalizeDateString(existingTurn.moveOutDate);
@@ -330,14 +331,46 @@ function buildAvailabilityConflict(existingTurn: {
     ? (row.makeReadyStatus ?? "")
     : (existingTurn.makeReadyStatus ?? (isReadyAvailabilityStatus(status) ? "DONE" : ""));
 
-  if (nextVacancyStatus !== (existingTurn.vacancyStatus ?? "")) fieldChanges.push(`Vacancy: ${existingTurn.vacancyStatus ?? "blank"} -> ${nextVacancyStatus}`);
-  if (reportApplicant !== (existingTurn.applicant ?? "")) fieldChanges.push(`Applicant: ${existingTurn.applicant || "blank"} -> ${reportApplicant || "blank"}`);
-  if (reportMoveOut !== normalizeDateString(existingTurn.moveOutDate)) fieldChanges.push(`NTV date: ${normalizeDateString(existingTurn.moveOutDate) || "blank"} -> ${reportMoveOut || "blank"}`);
-  if (reportVacated !== normalizeDateString(existingTurn.vacatedDate)) fieldChanges.push(`Vacated: ${normalizeDateString(existingTurn.vacatedDate) || "blank"} -> ${reportVacated || "blank"}`);
-  if (reportMakeReady !== normalizeDateString(existingTurn.makeReadyDate)) fieldChanges.push(`Make ready: ${normalizeDateString(existingTurn.makeReadyDate) || "blank"} -> ${reportMakeReady || "blank"}`);
-  if (reportMoveIn !== normalizeDateString(existingTurn.moveInDate)) fieldChanges.push(`Move-in: ${normalizeDateString(existingTurn.moveInDate) || "blank"} -> ${reportMoveIn || "blank"}`);
-  if (reportMakeReadyStatus !== (existingTurn.makeReadyStatus ?? "")) fieldChanges.push(`Make ready status: ${existingTurn.makeReadyStatus || "blank"} -> ${reportMakeReadyStatus || "blank"}`);
-  if (projectedBoardGroup !== existingTurn.boardGroup) fieldChanges.push(`Board section will change from ${existingTurn.boardGroup} to ${projectedBoardGroup}`);
+  if (nextVacancyStatus !== (existingTurn.vacancyStatus ?? "")) {
+    const change = `Vacancy: ${existingTurn.vacancyStatus ?? "blank"} -> ${nextVacancyStatus}`;
+    fieldChanges.push(change);
+    blockingFieldChanges.push(change);
+  }
+  if (reportApplicant !== (existingTurn.applicant ?? "")) {
+    const change = `Applicant: ${existingTurn.applicant || "blank"} -> ${reportApplicant || "blank"}`;
+    fieldChanges.push(change);
+    blockingFieldChanges.push(change);
+  }
+  if (reportMoveOut !== normalizeDateString(existingTurn.moveOutDate)) {
+    const change = `NTV date: ${normalizeDateString(existingTurn.moveOutDate) || "blank"} -> ${reportMoveOut || "blank"}`;
+    fieldChanges.push(change);
+    blockingFieldChanges.push(change);
+  }
+  if (reportVacated !== normalizeDateString(existingTurn.vacatedDate)) {
+    const change = `Vacated: ${normalizeDateString(existingTurn.vacatedDate) || "blank"} -> ${reportVacated || "blank"}`;
+    fieldChanges.push(change);
+    blockingFieldChanges.push(change);
+  }
+  if (reportMakeReady !== normalizeDateString(existingTurn.makeReadyDate)) {
+    const change = `Make ready: ${normalizeDateString(existingTurn.makeReadyDate) || "blank"} -> ${reportMakeReady || "blank"}`;
+    fieldChanges.push(change);
+    blockingFieldChanges.push(change);
+  }
+  if (reportMoveIn !== normalizeDateString(existingTurn.moveInDate)) {
+    const change = `Move-in: ${normalizeDateString(existingTurn.moveInDate) || "blank"} -> ${reportMoveIn || "blank"}`;
+    fieldChanges.push(change);
+    blockingFieldChanges.push(change);
+  }
+  if (reportMakeReadyStatus !== (existingTurn.makeReadyStatus ?? "")) {
+    const change = `Make ready status: ${existingTurn.makeReadyStatus || "blank"} -> ${reportMakeReadyStatus || "blank"}`;
+    fieldChanges.push(change);
+    blockingFieldChanges.push(change);
+  }
+  if (projectedBoardGroup !== existingTurn.boardGroup) {
+    const change = `Board section will change from ${existingTurn.boardGroup} to ${projectedBoardGroup}`;
+    fieldChanges.push(change);
+    blockingFieldChanges.push(change);
+  }
   if (row.daysVacant !== undefined && row.daysVacant !== null && Number(row.daysVacant) !== Number(existingTurn.daysVacant ?? 0)) {
     fieldChanges.push(`Days vacant: ${Number(existingTurn.daysVacant ?? 0)} -> ${Number(row.daysVacant)}`);
   }
@@ -349,6 +382,7 @@ function buildAvailabilityConflict(existingTurn: {
     && !isDoneLikeStatus(reportMakeReadyStatus);
   const localChangeAfterReport = reportDate ? existingTurn.updatedAt.getTime() > reportDate.getTime() : existingTurn.updatedAt.getTime() > existingTurn.createdAt.getTime();
 
+  if (blockingFieldChanges.length === 0 && !localReadyRegression) return null;
   if (!localReadyRegression && !localChangeAfterReport) return null;
 
   return {

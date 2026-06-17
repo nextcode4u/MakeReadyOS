@@ -7,26 +7,37 @@ import { z } from "zod";
 import { requireAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { assertStrongPassword, minimumPasswordLength } from "../lib/config.js";
+import { inviteEmailConfigured, sendUserInviteEmail } from "../lib/email.js";
 import { hashPassword } from "../lib/password.js";
 import { prisma } from "../lib/prisma.js";
 import { sanitizeUploadSegment } from "../lib/uploadStorage.js";
 
 const editableRoles = z.nativeEnum(UserRole);
 const languageSchema = z.enum(["en", "es"]);
+const usernameSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(40)
+  .regex(/^[a-z0-9._-]+$/i, "Username may only use letters, numbers, dots, underscores, and dashes.");
+const optionalEmailSchema = z.union([z.string().trim().email(), z.literal(""), z.null()]).optional();
 
 export const adminCreateUserSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
-  email: z.string().trim().email(),
+  username: usernameSchema,
+  email: optionalEmailSchema,
   role: editableRoles,
   language: languageSchema.default("en"),
   password: z.string().min(minimumPasswordLength, `Password must be at least ${minimumPasswordLength} characters.`),
   isActive: z.boolean().default(true),
   propertyIds: z.array(z.string()).default([]),
+  sendInviteEmail: z.boolean().default(false),
 });
 
 export const adminUpdateUserSchema = z.object({
   fullName: z.string().trim().min(2).max(120).optional(),
-  email: z.string().trim().email().optional(),
+  username: usernameSchema.optional(),
+  email: optionalEmailSchema,
   role: editableRoles.optional(),
   language: languageSchema.optional(),
   isActive: z.boolean().optional(),
@@ -155,7 +166,8 @@ function serializePropertyStorage(property: { id: string; code: string; name: st
 
 function serializeUser(user: {
   id: string;
-  email: string;
+  username: string;
+  email: string | null;
   fullName: string;
   role: UserRole;
   language: string;
@@ -166,6 +178,7 @@ function serializeUser(user: {
 }) {
   return {
     id: user.id,
+    username: user.username,
     email: user.email,
     fullName: user.fullName,
     role: user.role,
@@ -397,23 +410,37 @@ export async function adminRoutes(app: FastifyInstance) {
     try {
       assertStrongPassword(payload.password, "password");
       await ensurePropertiesExist(payload.propertyIds);
+      if (payload.sendInviteEmail && !inviteEmailConfigured()) {
+        throw new Error("SMTP invite email is not configured. Set SMTP_HOST and related mail settings before sending invite emails.");
+      }
+      if (payload.sendInviteEmail && !payload.email) {
+        throw new Error("An email address is required before sending an invite email.");
+      }
     } catch (error) {
       reply.code(400);
       return { message: error instanceof Error ? error.message : "Invalid input" };
     }
-    const email = payload.email.toLowerCase();
+    const username = payload.username.toLowerCase();
+    const email = typeof payload.email === "string" && payload.email.trim() ? payload.email.toLowerCase() : null;
 
-    const existing = await prisma.user.findUnique({
-      where: { email },
-    });
-    if (existing) {
+    const existingByUsername = await prisma.user.findUnique({ where: { username } });
+    if (existingByUsername) {
       reply.code(409);
-      return { message: "A user with that email already exists" };
+      return { message: "A user with that username already exists" };
+    }
+
+    if (email) {
+      const existingByEmail = await prisma.user.findUnique({ where: { email } });
+      if (existingByEmail) {
+        reply.code(409);
+        return { message: "A user with that email already exists" };
+      }
     }
 
     const passwordHash = await hashPassword(payload.password);
     const created = await prisma.user.create({
       data: {
+        username,
         email,
         fullName: payload.fullName,
         role: payload.role,
@@ -432,24 +459,72 @@ export async function adminRoutes(app: FastifyInstance) {
       include: { propertyAccess: true },
     });
 
+    let inviteSent = false;
+    let inviteError: string | null = null;
+    if (payload.sendInviteEmail) {
+      try {
+        const properties = payload.role === UserRole.ADMIN || payload.propertyIds.length === 0
+          ? []
+          : await prisma.property.findMany({
+              where: { id: { in: payload.propertyIds } },
+              select: { code: true },
+            });
+        await sendUserInviteEmail({
+          to: created.email!,
+          username: created.username,
+          fullName: created.fullName,
+          role: created.role,
+          language: created.language as "en" | "es",
+          password: payload.password,
+          propertyCodes: properties.map((property) => property.code),
+        });
+        inviteSent = true;
+        await writeAuditLog({
+          request,
+          actorUserId: actor.id,
+          entityType: "USER",
+          entityId: created.id,
+          action: "USER_INVITE_EMAIL_SENT",
+          message: `Sent invite email to ${created.email ?? created.username}`,
+          metadata: { role: created.role },
+        });
+      } catch (error) {
+        inviteError = error instanceof Error ? error.message : "Invite email failed";
+        await writeAuditLog({
+          request,
+          actorUserId: actor.id,
+          entityType: "USER",
+          entityId: created.id,
+          action: "USER_INVITE_EMAIL_FAILED",
+          message: `Invite email failed for ${created.email ?? created.username}`,
+          metadata: { error: inviteError },
+        });
+      }
+    }
+
     await writeAuditLog({
       request,
       actorUserId: actor.id,
       entityType: "USER",
       entityId: created.id,
       action: "USER_CREATED",
-      message: `Created user ${created.email}`,
+      message: `Created user ${created.username}`,
       metadata: {
+        username: created.username,
+        email: created.email,
         role: created.role,
         language: created.language,
         isActive: created.isActive,
         propertyIds: payload.propertyIds,
+        inviteSent,
       },
     });
 
     reply.code(201);
     return {
       user: serializeUser(created),
+      inviteSent,
+      inviteError,
     };
   });
 
@@ -468,9 +543,22 @@ export async function adminRoutes(app: FastifyInstance) {
       return { message: "User not found" };
     }
 
-    const nextEmail = payload.email?.toLowerCase();
-    if (nextEmail && nextEmail !== existing.email) {
-      const duplicate = await prisma.user.findUnique({ where: { email: nextEmail } });
+    const nextUsername = payload.username?.toLowerCase();
+    if (nextUsername && nextUsername !== existing.username) {
+      const duplicate = await prisma.user.findUnique({ where: { username: nextUsername } });
+      if (duplicate) {
+        reply.code(409);
+        return { message: "A user with that username already exists" };
+      }
+    }
+
+    const nextEmail = typeof payload.email === "string"
+      ? (payload.email.trim() ? payload.email.toLowerCase() : null)
+      : payload.email === null
+        ? null
+        : undefined;
+    if (nextEmail !== undefined && nextEmail !== existing.email) {
+      const duplicate = nextEmail ? await prisma.user.findUnique({ where: { email: nextEmail } }) : null;
       if (duplicate) {
         reply.code(409);
         return { message: "A user with that email already exists" };
@@ -494,6 +582,7 @@ export async function adminRoutes(app: FastifyInstance) {
       where: { id: existing.id },
       data: {
         fullName: payload.fullName,
+        username: nextUsername,
         email: nextEmail,
         role: payload.role,
         language: payload.language,
@@ -520,8 +609,10 @@ export async function adminRoutes(app: FastifyInstance) {
       entityType: "USER",
       entityId: updated.id,
       action: roleChanged ? "USER_ROLE_CHANGED" : "USER_UPDATED",
-      message: `${roleChanged ? "Changed role for" : "Updated"} user ${updated.email}`,
+      message: `${roleChanged ? "Changed role for" : "Updated"} user ${updated.username}`,
       metadata: {
+        username: updated.username,
+        email: updated.email,
         previousRole: existing.role,
         nextRole: updated.role,
         language: updated.language,
@@ -570,7 +661,7 @@ export async function adminRoutes(app: FastifyInstance) {
       entityType: "USER",
       entityId: existing.id,
       action: "USER_PASSWORD_RESET",
-      message: `Reset password for ${existing.email}`,
+      message: `Reset password for ${existing.username}`,
     });
 
     return { ok: true };
@@ -616,7 +707,7 @@ export async function adminRoutes(app: FastifyInstance) {
       entityType: "USER",
       entityId: updated.id,
       action: "USER_DEACTIVATED",
-      message: `Deactivated user ${updated.email}`,
+      message: `Deactivated user ${updated.username}`,
     });
 
     return {
@@ -681,7 +772,7 @@ export async function adminRoutes(app: FastifyInstance) {
       entityType: "USER",
       entityId: updated.id,
       action: "USER_PROPERTY_ACCESS_UPDATED",
-      message: `Updated property access for ${updated.email}`,
+      message: `Updated property access for ${updated.username}`,
       metadata: {
         propertyIds,
       },

@@ -226,7 +226,8 @@ model MakeReadyItem {
 
 model User {
   id                           String                                @id @default(cuid())
-  email                        String                                @unique
+  username                     String                                @unique
+  email                        String?                               @unique
   passwordHash                 String
   fullName                     String
   role                         UserRole
