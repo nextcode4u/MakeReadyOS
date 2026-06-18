@@ -20,6 +20,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://makeready:makeready@db:5432/makereadyos?schema=public}
       PORT: ${API_PORT:-4000}
       NODE_ENV: production
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       DEMO_TECH_EMAIL: ${DEMO_TECH_EMAIL}
