@@ -75,13 +75,13 @@ docker compose up --build -d
 Before exposing the app beyond `localhost`, set `APP_URL` in `.env` to the real browser URL operators will use:
 
 ```bash
-APP_URL=http://192.168.0.105:8080
+APP_URL=http://your-lan-host-or-ip:8080
 ```
 
 Reverse-proxy / DuckDNS example:
 
 ```bash
-APP_URL=https://csmros.duckdns.org
+APP_URL=https://your-public-hostname.example.com
 TRUST_PROXY=true
 ```
 
@@ -90,14 +90,9 @@ Open:
 - Web UI: `http://localhost:8080`
 - API health: `http://localhost:4000/health`
 
-Default admin credentials come from `.env`. With the provided example values:
+Sign in with the admin username/email and password you set in `.env`.
 
-```text
-admin
-ChangeThisAdmin!23456
-```
-
-Change `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and `SESSION_COOKIE_SECRET` before using a real deployment. `ADMIN_EMAIL` is optional for sign-in and invite emails, but `ADMIN_USERNAME` or `ADMIN_EMAIL` must be set.
+Do not expose MakeReadyOS outside a trusted local environment until you have replaced every sample secret in `.env`, especially `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `POSTGRES_PASSWORD`, `SESSION_COOKIE_SECRET`, and `WEBHOOK_SECRET_ENCRYPTION_KEY`. `ADMIN_EMAIL` is optional for sign-in and invite emails, but `ADMIN_USERNAME` or `ADMIN_EMAIL` must be set.
 
 The example environment starts as a blank operational workspace: no sample properties, units, or turns are created, but baseline make-ready labels, table columns, checklist templates, and schedule tracks are ready. Set `SEED_DEMO_DATA=true` only when you want sample properties and records for evaluation.
 

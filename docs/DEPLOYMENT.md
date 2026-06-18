@@ -56,7 +56,7 @@ APP_URL=http://localhost:8080
 Examples:
 
 ```bash
-APP_URL=http://192.168.0.105:8080
+APP_URL=http://your-lan-host-or-ip:8080
 APP_URL=https://makereadyos.duckdns.org
 APP_URL=https://makereadyos.example.com
 ```
@@ -64,7 +64,7 @@ APP_URL=https://makereadyos.example.com
 Use `EXTRA_ALLOWED_ORIGINS` only when you intentionally want more than one browser origin during migration, testing, or mixed local/domain access:
 
 ```bash
-EXTRA_ALLOWED_ORIGINS=http://localhost:5173,http://192.168.0.105:8080
+EXTRA_ALLOWED_ORIGINS=http://localhost:5173,http://your-lan-host-or-ip:8080
 ```
 
 Set `TRUST_PROXY=true` when MakeReadyOS is running behind Caddy, Nginx, Traefik, Cloudflare Tunnel, or another reverse proxy that terminates HTTPS and forwards `X-Forwarded-*` headers. Leave it `false` for direct local Docker access.
@@ -98,7 +98,7 @@ Notes:
 If users open the app directly by LAN IP and port:
 
 ```bash
-APP_URL=http://192.168.0.105:8080
+APP_URL=http://your-lan-host-or-ip:8080
 SELF_HOSTED=true
 TRUST_PROXY=false
 EXTRA_ALLOWED_ORIGINS=http://localhost:8080,http://localhost:5173
@@ -109,7 +109,7 @@ EXTRA_ALLOWED_ORIGINS=http://localhost:8080,http://localhost:5173
 If users open the app through a public hostname and your outer proxy terminates HTTPS:
 
 ```bash
-APP_URL=https://csmros.duckdns.org
+APP_URL=https://your-public-hostname.example.com
 SELF_HOSTED=true
 TRUST_PROXY=true
 EXTRA_ALLOWED_ORIGINS=http://localhost:8080,http://localhost:5173
@@ -122,10 +122,10 @@ With `TRUST_PROXY=true`, the API trusts the forwarded scheme/host from the outer
 If operators sometimes use a public hostname and sometimes use a LAN URL:
 
 ```bash
-APP_URL=https://csmros.duckdns.org
+APP_URL=https://your-public-hostname.example.com
 SELF_HOSTED=true
 TRUST_PROXY=true
-EXTRA_ALLOWED_ORIGINS=http://192.168.0.105:8080,http://localhost:8080,http://localhost:5173
+EXTRA_ALLOWED_ORIGINS=http://your-lan-host-or-ip:8080,http://localhost:8080,http://localhost:5173
 ```
 
 For public deployments that allow admins to register webhook endpoints, set `WEBHOOK_ALLOW_PRIVATE_URLS=false` unless you intentionally deliver webhooks to local/LAN services. Use `WEBHOOK_ALLOWED_HOSTS` for explicit trusted exceptions.

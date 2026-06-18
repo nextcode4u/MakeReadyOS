@@ -150,6 +150,12 @@ const parsed = envSchema.parse(process.env);
 
 const normalizedAdminUsername = parsed.ADMIN_USERNAME?.trim().toLowerCase() || "";
 const normalizedAdminEmail = parsed.ADMIN_EMAIL?.trim().toLowerCase() || "";
+const reservedSampleAdminUsernames = new Set(["admin", "replace-admin-username"]);
+const reservedSampleAdminEmails = new Set(["admin@example.com"]);
+const reservedSampleAdminPasswords = new Set([
+  "ChangeThisAdmin!23456",
+  "ReplaceThisAdminPassword!23456",
+]);
 
 if (!normalizedAdminUsername && !normalizedAdminEmail) {
   throw new Error("Set ADMIN_USERNAME or ADMIN_EMAIL so MakeReadyOS can seed the admin account.");
@@ -157,6 +163,14 @@ if (!normalizedAdminUsername && !normalizedAdminEmail) {
 
 if (normalizedAdminEmail) {
   z.string().email("ADMIN_EMAIL must be a valid email address").parse(normalizedAdminEmail);
+}
+
+if (reservedSampleAdminUsernames.has(normalizedAdminUsername) || reservedSampleAdminEmails.has(normalizedAdminEmail)) {
+  throw new Error("Replace the sample ADMIN_USERNAME/ADMIN_EMAIL values before starting MakeReadyOS.");
+}
+
+if (reservedSampleAdminPasswords.has(parsed.ADMIN_PASSWORD)) {
+  throw new Error("Replace the sample ADMIN_PASSWORD before starting MakeReadyOS.");
 }
 
 if (parsed.SESSION_COOKIE_SECRET.toLowerCase().includes("change-this")) {
