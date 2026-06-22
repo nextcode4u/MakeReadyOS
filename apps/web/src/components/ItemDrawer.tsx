@@ -269,7 +269,7 @@ export function ItemDrawer({
   const activeStageLabel = attachmentStageOptions.find((stage) => stage.value === attachmentStageFilter)?.label ?? "current filter";
   const attachmentCategories = Array.from(new Set(attachments.map((attachment) => attachment.category?.trim()).filter((category): category is string => Boolean(category)))).sort((a, b) => a.localeCompare(b));
   const markupCategoryOptions = Array.from(new Set([...attachmentCategoryOptions, ...attachmentCategories, newPinCategory.trim()].filter(Boolean))).sort((a, b) => a.localeCompare(b));
-  const canManageVendorWork = currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
+  const canManageVendorWork = currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "LEASING";
   const canManageChargePriceSheet = currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
   const canUpdateVendorWork = canManageVendorWork || currentUser.role === "TECH";
   const refreshCollaboration = async () => {
@@ -819,7 +819,7 @@ export function ItemDrawer({
             building={item.unit?.building}
             equipmentQuery={item.itemName}
             query={item.notes}
-            canEdit={currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "TECH"}
+            canEdit={currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "TECH" || currentUser.role === "LEASING"}
           />
         </section>
 

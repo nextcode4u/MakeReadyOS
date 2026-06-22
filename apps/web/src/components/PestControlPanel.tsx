@@ -118,7 +118,7 @@ function PestIssueCard({
   language: UserLanguage;
   onSave: (id: string, input: Partial<Parameters<typeof createPestIssue>[0]>) => void;
   onNote: (id: string, body: string) => void;
-  onClose: (id: string, closingNotes: string, followUpDate?: string) => void;
+  onClose: (id: string, closingNotes: string, treatmentDate?: string, followUpDate?: string) => void;
   onArchive: (id: string, notes?: string) => void;
   onDismissRecurring: (id: string, notes: string) => void;
   onUpload: (issueId: string, files: FileList | null) => void;
@@ -127,6 +127,7 @@ function PestIssueCard({
 }) {
   const [note, setNote] = useState("");
   const [closingNotes, setClosingNotes] = useState("");
+  const [treatmentDate, setTreatmentDate] = useState(issue.treatmentDate ? issue.treatmentDate.slice(0, 10) : today());
   const [followUpDate, setFollowUpDate] = useState(issue.followUpDate ? issue.followUpDate.slice(0, 10) : "");
   const [expanded, setExpanded] = useState(!compact);
   const label = issue.unit?.number || issue.makeReadyItem?.unitNumber || issue.area || t(language, "pest.areaNotSet");
@@ -153,6 +154,7 @@ function PestIssueCard({
             <span>{issue.property.code}</span>
             <span>{issue.priority}</span>
             <span>{t(language, "pest.requested")} {formatDate(issue.requestDate)}</span>
+            {issue.treatmentDate ? <span>{t(language, "pest.treatedDate")} {formatDate(issue.treatmentDate)}</span> : null}
             {issue.followUpDate ? <span>{t(language, "pest.followUp")} {formatDate(issue.followUpDate)}</span> : null}
             {issue.vendor?.vendorName ? <span>{issue.vendor.vendorName}</span> : null}
             {issue.assignedUser?.fullName ? <span>{issue.assignedUser.fullName}</span> : null}
@@ -263,13 +265,27 @@ function PestIssueCard({
             <label>{t(language, "pest.closingNotes")}
               <textarea rows={3} value={closingNotes} onChange={(event) => setClosingNotes(event.target.value)} placeholder={t(language, "pest.closingNotesPlaceholder")} />
             </label>
+            <label>{t(language, "pest.treatedDate")}
+              <input type="date" value={treatmentDate} onChange={(event) => setTreatmentDate(event.target.value)} />
+            </label>
             <label>{t(language, "pest.followUpDate")}
               <input type="date" value={followUpDate} onChange={(event) => setFollowUpDate(event.target.value)} />
             </label>
           </div>
           <div className="lease-issue-actions" style={{ marginTop: 12 }}>
             <button className="button button-secondary" type="button" onClick={() => { if (note.trim()) { onNote(issue.id, note.trim()); setNote(""); } }}>{t(language, "pest.addNote")}</button>
-            <button className="button button-primary" type="button" onClick={() => { if (closingNotes.trim()) { onClose(issue.id, closingNotes.trim(), followUpDate || undefined); setClosingNotes(""); } }}>{t(language, "pest.quickClose")}</button>
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={() => {
+                if (closingNotes.trim()) {
+                  onClose(issue.id, closingNotes.trim(), treatmentDate || undefined, followUpDate || undefined);
+                  setClosingNotes("");
+                }
+              }}
+            >
+              {t(language, "pest.quickClose")}
+            </button>
             <button className="button button-secondary" type="button" onClick={() => onArchive(issue.id, "Archived from Pest Control workspace.")}>{t(language, "common.archive")}</button>
           </div>
         </>
@@ -393,7 +409,11 @@ export function PestControlPanel({ properties, units, users, userRole, language,
   const createIssueMutation = useMutation({ mutationFn: createPestIssue, onSuccess: invalidate });
   const updateIssueMutation = useMutation({ mutationFn: ({ id, input }: { id: string; input: Partial<Parameters<typeof createPestIssue>[0]> }) => updatePestIssue(id, input), onSuccess: invalidate });
   const addNoteMutation = useMutation({ mutationFn: ({ id, body }: { id: string; body: string }) => addPestIssueNote(id, body), onSuccess: invalidate });
-  const closeIssueMutation = useMutation({ mutationFn: ({ id, closingNotes, followUpDate }: { id: string; closingNotes: string; followUpDate?: string }) => closePestIssue(id, { closingNotes, followUpDate }), onSuccess: invalidate });
+  const closeIssueMutation = useMutation({
+    mutationFn: ({ id, closingNotes, treatmentDate, followUpDate }: { id: string; closingNotes: string; treatmentDate?: string; followUpDate?: string }) =>
+      closePestIssue(id, { closingNotes, treatmentDate, followUpDate }),
+    onSuccess: invalidate,
+  });
   const archiveIssueMutation = useMutation({ mutationFn: ({ id, notes }: { id: string; notes?: string }) => archivePestIssue(id, notes), onSuccess: invalidate });
   const dismissRecurringMutation = useMutation({ mutationFn: ({ id, notes }: { id: string; notes: string }) => dismissPestRecurringFlag(id, notes), onSuccess: invalidate });
   const vendorCreateMutation = useMutation({ mutationFn: createPestVendor, onSuccess: invalidate });
@@ -819,7 +839,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
                   language={language}
                   onSave={(id, input) => updateIssueMutation.mutate({ id, input })}
                   onNote={(id, body) => addNoteMutation.mutate({ id, body })}
-                  onClose={(id, closingNotes, followUpDate) => closeIssueMutation.mutate({ id, closingNotes, followUpDate })}
+                  onClose={(id, closingNotes, treatmentDate, followUpDate) => closeIssueMutation.mutate({ id, closingNotes, treatmentDate, followUpDate })}
                   onArchive={(id, notes) => archiveIssueMutation.mutate({ id, notes })}
                   onDismissRecurring={(id, notes) => dismissRecurringMutation.mutate({ id, notes })}
                   onUpload={(issueId, files) => { if (files?.[0]) uploadMutation.mutate({ issueId, file: files[0] }); }}
@@ -846,7 +866,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
                 language={language}
                 onSave={(id, input) => updateIssueMutation.mutate({ id, input })}
                 onNote={(id, body) => addNoteMutation.mutate({ id, body })}
-                onClose={(id, closingNotes, followUpDate) => closeIssueMutation.mutate({ id, closingNotes, followUpDate })}
+                onClose={(id, closingNotes, treatmentDate, followUpDate) => closeIssueMutation.mutate({ id, closingNotes, treatmentDate, followUpDate })}
                 onArchive={(id, notes) => archiveIssueMutation.mutate({ id, notes })}
                 onDismissRecurring={(id, notes) => dismissRecurringMutation.mutate({ id, notes })}
                 onUpload={(issueId, files) => { if (files?.[0]) uploadMutation.mutate({ issueId, file: files[0] }); }}

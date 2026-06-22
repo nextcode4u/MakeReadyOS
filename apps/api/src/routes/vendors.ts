@@ -68,8 +68,12 @@ function mayManage(userRole: UserRole) {
   return userRole === "ADMIN" || userRole === "MANAGER";
 }
 
+function mayCoordinateAssignments(userRole: UserRole) {
+  return userRole === "ADMIN" || userRole === "MANAGER" || userRole === "TECH" || userRole === "LEASING";
+}
+
 function mayUpdateAssignment(userRole: UserRole) {
-  return userRole === "ADMIN" || userRole === "MANAGER" || userRole === "TECH";
+  return mayCoordinateAssignments(userRole);
 }
 
 function propertyScope(request: FastifyRequest, propertyId?: string) {
@@ -248,7 +252,7 @@ export async function vendorRoutes(app: FastifyInstance) {
   });
 
   app.post("/vendor-assignments", async (request, reply) => {
-    if (!mayManage(request.currentUser!.role)) return reply.code(403).send({ message: "Manager or admin access required" });
+    if (!mayCoordinateAssignments(request.currentUser!.role)) return reply.code(403).send({ message: "This role cannot create vendor work" });
     const payload = vendorAssignmentSchema.parse(request.body);
     const item = await prisma.makeReadyItem.findUnique({ where: { id: payload.itemId } });
     if (!item) return reply.code(404).send({ message: "Make-ready item not found" });
@@ -373,7 +377,7 @@ export async function vendorRoutes(app: FastifyInstance) {
   });
 
   app.post("/vendor-assignments/:id/cancel", async (request, reply) => {
-    if (!mayManage(request.currentUser!.role)) return reply.code(403).send({ message: "Manager or admin access required" });
+    if (!mayCoordinateAssignments(request.currentUser!.role)) return reply.code(403).send({ message: "This role cannot update vendor work" });
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const existing = await assignmentById(id);
     if (!existing) return reply.code(404).send({ message: "Vendor assignment not found" });

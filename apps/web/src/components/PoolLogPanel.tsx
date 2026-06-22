@@ -218,9 +218,18 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
   const selectedProperty = properties.find((property) => property.id === propertyId);
   const defaultFacilityId = facilities[0]?.id ?? "";
   const [selectedChemicalId, setSelectedChemicalId] = useState("");
+  const [chemicalAmountPounds, setChemicalAmountPounds] = useState("");
+  const [chemicalAmountOunces, setChemicalAmountOunces] = useState("");
   const selectedChemical = selectedChemicalId ? activeChemicalsById.get(selectedChemicalId) ?? null : null;
   const workflowEntry = historyQuery.data?.entries[0] ?? overviewQuery.data?.recentEntries?.[0] ?? null;
   const workflowFacilityName = workflowEntry?.facility?.name ?? facilities[0]?.name ?? null;
+  const solidChemicalTotalOunces = useMemo(() => (
+    normalizeSolidChemicalAmount(
+      chemicalAmountPounds.trim() ? Number(chemicalAmountPounds) : null,
+      chemicalAmountOunces.trim() ? Number(chemicalAmountOunces) : null
+    )
+  ), [chemicalAmountOunces, chemicalAmountPounds]);
+  const solidChemicalEquivalentPounds = solidChemicalTotalOunces ? solidChemicalTotalOunces / 16 : null;
 
   const invalidate = async () => {
     await Promise.all([
@@ -351,6 +360,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
     }
     event.currentTarget.reset();
     setSelectedChemicalId("");
+    setChemicalAmountPounds("");
+    setChemicalAmountOunces("");
   }
 
   function uploadPoolFiles(entryId: string, files: FileList | null) {
@@ -487,7 +498,11 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                 <select
                   name="chemicalId"
                   value={selectedChemicalId}
-                  onChange={(event) => setSelectedChemicalId(event.target.value)}
+                  onChange={(event) => {
+                    setSelectedChemicalId(event.target.value);
+                    setChemicalAmountPounds("");
+                    setChemicalAmountOunces("");
+                  }}
                 >
                   <option value="">{isSpanish ? "Sin químico agregado" : "No chemical added"}</option>
                   {chemicals.map((chemical) => <option key={chemical.id} value={chemical.id}>{chemical.name}</option>)}
@@ -496,10 +511,28 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
               {selectedChemical && isSolidChemicalUnit(selectedChemical.unit) ? (
                 <>
                   <label>{isSpanish ? "Libras" : "Pounds"}
-                    <input name="chemicalAmountPounds" data-testid="pool-chemical-pounds" type="number" min="0" step="1" placeholder="0" />
+                    <input
+                      name="chemicalAmountPounds"
+                      data-testid="pool-chemical-pounds"
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="0"
+                      value={chemicalAmountPounds}
+                      onChange={(event) => setChemicalAmountPounds(event.target.value)}
+                    />
                   </label>
                   <label>{isSpanish ? "Onzas" : "Ounces"}
-                    <input name="chemicalAmountOunces" data-testid="pool-chemical-ounces" type="number" min="0" step="0.01" placeholder="0" />
+                    <input
+                      name="chemicalAmountOunces"
+                      data-testid="pool-chemical-ounces"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0"
+                      value={chemicalAmountOunces}
+                      onChange={(event) => setChemicalAmountOunces(event.target.value)}
+                    />
                   </label>
                 </>
               ) : (
@@ -515,7 +548,16 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                 </label>
               )}
             </div>
-            {selectedChemical && isSolidChemicalUnit(selectedChemical.unit) ? <p className="muted">{isSpanish ? "Los químicos sólidos se normalizan en libras y onzas. Ejemplo: ingrese `70` onzas para registrar `4 lb 6 oz`." : "Solid chemicals are normalized as pounds and ounces. Example: enter `70` ounces to record `4 lb 6 oz`."}</p> : null}
+            {selectedChemical && isSolidChemicalUnit(selectedChemical.unit) ? (
+              <p className="muted">
+                {isSpanish
+                  ? "Los químicos sólidos usan campos separados de libras y onzas. Ejemplo: 70 onzas se convierten en 4.4 lb y se guardan como 4 lb 6 oz."
+                  : "Solid chemicals use separate pounds and ounces fields. Example: 70 ounces converts to 4.4 lb and is stored as 4 lb 6 oz."}
+                {solidChemicalEquivalentPounds
+                  ? ` ${isSpanish ? "Equivalente actual" : "Current equivalent"}: ${solidChemicalEquivalentPounds.toFixed(1)} lb (${formatPoolChemicalAmount(solidChemicalTotalOunces ?? 0, "OUNCES")}).`
+                  : ""}
+              </p>
+            ) : null}
             <label>{isSpanish ? "Notas" : "Notes"} <textarea name="notes" placeholder={isSpanish ? "Agua turbia, problema con la puerta, acción química, seguimiento..." : "Cloudy water, gate issue, chemical action, follow-up..."} /></label>
             <button type="submit" data-testid="pool-daily-submit" disabled={!canEdit || !facilities.length || entryCreateMutation.isPending}>{isSpanish ? "Guardar registro diario de piscina" : "Save daily pool log"}</button>
             {!canEdit ? <p className="muted">{isSpanish ? "Su rol puede ver registros de piscina, pero no crear entradas." : "Your role can view pool logs but cannot create entries."}</p> : null}

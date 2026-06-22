@@ -14,7 +14,8 @@ type Props = {
   assignments: VendorAssignment[];
   properties: Property[];
   items: MakeReadyItem[];
-  canManage: boolean;
+  canManageDirectory: boolean;
+  canCoordinateAssignments: boolean;
   language?: string;
   loading?: boolean;
   error?: string | null;
@@ -29,7 +30,8 @@ export function VendorsPanel({
   assignments,
   properties,
   items,
-  canManage,
+  canManageDirectory,
+  canCoordinateAssignments,
   language = "en",
   loading = false,
   error = null,
@@ -88,9 +90,9 @@ export function VendorsPanel({
         </select>
       </div>
 
-      {canManage && (
+      {canManageDirectory || canCoordinateAssignments ? (
         <div className="operations-grid two">
-          <form className="operations-card" data-testid="vendor-create-form" onSubmit={async (event) => {
+          {canManageDirectory ? <form className="operations-card" data-testid="vendor-create-form" onSubmit={async (event) => {
             event.preventDefault();
             await onCreateVendor({
               name: vendorDraft.name,
@@ -116,9 +118,9 @@ export function VendorsPanel({
             </div>
             <label className="checkbox-row"><input type="checkbox" checked={vendorDraft.isPreferred} onChange={(event) => setVendorDraft((current) => ({ ...current, isPreferred: event.target.checked }))} /> {isSpanish ? "Proveedor preferido" : "Preferred vendor"}</label>
             <button data-testid="vendor-create-submit" className="button button-primary" disabled={!vendorDraft.name.trim() || !vendorDraft.trade.trim()}>{isSpanish ? "Crear proveedor" : "Create Vendor"}</button>
-          </form>
+          </form> : null}
 
-          <form className="operations-card" data-testid="vendor-assignment-create-form" onSubmit={async (event) => {
+          {canCoordinateAssignments ? <form className="operations-card" data-testid="vendor-assignment-create-form" onSubmit={async (event) => {
             event.preventDefault();
             await onCreateAssignment({
               vendorId: assignmentDraft.vendorId,
@@ -151,9 +153,9 @@ export function VendorsPanel({
             <label>{isSpanish ? "Vence" : "Due"}<input type="date" value={assignmentDraft.dueDate} onChange={(event) => setAssignmentDraft((current) => ({ ...current, dueDate: event.target.value }))} /></label>
             <textarea value={assignmentDraft.notes} onChange={(event) => setAssignmentDraft((current) => ({ ...current, notes: event.target.value }))} placeholder={isSpanish ? "Notas de trabajo" : "Work notes"} />
             <button data-testid="vendor-assignment-create-submit" className="button button-primary" disabled={!assignmentDraft.vendorId || !assignmentDraft.itemId}>{isSpanish ? "Crear asignacion" : "Create Assignment"}</button>
-          </form>
+          </form> : null}
         </div>
-      )}
+      ) : null}
 
       <div className="operations-grid two">
         <div className="operations-card">
@@ -167,7 +169,7 @@ export function VendorsPanel({
               </div>
               <div className="row-actions">
                 {vendor.phone && <a href={`tel:${vendor.phone}`}>{vendor.phone}</a>}
-                {canManage && <button className="button button-secondary" data-testid={`vendor-${vendor.isActive ? "archive" : "restore"}-${vendor.id}`} onClick={() => void onArchiveVendor(vendor.id, !vendor.isActive)}>{vendor.isActive ? (isSpanish ? "Archivar" : "Archive") : (isSpanish ? "Restaurar" : "Restore")}</button>}
+                {canManageDirectory && <button className="button button-secondary" data-testid={`vendor-${vendor.isActive ? "archive" : "restore"}-${vendor.id}`} onClick={() => void onArchiveVendor(vendor.id, !vendor.isActive)}>{vendor.isActive ? (isSpanish ? "Archivar" : "Archive") : (isSpanish ? "Restaurar" : "Restore")}</button>}
               </div>
             </article>
           ))}
@@ -182,7 +184,7 @@ export function VendorsPanel({
                 <small>{assignment.vendor.name} / {assignment.trade}</small>
                 <small>{isSpanish ? "Programado" : "Scheduled"} {assignment.scheduledDate?.slice(0, 10) ?? (isSpanish ? "sin fecha" : "not set")} / {isSpanish ? "Vence" : "Due"} {assignment.dueDate?.slice(0, 10) ?? (isSpanish ? "sin fecha" : "not set")}</small>
               </div>
-              <select value={assignment.status} onChange={(event) => void onUpdateAssignment(assignment.id, { status: event.target.value as VendorAssignment["status"] })}>
+              <select value={assignment.status} disabled={!canCoordinateAssignments} onChange={(event) => void onUpdateAssignment(assignment.id, { status: event.target.value as VendorAssignment["status"] })}>
                 {vendorStatuses.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
               </select>
             </article>

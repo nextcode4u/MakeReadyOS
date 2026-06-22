@@ -220,6 +220,18 @@ function IssueCard({
         <span>{t(language, "lease.violation")} {formatDate(issue.violationNeededDate)}</span>
       </div>
 
+      {canEdit && issue.status !== "Resolved" && issue.status !== "Archived" ? (
+        <div className="lease-issue-actions" style={{ marginBottom: 12 }}>
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={() => onPersist(issue.id)}
+          >
+            {t(language, "lease.markStillPersists")}
+          </button>
+        </div>
+      ) : null}
+
       {canNotice ? (
         <div className="lease-issue-actions" style={{ marginTop: 12 }}>
           {activeNoticeActions.map((entry) => (

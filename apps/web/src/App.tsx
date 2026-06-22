@@ -2907,7 +2907,7 @@ function App() {
           { id: "activity", label: t(currentUser.language, "nav.activity"), description: t(currentUser.language, "command.activityCopy"), view: "activity" as const },
           { id: "maps", label: t(currentUser.language, "nav.maps"), description: t(currentUser.language, "command.mapsCopy"), view: "maps" as const },
           { id: "pond", label: "Frog Pond", description: t(currentUser.language, "command.pondCopy"), view: "pond" as const },
-        ].filter((action) => action.view !== "activity" || currentUser.role === "ADMIN" || currentUser.role === "MANAGER") as CommandPaletteWorkspaceGroup["actions"],
+        ].filter((action) => action.view !== "activity" || currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "LEASING") as CommandPaletteWorkspaceGroup["actions"],
       },
       {
         id: "modules",
@@ -2937,7 +2937,7 @@ function App() {
       { id: "automations", label: t(currentUser.language, "nav.automations"), description: t(currentUser.language, "command.automationsCopy"), view: "automations" as const },
     ].filter((action) => {
       if (action.view === "vendors") {
-        return currentUser.role !== "VIEWER" && currentUser.role !== "CLEANER" && currentUser.role !== "LEASING";
+        return currentUser.role !== "VIEWER" && currentUser.role !== "CLEANER";
       }
       if (action.view === "automations") {
         return currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
@@ -2985,14 +2985,11 @@ function App() {
   }, [activeCalendarField, activeScheduleTrack]);
 
   const canEditField = (user: CurrentUser, key: string) => {
-    if (user.role === "ADMIN" || user.role === "MANAGER") {
+    if (user.role === "ADMIN" || user.role === "MANAGER" || user.role === "LEASING") {
       return true;
     }
     if (user.role === "TECH") {
       return techEditableFields.has(key);
-    }
-    if (user.role === "LEASING") {
-      return leasingEditableFields.has(key);
     }
     if (user.role === "CLEANER") {
       return cleanerEditableFields.has(key);
@@ -3259,9 +3256,9 @@ function App() {
         showAdmin={currentUser.role === "ADMIN"}
         showFieldManager={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
         showAutomations={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
-        showActivity={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
+        showActivity={currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "LEASING"}
         showOperations={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
-        showVendors={currentUser.role !== "VIEWER" && currentUser.role !== "CLEANER" && currentUser.role !== "LEASING"}
+        showVendors={currentUser.role !== "VIEWER" && currentUser.role !== "CLEANER"}
         compactMode={compactMode}
         onCompactModeChange={setCompactMode}
         themeMode={themeMode}
@@ -3620,13 +3617,14 @@ function App() {
                 }
               }}
             />
-          ) : activeView === "vendors" && currentUser.role !== "VIEWER" && currentUser.role !== "CLEANER" && currentUser.role !== "LEASING" ? (
+          ) : activeView === "vendors" && currentUser.role !== "VIEWER" && currentUser.role !== "CLEANER" ? (
             <VendorsPanel
               vendors={vendorsQuery.data?.vendors ?? []}
               assignments={vendorAssignmentsQuery.data?.assignments ?? []}
               properties={metaQuery.data?.properties ?? []}
               items={boardItems}
-              canManage={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
+              canManageDirectory={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
+              canCoordinateAssignments={currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "TECH" || currentUser.role === "LEASING"}
               language={currentUser.language}
               loading={vendorsQuery.isLoading || vendorAssignmentsQuery.isLoading}
               error={vendorsQuery.isError || vendorAssignmentsQuery.isError ? "Vendor data failed to load." : null}
@@ -3809,7 +3807,7 @@ function App() {
                 }}
               />
             )
-          ) : activeView === "activity" && (currentUser.role === "ADMIN" || currentUser.role === "MANAGER") ? (
+          ) : activeView === "activity" && (currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "LEASING") ? (
             <ActivityPanel onSessionExpired={handleSessionExpired} language={currentUser.language} />
           ) : activeView === "admin" && currentUser.role === "ADMIN" ? (
             adminUsersQuery.isLoading || adminPropertiesQuery.isLoading ? (
@@ -4265,7 +4263,7 @@ function App() {
             canEditField={(item, key) => canEditField(currentUser, key)}
             canEditCustomFields={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
             canManageItems={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
-            canViewActivity={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
+            canViewActivity={currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "LEASING"}
             onClose={closeItemDrawer}
             onPatch={async (id, data) => { await patchMutation.mutateAsync({ id, data }); }}
             onPatchCustomField={async (itemId, fieldId, value) => { await customValueMutation.mutateAsync({ itemId, fieldId, value }); }}

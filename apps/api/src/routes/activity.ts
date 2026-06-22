@@ -98,9 +98,9 @@ function csvEscape(value: unknown) {
 export async function activityRoutes(app: FastifyInstance) {
   async function buildDailyReport(request: FastifyRequest, reply: FastifyReply) {
     const user = request.currentUser!;
-    if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER && user.role !== UserRole.LEASING) {
       reply.code(403);
-      return { message: "Manager or admin access required" };
+      return { message: "Manager, leasing, or admin access required" };
     }
 
     const query = dailyReportQuerySchema.parse(request.query);
@@ -242,9 +242,9 @@ export async function activityRoutes(app: FastifyInstance) {
 
   app.get("/activity", async (request, reply) => {
     const user = request.currentUser!;
-    if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER && user.role !== UserRole.LEASING) {
       reply.code(403);
-      return { message: "Manager or admin access required" };
+      return { message: "Manager, leasing, or admin access required" };
     }
 
     const query = querySchema.parse(request.query);

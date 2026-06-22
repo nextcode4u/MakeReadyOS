@@ -470,7 +470,7 @@ export async function requireApiTokenRateLimit(request: FastifyRequest, reply: F
 }
 
 export function canEditAnyBoardField(user: SessionUser) {
-  return user.role === "ADMIN" || user.role === "MANAGER";
+  return user.role === "ADMIN" || user.role === "MANAGER" || user.role === "LEASING";
 }
 
 export function canManageSharedViews(user: SessionUser) {
@@ -527,11 +527,11 @@ export const rolePermissionMatrix = {
     manageFields: false,
     manageAutomations: false,
     manageOperationalLibrary: false,
-    batchBoardChanges: false,
+    batchBoardChanges: true,
     commentAndUpload: true,
-    completeChecklists: false,
+    completeChecklists: true,
     viewDashboard: true,
-    viewActivity: false,
+    viewActivity: true,
     useMyWork: true,
   },
   CLEANER: {
