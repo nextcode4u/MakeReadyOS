@@ -7,7 +7,11 @@ export const clockModeStorageKey = "makereadyos.clockMode";
 
 export function readClockMode(): ClockMode {
   if (typeof window === "undefined") return "12h";
-  return window.localStorage.getItem(clockModeStorageKey) === "24h" ? "24h" : "12h";
+  try {
+    return window.localStorage.getItem(clockModeStorageKey) === "24h" ? "24h" : "12h";
+  } catch {
+    return "12h";
+  }
 }
 
 function hour12(mode = readClockMode()) {

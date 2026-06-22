@@ -235,13 +235,44 @@ function readCachedMeta() {
   }
 }
 
-function writeCachedMeta(meta: MetaResponse) {
+function readStorageFlag(key: string) {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(key) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function readStorageValue(key: string) {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorageValue(key: string, value: string) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(metaCacheStorageKey, JSON.stringify(meta));
+    window.localStorage.setItem(key, value);
   } catch {
     // Ignore storage failures.
   }
+}
+
+function removeStorageValue(key: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function writeCachedMeta(meta: MetaResponse) {
+  writeStorageValue(metaCacheStorageKey, JSON.stringify(meta));
 }
 
 const techEditableFields = new Set([
@@ -570,24 +601,24 @@ function App() {
   const [sessionMessage, setSessionMessage] = useState("");
   const [forceLoggedOut, setForceLoggedOut] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const [compactMode, setCompactMode] = useState(() => window.localStorage.getItem(compactModeStorageKey) === "true");
+  const [compactMode, setCompactMode] = useState(() => readStorageFlag(compactModeStorageKey));
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
-    const stored = window.localStorage.getItem(themeModeStorageKey);
+    const stored = readStorageValue(themeModeStorageKey);
     return stored === "dark" || stored === "light" ? stored : "default";
   });
-  const [eyeStrainMode, setEyeStrainMode] = useState(() => window.localStorage.getItem(eyeStrainModeStorageKey) === "true");
-  const [dyslexiaMode, setDyslexiaMode] = useState(() => window.localStorage.getItem(dyslexiaModeStorageKey) === "true");
-  const [clockMode, setClockMode] = useState<ClockMode>(() => (window.localStorage.getItem(clockModeStorageKey) === "24h" ? "24h" : "12h"));
-  const [boardWindowedMode, setBoardWindowedMode] = useState(() => window.localStorage.getItem(boardWindowedModeStorageKey) === "true");
+  const [eyeStrainMode, setEyeStrainMode] = useState(() => readStorageFlag(eyeStrainModeStorageKey));
+  const [dyslexiaMode, setDyslexiaMode] = useState(() => readStorageFlag(dyslexiaModeStorageKey));
+  const [clockMode, setClockMode] = useState<ClockMode>(() => (readStorageValue(clockModeStorageKey) === "24h" ? "24h" : "12h"));
+  const [boardWindowedMode, setBoardWindowedMode] = useState(() => readStorageFlag(boardWindowedModeStorageKey));
   const [boardWindowLimit, setBoardWindowLimit] = useState(() => {
-    const stored = Number(window.localStorage.getItem(boardWindowLimitStorageKey));
+    const stored = Number(readStorageValue(boardWindowLimitStorageKey));
     return Number.isFinite(stored) && stored >= boardWindowPageSize ? stored : boardWindowPageSize;
   });
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
-  const [onboardingSkipped, setOnboardingSkipped] = useState(() => window.localStorage.getItem(onboardingSkippedStorageKey) === "true");
+  const [onboardingSkipped, setOnboardingSkipped] = useState(() => readStorageFlag(onboardingSkippedStorageKey));
   const [myWorkUserId, setMyWorkUserId] = useState("");
   const [defaultWorkspaceAppliedForUser, setDefaultWorkspaceAppliedForUser] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
@@ -1579,7 +1610,7 @@ function App() {
       queryClient.removeQueries({ queryKey: ["admin"] });
       queryClient.removeQueries({ queryKey: ["custom-fields"] });
       queryClient.removeQueries({ queryKey: ["automations"] });
-      window.localStorage.removeItem(metaCacheStorageKey);
+      removeStorageValue(metaCacheStorageKey);
     },
     onError: (error) => {
       pushToast(t(meQuery.data?.user.language ?? "en", "auth.logoutFailed"), error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "auth.logoutFailed"), "error");
@@ -2656,35 +2687,35 @@ function App() {
   });
 
   useEffect(() => {
-    window.localStorage.setItem(compactModeStorageKey, String(compactMode));
+    writeStorageValue(compactModeStorageKey, String(compactMode));
   }, [compactMode]);
 
   useEffect(() => {
-    window.localStorage.setItem(themeModeStorageKey, themeMode);
+    writeStorageValue(themeModeStorageKey, themeMode);
     document.documentElement.dataset.theme = themeMode;
   }, [themeMode]);
 
   useEffect(() => {
-    window.localStorage.setItem(eyeStrainModeStorageKey, String(eyeStrainMode));
+    writeStorageValue(eyeStrainModeStorageKey, String(eyeStrainMode));
     document.documentElement.classList.toggle("eye-strain-mode", eyeStrainMode);
   }, [eyeStrainMode]);
 
   useEffect(() => {
-    window.localStorage.setItem(dyslexiaModeStorageKey, String(dyslexiaMode));
+    writeStorageValue(dyslexiaModeStorageKey, String(dyslexiaMode));
     document.documentElement.classList.toggle("dyslexia-mode", dyslexiaMode);
   }, [dyslexiaMode]);
 
   useEffect(() => {
-    window.localStorage.setItem(clockModeStorageKey, clockMode);
+    writeStorageValue(clockModeStorageKey, clockMode);
     document.documentElement.dataset.clockMode = clockMode;
   }, [clockMode]);
 
   useEffect(() => {
-    window.localStorage.setItem(boardWindowedModeStorageKey, String(boardWindowedMode));
+    writeStorageValue(boardWindowedModeStorageKey, String(boardWindowedMode));
   }, [boardWindowedMode]);
 
   useEffect(() => {
-    window.localStorage.setItem(boardWindowLimitStorageKey, String(boardWindowLimit));
+    writeStorageValue(boardWindowLimitStorageKey, String(boardWindowLimit));
   }, [boardWindowLimit]);
 
   useEffect(() => {
@@ -3223,7 +3254,7 @@ function App() {
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
         onOpenOnboarding={() => {
           setOnboardingSkipped(false);
-          window.localStorage.removeItem(onboardingSkippedStorageKey);
+          removeStorageValue(onboardingSkippedStorageKey);
           setOnboardingOpen(true);
         }}
         onLogout={async () => {
@@ -4243,7 +4274,7 @@ function App() {
         onOpenNotifications={() => setNotificationsOpen(true)}
         onOpenOnboarding={() => {
           setOnboardingSkipped(false);
-          window.localStorage.removeItem(onboardingSkippedStorageKey);
+          removeStorageValue(onboardingSkippedStorageKey);
           setOnboardingOpen(true);
         }}
         onLoadView={applySavedView}
@@ -4260,7 +4291,7 @@ function App() {
         onNavigate={(view) => setActiveView(view)}
         onClose={() => setOnboardingOpen(false)}
         onSkip={() => {
-          window.localStorage.setItem(onboardingSkippedStorageKey, "true");
+          writeStorageValue(onboardingSkippedStorageKey, "true");
           setOnboardingSkipped(true);
           setOnboardingOpen(false);
         }}

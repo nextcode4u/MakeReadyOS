@@ -7,6 +7,28 @@ type BeforeInstallPromptEvent = Event & {
 
 const dismissedStorageKey = "makereadyos.pwaInstallDismissed";
 
+function readDismissed() {
+  if (typeof window === "undefined") {
+    return true;
+  }
+  try {
+    return window.localStorage.getItem(dismissedStorageKey) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeDismissed() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(dismissedStorageKey, "true");
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
 function isStandalone() {
   return (
     window.matchMedia?.("(display-mode: standalone)").matches ||
@@ -30,7 +52,7 @@ export function PWAInstallPrompt() {
     if (typeof window === "undefined") {
       return true;
     }
-    return window.localStorage.getItem(dismissedStorageKey) === "true" || isStandalone() || !isMobileBrowser();
+    return readDismissed() || isStandalone() || !isMobileBrowser();
   }, []);
 
   useEffect(() => {
@@ -67,7 +89,7 @@ export function PWAInstallPrompt() {
   }
 
   const dismiss = () => {
-    window.localStorage.setItem(dismissedStorageKey, "true");
+    writeDismissed();
     setVisible(false);
   };
 

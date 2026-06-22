@@ -4,6 +4,24 @@ import { languageOptions, normalizeLanguage, t } from "../lib/i18n";
 
 const loginLanguageStorageKey = "makereadyos.loginLanguage";
 
+function readStoredLoginLanguage(fallback: UserLanguage) {
+  if (typeof window === "undefined") return normalizeLanguage(fallback);
+  try {
+    return normalizeLanguage(window.localStorage.getItem(loginLanguageStorageKey) ?? fallback);
+  } catch {
+    return normalizeLanguage(fallback);
+  }
+}
+
+function writeStoredLoginLanguage(language: UserLanguage) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(loginLanguageStorageKey, language);
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
 type Props = {
   onSubmit: (identifier: string, password: string) => Promise<void>;
   errorMessage?: string;
@@ -15,10 +33,7 @@ type Props = {
 export function LoginScreen({ onSubmit, errorMessage, loading, infoMessage, language = "en" }: Props) {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-  const [selectedLanguage, setSelectedLanguage] = useState<UserLanguage>(() => {
-    if (typeof window === "undefined") return normalizeLanguage(language);
-    return normalizeLanguage(window.localStorage.getItem(loginLanguageStorageKey) ?? language);
-  });
+  const [selectedLanguage, setSelectedLanguage] = useState<UserLanguage>(() => readStoredLoginLanguage(language));
 
   return (
     <main className="login-shell">
@@ -43,9 +58,7 @@ export function LoginScreen({ onSubmit, errorMessage, loading, infoMessage, lang
               onChange={(event) => {
                 const next = normalizeLanguage(event.target.value) as UserLanguage;
                 setSelectedLanguage(next);
-                if (typeof window !== "undefined") {
-                  window.localStorage.setItem(loginLanguageStorageKey, next);
-                }
+                writeStoredLoginLanguage(next);
               }}
             >
               {languageOptions.map((option) => (
