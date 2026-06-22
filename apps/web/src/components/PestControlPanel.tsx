@@ -109,7 +109,7 @@ function PestIssueCard({
   onDismissRecurring,
   onUpload,
   onDeleteAttachment,
-  compact = false,
+  compact = true,
 }: {
   issue: PestIssue;
   canEdit: boolean;
@@ -145,8 +145,8 @@ function PestIssueCard({
     setExpanded(!compact);
   }, [compact]);
   return (
-    <article className={`pool-card ${overdueFollowUp ? "pm-task-card" : ""}`} data-testid={`pest-issue-${issue.id}`}>
-      <button type="button" className="compact-issue-summary" onClick={() => compact ? setExpanded((current) => !current) : undefined}>
+    <article className={`pool-card pest-issue-card ${overdueFollowUp ? "pm-task-card" : ""}`} data-testid={`pest-issue-${issue.id}`}>
+      <button type="button" className="compact-issue-summary pest-issue-summary" onClick={() => setExpanded((current) => !current)}>
         <div className="compact-issue-summary-main">
           <strong>{label} / {issue.pestType}{issue.additionalPestType ? ` + ${issue.additionalPestType}` : ""}</strong>
           <span className="pool-reading-stack compact-issue-meta">
@@ -154,18 +154,22 @@ function PestIssueCard({
             <span>{issue.priority}</span>
             <span>{t(language, "pest.requested")} {formatDate(issue.requestDate)}</span>
             {issue.followUpDate ? <span>{t(language, "pest.followUp")} {formatDate(issue.followUpDate)}</span> : null}
+            {issue.vendor?.vendorName ? <span>{issue.vendor.vendorName}</span> : null}
+            {issue.assignedUser?.fullName ? <span>{issue.assignedUser.fullName}</span> : null}
           </span>
+          {issue.description ? <p className="lease-issue-description">{issue.description}</p> : null}
         </div>
         <div className="compact-issue-summary-side">
           {issue.attachments[0]?.mimeType.startsWith("image/") ? (
             <img className="compact-issue-thumb" src={pestIssueAttachmentDownloadUrl(issue.attachments[0].id)} alt={issue.attachments[0].originalName} loading="lazy" />
-          ) : null}
+          ) : (
+            <div className="compact-issue-thumb lease-issue-thumb-placeholder">{t(language, "pest.noPriorPhoto")}</div>
+          )}
           <span className={`status-pill ${overdueFollowUp ? "risk-critical" : issue.status === "Needs Follow Up" ? "risk-high" : ""}`}>{issue.status}</span>
         </div>
       </button>
       {expanded ? (
         <>
-      {issue.description ? <p>{issue.description}</p> : null}
       {(issue.recurringConcern || issue.managerReviewRequired) ? (
         <div className="risk-banner" style={{ marginBottom: 12 }}>
           <strong>{issue.managerReviewRequired ? t(language, "pest.managerReviewRequired") : t(language, "pest.recurringConcern")}</strong>
@@ -174,7 +178,7 @@ function PestIssueCard({
         </div>
       ) : null}
       {canEdit ? (
-        <div className="pool-grid" style={{ marginBottom: 12 }}>
+        <div className="lease-issue-edit-grid" style={{ marginBottom: 12 }}>
           <label>{t(language, "admin.status")}
             <select value={issue.status} onChange={(event) => onSave(issue.id, { status: event.target.value as PestStatus })}>
               {pestStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
@@ -226,7 +230,7 @@ function PestIssueCard({
         emptyLabel={t(language, "pest.noPriorPhoto")}
       />
       {issue.attachments.length ? (
-        <div className="pool-attachment-list" style={{ marginBottom: 12 }}>
+        <div className="pool-attachment-list lease-issue-attachments" style={{ marginBottom: 12 }}>
           {issue.attachments.map((attachment) => (
             <span key={attachment.id} style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
               <a href={pestIssueAttachmentDownloadUrl(attachment.id)} target="_blank" rel="noreferrer">{attachment.originalName}</a>
@@ -238,7 +242,7 @@ function PestIssueCard({
       ) : null}
       {canEdit ? (
         <>
-          <div className="pool-entry-actions" style={{ marginBottom: 12 }}>
+          <div className="lease-issue-actions" style={{ marginBottom: 12 }}>
             <label className="button button-secondary pool-upload-button">
               {t(language, "pest.uploadPhotoPdf")}
               <input
@@ -252,23 +256,21 @@ function PestIssueCard({
               />
             </label>
           </div>
-          <label>{t(language, "pest.quickNote")}
-            <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder={t(language, "pest.quickNotePlaceholder")} />
-          </label>
-          <div className="pool-entry-actions" style={{ marginBottom: 12 }}>
-            <button className="button button-secondary" type="button" onClick={() => { if (note.trim()) { onNote(issue.id, note.trim()); setNote(""); } }}>{t(language, "pest.addNote")}</button>
-          </div>
-          <label>{t(language, "pest.closingNotes")}
-            <textarea value={closingNotes} onChange={(event) => setClosingNotes(event.target.value)} placeholder={t(language, "pest.closingNotesPlaceholder")} />
-          </label>
-          <div className="pool-grid" style={{ marginTop: 12 }}>
+          <div className="lease-issue-note-grid">
+            <label>{t(language, "pest.quickNote")}
+              <textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder={t(language, "pest.quickNotePlaceholder")} />
+            </label>
+            <label>{t(language, "pest.closingNotes")}
+              <textarea rows={3} value={closingNotes} onChange={(event) => setClosingNotes(event.target.value)} placeholder={t(language, "pest.closingNotesPlaceholder")} />
+            </label>
             <label>{t(language, "pest.followUpDate")}
               <input type="date" value={followUpDate} onChange={(event) => setFollowUpDate(event.target.value)} />
             </label>
-            <div className="pool-entry-actions" style={{ alignItems: "flex-end" }}>
-              <button className="button button-primary" type="button" onClick={() => { if (closingNotes.trim()) { onClose(issue.id, closingNotes.trim(), followUpDate || undefined); setClosingNotes(""); } }}>{t(language, "pest.quickClose")}</button>
-              <button className="button button-secondary" type="button" onClick={() => onArchive(issue.id, "Archived from Pest Control workspace.")}>{t(language, "common.archive")}</button>
-            </div>
+          </div>
+          <div className="lease-issue-actions" style={{ marginTop: 12 }}>
+            <button className="button button-secondary" type="button" onClick={() => { if (note.trim()) { onNote(issue.id, note.trim()); setNote(""); } }}>{t(language, "pest.addNote")}</button>
+            <button className="button button-primary" type="button" onClick={() => { if (closingNotes.trim()) { onClose(issue.id, closingNotes.trim(), followUpDate || undefined); setClosingNotes(""); } }}>{t(language, "pest.quickClose")}</button>
+            <button className="button button-secondary" type="button" onClick={() => onArchive(issue.id, "Archived from Pest Control workspace.")}>{t(language, "common.archive")}</button>
           </div>
         </>
       ) : null}
@@ -806,7 +808,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
             </div>
           </section>
           {activeQuery.isLoading ? <StatusState title={t(language, "pest.loadingActiveTitle")} description={t(language, "pest.loadingActiveCopy")} /> : activeQuery.isError || !activeQuery.data ? <StatusState title={t(language, "pest.activeFailedTitle")} description={t(language, "pest.refreshTryAgain")} tone="error" /> : (
-            <div className="pool-card-grid">
+            <div className="pool-card-grid lease-issue-grid">
               {activeQuery.data.issues.filter((issue) => !issue.isArchived).map((issue) => (
                 <PestIssueCard
                   key={issue.id}
@@ -822,7 +824,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
                   onDismissRecurring={(id, notes) => dismissRecurringMutation.mutate({ id, notes })}
                   onUpload={(issueId, files) => { if (files?.[0]) uploadMutation.mutate({ issueId, file: files[0] }); }}
                   onDeleteAttachment={(attachmentId) => deleteAttachmentMutation.mutate(attachmentId)}
-                  compact={isMobileLayout}
+                  compact
                 />
               ))}
               {activeQuery.data.issues.filter((issue) => !issue.isArchived).length === 0 ? <p className="muted">{t(language, "pest.noActiveMatches")}</p> : null}
@@ -833,7 +835,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
 
       {tab === "make-ready" ? (
         makeReadyQuery.isLoading ? <StatusState title={t(language, "pest.loadingMakeReadyTitle")} description={t(language, "pest.loadingMakeReadyCopy")} /> : makeReadyQuery.isError || !makeReadyQuery.data ? <StatusState title={t(language, "pest.makeReadyFailedTitle")} description={t(language, "pest.refreshTryAgain")} tone="error" /> : (
-          <div className="pool-card-grid">
+          <div className="pool-card-grid lease-issue-grid">
             {makeReadyQuery.data.issues.map((issue) => (
               <PestIssueCard
                 key={issue.id}
@@ -849,7 +851,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
                 onDismissRecurring={(id, notes) => dismissRecurringMutation.mutate({ id, notes })}
                 onUpload={(issueId, files) => { if (files?.[0]) uploadMutation.mutate({ issueId, file: files[0] }); }}
                 onDeleteAttachment={(attachmentId) => deleteAttachmentMutation.mutate(attachmentId)}
-                compact={isMobileLayout}
+                compact
               />
             ))}
             {makeReadyQuery.data.issues.length === 0 ? <p className="muted">{t(language, "pest.noMakeReadyMatches")}</p> : null}
@@ -923,7 +925,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
 
       {tab === "archive" ? (
         archiveQuery.isLoading ? <StatusState title={t(language, "pest.loadingArchiveTitle")} description={t(language, "pest.loadingArchiveCopy")} /> : archiveQuery.isError || !archiveQuery.data ? <StatusState title={t(language, "pest.archiveFailedTitle")} description={t(language, "pest.refreshTryAgain")} tone="error" /> : (
-          <div className="pool-card-grid">
+          <div className="pool-card-grid lease-issue-grid">
             {archivedOnly.map((issue) => (
               <PestIssueCard
                 key={issue.id}
@@ -939,7 +941,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
                 onDismissRecurring={() => undefined}
                 onUpload={() => undefined}
                 onDeleteAttachment={() => undefined}
-                compact={isMobileLayout}
+                compact
               />
             ))}
             {archivedOnly.length === 0 ? <p className="muted">{t(language, "pest.noArchiveMatches")}</p> : null}

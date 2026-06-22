@@ -83,9 +83,9 @@ function customValue(item: MakeReadyItem, fieldId: string) {
   return item.customFieldValues?.find((value) => value.customFieldId === fieldId)?.value ?? null;
 }
 
-function displayCustomValue(value: unknown) {
+function displayCustomValue(value: unknown, isSpanish = false) {
   if (Array.isArray(value)) return value.join(", ");
-  if (typeof value === "boolean") return value ? "YES" : "NO";
+  if (typeof value === "boolean") return value ? (isSpanish ? "SI" : "YES") : (isSpanish ? "NO" : "NO");
   return value === null || value === undefined || value === "" ? "—" : String(value);
 }
 
@@ -912,7 +912,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                   />
                                 )}
                                 {(field.fieldType === "SINGLE_SELECT" || field.fieldType === "MULTI_SELECT") && customEditable ? (
-                                  <button type="button" data-testid={`manage-options-${field.fieldKey}-${slug(item.unitNumber)}`} className="cell-manage-link" onMouseDown={(event) => event.preventDefault()} onClick={() => openOptionManager(field.fieldKey, field.label, field)}>+ Add option</button>
+                                  <button type="button" data-testid={`manage-options-${field.fieldKey}-${slug(item.unitNumber)}`} className="cell-manage-link" onMouseDown={(event) => event.preventDefault()} onClick={() => openOptionManager(field.fieldKey, field.label, field)}>{isSpanish ? "+ Agregar opcion" : "+ Add option"}</button>
                                 ) : null}
                                 {feedback}
                               </div>
@@ -929,7 +929,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                   {field.fieldType === "SINGLE_SELECT" ? (
                                     <LabelPill value={typeof value === "string" ? value : null} label={label} muted={!customEditable} />
                                   ) : (
-                                    <span>{displayCustomValue(value)}</span>
+                                    <span>{displayCustomValue(value, isSpanish)}</span>
                                   )}
                                 </button>
                                 {feedback}
@@ -969,7 +969,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                     setEditing(null);
                                   }}
                                 >
-                                  <option value="">{legacy ? `LEGACY: ${item.floorPlan}` : isSpanish ? "Seleccionar plano administrado" : "Select managed floor plan"}</option>
+                                  <option value="">{legacy ? `${isSpanish ? "ANTERIOR" : "LEGACY"}: ${item.floorPlan}` : isSpanish ? "Seleccionar plano administrado" : "Select managed floor plan"}</option>
                                   {options.map((plan) => (
                                     <option key={plan.id} value={plan.id}>
                                       {floorPlanLabel(plan)} / {plan.bedrooms ?? "-"} bd / {plan.bathrooms ?? "-"} ba / {plan.squareFeet ?? "-"} sqft
@@ -1021,7 +1021,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                   onKeyDown={(event) => void handleEditorKeys(event, cell, draft || null)}
                                   onBlur={() => handleBlur(cell, draft || null)}
                                 >
-                                  <option value="">Unassigned</option>
+                                  <option value="">{isSpanish ? "Sin asignar" : "Unassigned"}</option>
                                   {current && !knownAssignment ? <option value={current}>{current} (legacy)</option> : null}
                                   {staff.map((person) => <option key={person.id} value={person.fullName}>{person.fullName} - {person.role}</option>)}
                                 </select>
@@ -1035,10 +1035,10 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                   className="cell-button cell-button-text"
                                   onClick={() => editable && beginEdit(cell)}
                                   disabled={!editable}
-                                  aria-label={`Edit ${column.label} for ${item.unitNumber}`}
+                                  aria-label={isSpanish ? `Editar ${column.label} para ${item.unitNumber}` : `Edit ${column.label} for ${item.unitNumber}`}
                                 >
-                                  <span>{current || "Unassigned"}</span>
-                                  {current && !knownAssignment ? <small className="legacy-value">Legacy</small> : null}
+                                  <span>{current || (isSpanish ? "Sin asignar" : "Unassigned")}</span>
+                                  {current && !knownAssignment ? <small className="legacy-value">{isSpanish ? "Anterior" : "Legacy"}</small> : null}
                                 </button>
                                 {feedback}
                               </div>
@@ -1072,7 +1072,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                   <option value="">Select</option>
                                   {options.map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}
                                 </select>
-                                {canManageItems ? <button type="button" data-testid={`manage-options-${column.key}-${slug(item.unitNumber)}`} className="cell-manage-link" onMouseDown={(event) => event.preventDefault()} onClick={() => openOptionManager(column.key, column.label)}>+ Add option</button> : null}
+                                {canManageItems ? <button type="button" data-testid={`manage-options-${column.key}-${slug(item.unitNumber)}`} className="cell-manage-link" onMouseDown={(event) => event.preventDefault()} onClick={() => openOptionManager(column.key, column.label)}>{isSpanish ? "+ Agregar opcion" : "+ Add option"}</button> : null}
                                 {feedback}
                               </div>
                             ) : (
@@ -1213,9 +1213,9 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                   onKeyDown={(event) => void handleEditorKeys(event, cell, draft)}
                                   onBlur={() => handleBlur(cell, draft)}
                                 >
-                                  <option value="">Select</option>
-                                  <option value="true">YES</option>
-                                  <option value="false">NO</option>
+                                  <option value="">{isSpanish ? "Seleccionar" : "Select"}</option>
+                                  <option value="true">{isSpanish ? "SI" : "YES"}</option>
+                                  <option value="false">{isSpanish ? "NO" : "NO"}</option>
                                 </select>
                               ) : field.fieldType === "LONG_TEXT" ? (
                                 <textarea
@@ -1244,7 +1244,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                 />
                               )}
                               {(field.fieldType === "SINGLE_SELECT" || field.fieldType === "MULTI_SELECT") && canEditCustomFields ? (
-                                <button type="button" data-testid={`manage-options-${field.fieldKey}-${slug(item.unitNumber)}`} className="cell-manage-link" onMouseDown={(event) => event.preventDefault()} onClick={() => openOptionManager(field.fieldKey, field.label, field)}>+ Add option</button>
+                                <button type="button" data-testid={`manage-options-${field.fieldKey}-${slug(item.unitNumber)}`} className="cell-manage-link" onMouseDown={(event) => event.preventDefault()} onClick={() => openOptionManager(field.fieldKey, field.label, field)}>{isSpanish ? "+ Agregar opcion" : "+ Add option"}</button>
                               ) : null}
                               {feedback}
                             </div>
@@ -1261,7 +1261,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                 {field.fieldType === "SINGLE_SELECT" ? (
                                   <LabelPill value={typeof value === "string" ? value : null} label={label} muted={!canEditCustomFields} />
                                 ) : (
-                                  <span>{displayCustomValue(value)}</span>
+                                  <span>{displayCustomValue(value, isSpanish)}</span>
                                 )}
                               </button>
                               {feedback}

@@ -11,6 +11,7 @@ function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
 }
 
 type Props = {
+  language: "en" | "es";
   role: UserRole;
   properties: Property[];
   units: Unit[];
@@ -102,24 +103,42 @@ function displayGroup(group: string) {
   return group.replace(/_/g, " ");
 }
 
-const occupancyOptions: Array<{ value: Unit["occupancyStatus"]; label: string }> = [
-  { value: "OCCUPIED", label: "Occupied" },
-  { value: "VACANT NOT LEASED READY", label: "Vacant not leased ready" },
-  { value: "VACANT NOT LEASED NOT READY", label: "Vacant not leased not ready" },
-  { value: "NTV NOT LEASED", label: "NTV not leased" },
-  { value: "NTV LEASED", label: "NTV leased" },
-  { value: "VACANT LEASED READY", label: "Vacant leased ready" },
-  { value: "VACANT LEASED NOT READY", label: "Vacant leased not ready" },
-  { value: "DOWN", label: "Down" },
-  { value: "TO PRE-WALK", label: "To pre-walk" },
-  { value: "TO SCOPE", label: "To scope" },
-  { value: "TO FINAL WALK", label: "To final walk" },
-  { value: "MODEL", label: "Model" },
-  { value: "UNKNOWN", label: "Unknown" },
-];
+function occupancyOptionsFor(language: "en" | "es"): Array<{ value: Unit["occupancyStatus"]; label: string }> {
+  return language === "es"
+    ? [
+        { value: "OCCUPIED", label: "Ocupada" },
+        { value: "VACANT NOT LEASED READY", label: "Vacante no rentada lista" },
+        { value: "VACANT NOT LEASED NOT READY", label: "Vacante no rentada no lista" },
+        { value: "NTV NOT LEASED", label: "NTV no rentada" },
+        { value: "NTV LEASED", label: "NTV rentada" },
+        { value: "VACANT LEASED READY", label: "Vacante rentada lista" },
+        { value: "VACANT LEASED NOT READY", label: "Vacante rentada no lista" },
+        { value: "DOWN", label: "Fuera de servicio" },
+        { value: "TO PRE-WALK", label: "Para pre-recorrido" },
+        { value: "TO SCOPE", label: "Para alcance" },
+        { value: "TO FINAL WALK", label: "Para recorrido final" },
+        { value: "MODEL", label: "Modelo" },
+        { value: "UNKNOWN", label: "Desconocido" },
+      ]
+    : [
+        { value: "OCCUPIED", label: "Occupied" },
+        { value: "VACANT NOT LEASED READY", label: "Vacant not leased ready" },
+        { value: "VACANT NOT LEASED NOT READY", label: "Vacant not leased not ready" },
+        { value: "NTV NOT LEASED", label: "NTV not leased" },
+        { value: "NTV LEASED", label: "NTV leased" },
+        { value: "VACANT LEASED READY", label: "Vacant leased ready" },
+        { value: "VACANT LEASED NOT READY", label: "Vacant leased not ready" },
+        { value: "DOWN", label: "Down" },
+        { value: "TO PRE-WALK", label: "To pre-walk" },
+        { value: "TO SCOPE", label: "To scope" },
+        { value: "TO FINAL WALK", label: "To final walk" },
+        { value: "MODEL", label: "Model" },
+        { value: "UNKNOWN", label: "Unknown" },
+      ];
+}
 
-function occupancyLabel(value: string | null | undefined) {
-  return occupancyOptions.find((option) => option.value === value)?.label ?? value?.replace(/_/g, " ").toLowerCase() ?? "Unknown";
+function occupancyLabel(value: string | null | undefined, language: "en" | "es") {
+  return occupancyOptionsFor(language).find((option) => option.value === value)?.label ?? value?.replace(/_/g, " ").toLowerCase() ?? (language === "es" ? "Desconocido" : "Unknown");
 }
 
 const unitDirectoryAiPrompt = `You are converting a property unit directory or availability export into a clean CSV for MakeReadyOS.
@@ -297,6 +316,7 @@ function timeToMinutes(value: string, fallback: number) {
 }
 
 export function OperationsPanel({
+  language,
   role,
   properties,
   units,
@@ -328,6 +348,8 @@ export function OperationsPanel({
   onUpdateOperatingCalendar,
   onUpdateRiskPolicy,
 }: Props) {
+  const isSpanish = language === "es";
+  const occupancyOptions = useMemo(() => occupancyOptionsFor(language), [language]);
   const activeProperties = properties.filter((property) => property.isActive);
   const [selectedPropertyId, setSelectedPropertyId] = useState("");
   const [selectedUnitId, setSelectedUnitId] = useState("");
@@ -714,7 +736,7 @@ export function OperationsPanel({
         if (!turn) return [];
         const changedFields: string[] = [];
         const status = row.vacancyStatus ?? normalizeOccupancy(row.availabilityStatus ?? "");
-        if (status && status !== turn.vacancyStatus) changedFields.push(`Vacancy: ${occupancyLabel(turn.vacancyStatus)} -> ${occupancyLabel(status)}`);
+        if (status && status !== turn.vacancyStatus) changedFields.push(`${isSpanish ? "Vacancia" : "Vacancy"}: ${occupancyLabel(turn.vacancyStatus, language)} -> ${occupancyLabel(status, language)}`);
         if (hasImportedValue(row.applicant) && (row.applicant ?? "") !== (turn.applicant ?? "")) changedFields.push(`Applicant: ${turn.applicant || "blank"} -> ${row.applicant}`);
         if (hasImportedValue(row.moveOutDate) && normalizePreviewDate(row.moveOutDate) !== normalizePreviewDate(turn.moveOutDate)) changedFields.push(`NTV date: ${normalizePreviewDate(turn.moveOutDate) || "blank"} -> ${normalizePreviewDate(row.moveOutDate)}`);
         if (hasImportedValue(row.vacatedDate) && normalizePreviewDate(row.vacatedDate) !== normalizePreviewDate(turn.vacatedDate)) changedFields.push(`Vacated: ${normalizePreviewDate(turn.vacatedDate) || "blank"} -> ${normalizePreviewDate(row.vacatedDate)}`);
@@ -814,11 +836,11 @@ export function OperationsPanel({
     <div className="operations-panel" data-testid="operations-panel">
       <header className="operations-header">
         <div>
-          <p className="eyebrow">Board Setup</p>
-          <h2>Properties, Units & Turns</h2>
-          <p className="subtitle">Maintain the inventory behind the board and safely archive completed or retired records.</p>
+          <p className="eyebrow">{isSpanish ? "Configuración del tablero" : "Board Setup"}</p>
+          <h2>{isSpanish ? "Propiedades, Unidades y Rotaciones" : "Properties, Units & Turns"}</h2>
+          <p className="subtitle">{isSpanish ? "Mantenga el inventario detrás del tablero y archive de forma segura los registros completados o retirados." : "Maintain the inventory behind the board and safely archive completed or retired records."}</p>
         </div>
-        <span className="role-chip">{role} ACCESS</span>
+        <span className="role-chip">{role} {isSpanish ? "ACCESO" : "ACCESS"}</span>
       </header>
 
       {message ? <div className="admin-message success">{message}</div> : null}
@@ -827,8 +849,8 @@ export function OperationsPanel({
       <section className="operations-grid">
         <article className="operations-card" data-testid="property-management">
           <div className="admin-section-head">
-            <h3>Properties</h3>
-            <span className="subtitle">{activeProperties.length} active</span>
+            <h3>{isSpanish ? "Propiedades" : "Properties"}</h3>
+            <span className="subtitle">{activeProperties.length} {isSpanish ? "activas" : "active"}</span>
           </div>
           {role === "ADMIN" ? (
             <form className="compact-form" onSubmit={(event) => {
@@ -839,38 +861,38 @@ export function OperationsPanel({
                 occupancyGoalPercent: newProperty.occupancyGoalPercent ? Number(newProperty.occupancyGoalPercent) : null,
               }).then(() => setNewProperty({ name: "", code: "", occupancyGoalPercent: "" }));
             }}>
-              <input data-testid="property-create-name" placeholder="Property name" value={newProperty.name} onChange={(event) => setNewProperty((current) => ({ ...current, name: event.target.value }))} required />
-              <input data-testid="property-create-code" placeholder="Code" value={newProperty.code} onChange={(event) => setNewProperty((current) => ({ ...current, code: event.target.value }))} required />
-              <input data-testid="property-create-occupancy-goal" type="number" min="0" max="100" step="0.1" placeholder="Occupancy goal %" value={newProperty.occupancyGoalPercent} onChange={(event) => setNewProperty((current) => ({ ...current, occupancyGoalPercent: event.target.value }))} />
-              <button data-testid="property-create-submit" className="button button-primary" disabled={loading}>Add Property</button>
+              <input data-testid="property-create-name" placeholder={isSpanish ? "Nombre de la propiedad" : "Property name"} value={newProperty.name} onChange={(event) => setNewProperty((current) => ({ ...current, name: event.target.value }))} required />
+              <input data-testid="property-create-code" placeholder={isSpanish ? "Código" : "Code"} value={newProperty.code} onChange={(event) => setNewProperty((current) => ({ ...current, code: event.target.value }))} required />
+              <input data-testid="property-create-occupancy-goal" type="number" min="0" max="100" step="0.1" placeholder={isSpanish ? "Meta de ocupación %" : "Occupancy goal %"} value={newProperty.occupancyGoalPercent} onChange={(event) => setNewProperty((current) => ({ ...current, occupancyGoalPercent: event.target.value }))} />
+              <button data-testid="property-create-submit" className="button button-primary" disabled={loading}>{isSpanish ? "Agregar propiedad" : "Add Property"}</button>
             </form>
-          ) : <p className="helper-copy">Managers can edit assigned properties; administrators add or archive inventory.</p>}
+          ) : <p className="helper-copy">{isSpanish ? "Los gerentes pueden editar propiedades asignadas; los administradores agregan o archivan inventario." : "Managers can edit assigned properties; administrators add or archive inventory."}</p>}
           <div className="record-list">
-            {properties.length === 0 ? <StatusState title="No properties assigned" description="An administrator must add or assign a property." tone="subtle" /> : properties.map((property) => (
+            {properties.length === 0 ? <StatusState title={isSpanish ? "No hay propiedades asignadas" : "No properties assigned"} description={isSpanish ? "Un administrador debe agregar o asignar una propiedad." : "An administrator must add or assign a property."} tone="subtle" /> : properties.map((property) => (
               <button key={property.id} type="button" data-testid={`property-row-${property.code.toLowerCase()}`} className={selectedPropertyId === property.id ? "record-row selected" : "record-row"} onClick={() => setSelectedPropertyId(property.id)}>
                 <span><strong>{property.code}</strong>{property.name}</span>
-                <span className={property.isActive ? "status-chip active" : "status-chip inactive"}>{property.isActive ? "Active" : "Archived"}</span>
+                <span className={property.isActive ? "status-chip active" : "status-chip inactive"}>{property.isActive ? (isSpanish ? "Activa" : "Active") : (isSpanish ? "Archivada" : "Archived")}</span>
               </button>
             ))}
           </div>
           {selectedProperty ? (
             <div className="editor-block">
-              <label>Name<input data-testid="property-edit-name" value={propertyDraft.name} onChange={(event) => setPropertyDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-              <label>Code<input data-testid="property-edit-code" value={propertyDraft.code} onChange={(event) => setPropertyDraft((current) => ({ ...current, code: event.target.value }))} /></label>
-              <label>Occupancy goal %<input data-testid="property-edit-occupancy-goal" type="number" min="0" max="100" step="0.1" value={propertyDraft.occupancyGoalPercent} onChange={(event) => setPropertyDraft((current) => ({ ...current, occupancyGoalPercent: event.target.value }))} /></label>
+              <label>{isSpanish ? "Nombre" : "Name"}<input data-testid="property-edit-name" value={propertyDraft.name} onChange={(event) => setPropertyDraft((current) => ({ ...current, name: event.target.value }))} /></label>
+              <label>{isSpanish ? "Código" : "Code"}<input data-testid="property-edit-code" value={propertyDraft.code} onChange={(event) => setPropertyDraft((current) => ({ ...current, code: event.target.value }))} /></label>
+              <label>{isSpanish ? "Meta de ocupación %" : "Occupancy goal %"}<input data-testid="property-edit-occupancy-goal" type="number" min="0" max="100" step="0.1" value={propertyDraft.occupancyGoalPercent} onChange={(event) => setPropertyDraft((current) => ({ ...current, occupancyGoalPercent: event.target.value }))} /></label>
               <div className="operations-mini-stats">
-                <span><strong>{occupancyPercent}%</strong> current occupancy</span>
-                <span><strong>{selectedProperty.occupancyGoalPercent ?? "Unset"}%</strong> goal</span>
-                <span><strong>{occupiedCount}</strong> occupied / {unitsForProperty.length} units</span>
+                <span><strong>{occupancyPercent}%</strong> {isSpanish ? "ocupación actual" : "current occupancy"}</span>
+                <span><strong>{selectedProperty.occupancyGoalPercent ?? (isSpanish ? "Sin definir" : "Unset")}%</strong> {isSpanish ? "meta" : "goal"}</span>
+                <span><strong>{occupiedCount}</strong> {isSpanish ? "ocupadas" : "occupied"} / {unitsForProperty.length} {isSpanish ? "unidades" : "units"}</span>
               </div>
               <div className="admin-actions">
-                <button data-testid="property-save" className="button button-primary" disabled={loading} onClick={() => void onUpdateProperty(selectedProperty.id, { name: propertyDraft.name, code: propertyDraft.code, occupancyGoalPercent: propertyDraft.occupancyGoalPercent ? Number(propertyDraft.occupancyGoalPercent) : null })}>Save</button>
+                <button data-testid="property-save" className="button button-primary" disabled={loading} onClick={() => void onUpdateProperty(selectedProperty.id, { name: propertyDraft.name, code: propertyDraft.code, occupancyGoalPercent: propertyDraft.occupancyGoalPercent ? Number(propertyDraft.occupancyGoalPercent) : null })}>{isSpanish ? "Guardar" : "Save"}</button>
                 {role === "ADMIN" ? (
                   <button data-testid={selectedProperty.isActive ? "property-archive" : "property-restore"} className={selectedProperty.isActive ? "button button-danger" : "button button-secondary"} onClick={() => selectedProperty.isActive ? setConfirmTarget({ type: "property", operation: "archive", record: selectedProperty }) : void onArchiveProperty(selectedProperty.id, true)}>
-                    {selectedProperty.isActive ? "Archive" : "Restore"}
+                    {selectedProperty.isActive ? (isSpanish ? "Archivar" : "Archive") : (isSpanish ? "Restaurar" : "Restore")}
                   </button>
                 ) : null}
-                {role === "ADMIN" && !selectedProperty.isActive ? <button data-testid="property-delete" className="button button-danger" onClick={() => setConfirmTarget({ type: "property", operation: "delete", record: selectedProperty })}>Delete</button> : null}
+                {role === "ADMIN" && !selectedProperty.isActive ? <button data-testid="property-delete" className="button button-danger" onClick={() => setConfirmTarget({ type: "property", operation: "delete", record: selectedProperty })}>{isSpanish ? "Eliminar" : "Delete"}</button> : null}
               </div>
             </div>
           ) : null}
@@ -1002,8 +1024,8 @@ export function OperationsPanel({
           <div className="record-list unit-list">
             {unitsForProperty.length === 0 ? <StatusState title="No units found" description="Add a unit to start a make-ready turn." tone="subtle" /> : unitsForProperty.map((unit) => (
               <button key={unit.id} type="button" data-testid={`unit-row-${unit.number.toLowerCase()}`} className={selectedUnitId === unit.id ? "record-row selected" : "record-row"} onClick={() => setSelectedUnitId(unit.id)}>
-                <span><strong>{unit.number}</strong>{unit.building ? `Bldg ${unit.building} / ` : ""}{unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan || "No floor plan"} / {occupancyLabel(unit.occupancyStatus)}</span>
-                <span className={unit.isActive ? "status-chip active" : "status-chip inactive"}>{unit.isActive ? "Active" : "Archived"}</span>
+                <span><strong>{unit.number}</strong>{unit.building ? `${isSpanish ? "Edif." : "Bldg"} ${unit.building} / ` : ""}{unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan || (isSpanish ? "Sin plano" : "No floor plan")} / {occupancyLabel(unit.occupancyStatus, language)}</span>
+                <span className={unit.isActive ? "status-chip active" : "status-chip inactive"}>{unit.isActive ? (isSpanish ? "Activa" : "Active") : (isSpanish ? "Archivada" : "Archived")}</span>
               </button>
             ))}
           </div>
@@ -1071,37 +1093,35 @@ export function OperationsPanel({
                 <span><strong>{availabilityImportPreview.turnCreates}</strong> turns new</span>
                 <span><strong>{availabilityImportPreview.turnUpdates}</strong> turns update</span>
                 <span><strong>{availabilityImportPreview.applicants}</strong> applicants</span>
-                {Object.entries(availabilityImportPreview.statuses).map(([status, count]) => <span key={status}><strong>{count}</strong> {occupancyLabel(status)}</span>)}
+                {Object.entries(availabilityImportPreview.statuses).map(([status, count]) => <span key={status}><strong>{count}</strong> {occupancyLabel(status, language)}</span>)}
               </div>
             ) : null}
             {availabilityImportPreview?.changes.length ? (
               <div className="admin-message warning" data-testid="availability-import-diff-preview">
-                <strong>{availabilityImportPreview.changes.length}</strong> existing turns have report differences. Import will update provided report fields and keep omitted fields unchanged.
+                <strong>{availabilityImportPreview.changes.length}</strong> {isSpanish ? "rotaciones existentes tienen diferencias con el reporte. La importación actualizará los campos incluidos y dejará sin cambios los campos omitidos." : "existing turns have report differences. Import will update provided report fields and keep omitted fields unchanged."}
                 <ul className="compact-list">
-                  {availabilityImportPreview.changes.slice(0, 6).map((change) => (
-                    <li key={change.unit}><strong>{change.unit}</strong>: {change.fields.slice(0, 3).join("; ")}{change.fields.length > 3 ? `; +${change.fields.length - 3} more` : ""}</li>
+                  {availabilityImportPreview.changes.map((change) => (
+                    <li key={change.unit}><strong>{change.unit}</strong>: {change.fields.join("; ")}</li>
                   ))}
-                  {availabilityImportPreview.changes.length > 6 ? <li>+{availabilityImportPreview.changes.length - 6} more changed units</li> : null}
                 </ul>
               </div>
             ) : null}
             {availabilityImportConflicts?.length ? (
               <div className="admin-message warning" data-testid="availability-import-conflicts">
-                <strong>{availabilityImportConflicts.length}</strong> turn{availabilityImportConflicts.length === 1 ? "" : "s"} have newer or more advanced local board changes than this report. MakeReadyOS blocked the import so the stale report cannot silently overwrite local progress.
+                <strong>{availabilityImportConflicts.length}</strong> {isSpanish ? `rotaci${availabilityImportConflicts.length === 1 ? "ón" : "ones"} tienen cambios locales más nuevos o más avanzados que este reporte. MakeReadyOS bloqueó la importación para que el reporte antiguo no sobrescriba silenciosamente el progreso local.` : `turn${availabilityImportConflicts.length === 1 ? "" : "s"} have newer or more advanced local board changes than this report. MakeReadyOS blocked the import so the stale report cannot silently overwrite local progress.`}
                 <ul className="compact-list">
-                  {availabilityImportConflicts.slice(0, 6).map((conflict) => (
+                  {availabilityImportConflicts.map((conflict) => (
                     <li key={conflict.itemId}>
-                      <strong>{conflict.unitNumber}</strong>: {conflict.reason} {conflict.fieldChanges.slice(0, 2).join("; ")}{conflict.fieldChanges.length > 2 ? `; +${conflict.fieldChanges.length - 2} more` : ""}
+                      <strong>{conflict.unitNumber}</strong>: {conflict.reason} {conflict.fieldChanges.join("; ")}
                     </li>
                   ))}
-                  {availabilityImportConflicts.length > 6 ? <li>+{availabilityImportConflicts.length - 6} more conflicting units</li> : null}
                 </ul>
                 <div className="unit-import-actions">
                   <button type="button" className="button button-primary" onClick={() => void importAvailabilityReport(true)}>
-                    Override And Import Report Values
+                    {isSpanish ? "Sobrescribir e importar valores del reporte" : "Override And Import Report Values"}
                   </button>
                   <button type="button" className="button button-secondary" onClick={() => setAvailabilityImportConflicts(null)}>
-                    Keep Local Board Values
+                    {isSpanish ? "Conservar valores locales del tablero" : "Keep Local Board Values"}
                   </button>
                 </div>
               </div>
@@ -1110,14 +1130,16 @@ export function OperationsPanel({
             {availabilityImportError ? <p className="admin-message error">{availabilityImportError}</p> : null}
             {lastAvailabilityImport ? (
               <div className="admin-message success" data-testid="availability-import-last-import">
-                Last availability import to {lastAvailabilityImport.property.code}: {lastAvailabilityImport.summary.turnsCreated} turns created, {lastAvailabilityImport.summary.turnsUpdated} turns updated, {lastAvailabilityImport.summary.unitsCreated} units created, {lastAvailabilityImport.summary.unitsUpdated} units updated.
+                {isSpanish
+                  ? `Última importación de disponibilidad a ${lastAvailabilityImport.property.code}: ${lastAvailabilityImport.summary.turnsCreated} rotaciones creadas, ${lastAvailabilityImport.summary.turnsUpdated} rotaciones actualizadas, ${lastAvailabilityImport.summary.unitsCreated} unidades creadas, ${lastAvailabilityImport.summary.unitsUpdated} unidades actualizadas.`
+                  : `Last availability import to ${lastAvailabilityImport.property.code}: ${lastAvailabilityImport.summary.turnsCreated} turns created, ${lastAvailabilityImport.summary.turnsUpdated} turns updated, ${lastAvailabilityImport.summary.unitsCreated} units created, ${lastAvailabilityImport.summary.unitsUpdated} units updated.`}
               </div>
             ) : null}
-            <button data-testid="availability-import-submit" className="button button-primary" disabled={loading || !properties.length || !selectedPropertyId || !availabilityImportText.trim()} onClick={() => void importAvailabilityReport()}>Import Availability & Populate Board</button>
+            <button data-testid="availability-import-submit" className="button button-primary" disabled={loading || !properties.length || !selectedPropertyId || !availabilityImportText.trim()} onClick={() => void importAvailabilityReport()}>{isSpanish ? "Importar disponibilidad y llenar tablero" : "Import Availability & Populate Board"}</button>
           </div>
           <div className="editor-block unit-import-block">
-            <h4>Paste Unit Directory CSV</h4>
-            <p className="helper-copy">Use this for permanent inventory only. It updates occupied/vacant directory status but does not create active make-ready table rows. For board population, use Availability CSV above.</p>
+            <h4>{isSpanish ? "Pegar CSV del directorio de unidades" : "Paste Unit Directory CSV"}</h4>
+            <p className="helper-copy">{isSpanish ? "Use esto solo para inventario permanente. Actualiza el estado ocupado/vacante del directorio, pero no crea filas activas de make-ready. Para poblar el tablero, use el CSV de disponibilidad de arriba." : "Use this for permanent inventory only. It updates occupied/vacant directory status but does not create active make-ready table rows. For board population, use Availability CSV above."}</p>
             <div className="unit-import-actions">
               <input
                 data-testid="unit-import-file"
@@ -1126,26 +1148,26 @@ export function OperationsPanel({
                 onChange={(event) => {
                   const file = event.currentTarget.files?.[0];
                   if (!file) return;
-                  void file.text().then(setUnitImportText).catch(() => setUnitImportError("Could not read that file."));
+                  void file.text().then(setUnitImportText).catch(() => setUnitImportError(isSpanish ? "No se pudo leer ese archivo." : "Could not read that file."));
                 }}
               />
-              <button type="button" className="button button-secondary" onClick={() => setUnitImportText("unit,building,area,floor,floorPlan,beds,baths,sqft,occupancyStatus,budgeted\n101,1,North,1,A1,1,1,720,OCCUPIED,yes\n102,1,North,1,A1,1,1,720,NTV LEASED,yes")}>Load sample</button>
-              <button type="button" className="button button-secondary" onClick={() => setShowImportHelp((current) => !current)}>Need to convert Excel/PDF?</button>
-              <button type="button" className="button button-secondary" disabled={!unitImportText.trim()} onClick={() => setUnitImportText("")}>Clear</button>
+              <button type="button" className="button button-secondary" onClick={() => setUnitImportText("unit,building,area,floor,floorPlan,beds,baths,sqft,occupancyStatus,budgeted\n101,1,North,1,A1,1,1,720,OCCUPIED,yes\n102,1,North,1,A1,1,1,720,NTV LEASED,yes")}>{isSpanish ? "Cargar ejemplo" : "Load sample"}</button>
+              <button type="button" className="button button-secondary" onClick={() => setShowImportHelp((current) => !current)}>{isSpanish ? "¿Necesita convertir Excel/PDF?" : "Need to convert Excel/PDF?"}</button>
+              <button type="button" className="button button-secondary" disabled={!unitImportText.trim()} onClick={() => setUnitImportText("")}>{isSpanish ? "Limpiar" : "Clear"}</button>
             </div>
             {showImportHelp ? (
               <div className="unit-import-help" data-testid="unit-import-ai-help">
                 <div className="admin-section-head">
                   <div>
-                    <strong>AI conversion helper</strong>
-                    <p className="helper-copy">Use this with a spreadsheet/PDF export when you need a MakeReadyOS-ready CSV.</p>
+                    <strong>{isSpanish ? "Asistente de conversión con IA" : "AI conversion helper"}</strong>
+                    <p className="helper-copy">{isSpanish ? "Use esto con una exportación de hoja de cálculo/PDF cuando necesite un CSV listo para MakeReadyOS." : "Use this with a spreadsheet/PDF export when you need a MakeReadyOS-ready CSV."}</p>
                   </div>
                   <button
                     type="button"
                     className="button button-secondary"
                     onClick={() => void navigator.clipboard?.writeText(unitDirectoryAiPrompt)}
                   >
-                    Copy prompt
+                    {isSpanish ? "Copiar prompt" : "Copy prompt"}
                   </button>
                 </div>
                 <textarea readOnly rows={10} value={unitDirectoryAiPrompt} />
@@ -1159,22 +1181,24 @@ export function OperationsPanel({
                 <span><strong>{unitImportPreview.creates}</strong> new</span>
                 <span><strong>{unitImportPreview.updates}</strong> updates</span>
                 <span><strong>{unitImportPreview.budgeted}</strong> budgeted</span>
-                {Object.entries(unitImportPreview.statuses).map(([status, count]) => <span key={status}><strong>{count}</strong> {occupancyLabel(status)}</span>)}
+                {Object.entries(unitImportPreview.statuses).map(([status, count]) => <span key={status}><strong>{count}</strong> {occupancyLabel(status, language)}</span>)}
               </div>
             ) : null}
             {unitImportParseError ? <p className="admin-message error">{unitImportParseError}</p> : null}
             {unitImportError ? <p className="admin-message error">{unitImportError}</p> : null}
             {lastImport ? (
               <div className="admin-message warning" data-testid="unit-import-last-import">
-                Last import to {lastImport.property.code}: {lastImport.summary.created} created, {lastImport.summary.updated} updated, {lastImport.summary.skipped} skipped, {lastImport.summary.floorPlansCreated ?? 0} floor plans created, {lastImport.summary.floorPlansUpdated ?? 0} floor plans updated.
+                {isSpanish
+                  ? `Última importación a ${lastImport.property.code}: ${lastImport.summary.created} creadas, ${lastImport.summary.updated} actualizadas, ${lastImport.summary.skipped} omitidas, ${lastImport.summary.floorPlansCreated ?? 0} planos creados, ${lastImport.summary.floorPlansUpdated ?? 0} planos actualizados.`
+                  : `Last import to ${lastImport.property.code}: ${lastImport.summary.created} created, ${lastImport.summary.updated} updated, ${lastImport.summary.skipped} skipped, ${lastImport.summary.floorPlansCreated ?? 0} floor plans created, ${lastImport.summary.floorPlansUpdated ?? 0} floor plans updated.`}
                 {lastImport.createdUnitIds.length > 0 ? (
                   <button type="button" className="button button-danger" disabled={loading} onClick={() => void revertLastUnitImport()}>
-                    Undo created units
+                    {isSpanish ? "Deshacer unidades creadas" : "Undo created units"}
                   </button>
-                ) : <span> No created units to undo.</span>}
+                ) : <span>{isSpanish ? " No hay unidades creadas para deshacer." : " No created units to undo."}</span>}
               </div>
             ) : null}
-            <button data-testid="unit-import-submit" className="button button-secondary" disabled={loading || !properties.length || !selectedPropertyId || !unitImportText.trim()} onClick={() => void importUnitDirectory()}>Import / Update Directory</button>
+            <button data-testid="unit-import-submit" className="button button-secondary" disabled={loading || !properties.length || !selectedPropertyId || !unitImportText.trim()} onClick={() => void importUnitDirectory()}>{isSpanish ? "Importar / actualizar directorio" : "Import / Update Directory"}</button>
           </div>
         </article>
       </section>
@@ -1182,85 +1206,85 @@ export function OperationsPanel({
       <section className="operations-grid turns-grid">
         <article className="operations-card" data-testid="turn-create-panel">
           <div className="admin-section-head">
-            <h3>New Make-Ready Item</h3>
-            <span className="subtitle">Create a turnover from an active unit</span>
+            <h3>{isSpanish ? "Nuevo elemento de make-ready" : "New Make-Ready Item"}</h3>
+            <span className="subtitle">{isSpanish ? "Crear una rotación desde una unidad activa" : "Create a turnover from an active unit"}</span>
           </div>
           <div className="turn-form">
-            <label>Property<select data-testid="item-create-property" value={newItem.propertyId} onChange={(event) => setNewItem((current) => ({ ...current, propertyId: event.target.value, unitId: "" }))}>{activeProperties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}</select></label>
-            <label>Unit
+            <label>{isSpanish ? "Propiedad" : "Property"}<select data-testid="item-create-property" value={newItem.propertyId} onChange={(event) => setNewItem((current) => ({ ...current, propertyId: event.target.value, unitId: "" }))}>{activeProperties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}</select></label>
+            <label>{isSpanish ? "Unidad" : "Unit"}
               <UnitSearchSelect
                 units={activeUnitsForItem}
                 value={newItem.unitId}
                 onChange={chooseItemUnit}
-                placeholder="Search unit..."
-                emptyLabel="No unit selected"
+                placeholder={isSpanish ? "Buscar unidad..." : "Search unit..."}
+                emptyLabel={isSpanish ? "No hay unidad seleccionada" : "No unit selected"}
               />
             </label>
-            <label>Section<select data-testid="item-create-group" value={newItem.boardGroup} onChange={(event) => setNewItem((current) => ({ ...current, boardGroup: event.target.value }))}>{sectionsForNewItem.map((section) => <option key={section.id} value={section.key}>{section.displayName}</option>)}</select></label>
-            <label>Vacancy<select data-testid="item-create-vacancy" value={newItem.vacancyStatus} onChange={(event) => setNewItem((current) => ({ ...current, vacancyStatus: event.target.value }))}>{labelOptions("vacancyStatus").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
-            <label>Make-ready status<select data-testid="item-create-status" value={newItem.makeReadyStatus} onChange={(event) => setNewItem((current) => ({ ...current, makeReadyStatus: event.target.value }))}><option value="">Unset</option>{labelOptions("makeReadyStatus").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
-            <label>Scope<select data-testid="item-create-scope" value={newItem.scopeLevel} onChange={(event) => setNewItem((current) => ({ ...current, scopeLevel: event.target.value }))}><option value="">Unset</option>{labelOptions("scopeLevel").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
-            <label>Assigned tech
+            <label>{isSpanish ? "Sección" : "Section"}<select data-testid="item-create-group" value={newItem.boardGroup} onChange={(event) => setNewItem((current) => ({ ...current, boardGroup: event.target.value }))}>{sectionsForNewItem.map((section) => <option key={section.id} value={section.key}>{section.displayName}</option>)}</select></label>
+            <label>{isSpanish ? "Vacancia" : "Vacancy"}<select data-testid="item-create-vacancy" value={newItem.vacancyStatus} onChange={(event) => setNewItem((current) => ({ ...current, vacancyStatus: event.target.value }))}>{labelOptions("vacancyStatus").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
+            <label>{isSpanish ? "Estado de make-ready" : "Make-ready status"}<select data-testid="item-create-status" value={newItem.makeReadyStatus} onChange={(event) => setNewItem((current) => ({ ...current, makeReadyStatus: event.target.value }))}><option value="">{isSpanish ? "Sin definir" : "Unset"}</option>{labelOptions("makeReadyStatus").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
+            <label>{isSpanish ? "Alcance" : "Scope"}<select data-testid="item-create-scope" value={newItem.scopeLevel} onChange={(event) => setNewItem((current) => ({ ...current, scopeLevel: event.target.value }))}><option value="">{isSpanish ? "Sin definir" : "Unset"}</option>{labelOptions("scopeLevel").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
+            <label>{isSpanish ? "Técnico asignado" : "Assigned tech"}
               <SearchSelect
                 options={staffOptions}
                 value={newItem.assignedTech}
                 onChange={(assignedTech) => setNewItem((current) => ({ ...current, assignedTech }))}
-                placeholder="Search tech..."
-                emptyLabel="Unassigned"
-                noMatchesLabel="No matching techs"
-                clearLabel="Clear assigned tech"
+                placeholder={isSpanish ? "Buscar técnico..." : "Search tech..."}
+                emptyLabel={isSpanish ? "Sin asignar" : "Unassigned"}
+                noMatchesLabel={isSpanish ? "No hay técnicos coincidentes" : "No matching techs"}
+                clearLabel={isSpanish ? "Quitar técnico asignado" : "Clear assigned tech"}
               />
             </label>
-            <label>Make-ready date<input data-testid="item-create-make-ready-date" type="date" value={newItem.makeReadyDate} onChange={(event) => setNewItem((current) => ({ ...current, makeReadyDate: event.target.value }))} /></label>
-            <label>Move-in date<input data-testid="item-create-move-in-date" type="date" value={newItem.moveInDate} onChange={(event) => setNewItem((current) => ({ ...current, moveInDate: event.target.value }))} /></label>
-            <button data-testid="item-create-submit" className="button button-primary span-full" disabled={loading || !newItem.unitId} onClick={() => void createItem()}>Create Make-Ready Item</button>
+            <label>{isSpanish ? "Fecha de make-ready" : "Make-ready date"}<input data-testid="item-create-make-ready-date" type="date" value={newItem.makeReadyDate} onChange={(event) => setNewItem((current) => ({ ...current, makeReadyDate: event.target.value }))} /></label>
+            <label>{isSpanish ? "Fecha de mudanza" : "Move-in date"}<input data-testid="item-create-move-in-date" type="date" value={newItem.moveInDate} onChange={(event) => setNewItem((current) => ({ ...current, moveInDate: event.target.value }))} /></label>
+            <button data-testid="item-create-submit" className="button button-primary span-full" disabled={loading || !newItem.unitId} onClick={() => void createItem()}>{isSpanish ? "Crear elemento de make-ready" : "Create Make-Ready Item"}</button>
           </div>
         </article>
 
         <article className="operations-card" data-testid="turn-lifecycle-panel">
           <div className="admin-section-head">
             <div>
-              <h3>Archive / Occupied Units</h3>
-              <p className="helper-copy">Each make-ready item is one turn. Archive completed turns after move-in while keeping unit-level history, photos, comments, vendors, checklists, risk, and activity available for lookup.</p>
+              <h3>{isSpanish ? "Archivo / Unidades ocupadas" : "Archive / Occupied Units"}</h3>
+              <p className="helper-copy">{isSpanish ? "Cada elemento de make-ready es una rotación. Archive las rotaciones completadas después de la mudanza manteniendo disponible el historial por unidad, fotos, comentarios, proveedores, listas, riesgo y actividad para consulta." : "Each make-ready item is one turn. Archive completed turns after move-in while keeping unit-level history, photos, comments, vendors, checklists, risk, and activity available for lookup."}</p>
             </div>
             <div className="archive-history-controls">
               <input
                 data-testid="turn-history-search"
                 value={turnHistorySearch}
                 onChange={(event) => setTurnHistorySearch(event.target.value)}
-                placeholder="Search unit, applicant, tech"
+                placeholder={isSpanish ? "Buscar unidad, solicitante o técnico" : "Search unit, applicant, tech"}
               />
               <label className="toolbar-select">
-                <span className="sr-only">Turn archive mode</span>
+                <span className="sr-only">{isSpanish ? "Modo de archivo de rotaciones" : "Turn archive mode"}</span>
                 <select data-testid="item-archive-mode" value={turnArchiveMode} onChange={(event) => setTurnArchiveMode(event.target.value as ArchiveFilter)}>
-                  <option value="active">Active turns</option>
-                  <option value="archived">Archive only</option>
-                  <option value="occupied">Occupied</option>
-                  <option value="all">Active + archive</option>
+                  <option value="active">{isSpanish ? "Rotaciones activas" : "Active turns"}</option>
+                  <option value="archived">{isSpanish ? "Solo archivo" : "Archive only"}</option>
+                  <option value="occupied">{isSpanish ? "Ocupadas" : "Occupied"}</option>
+                  <option value="all">{isSpanish ? "Activas + archivo" : "Active + archive"}</option>
                 </select>
               </label>
             </div>
           </div>
           <div className="operations-mini-stats wrap">
-            <span><strong>{activeTurns.length}</strong> active turns</span>
-            <span><strong>{archivedTurns.length}</strong> archived turns</span>
-            <span><strong>{occupiedCount}</strong> occupied directory units</span>
-            <span><strong>{visibleHistoryCount}</strong> shown</span>
+            <span><strong>{activeTurns.length}</strong> {isSpanish ? "rotaciones activas" : "active turns"}</span>
+            <span><strong>{archivedTurns.length}</strong> {isSpanish ? "rotaciones archivadas" : "archived turns"}</span>
+            <span><strong>{occupiedCount}</strong> {isSpanish ? "unidades ocupadas en directorio" : "occupied directory units"}</span>
+            <span><strong>{visibleHistoryCount}</strong> {isSpanish ? "mostradas" : "shown"}</span>
           </div>
           <div className="turn-list">
             {turnArchiveMode === "occupied" ? (
               occupiedDirectoryRows.length === 0 ? (
-                <StatusState title="No occupied directory units" description="Import a unit directory with occupied units, or switch modes to review active and archived make-ready turns." tone="subtle" />
+                <StatusState title={isSpanish ? "No hay unidades ocupadas en el directorio" : "No occupied directory units"} description={isSpanish ? "Importe un directorio de unidades con unidades ocupadas o cambie de modo para revisar rotaciones activas y archivadas." : "Import a unit directory with occupied units, or switch modes to review active and archived make-ready turns."} tone="subtle" />
               ) : occupiedDirectoryRows.slice(0, 80).map((unit) => {
                 const turnCount = turnsByUnit.get(`${unit.propertyId}|${unit.id}`) ?? turnsByUnit.get(`${unit.propertyId}|${unit.number}`) ?? 0;
                 return (
                   <div className="turn-row" data-testid={`occupied-unit-row-${unit.number.toLowerCase()}`} key={unit.id}>
                     <div>
                       <strong>{unit.property.code} {unit.number}</strong>
-                      <span>{unit.property.name} / {unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan || "No floor plan"} / {turnCount} prior turn(s)</span>
-                      <small>{unit.building ? `Building ${unit.building}` : "No building"} / {unit.area || "No area"} / {unit.floor ? `Floor ${unit.floor}` : "No floor"} / {unit.isBudgeted ? "Budgeted" : "Non-budgeted"}</small>
+                      <span>{unit.property.name} / {unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan || (isSpanish ? "Sin plano" : "No floor plan")} / {turnCount} {isSpanish ? "rotación(es) previas" : "prior turn(s)"}</span>
+                      <small>{unit.building ? `${isSpanish ? "Edificio" : "Building"} ${unit.building}` : (isSpanish ? "Sin edificio" : "No building")} / {unit.area || (isSpanish ? "Sin área" : "No area")} / {unit.floor ? `${isSpanish ? "Piso" : "Floor"} ${unit.floor}` : (isSpanish ? "Sin piso" : "No floor")} / {unit.isBudgeted ? (isSpanish ? "Presupuestada" : "Budgeted") : (isSpanish ? "No presupuestada" : "Non-budgeted")}</small>
                     </div>
-                    <span className="status-chip active">Occupied</span>
+                    <span className="status-chip active">{isSpanish ? "Ocupada" : "Occupied"}</span>
                     <button
                       type="button"
                       className="button button-secondary"
@@ -1269,7 +1293,7 @@ export function OperationsPanel({
                         setSelectedUnitId(unit.id);
                       }}
                     >
-                      Edit unit
+                      {isSpanish ? "Editar unidad" : "Edit unit"}
                     </button>
                     <button
                       type="button"
@@ -1285,22 +1309,22 @@ export function OperationsPanel({
                         }));
                       }}
                     >
-                      Start turn
+                      {isSpanish ? "Iniciar rotación" : "Start turn"}
                     </button>
                   </div>
                 );
               })
-            ) : visibleItems.length === 0 ? <StatusState title="No turnover records" description="Create a make-ready item or switch to Occupied to review imported occupied directory units." tone="subtle" /> : visibleItems.slice(0, 40).map((item) => (
+            ) : visibleItems.length === 0 ? <StatusState title={isSpanish ? "No hay registros de rotación" : "No turnover records"} description={isSpanish ? "Cree un elemento de make-ready o cambie a Ocupadas para revisar unidades ocupadas importadas." : "Create a make-ready item or switch to Occupied to review imported occupied directory units."} tone="subtle" /> : visibleItems.slice(0, 40).map((item) => (
               <div className="turn-row" data-testid={`turn-row-${item.unitNumber.toLowerCase()}`} key={item.id}>
                 <div>
                   <strong>{item.unitNumber}</strong>
-                  <span>{item.property.code} / {displayGroup(item.boardGroup)} / {turnsByUnit.get(`${item.propertyId}|${item.unitId ?? item.unitNumber}`) ?? 1} turn(s)</span>
-                  <small>{item.vacatedDate ? `Vacated ${item.vacatedDate.slice(0, 10)}` : "No vacated date"} / {item.moveInDate ? `Move-in ${item.moveInDate.slice(0, 10)}` : "No move-in date"}</small>
+                  <span>{item.property.code} / {displayGroup(item.boardGroup)} / {turnsByUnit.get(`${item.propertyId}|${item.unitId ?? item.unitNumber}`) ?? 1} {isSpanish ? "rotación(es)" : "turn(s)"}</span>
+                  <small>{item.vacatedDate ? `${isSpanish ? "Desocupada" : "Vacated"} ${item.vacatedDate.slice(0, 10)}` : (isSpanish ? "Sin fecha de desocupación" : "No vacated date")} / {item.moveInDate ? `${isSpanish ? "Mudanza" : "Move-in"} ${item.moveInDate.slice(0, 10)}` : (isSpanish ? "Sin fecha de mudanza" : "No move-in date")}</small>
                 </div>
-                <span className={item.isArchived ? "status-chip inactive" : "status-chip active"}>{item.isArchived ? "Archived" : item.makeReadyStatus || "Active"}</span>
-                <button type="button" className="button button-secondary" onClick={() => onOpenItem(item.id)}>Details</button>
+                <span className={item.isArchived ? "status-chip inactive" : "status-chip active"}>{item.isArchived ? (isSpanish ? "Archivada" : "Archived") : item.makeReadyStatus || (isSpanish ? "Activa" : "Active")}</span>
+                <button type="button" className="button button-secondary" onClick={() => onOpenItem(item.id)}>{isSpanish ? "Detalles" : "Details"}</button>
                 <button data-testid={`${item.isArchived ? "item-restore" : "item-archive"}-${item.unitNumber.toLowerCase()}`} className={item.isArchived ? "button button-secondary" : "button button-danger"} onClick={() => item.isArchived ? void onArchiveItem(item.id, true) : setConfirmTarget({ type: "item", operation: "archive", record: item })}>
-                  {item.isArchived ? "Restore" : "Archive"}
+                  {item.isArchived ? (isSpanish ? "Restaurar" : "Restore") : (isSpanish ? "Archivar" : "Archive")}
                 </button>
               </div>
             ))}
@@ -1310,10 +1334,10 @@ export function OperationsPanel({
 
       <ConfirmDialog
         open={Boolean(confirmTarget)}
-        language="en"
-        title={`${confirmTarget?.operation === "delete" ? "Delete" : "Archive"} ${confirmTarget?.type ?? "record"}`}
-        description={confirmTarget?.operation === "delete" ? "Deletion is permitted only when no linked operational history remains. This action cannot be undone." : "This hides the record from active workflows without deleting its history. It can be restored later."}
-        confirmLabel={confirmTarget?.operation === "delete" ? "Delete" : "Archive"}
+        language={language}
+        title={`${confirmTarget?.operation === "delete" ? (isSpanish ? "Eliminar" : "Delete") : (isSpanish ? "Archivar" : "Archive")} ${confirmTarget?.type ?? (isSpanish ? "registro" : "record")}`}
+        description={confirmTarget?.operation === "delete" ? (isSpanish ? "La eliminación se permite solo cuando no queda historial operativo vinculado. Esta acción no se puede deshacer." : "Deletion is permitted only when no linked operational history remains. This action cannot be undone.") : (isSpanish ? "Esto oculta el registro de los flujos de trabajo activos sin borrar su historial. Se puede restaurar más adelante." : "This hides the record from active workflows without deleting its history. It can be restored later.")}
+        confirmLabel={confirmTarget?.operation === "delete" ? (isSpanish ? "Eliminar" : "Delete") : (isSpanish ? "Archivar" : "Archive")}
         tone="danger"
         onClose={() => setConfirmTarget(null)}
         onConfirm={async () => {

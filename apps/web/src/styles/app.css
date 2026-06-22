@@ -10928,6 +10928,151 @@ textarea {
   gap: 0.45rem;
 }
 
+.lease-issue-grid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+}
+
+.lease-issue-card {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+}
+
+.lease-issue-card-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5rem;
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.lease-issue-card-main {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.lease-issue-card-main .drawer-section-title {
+  margin-bottom: 0;
+}
+
+.lease-issue-card-main .drawer-section-title h3 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.lease-issue-card-side {
+  display: grid;
+  justify-items: end;
+}
+
+.lease-issue-thumb-link {
+  display: block;
+}
+
+.lease-issue-thumb,
+.lease-issue-thumb-placeholder {
+  width: 5.5rem;
+  height: 5.5rem;
+  border-radius: 0.8rem;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.lease-issue-thumb {
+  object-fit: cover;
+  display: block;
+}
+
+.lease-issue-thumb-placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-align: center;
+  padding: 0.45rem;
+}
+
+.lease-issue-description {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.lease-issue-meta {
+  margin-bottom: 0;
+}
+
+.lease-issue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-start;
+}
+
+.lease-issue-details {
+  border-top: 1px solid var(--line);
+  padding-top: 0.75rem;
+}
+
+.lease-issue-details summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 700;
+  list-style: none;
+}
+
+.lease-issue-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.lease-issue-details summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 0.45rem;
+  color: var(--muted);
+}
+
+.lease-issue-details[open] summary::before {
+  content: "▾";
+}
+
+.lease-issue-details-body {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.lease-issue-edit-grid,
+.lease-issue-note-grid {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.lease-issue-edit-grid label,
+.lease-issue-note-grid label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.lease-issue-edit-grid input,
+.lease-issue-edit-grid select,
+.lease-issue-edit-grid textarea,
+.lease-issue-note-grid input,
+.lease-issue-note-grid select,
+.lease-issue-note-grid textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.lease-issue-attachments {
+  justify-content: flex-start;
+  max-width: none;
+}
+
 .pool-reading-stack {
   display: flex;
   flex-wrap: wrap;
@@ -11233,7 +11378,10 @@ textarea {
   .pest-quick-grid,
   .wiki-workflow-related-grid,
   .pool-daily-grid,
-  .pm-task-grid {
+  .pm-task-grid,
+  .lease-issue-grid,
+  .lease-issue-edit-grid,
+  .lease-issue-note-grid {
     grid-template-columns: 1fr;
   }
 
@@ -11259,9 +11407,20 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .lease-issue-card-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .lease-issue-card-side {
+    justify-items: start;
+  }
+
   .lease-repeat-card-media img,
-  .lease-repeat-card-placeholder {
+  .lease-repeat-card-placeholder,
+  .lease-issue-thumb,
+  .lease-issue-thumb-placeholder {
     height: 12rem;
+    width: 100%;
   }
 
   .pm-quick-filters button {

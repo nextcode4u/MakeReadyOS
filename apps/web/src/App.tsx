@@ -79,6 +79,7 @@ import {
   getPoolEntries,
   getProjectRecords,
   getProjectRecord,
+  type ChecklistInstance,
   type ItemCollaboration,
   MakeReadyItem,
   MakeReadyItemsPage,
@@ -562,6 +563,32 @@ function pickLikelyPoolEntryMatch(
   })[0] ?? null;
 }
 
+async function findChecklistParentItemId(
+  checklistItemId: string,
+  seedItems: Array<MakeReadyItem & { checklistInstances?: ChecklistInstance[] }> = [],
+) {
+  const seededMatch = seedItems.find((item) =>
+    item.checklistInstances?.some((instance) => instance.items.some((entry) => entry.id === checklistItemId)),
+  );
+  if (seededMatch) return seededMatch.id;
+  let offset = 0;
+  let scanned = 0;
+  const limit = 250;
+  const maxScanned = 2000;
+  while (scanned < maxScanned) {
+    const page = await getMakeReadyItemPage({ includeArchived: true, limit, offset });
+    const pageItems = page.items as Array<MakeReadyItem & { checklistInstances?: ChecklistInstance[] }>;
+    const match = pageItems.find((item) =>
+      item.checklistInstances?.some((instance) => instance.items.some((entry) => entry.id === checklistItemId)),
+    );
+    if (match) return match.id;
+    scanned += pageItems.length;
+    if (!page.pagination.hasMore || page.pagination.nextOffset === null || !pageItems.length) break;
+    offset = page.pagination.nextOffset;
+  }
+  return null;
+}
+
 function App() {
   const [propertyId, setPropertyId] = useState("");
   const [search, setSearch] = useState("");
@@ -637,6 +664,7 @@ function App() {
   const [selectedOfflineQueueServerPoolEntry, setSelectedOfflineQueueServerPoolEntry] = useState<PoolLogEntry | null>(null);
   const [selectedOfflineQueueServerProjectRecord, setSelectedOfflineQueueServerProjectRecord] = useState<ProjectRecord | null>(null);
   const [selectedOfflineQueueServerCollaboration, setSelectedOfflineQueueServerCollaboration] = useState<ItemCollaboration | null>(null);
+  const [selectedOfflineQueueResolvedItemId, setSelectedOfflineQueueResolvedItemId] = useState<string | null>(null);
   const [selectedOfflineQueueServerError, setSelectedOfflineQueueServerError] = useState("");
   const [wikiRecordRequest, setWikiRecordRequest] = useState<(OpenWikiRecordRequest & { nonce: number }) | null>(null);
   const [projectRecordRequest, setProjectRecordRequest] = useState<(OpenProjectRecordRequest & { nonce: number }) | null>(null);
@@ -721,6 +749,7 @@ function App() {
       setSelectedOfflineQueueServerPoolEntry(null);
       setSelectedOfflineQueueServerProjectRecord(null);
       setSelectedOfflineQueueServerCollaboration(null);
+      setSelectedOfflineQueueResolvedItemId(null);
       setSelectedOfflineQueueServerError("");
     }
     pushToast(t(meQuery.data?.user.language ?? "en", "offlineQueue.removed"), t(meQuery.data?.user.language ?? "en", "offlineQueue.removedCopy").replace("{title}", job.title), "info");
@@ -732,9 +761,10 @@ function App() {
     setSelectedOfflineQueueServerLeaseIssue(null);
     setSelectedOfflineQueueServerPestIssue(null);
     setSelectedOfflineQueueServerPmTask(null);
-    setSelectedOfflineQueueServerPoolEntry(null);
+   setSelectedOfflineQueueServerPoolEntry(null);
     setSelectedOfflineQueueServerProjectRecord(null);
     setSelectedOfflineQueueServerCollaboration(null);
+    setSelectedOfflineQueueResolvedItemId(null);
     setSelectedOfflineQueueServerError("");
     try {
       const detail = await getOfflineSyncJob(job.id);
@@ -783,19 +813,15 @@ function App() {
         }
       } else if (detail?.payload.kind === "leaseUpload") {
         const payload = detail.payload;
-        if (!payload.propertyId) {
-          setSelectedOfflineQueueServerError(t(meQuery.data?.user.language ?? "en", "offlineQueue.legacyMissingProperty.leaseUpload"));
-        } else {
-          try {
-            const response = await getLeaseComplianceIssues({
-              propertyId: payload.propertyId,
-              includeArchived: true,
-              limit: 200,
-            });
-            setSelectedOfflineQueueServerLeaseIssue(response.issues.find((issue) => issue.id === payload.issueId) ?? null);
-          } catch (error) {
-            setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.leaseIssue"));
-          }
+        try {
+          const response = await getLeaseComplianceIssues({
+            propertyId: payload.propertyId,
+            includeArchived: true,
+            limit: payload.propertyId ? 200 : 400,
+          });
+          setSelectedOfflineQueueServerLeaseIssue(response.issues.find((issue) => issue.id === payload.issueId) ?? null);
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.leaseIssue"));
         }
       } else if (detail?.payload.kind === "pestCreate") {
         try {
@@ -828,19 +854,15 @@ function App() {
         }
       } else if (detail?.payload.kind === "pestUpload") {
         const payload = detail.payload;
-        if (!payload.propertyId) {
-          setSelectedOfflineQueueServerError(t(meQuery.data?.user.language ?? "en", "offlineQueue.legacyMissingProperty.pestUpload"));
-        } else {
-          try {
-            const response = await getPestIssues({
-              propertyId: payload.propertyId,
-              includeArchived: true,
-              limit: 200,
-            });
-            setSelectedOfflineQueueServerPestIssue(response.issues.find((issue) => issue.id === payload.issueId) ?? null);
-          } catch (error) {
-            setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pestIssue"));
-          }
+        try {
+          const response = await getPestIssues({
+            propertyId: payload.propertyId,
+            includeArchived: true,
+            limit: payload.propertyId ? 200 : 400,
+          });
+          setSelectedOfflineQueueServerPestIssue(response.issues.find((issue) => issue.id === payload.issueId) ?? null);
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pestIssue"));
         }
       } else if (detail?.payload.kind === "pmComplete" || detail?.payload.kind === "pmSkip") {
         try {
@@ -856,21 +878,17 @@ function App() {
           setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pmTask"));
         }
       } else if (detail?.payload.kind === "pmUpload") {
-        if (!detail.payload.propertyId) {
-          setSelectedOfflineQueueServerError(t(meQuery.data?.user.language ?? "en", "offlineQueue.legacyMissingProperty.pmUpload"));
-        } else {
-          try {
-            const [activeResponse, historyResponse] = await Promise.all([
-              getPreventiveMaintenanceTasks({ propertyId: detail.payload.propertyId, limit: 200 }),
-              getPreventiveMaintenanceHistory({ propertyId: detail.payload.propertyId, limit: 200 }),
-            ]);
-            setSelectedOfflineQueueServerPmTask(
-              findPmTaskById(activeResponse.tasks, detail.payload.taskId)
-              ?? findPmTaskById(historyResponse.tasks, detail.payload.taskId),
-            );
-          } catch (error) {
-            setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pmTask"));
-          }
+        try {
+          const [activeResponse, historyResponse] = await Promise.all([
+            getPreventiveMaintenanceTasks({ propertyId: detail.payload.propertyId, limit: detail.payload.propertyId ? 200 : 400 }),
+            getPreventiveMaintenanceHistory({ propertyId: detail.payload.propertyId, limit: detail.payload.propertyId ? 200 : 400 }),
+          ]);
+          setSelectedOfflineQueueServerPmTask(
+            findPmTaskById(activeResponse.tasks, detail.payload.taskId)
+            ?? findPmTaskById(historyResponse.tasks, detail.payload.taskId),
+          );
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pmTask"));
         }
       } else if (detail?.payload.kind === "projectUpload") {
         try {
@@ -881,15 +899,11 @@ function App() {
         }
       } else if (detail?.payload.kind === "poolUpload") {
         const payload = detail.payload;
-        if (!payload.propertyId) {
-          setSelectedOfflineQueueServerError(t(meQuery.data?.user.language ?? "en", "offlineQueue.legacyMissingProperty.poolUpload"));
-        } else {
-          try {
-            const response = await getPoolEntries({ propertyId: payload.propertyId, limit: 200 });
-            setSelectedOfflineQueueServerPoolEntry(response.entries.find((entry) => entry.id === payload.entryId) ?? null);
-          } catch (error) {
-            setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.poolEntry"));
-          }
+        try {
+          const response = await getPoolEntries({ propertyId: payload.propertyId, limit: payload.propertyId ? 200 : 400 });
+          setSelectedOfflineQueueServerPoolEntry(response.entries.find((entry) => entry.id === payload.entryId) ?? null);
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.poolEntry"));
         }
       } else if (
         detail?.payload.kind === "makeReadyCommentCreate"
@@ -899,7 +913,20 @@ function App() {
         || (detail?.payload.kind === "makeReadyChecklistUpdate" && Boolean(detail.payload.itemId))
       ) {
         try {
+          setSelectedOfflineQueueResolvedItemId(detail.payload.itemId!);
           setSelectedOfflineQueueServerCollaboration(await getItemCollaboration(detail.payload.itemId!, { commentLimit: 100, checklistLimit: 100 }));
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.collaboration"));
+        }
+      } else if (detail?.payload.kind === "makeReadyChecklistUpdate") {
+        try {
+          const resolvedItemId = await findChecklistParentItemId(detail.payload.checklistItemId, boardItems);
+          if (!resolvedItemId) {
+            setSelectedOfflineQueueServerError(t(meQuery.data?.user.language ?? "en", "offlineQueue.legacyChecklistHelp"));
+          } else {
+            setSelectedOfflineQueueResolvedItemId(resolvedItemId);
+            setSelectedOfflineQueueServerCollaboration(await getItemCollaboration(resolvedItemId, { commentLimit: 100, checklistLimit: 100 }));
+          }
         } catch (error) {
           setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.collaboration"));
         }
@@ -923,6 +950,7 @@ function App() {
           setSelectedOfflineQueueServerPoolEntry(null);
           setSelectedOfflineQueueServerProjectRecord(null);
           setSelectedOfflineQueueServerCollaboration(null);
+          setSelectedOfflineQueueResolvedItemId(null);
           setSelectedOfflineQueueServerError("");
         }
         pushToast("Queued change synced", `${job.title} reached the server.`, "success");
@@ -944,6 +972,7 @@ function App() {
     setSelectedOfflineQueueServerItem(null);
     setSelectedOfflineQueueServerPoolEntry(null);
     setSelectedOfflineQueueServerProjectRecord(null);
+    setSelectedOfflineQueueResolvedItemId(null);
     setSelectedOfflineQueueServerError("");
     await refreshOfflineQueueState();
     await queryClient.invalidateQueries();
@@ -3473,6 +3502,7 @@ function App() {
             ) : (
               <>
               <OperationsPanel
+                language={currentUser.language}
                 role={currentUser.role}
                 properties={operationsPropertiesQuery.data?.properties ?? []}
                 units={operationsUnitsQuery.data?.units ?? []}
@@ -4648,7 +4678,7 @@ function App() {
                       )}
                     </>
                   ) : null}
-                  {selectedOfflineQueueJob.payload.kind === "makeReadyChecklistUpdate" && !selectedOfflineQueueJob.payload.itemId ? (
+                  {selectedOfflineQueueJob.payload.kind === "makeReadyChecklistUpdate" && !selectedOfflineQueueJob.payload.itemId && !selectedOfflineQueueResolvedItemId ? (
                     <p className="helper-copy">{t(currentUser.language, "offlineQueue.legacyChecklistHelp")}</p>
                   ) : null}
                 </>

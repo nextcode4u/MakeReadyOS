@@ -161,6 +161,7 @@ function IssueCard({
   const [note, setNote] = useState("");
   const [resolutionNotes, setResolutionNotes] = useState("");
   const [persistNotes, setPersistNotes] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const label = issue.unit?.number ?? issue.area ?? issue.building ?? t(language, "lease.area");
   const assignableUserOptions = useMemo<SearchSelectOption[]>(() => users.map((user) => ({
     value: user.id,
@@ -177,20 +178,33 @@ function IssueCard({
   });
 
   return (
-    <article className={`pool-card ${issue.managerReviewRequired ? "pm-task-card" : ""}`} data-testid={`lease-issue-${issue.id}`}>
-      <div className="drawer-section-title">
-        <h3>{label} / {issue.issueTypeName}{issue.additionalIssueType ? ` + ${issue.additionalIssueType}` : ""}</h3>
-        <span className={`status-pill ${issue.status === "Violation Needed" ? "risk-critical" : issue.noticeStage !== "None" ? "risk-high" : ""}`}>{issue.status}</span>
+    <article className={`pool-card lease-issue-card ${issue.managerReviewRequired ? "pm-task-card" : ""}`} data-testid={`lease-issue-${issue.id}`}>
+      <div className="lease-issue-card-summary">
+        <div className="lease-issue-card-main">
+          <div className="drawer-section-title">
+            <h3>{label} / {issue.issueTypeName}{issue.additionalIssueType ? ` + ${issue.additionalIssueType}` : ""}</h3>
+            <span className={`status-pill ${issue.status === "Violation Needed" ? "risk-critical" : issue.noticeStage !== "None" ? "risk-high" : ""}`}>{issue.status}</span>
+          </div>
+          <div className="pool-reading-stack">
+            <span>{issue.property.code}</span>
+            <span>{issue.priority}</span>
+            <span>{issue.noticeStage}</span>
+            <span>{tWithVars(language, "lease.daysOpen", { count: String(daysOpen(issue)) })}</span>
+            <span>{tWithVars(language, "lease.persistedShort", { count: String(issue.persistenceCount) })}</span>
+            {issue.assignedUserName ? <span>{issue.assignedUserName}</span> : null}
+          </div>
+          {issue.description ? <p className="lease-issue-description">{issue.description}</p> : null}
+        </div>
+        <div className="lease-issue-card-side">
+          {issue.photos[0] ? (
+            <a href={leaseComplianceIssuePhotoDownloadUrl(issue.photos[0].id)} target="_blank" rel="noreferrer" className="lease-issue-thumb-link">
+              <img className="lease-issue-thumb" src={leaseComplianceIssuePhotoDownloadUrl(issue.photos[0].id)} alt={issue.photos[0].originalName} loading="lazy" />
+            </a>
+          ) : (
+            <div className="lease-issue-thumb lease-issue-thumb-placeholder">{t(language, "lease.noPriorPhoto")}</div>
+          )}
+        </div>
       </div>
-      <div className="pool-reading-stack">
-        <span>{issue.property.code}</span>
-        <span>{issue.priority}</span>
-        <span>{issue.noticeStage}</span>
-        <span>{tWithVars(language, "lease.daysOpen", { count: String(daysOpen(issue)) })}</span>
-        <span>{tWithVars(language, "lease.persistedShort", { count: String(issue.persistenceCount) })}</span>
-        {issue.assignedUserName ? <span>{issue.assignedUserName}</span> : null}
-      </div>
-      {issue.description ? <p>{issue.description}</p> : null}
       {(issue.recurringConcern || issue.managerReviewRequired) ? (
         <div className="risk-banner" style={{ marginBottom: 12 }}>
           <strong>{issue.managerReviewRequired ? t(language, "lease.managerReviewRequired") : t(language, "lease.recurringConcern")}</strong>
@@ -199,156 +213,160 @@ function IssueCard({
         </div>
       ) : null}
 
-      <PropertyWikiWorkflowPanel
-        title={t(language, "lease.wikiContext")}
-        module="LEASE_COMPLIANCE"
-        propertyId={issue.propertyId}
-        recordType="LEASE_COMPLIANCE_ISSUE"
-        recordId={issue.id}
-        unitNumber={issue.unit?.number}
-        building={issue.building}
-        query={[
-          issue.issueTypeName,
-          issue.additionalIssueType,
-          issue.area,
-          issue.description,
-          issue.locationNotes,
-        ].filter(Boolean).join(" ")}
-        canEdit={canEdit}
-      />
-
-      {canEdit ? (
-        <div className="pool-grid" style={{ marginBottom: 12 }}>
-          <label>{t(language, "admin.status")}
-            <select value={issue.status} onChange={(event) => onSave(issue.id, { status: event.target.value as LeaseComplianceStatus })}>
-              {statuses.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-            </select>
-          </label>
-          <label>{t(language, "lease.priority")}
-            <select value={issue.priority} onChange={(event) => onSave(issue.id, { priority: event.target.value as LeaseCompliancePriority })}>
-              {priorities.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-            </select>
-          </label>
-          <label>{t(language, "lease.assignedUser")}
-            <SearchSelect
-              options={assignableUserOptions}
-              value={issue.assignedUserId ?? ""}
-              onChange={(assignedUserId) => onSave(issue.id, { assignedUserId: assignedUserId || null })}
-              placeholder={t(language, "pm.searchUser")}
-              emptyLabel={t(language, "lease.unassigned")}
-              noMatchesLabel={t(language, "pm.noMatchingUsers")}
-              clearLabel={t(language, "pm.clearAssignedUser")}
-            />
-          </label>
-          <label>{t(language, "lease.noticeStage")}
-            <select value={issue.noticeStage} onChange={(event) => onSave(issue.id, { noticeStage: event.target.value as LeaseComplianceNoticeStage })}>
-              {noticeStages.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-            </select>
-          </label>
-        </div>
-      ) : null}
-
-      <div className="pool-reading-stack" style={{ marginBottom: 12 }}>
+      <div className="pool-reading-stack lease-issue-meta" style={{ marginBottom: 12 }}>
         <span>{t(language, "lease.created")} {formatDate(issue.createdAt)}</span>
         <span>{t(language, "lease.lastPersists")} {formatDate(issue.lastPersistenceCheckDate)}</span>
         <span>{t(language, "lease.resolved")} {formatDate(issue.resolvedDate)}</span>
         <span>{t(language, "lease.violation")} {formatDate(issue.violationNeededDate)}</span>
       </div>
-      <IssueMediaStrip
-        files={issue.photos}
-        getUrl={leaseComplianceIssuePhotoDownloadUrl}
-        emptyLabel={t(language, "lease.noPriorPhoto")}
-      />
-
-      {issue.photos.length ? (
-        <div className="pool-attachment-list" style={{ marginBottom: 12 }}>
-          {issue.photos.map((photo) => (
-            <span key={photo.id} style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-              <a href={leaseComplianceIssuePhotoDownloadUrl(photo.id)} target="_blank" rel="noreferrer">{photo.originalName}</a>
-              <em className="muted">{photo.photoCategory.split("_").join(" ")}</em>
-              {canEdit ? <button className="link-button" type="button" onClick={() => onDeletePhoto(photo.id)}>{t(language, "common.remove")}</button> : null}
-            </span>
-          ))}
-        </div>
-      ) : null}
-
-      {issue.notes.length ? (
-        <div className="activity-feed" style={{ marginBottom: 12 }}>
-          {issue.notes.slice(0, 4).map((entry) => (
-            <div key={entry.id} className="activity-entry">
-              <strong>{entry.authorName}</strong>
-              <span>{new Date(entry.createdAt).toLocaleString()}</span>
-              <p>{entry.body}</p>
-            </div>
-          ))}
-        </div>
-      ) : <p className="muted">{t(language, "lease.noNotesYet")}</p>}
-
-      {canEdit ? (
-        <>
-          <div className="pool-entry-actions" style={{ marginBottom: 12 }}>
-            <label className="button button-secondary pool-upload-button">
-              {t(language, "lease.uploadPhotoPdf")}
-              <input
-                type="file"
-                hidden
-                accept="image/*,.pdf"
-                onChange={(event) => {
-                  onUpload(issue.id, event.target.files);
-                  event.currentTarget.value = "";
-                }}
-              />
-            </label>
-          </div>
-          <label>{t(language, "lease.quickNote")}
-            <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder={t(language, "lease.quickNotePlaceholder")} />
-          </label>
-          <div className="pool-entry-actions" style={{ marginBottom: 12 }}>
-            <button className="button button-secondary" type="button" onClick={() => { if (note.trim()) { onNote(issue.id, note.trim()); setNote(""); } }}>{t(language, "lease.addNote")}</button>
-          </div>
-          <label>{t(language, "lease.stillPersistsNote")}
-            <textarea value={persistNotes} onChange={(event) => setPersistNotes(event.target.value)} placeholder={t(language, "lease.stillPersistsPlaceholder")} />
-          </label>
-          <div className="pool-entry-actions" style={{ marginBottom: 12 }}>
-            <button
-              className="button button-secondary"
-              type="button"
-              onClick={() => {
-                onPersist(issue.id, persistNotes.trim() || undefined);
-                setPersistNotes("");
-              }}
-            >
-              {t(language, "lease.markStillPersists")}
-            </button>
-          </div>
-          <label>{t(language, "lease.resolutionNotes")}
-            <textarea value={resolutionNotes} onChange={(event) => setResolutionNotes(event.target.value)} placeholder={t(language, "lease.resolutionNotesPlaceholder")} />
-          </label>
-          <div className="pool-entry-actions" style={{ marginTop: 12 }}>
-            <button
-              className="button button-primary"
-              type="button"
-              onClick={() => {
-                if (resolutionNotes.trim()) {
-                  onResolve(issue.id, resolutionNotes.trim());
-                  setResolutionNotes("");
-                }
-              }}
-            >
-              {t(language, "lease.markResolved")}
-            </button>
-            <button className="button button-secondary" type="button" onClick={() => onArchive(issue.id, "Archived from Lease Compliance workspace.")}>{t(language, "common.archive")}</button>
-          </div>
-        </>
-      ) : null}
 
       {canNotice ? (
-        <div className="pool-entry-actions" style={{ marginTop: 12, flexWrap: "wrap" }}>
+        <div className="lease-issue-actions" style={{ marginTop: 12 }}>
           {activeNoticeActions.map((entry) => (
             <button key={entry.value} className="button button-secondary" type="button" onClick={() => onNotice(issue.id, entry.value)}>{noticeActionLabel(entry.value, language)}</button>
           ))}
         </div>
       ) : null}
+
+      <details className="lease-issue-details" open={detailsOpen} onToggle={(event) => setDetailsOpen((event.currentTarget as HTMLDetailsElement).open)}>
+        <summary>{detailsOpen ? t(language, "common.closeDialog") : t(language, "lease.moreDetails")}</summary>
+        <div className="lease-issue-details-body">
+          <PropertyWikiWorkflowPanel
+            title={t(language, "lease.wikiContext")}
+            module="LEASE_COMPLIANCE"
+            propertyId={issue.propertyId}
+            recordType="LEASE_COMPLIANCE_ISSUE"
+            recordId={issue.id}
+            unitNumber={issue.unit?.number}
+            building={issue.building}
+            query={[
+              issue.issueTypeName,
+              issue.additionalIssueType,
+              issue.area,
+              issue.description,
+              issue.locationNotes,
+            ].filter(Boolean).join(" ")}
+            canEdit={canEdit}
+          />
+
+          {canEdit ? (
+            <div className="lease-issue-edit-grid">
+              <label>{t(language, "admin.status")}
+                <select value={issue.status} onChange={(event) => onSave(issue.id, { status: event.target.value as LeaseComplianceStatus })}>
+                  {statuses.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+                </select>
+              </label>
+              <label>{t(language, "lease.priority")}
+                <select value={issue.priority} onChange={(event) => onSave(issue.id, { priority: event.target.value as LeaseCompliancePriority })}>
+                  {priorities.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+                </select>
+              </label>
+              <label>{t(language, "lease.assignedUser")}
+                <SearchSelect
+                  options={assignableUserOptions}
+                  value={issue.assignedUserId ?? ""}
+                  onChange={(assignedUserId) => onSave(issue.id, { assignedUserId: assignedUserId || null })}
+                  placeholder={t(language, "pm.searchUser")}
+                  emptyLabel={t(language, "lease.unassigned")}
+                  noMatchesLabel={t(language, "pm.noMatchingUsers")}
+                  clearLabel={t(language, "pm.clearAssignedUser")}
+                />
+              </label>
+              <label>{t(language, "lease.noticeStage")}
+                <select value={issue.noticeStage} onChange={(event) => onSave(issue.id, { noticeStage: event.target.value as LeaseComplianceNoticeStage })}>
+                  {noticeStages.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+                </select>
+              </label>
+            </div>
+          ) : null}
+
+          <IssueMediaStrip
+            files={issue.photos}
+            getUrl={leaseComplianceIssuePhotoDownloadUrl}
+            emptyLabel={t(language, "lease.noPriorPhoto")}
+          />
+
+          {issue.photos.length ? (
+            <div className="pool-attachment-list lease-issue-attachments">
+              {issue.photos.map((photo) => (
+                <span key={photo.id} style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+                  <a href={leaseComplianceIssuePhotoDownloadUrl(photo.id)} target="_blank" rel="noreferrer">{photo.originalName}</a>
+                  <em className="muted">{photo.photoCategory.split("_").join(" ")}</em>
+                  {canEdit ? <button className="link-button" type="button" onClick={() => onDeletePhoto(photo.id)}>{t(language, "common.remove")}</button> : null}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
+          {issue.notes.length ? (
+            <div className="activity-feed" style={{ marginBottom: 12 }}>
+              {issue.notes.slice(0, 4).map((entry) => (
+                <div key={entry.id} className="activity-entry">
+                  <strong>{entry.authorName}</strong>
+                  <span>{new Date(entry.createdAt).toLocaleString()}</span>
+                  <p>{entry.body}</p>
+                </div>
+              ))}
+            </div>
+          ) : <p className="muted">{t(language, "lease.noNotesYet")}</p>}
+
+          {canEdit ? (
+            <>
+              <div className="lease-issue-actions" style={{ marginBottom: 12 }}>
+                <label className="button button-secondary pool-upload-button">
+                  {t(language, "lease.uploadPhotoPdf")}
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*,.pdf"
+                    onChange={(event) => {
+                      onUpload(issue.id, event.target.files);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+              <div className="lease-issue-note-grid">
+                <label>{t(language, "lease.quickNote")}
+                  <textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder={t(language, "lease.quickNotePlaceholder")} />
+                </label>
+                <label>{t(language, "lease.stillPersistsNote")}
+                  <textarea rows={3} value={persistNotes} onChange={(event) => setPersistNotes(event.target.value)} placeholder={t(language, "lease.stillPersistsPlaceholder")} />
+                </label>
+                <label>{t(language, "lease.resolutionNotes")}
+                  <textarea rows={3} value={resolutionNotes} onChange={(event) => setResolutionNotes(event.target.value)} placeholder={t(language, "lease.resolutionNotesPlaceholder")} />
+                </label>
+              </div>
+              <div className="lease-issue-actions" style={{ marginTop: 12 }}>
+                <button className="button button-secondary" type="button" onClick={() => { if (note.trim()) { onNote(issue.id, note.trim()); setNote(""); } }}>{t(language, "lease.addNote")}</button>
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={() => {
+                    onPersist(issue.id, persistNotes.trim() || undefined);
+                    setPersistNotes("");
+                  }}
+                >
+                  {t(language, "lease.markStillPersists")}
+                </button>
+                <button
+                  className="button button-primary"
+                  type="button"
+                  onClick={() => {
+                    if (resolutionNotes.trim()) {
+                      onResolve(issue.id, resolutionNotes.trim());
+                      setResolutionNotes("");
+                    }
+                  }}
+                >
+                  {t(language, "lease.markResolved")}
+                </button>
+                <button className="button button-secondary" type="button" onClick={() => onArchive(issue.id, "Archived from Lease Compliance workspace.")}>{t(language, "common.archive")}</button>
+              </div>
+            </>
+          ) : null}
+        </div>
+      </details>
     </article>
   );
 }
@@ -1110,7 +1128,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
             </div>
           </section>
           {issuesQuery.isLoading ? <StatusState title={t(language, "lease.loadingIssuesTitle")} description={t(language, "lease.loadingIssuesCopy")} /> : issuesQuery.isError || !issuesQuery.data ? <StatusState title={t(language, "lease.failedIssuesTitle")} description={t(language, "lease.failedIssuesCopy")} tone="error" /> : (
-            <div className="pool-card-grid">
+            <div className="pool-card-grid lease-issue-grid">
               {issues
                 .filter((issue) => {
                   if (tab === "needs-notice") return ["Resident Notified", "Notice Sent"].includes(issue.status) || ["Resident Notified", "1st Notice", "2nd Notice", "3rd Notice"].includes(issue.noticeStage);
