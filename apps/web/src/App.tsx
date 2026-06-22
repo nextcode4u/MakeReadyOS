@@ -647,6 +647,11 @@ function App() {
   const queryClient = useQueryClient();
   const hasInitializedHistoryRef = useRef(false);
   const suppressHistorySyncRef = useRef(false);
+  const meQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: getCurrentUser,
+    retry: false,
+  });
 
   const setAppView = (view: AppView) => setActiveView(view);
   const openItemDrawer = (id: string) => setSelectedItemId(id);
@@ -1314,12 +1319,6 @@ function App() {
     }
     window.history.pushState(nextState, "", window.location.href);
   }, [activeView, selectedItemId]);
-
-  const meQuery = useQuery({
-    queryKey: ["auth", "me"],
-    queryFn: getCurrentUser,
-    retry: false,
-  });
 
   const metaQuery = useQuery({
     queryKey: ["meta"],
