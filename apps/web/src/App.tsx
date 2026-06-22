@@ -3184,6 +3184,12 @@ function App() {
     setVisibleColumns(normalizeVisibleColumns(view.visibleColumns, metaQuery.data?.customFields ?? [], metaQuery.data?.columns ?? []));
   };
 
+  useEffect(() => {
+    if (currentUser && typeof document !== "undefined") {
+      document.documentElement.lang = currentUser.language;
+    }
+  }, [currentUser]);
+
   if (meQuery.isPending && !forceLoggedOut) {
     return (
       <main className="login-shell">
@@ -3209,11 +3215,6 @@ function App() {
       </>
     );
   }
-  useEffect(() => {
-    if (typeof document !== "undefined") {
-      document.documentElement.lang = currentUser.language;
-    }
-  }, [currentUser.language]);
 
   return (
     <div className={`${compactMode ? "app-shell compact-mode" : "app-shell"}${eyeStrainMode ? " reading-mode" : ""}${dyslexiaMode ? " dyslexia-mode" : ""}`} data-theme={themeMode}>
