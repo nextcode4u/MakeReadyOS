@@ -270,6 +270,40 @@ export async function propertyMapRoutes(app: FastifyInstance) {
     return { map };
   });
 
+  app.delete("/property-maps/:id", async (request, reply) => {
+    if (!canAdmin(request.currentUser!.role)) return reply.code(403).send({ message: "Manager or admin access required" });
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.propertyMap.findUnique({ where: { id } });
+    if (!existing) return reply.code(404).send({ message: "Property map not found" });
+    if (!(await requirePropertyAccess(request, reply, existing.propertyId))) return;
+    if (!existing.isArchived) {
+      return reply.code(400).send({ message: "Archive the property map before deleting it" });
+    }
+
+    await prisma.$transaction([
+      prisma.projectRecord.updateMany({
+        where: { propertyMapId: existing.id },
+        data: { propertyMapId: null, pinX: null, pinY: null },
+      }),
+      prisma.leaseComplianceIssue.updateMany({
+        where: { propertyMapId: existing.id },
+        data: { propertyMapId: null },
+      }),
+      prisma.propertyMap.delete({ where: { id: existing.id } }),
+    ]);
+    await removeMapFile(existing.storedName);
+    await writeAuditLog({
+      request,
+      actorUserId: request.currentUser!.id,
+      propertyId: existing.propertyId,
+      entityType: "PROPERTY_MAP",
+      entityId: existing.id,
+      action: "PROPERTY_MAP_DELETED",
+      message: `Deleted property map ${existing.name}`,
+    });
+    return { ok: true };
+  });
+
   app.post("/property-maps/:id/upload", async (request, reply) => {
     if (!canAdmin(request.currentUser!.role)) return reply.code(403).send({ message: "Manager or admin access required" });
     const { id } = z.object({ id: z.string() }).parse(request.params);

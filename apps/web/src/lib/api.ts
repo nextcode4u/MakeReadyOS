@@ -3494,6 +3494,10 @@ export type MakeReadyItemsPage = {
   };
 };
 
+export function getMakeReadyItem(id: string) {
+  return request<MakeReadyItem>(`/make-ready-items/${id}`);
+}
+
 export async function getMakeReadyItemPage(filters: Parameters<typeof getMakeReadyItems>[0]): Promise<MakeReadyItemsPage> {
   const params = new URLSearchParams();
   if (filters.propertyId) params.set("propertyId", filters.propertyId);
@@ -4540,6 +4544,10 @@ export function updatePropertyMap(id: string, input: Partial<{ name: string; map
 
 export function archivePropertyMap(id: string, restore = false) {
   return request<{ map: PropertyMap }>(`/property-maps/${id}/${restore ? "restore" : "archive"}`, { method: "POST" });
+}
+
+export function deletePropertyMap(id: string) {
+  return request<{ ok: true }>(`/property-maps/${id}`, { method: "DELETE" });
 }
 
 export function uploadPropertyMap(id: string, file: File) {

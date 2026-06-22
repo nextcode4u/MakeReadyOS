@@ -5,6 +5,7 @@ Property maps are a local, self-hosted foundation for visual unit navigation. Th
 ## What Exists Now
 
 - `ADMIN` and scoped `MANAGER` users can create/archive property map records.
+- Archived property maps can now be permanently deleted from Map Setup when a duplicate upload or retired layout should be removed completely.
 - Map files can be uploaded as PNG, JPG, WebP, or PDF and are stored in the local uploads volume.
 - Map file downloads/previews require authentication and property access.
 - Units can be placed on a map with normalized percentage coordinates.
@@ -32,6 +33,12 @@ Coordinates are stored as percentages so uploaded map images can resize in respo
 - `ADMIN`: manage all maps and locations.
 - `MANAGER`: manage maps and locations for assigned properties.
 - `TECH`, `LEASING`, `CLEANER`, `VIEWER`: read scoped maps and open related item details where their normal property access permits it.
+
+## Delete Behavior
+
+- Property maps must be archived before they can be deleted.
+- Deleting a property map also removes its uploaded map file, unit markers, area markers, shared pins, and pin attachments through the normal cleanup path.
+- Linked Projects records and Lease Compliance issues are preserved, but their map link and stored pin coordinates are cleared so those records stay usable after the map is removed.
 
 ## Backup Behavior
 

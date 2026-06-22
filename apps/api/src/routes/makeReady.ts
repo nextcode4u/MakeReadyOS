@@ -728,6 +728,34 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     }));
   });
 
+  app.get("/make-ready-items/:id", async (request, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const propertyIds = scopedAllowedPropertyIds(request);
+    const item = await prisma.makeReadyItem.findUnique({
+      where: { id },
+      include: {
+        property: true,
+        unit: { include: { floorPlanRecord: true } },
+        customFieldValues: true,
+      },
+    });
+
+    if (!item || (!item.isArchived && !item.property.isActive)) {
+      reply.code(404);
+      return { message: "Item not found" };
+    }
+
+    if (propertyIds !== null && !propertyIds.includes(item.propertyId)) {
+      reply.code(403);
+      return { message: "Property access denied" };
+    }
+
+    return {
+      ...item,
+      ...computeDerivedFields(item),
+    };
+  });
+
   app.post("/make-ready-items", async (request, reply) => {
     const user = request.currentUser!;
     if (!(user.role === UserRole.ADMIN || user.role === UserRole.MANAGER)) {

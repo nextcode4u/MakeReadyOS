@@ -6,6 +6,7 @@ import { StatusState } from "./StatusState";
 
 type Props = {
   onSessionExpired: () => void;
+  language?: string;
 };
 
 function startDateIso(value: string) {
@@ -30,21 +31,22 @@ function todayInputValue() {
   return offsetDate.toISOString().slice(0, 10);
 }
 
-function reportCategoryLabel(value: string) {
+function reportCategoryLabel(value: string, isSpanish: boolean) {
   const labels: Record<string, string> = {
-    totalChanges: "Total changes",
-    markedReady: "Marked ready",
-    availability: "Availability imports",
-    archived: "Archived",
-    restored: "Restored",
-    created: "Created",
-    updated: "Updated",
-    exception: "Needs review",
+    totalChanges: isSpanish ? "Cambios totales" : "Total changes",
+    markedReady: isSpanish ? "Marcado listo" : "Marked ready",
+    availability: isSpanish ? "Importaciones de disponibilidad" : "Availability imports",
+    archived: isSpanish ? "Archivado" : "Archived",
+    restored: isSpanish ? "Restaurado" : "Restored",
+    created: isSpanish ? "Creado" : "Created",
+    updated: isSpanish ? "Actualizado" : "Updated",
+    exception: isSpanish ? "Necesita revision" : "Needs review",
   };
   return labels[value] ?? titleCase(value);
 }
 
-export function ActivityPanel({ onSessionExpired }: Props) {
+export function ActivityPanel({ onSessionExpired, language = "en" }: Props) {
+  const isSpanish = language === "es";
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [actorUserId, setActorUserId] = useState("");
@@ -111,73 +113,73 @@ export function ActivityPanel({ onSessionExpired }: Props) {
     <div className="activity-shell" data-testid="activity-panel">
       <header className="activity-header">
         <div>
-          <p className="eyebrow">Operations Audit</p>
-          <h2>Activity</h2>
-          <p className="subtitle">Read-only history for security events, board changes, configuration, and transfers.</p>
+          <p className="eyebrow">{isSpanish ? "Auditoria de operaciones" : "Operations Audit"}</p>
+          <h2>{isSpanish ? "Actividad" : "Activity"}</h2>
+          <p className="subtitle">{isSpanish ? "Historial de solo lectura para eventos de seguridad, cambios en el tablero, configuracion y transferencias." : "Read-only history for security events, board changes, configuration, and transfers."}</p>
         </div>
         <button type="button" className="button button-secondary" onClick={() => void activityQuery.refetch()}>
-          Refresh
+          {isSpanish ? "Actualizar" : "Refresh"}
         </button>
       </header>
 
-      <section className="activity-filters" aria-label="Activity filters">
+      <section className="activity-filters" aria-label={isSpanish ? "Filtros de actividad" : "Activity filters"}>
         <label>
-          From
+          {isSpanish ? "Desde" : "From"}
           <input data-testid="activity-filter-from" type="date" value={from} onChange={(event) => updateFilter(setFrom, event.target.value)} />
         </label>
         <label>
-          To
+          {isSpanish ? "Hasta" : "To"}
           <input data-testid="activity-filter-to" type="date" value={to} onChange={(event) => updateFilter(setTo, event.target.value)} />
         </label>
         <label>
-          Actor
+          {isSpanish ? "Actor" : "Actor"}
           <select data-testid="activity-filter-actor" value={actorUserId} onChange={(event) => updateFilter(setActorUserId, event.target.value)}>
-            <option value="">All actors</option>
+            <option value="">{isSpanish ? "Todos los actores" : "All actors"}</option>
             {activityQuery.data?.filterOptions.actors.map((actor) => (
               <option key={actor.id} value={actor.id}>{actor.fullName}</option>
             ))}
           </select>
         </label>
         <label>
-          Action
+          {isSpanish ? "Accion" : "Action"}
           <select data-testid="activity-filter-action" value={action} onChange={(event) => updateFilter(setAction, event.target.value)}>
-            <option value="">All actions</option>
+            <option value="">{isSpanish ? "Todas las acciones" : "All actions"}</option>
             {activityQuery.data?.filterOptions.actions.map((entry) => (
               <option key={entry} value={entry}>{titleCase(entry)}</option>
             ))}
           </select>
         </label>
         <label>
-          Entity
+          {isSpanish ? "Entidad" : "Entity"}
           <select data-testid="activity-filter-entity" value={entityType} onChange={(event) => updateFilter(setEntityType, event.target.value)}>
-            <option value="">All types</option>
+            <option value="">{isSpanish ? "Todos los tipos" : "All types"}</option>
             {activityQuery.data?.filterOptions.entityTypes.map((entry) => (
               <option key={entry} value={entry}>{titleCase(entry)}</option>
             ))}
           </select>
         </label>
         <label>
-          Property
+          {isSpanish ? "Propiedad" : "Property"}
           <select data-testid="activity-filter-property" value={propertyId} onChange={(event) => updateFilter(setPropertyId, event.target.value)}>
-            <option value="">All properties</option>
+            <option value="">{isSpanish ? "Todas las propiedades" : "All properties"}</option>
             {activityQuery.data?.filterOptions.properties.map((property) => (
               <option key={property.id} value={property.id}>{property.code} - {property.name}</option>
             ))}
           </select>
         </label>
-        <button type="button" className="button button-secondary activity-clear" onClick={clearFilters}>Clear filters</button>
+        <button type="button" className="button button-secondary activity-clear" onClick={clearFilters}>{isSpanish ? "Limpiar filtros" : "Clear filters"}</button>
       </section>
 
-      <section className="daily-report-panel" aria-label="Daily manager report" data-testid="daily-manager-report">
+      <section className="daily-report-panel" aria-label={isSpanish ? "Reporte diario del gerente" : "Daily manager report"} data-testid="daily-manager-report">
         <div className="daily-report-heading">
           <div>
-            <p className="eyebrow">Daily Manager Report</p>
-            <h3>Changed, ready, imported, and exception activity</h3>
-            <p className="subtitle">Use this daily summary to update external property systems without combing through the full audit trail.</p>
+            <p className="eyebrow">{isSpanish ? "Reporte diario del gerente" : "Daily Manager Report"}</p>
+            <h3>{isSpanish ? "Actividad de cambios, listos, importados y excepciones" : "Changed, ready, imported, and exception activity"}</h3>
+            <p className="subtitle">{isSpanish ? "Usa este resumen diario para actualizar sistemas externos de propiedad sin revisar toda la auditoria." : "Use this daily summary to update external property systems without combing through the full audit trail."}</p>
           </div>
           <div className="daily-report-controls">
             <label>
-              Report date
+              {isSpanish ? "Fecha del reporte" : "Report date"}
               <input
                 data-testid="daily-report-date"
                 type="date"
@@ -186,13 +188,13 @@ export function ActivityPanel({ onSessionExpired }: Props) {
               />
             </label>
             <label>
-              Property
+              {isSpanish ? "Propiedad" : "Property"}
               <select
                 data-testid="daily-report-property"
                 value={reportPropertyId}
                 onChange={(event) => setReportPropertyId(event.target.value)}
               >
-                <option value="">All properties</option>
+                <option value="">{isSpanish ? "Todas las propiedades" : "All properties"}</option>
                 {(reportQuery.data?.filterOptions.properties ?? activityQuery.data?.filterOptions.properties ?? []).map((property) => (
                   <option key={property.id} value={property.id}>{property.code} - {property.name}</option>
                 ))}
@@ -203,19 +205,19 @@ export function ActivityPanel({ onSessionExpired }: Props) {
               href={dailyActivityReportCsvUrl(reportFilters)}
               data-testid="daily-report-export"
             >
-              Export CSV
+              {isSpanish ? "Exportar CSV" : "Export CSV"}
             </a>
           </div>
         </div>
 
         {reportQuery.isLoading ? (
-          <StatusState title="Loading daily report" description="Building the manager summary for the selected day." />
+          <StatusState title={isSpanish ? "Cargando reporte diario" : "Loading daily report"} description={isSpanish ? "Construyendo el resumen del gerente para el dia seleccionado." : "Building the manager summary for the selected day."} />
         ) : reportQuery.isError ? (
           <StatusState
-            title="Daily report failed to load"
-            description={reportQuery.error instanceof Error ? reportQuery.error.message : "Refresh and try again."}
+            title={isSpanish ? "No se pudo cargar el reporte diario" : "Daily report failed to load"}
+            description={reportQuery.error instanceof Error ? reportQuery.error.message : (isSpanish ? "Actualiza e intenta de nuevo." : "Refresh and try again.")}
             tone="error"
-            action={{ label: "Retry", onClick: () => void reportQuery.refetch() }}
+            action={{ label: isSpanish ? "Reintentar" : "Retry", onClick: () => void reportQuery.refetch() }}
           />
         ) : reportQuery.data ? (
           <>
@@ -223,21 +225,21 @@ export function ActivityPanel({ onSessionExpired }: Props) {
               {(["totalChanges", "markedReady", "availability", "archived", "created", "updated", "exception"] as const).map((key) => (
                 <div key={key} className={`daily-report-stat daily-report-stat-${key}`}>
                   <strong>{reportQuery.data.summary[key]}</strong>
-                  <span>{reportCategoryLabel(key)}</span>
+                  <span>{reportCategoryLabel(key, isSpanish)}</span>
                 </div>
               ))}
             </div>
             {reportQuery.data.records.length === 0 ? (
               <div className="daily-report-empty">
-                No reportable activity for this day and property scope.
+                {isSpanish ? "No hay actividad reportable para este dia y alcance de propiedad." : "No reportable activity for this day and property scope."}
               </div>
             ) : (
               <div className="daily-report-list">
                 {reportQuery.data.records.slice(0, 12).map((record) => (
                   <article key={record.id} className={`daily-report-row daily-report-row-${record.category}`}>
                     <div>
-                      <span className="daily-report-chip">{reportCategoryLabel(record.category)}</span>
-                      <strong>{record.property ? `${record.property.code}${record.unitNumber ? ` / ${record.unitNumber}` : ""}` : record.unitNumber ?? "System"}</strong>
+                      <span className="daily-report-chip">{reportCategoryLabel(record.category, isSpanish)}</span>
+                      <strong>{record.property ? `${record.property.code}${record.unitNumber ? ` / ${record.unitNumber}` : ""}` : record.unitNumber ?? (isSpanish ? "Sistema" : "System")}</strong>
                       <span>{formatDateTime(record.at)}</span>
                     </div>
                     <p>{record.description}</p>
@@ -246,7 +248,7 @@ export function ActivityPanel({ onSessionExpired }: Props) {
                 ))}
                 {reportQuery.data.records.length > 12 ? (
                   <p className="daily-report-more">
-                    Showing first 12 of {reportQuery.data.records.length}. Export CSV for the full manager report.
+                    {isSpanish ? `Mostrando los primeros 12 de ${reportQuery.data.records.length}. Exporta CSV para el reporte completo del gerente.` : `Showing first 12 of ${reportQuery.data.records.length}. Export CSV for the full manager report.`}
                   </p>
                 ) : null}
               </div>
@@ -256,37 +258,37 @@ export function ActivityPanel({ onSessionExpired }: Props) {
       </section>
 
       {activityQuery.isLoading ? (
-        <StatusState title="Loading activity" description="Fetching the latest audit events available to your role." />
+        <StatusState title={isSpanish ? "Cargando actividad" : "Loading activity"} description={isSpanish ? "Obteniendo los eventos de auditoria mas recientes disponibles para tu rol." : "Fetching the latest audit events available to your role."} />
       ) : activityQuery.isError ? (
         <StatusState
-          title="Activity failed to load"
-          description={activityQuery.error instanceof Error ? activityQuery.error.message : "Refresh and try again."}
+          title={isSpanish ? "No se pudo cargar la actividad" : "Activity failed to load"}
+          description={activityQuery.error instanceof Error ? activityQuery.error.message : (isSpanish ? "Actualiza e intenta de nuevo." : "Refresh and try again.")}
           tone="error"
-          action={{ label: "Retry", onClick: () => void activityQuery.refetch() }}
+          action={{ label: isSpanish ? "Reintentar" : "Retry", onClick: () => void activityQuery.refetch() }}
         />
       ) : !activityData ? (
-        <StatusState title="Activity unavailable" description="No activity response was returned. Refresh and try again." tone="error" />
+        <StatusState title={isSpanish ? "Actividad no disponible" : "Activity unavailable"} description={isSpanish ? "No se devolvio respuesta de actividad. Actualiza e intenta de nuevo." : "No activity response was returned. Refresh and try again."} tone="error" />
       ) : activityData.activity.length === 0 ? (
-        <StatusState title="No matching activity" description="No audit events match the selected filters or your property access." tone="subtle" />
+        <StatusState title={isSpanish ? "No hay actividad coincidente" : "No matching activity"} description={isSpanish ? "Ningun evento de auditoria coincide con los filtros seleccionados o con tu acceso de propiedad." : "No audit events match the selected filters or your property access."} tone="subtle" />
       ) : (
         <>
           <div className="activity-table-wrap">
             <table className="activity-table" data-testid="activity-table">
               <thead>
                 <tr>
-                  <th>Timestamp</th>
-                  <th>Actor</th>
-                  <th>Action</th>
-                  <th>Entity</th>
-                  <th>Description</th>
-                  <th>Property / Unit</th>
+                  <th>{isSpanish ? "Fecha y hora" : "Timestamp"}</th>
+                  <th>{isSpanish ? "Actor" : "Actor"}</th>
+                  <th>{isSpanish ? "Accion" : "Action"}</th>
+                  <th>{isSpanish ? "Entidad" : "Entity"}</th>
+                  <th>{isSpanish ? "Descripcion" : "Description"}</th>
+                  <th>{isSpanish ? "Propiedad / Unidad" : "Property / Unit"}</th>
                 </tr>
               </thead>
               <tbody>
                 {activityData.activity.map((entry) => (
                   <tr key={entry.id} data-testid="activity-row">
                     <td className="activity-time">{formatDateTime(entry.createdAt)}</td>
-                    <td>{entry.actor?.fullName ?? "System / unknown"}</td>
+                    <td>{entry.actor?.fullName ?? (isSpanish ? "Sistema / desconocido" : "System / unknown")}</td>
                     <td><span className="activity-action">{titleCase(entry.action)}</span></td>
                     <td>{titleCase(entry.entityType)}</td>
                     <td>{entry.description}</td>
@@ -298,7 +300,9 @@ export function ActivityPanel({ onSessionExpired }: Props) {
           </div>
           <footer className="activity-pagination">
             <span>
-              Showing {activityData.pagination.offset + 1}-{Math.min(activityData.pagination.offset + activityData.activity.length, activityData.pagination.total)} of {activityData.pagination.total}
+              {isSpanish
+                ? `Mostrando ${activityData.pagination.offset + 1}-${Math.min(activityData.pagination.offset + activityData.activity.length, activityData.pagination.total)} de ${activityData.pagination.total}`
+                : `Showing ${activityData.pagination.offset + 1}-${Math.min(activityData.pagination.offset + activityData.activity.length, activityData.pagination.total)} of ${activityData.pagination.total}`}
             </span>
             <div>
               <button
@@ -307,7 +311,7 @@ export function ActivityPanel({ onSessionExpired }: Props) {
                 disabled={offset === 0}
                 onClick={() => setOffset(Math.max(0, offset - limit))}
               >
-                Previous
+                {isSpanish ? "Anterior" : "Previous"}
               </button>
               <button
                 type="button"
@@ -315,7 +319,7 @@ export function ActivityPanel({ onSessionExpired }: Props) {
                 disabled={!activityData.pagination.hasMore}
                 onClick={() => setOffset(offset + limit)}
               >
-                Next
+                {isSpanish ? "Siguiente" : "Next"}
               </button>
             </div>
           </footer>

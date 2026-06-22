@@ -6,6 +6,7 @@ import { CommandPalette, type CommandPaletteWorkspaceGroup } from "./components/
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { FilterBar, type ThemeMode } from "./components/FilterBar";
 import { LoginScreen } from "./components/LoginScreen";
+import { Modal } from "./components/Modal";
 import { NotificationDrawer } from "./components/NotificationDrawer";
 import { OnboardingPanel } from "./components/OnboardingPanel";
 import { PWAInstallPrompt } from "./components/PWAInstallPrompt";
@@ -14,7 +15,13 @@ import { ToastItem, ToastViewport } from "./components/ToastViewport";
 import {
   enqueueMakeReadyPatch,
   getOfflineSyncEventName,
+  getOfflineSyncJob,
+  listOfflineSyncJobs,
   getOfflineSyncPendingCount,
+  removeOfflineSyncJob,
+  retryOfflineSyncJob,
+  type OfflineSyncJob,
+  type OfflineSyncJobSummary,
   syncOfflineJobs,
 } from "./lib/offlineSync";
 import {
@@ -50,6 +57,7 @@ import {
   archivePropertyMap,
   archivePropertyTemplate,
   CurrentUser,
+  deletePropertyMap,
   deleteProperty,
   deleteSavedView,
   deleteUnit,
@@ -64,7 +72,14 @@ import {
   getCurrentUser,
   getCustomFields,
   getDashboard,
+  getItemCollaboration,
+  getLeaseComplianceIssues,
+  getMakeReadyItem,
   getMakeReadyItemPage,
+  getPoolEntries,
+  getProjectRecords,
+  getProjectRecord,
+  type ItemCollaboration,
   MakeReadyItem,
   MakeReadyItemsPage,
   ManagedUser,
@@ -72,6 +87,12 @@ import {
   getNotifications,
   getMyWork,
   getPlanning,
+  getPestIssues,
+  getPreventiveMaintenanceHistory,
+  getPreventiveMaintenanceTasks,
+  type PreventiveMaintenanceTask,
+  type PoolLogEntry,
+  type ProjectRecord,
   getRiskPolicies,
   getOperationsProperties,
   getOperationsUnits,
@@ -138,10 +159,14 @@ import {
   createWorkAssignmentBlock,
   updateWorkAssignmentBlock,
   applyPropertyTemplate,
+  type LeaseComplianceIssue,
+  type MetaResponse,
+  type PestIssue,
+  type PropertyMap,
 } from "./lib/api";
 import { configuredScheduleTracks, kanbanGroupOptions, labelMap, normalizeVisibleColumns, visibleColumnOptions } from "./lib/board";
 import { clockModeStorageKey, type ClockMode } from "./lib/dateTime";
-import { t } from "./lib/i18n";
+import { t, tWithVars } from "./lib/i18n";
 import { customFieldFilterChipLabel, customOperatorsByType, defaultCustomFilterFor, defaultStructuredFilters, itemMatchesStructuredFilters, normalizeCustomFieldFilters, type CustomFieldFilter, type StructuredFilters } from "./lib/structuredFilters";
 import { openWikiRecordEventName, type OpenWikiRecordRequest } from "./lib/wikiNavigation";
 import { openProjectCreateEventName, openProjectRecordEventName, type OpenProjectCreateRequest, type OpenProjectRecordRequest } from "./lib/projectNavigation";
@@ -182,6 +207,7 @@ const dyslexiaModeStorageKey = "makereadyos.dyslexiaMode";
 const onboardingSkippedStorageKey = "makereadyos.onboardingSkipped";
 const boardWindowedModeStorageKey = "makereadyos.boardWindowedMode";
 const boardWindowLimitStorageKey = "makereadyos.boardWindowLimit";
+const metaCacheStorageKey = "makereadyos.meta-cache";
 const boardWindowPageSize = 250;
 const serverSortableItemFields = new Set([
   "boardGroup",
@@ -197,6 +223,26 @@ const serverSortableItemFields = new Set([
   "updatedAt",
   "createdAt",
 ]);
+
+function readCachedMeta() {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.localStorage.getItem(metaCacheStorageKey);
+    if (!raw) return undefined;
+    return JSON.parse(raw) as MetaResponse;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeCachedMeta(meta: MetaResponse) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(metaCacheStorageKey, JSON.stringify(meta));
+  } catch {
+    // Ignore storage failures.
+  }
+}
 
 const techEditableFields = new Set([
   "assignedTech",
@@ -272,6 +318,219 @@ function replaceAdminUser(users: ManagedUser[] | undefined, nextUser: ManagedUse
   return users.map((user) => (user.id === nextUser.id ? nextUser : user));
 }
 
+function offlineJobChangeSummary(job: OfflineSyncJob) {
+  switch (job.payload.kind) {
+    case "makeReadyPatch":
+      return Object.entries(job.payload.data).map(([field, value]) => `${humanizeField(field)}: ${String(value ?? "-")}`);
+    case "makeReadyUpload":
+    case "poolUpload":
+    case "pmUpload":
+      return job.payload.files.map((file) => file.name);
+    case "makeReadyCommentCreate":
+    case "makeReadyCommentUpdate":
+      return [job.payload.body];
+    case "makeReadyCommentDelete":
+      return [`Comment ID: ${job.payload.commentId}`];
+    case "makeReadyChecklistAttach":
+      return [`Template ID: ${job.payload.templateId}`];
+    case "makeReadyChecklistUpdate":
+      return Object.entries(job.payload.input).map(([field, value]) => `${humanizeField(field)}: ${String(value ?? "-")}`);
+    case "projectCreate":
+      return [
+        `Title: ${job.payload.input.title}`,
+        `Type: ${job.payload.input.recordType}`,
+        `Files: ${job.payload.files.map((file) => file.name).join(", ") || "-"}`,
+      ];
+    case "projectUpload":
+      return job.payload.files.map((file) => `${file.name}${file.caption ? ` / ${file.caption}` : ""}`);
+    case "leaseCreate":
+      return [
+        `Issue: ${job.payload.input.issueTypeName}`,
+        `Location: ${job.payload.input.unitId || job.payload.input.area || job.payload.input.building || "-"}`,
+        `Files: ${job.payload.files.map((file) => file.name).join(", ") || "-"}`,
+      ];
+    case "leaseUpload":
+    case "pestUpload":
+      return job.payload.files.map((file) => `${file.name}${"caption" in file && file.caption ? ` / ${file.caption}` : ""}`);
+    case "pestCreate":
+      return [
+        `Pest: ${job.payload.input.pestType}`,
+        `Location: ${job.payload.input.unitId || job.payload.input.area || "-"}`,
+        `Priority: ${job.payload.input.priority}`,
+      ];
+    case "poolCreate":
+      return [
+        `Facility: ${job.payload.input.facilityId}`,
+        `Date: ${job.payload.input.logDate}`,
+        job.payload.input.notes ? `Notes: ${job.payload.input.notes}` : "Notes: -",
+      ];
+    case "pmComplete":
+      return [
+        `Outcome: ${job.payload.input.outcome}`,
+        `Notes: ${job.payload.input.notes || "-"}`,
+      ];
+    case "pmSkip":
+      return [`Notes: ${job.payload.input.notes || "-"}`];
+    default:
+      return [];
+  }
+}
+
+function formatOfflineComparisonValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "Empty";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.length ? value.map((entry) => formatOfflineComparisonValue(entry)).join(", ") : "Empty";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+type OfflineQueueComparisonRow = {
+  field: string;
+  queuedValue: string;
+  serverValue: string;
+  changed: boolean;
+};
+
+function comparisonRow(field: string, queuedValue: unknown, serverValue: unknown): OfflineQueueComparisonRow {
+  return {
+    field,
+    queuedValue: formatOfflineComparisonValue(queuedValue),
+    serverValue: formatOfflineComparisonValue(serverValue),
+    changed: JSON.stringify(queuedValue ?? null) !== JSON.stringify(serverValue ?? null),
+  };
+}
+
+type OfflineQueueUploadReview = {
+  recordLabel: string;
+  queuedFiles: string[];
+  liveFiles: string[];
+  duplicateFiles: string[];
+};
+
+function pickLikelyLeaseIssueMatch(
+  issues: LeaseComplianceIssue[],
+  payload: {
+    propertyId: string;
+    unitId?: string | null;
+    issueTypeName?: string | null;
+    additionalIssueType?: string | null;
+    building?: string | null;
+    area?: string | null;
+  },
+) {
+  const normalizedIssueType = (payload.issueTypeName ?? "").trim().toLowerCase();
+  const normalizedAdditionalType = (payload.additionalIssueType ?? "").trim().toLowerCase();
+  const normalizedBuilding = (payload.building ?? "").trim().toLowerCase();
+  const normalizedArea = (payload.area ?? "").trim().toLowerCase();
+  return [...issues].sort((left, right) => {
+    const score = (issue: LeaseComplianceIssue) => {
+      let total = 0;
+      if (payload.unitId && issue.unitId === payload.unitId) total += 6;
+      if (normalizedIssueType && issue.issueTypeName.trim().toLowerCase() === normalizedIssueType) total += 4;
+      if (normalizedAdditionalType && (issue.additionalIssueType ?? "").trim().toLowerCase() === normalizedAdditionalType) total += 2;
+      if (normalizedBuilding && (issue.building ?? "").trim().toLowerCase() === normalizedBuilding) total += 2;
+      if (normalizedArea && (issue.area ?? "").trim().toLowerCase() === normalizedArea) total += 2;
+      return total;
+    };
+    const scoreDiff = score(right) - score(left);
+    if (scoreDiff !== 0) return scoreDiff;
+    return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+  })[0] ?? null;
+}
+
+function pickLikelyPestIssueMatch(
+  issues: PestIssue[],
+  payload: {
+    propertyId: string;
+    unitId?: string | null;
+    makeReadyItemId?: string | null;
+    pestType?: string | null;
+    additionalPestType?: string | null;
+    area?: string | null;
+  },
+) {
+  const normalizedPestType = (payload.pestType ?? "").trim().toLowerCase();
+  const normalizedAdditionalType = (payload.additionalPestType ?? "").trim().toLowerCase();
+  const normalizedArea = (payload.area ?? "").trim().toLowerCase();
+  return [...issues].sort((left, right) => {
+    const score = (issue: PestIssue) => {
+      let total = 0;
+      if (payload.makeReadyItemId && issue.makeReadyItemId === payload.makeReadyItemId) total += 6;
+      if (payload.unitId && issue.unitId === payload.unitId) total += 5;
+      if (normalizedPestType && issue.pestType.trim().toLowerCase() === normalizedPestType) total += 4;
+      if (normalizedAdditionalType && (issue.additionalPestType ?? "").trim().toLowerCase() === normalizedAdditionalType) total += 2;
+      if (normalizedArea && (issue.area ?? "").trim().toLowerCase() === normalizedArea) total += 2;
+      return total;
+    };
+    const scoreDiff = score(right) - score(left);
+    if (scoreDiff !== 0) return scoreDiff;
+    return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+  })[0] ?? null;
+}
+
+function findPmTaskById(tasks: PreventiveMaintenanceTask[], taskId: string) {
+  return tasks.find((task) => task.id === taskId) ?? null;
+}
+
+function pickLikelyProjectRecordMatch(
+  records: ProjectRecord[],
+  payload: {
+    title: string;
+    recordType: ProjectRecord["recordType"];
+    building?: string | null;
+    area?: string | null;
+    status: string;
+    priority?: ProjectRecord["priority"];
+  },
+) {
+  const normalizedTitle = payload.title.trim().toLowerCase();
+  const normalizedBuilding = (payload.building ?? "").trim().toLowerCase();
+  const normalizedArea = (payload.area ?? "").trim().toLowerCase();
+  return [...records].sort((left, right) => {
+    const score = (record: ProjectRecord) => {
+      let total = 0;
+      if (record.title.trim().toLowerCase() === normalizedTitle) total += 6;
+      if (record.recordType === payload.recordType) total += 4;
+      if (normalizedBuilding && (record.building ?? "").trim().toLowerCase() === normalizedBuilding) total += 2;
+      if (normalizedArea && (record.area ?? "").trim().toLowerCase() === normalizedArea) total += 2;
+      if (record.status === payload.status) total += 1;
+      if (payload.priority && record.priority === payload.priority) total += 1;
+      return total;
+    };
+    const scoreDiff = score(right) - score(left);
+    if (scoreDiff !== 0) return scoreDiff;
+    return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+  })[0] ?? null;
+}
+
+function pickLikelyPoolEntryMatch(
+  entries: PoolLogEntry[],
+  payload: {
+    facilityId: string;
+    logDate: string;
+    logTime?: string | null;
+    notes?: string | null;
+  },
+) {
+  const normalizedNotes = (payload.notes ?? "").trim().toLowerCase();
+  return [...entries].sort((left, right) => {
+    const score = (entry: PoolLogEntry) => {
+      let total = 0;
+      if (entry.facilityId === payload.facilityId) total += 6;
+      if (entry.logDate === payload.logDate) total += 5;
+      if ((entry.logTime ?? "") === (payload.logTime ?? "")) total += 2;
+      if (normalizedNotes && (entry.notes ?? "").trim().toLowerCase() === normalizedNotes) total += 1;
+      return total;
+    };
+    const scoreDiff = score(right) - score(left);
+    if (scoreDiff !== 0) return scoreDiff;
+    return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+  })[0] ?? null;
+}
+
 function App() {
   const [propertyId, setPropertyId] = useState("");
   const [search, setSearch] = useState("");
@@ -336,6 +595,18 @@ function App() {
   const [lastConnectionIssueAt, setLastConnectionIssueAt] = useState<string | null>(null);
   const [offlineQueuePendingCount, setOfflineQueuePendingCount] = useState(0);
   const [offlineQueueSyncing, setOfflineQueueSyncing] = useState(false);
+  const [offlineQueueBlockedJobs, setOfflineQueueBlockedJobs] = useState<OfflineSyncJobSummary[]>([]);
+  const [offlineQueueReviewOpen, setOfflineQueueReviewOpen] = useState(false);
+  const [selectedOfflineQueueJob, setSelectedOfflineQueueJob] = useState<OfflineSyncJob | null>(null);
+  const [offlineQueueJobLoading, setOfflineQueueJobLoading] = useState(false);
+  const [selectedOfflineQueueServerItem, setSelectedOfflineQueueServerItem] = useState<MakeReadyItem | null>(null);
+  const [selectedOfflineQueueServerLeaseIssue, setSelectedOfflineQueueServerLeaseIssue] = useState<LeaseComplianceIssue | null>(null);
+  const [selectedOfflineQueueServerPestIssue, setSelectedOfflineQueueServerPestIssue] = useState<PestIssue | null>(null);
+  const [selectedOfflineQueueServerPmTask, setSelectedOfflineQueueServerPmTask] = useState<PreventiveMaintenanceTask | null>(null);
+  const [selectedOfflineQueueServerPoolEntry, setSelectedOfflineQueueServerPoolEntry] = useState<PoolLogEntry | null>(null);
+  const [selectedOfflineQueueServerProjectRecord, setSelectedOfflineQueueServerProjectRecord] = useState<ProjectRecord | null>(null);
+  const [selectedOfflineQueueServerCollaboration, setSelectedOfflineQueueServerCollaboration] = useState<ItemCollaboration | null>(null);
+  const [selectedOfflineQueueServerError, setSelectedOfflineQueueServerError] = useState("");
   const [wikiRecordRequest, setWikiRecordRequest] = useState<(OpenWikiRecordRequest & { nonce: number }) | null>(null);
   const [projectRecordRequest, setProjectRecordRequest] = useState<(OpenProjectRecordRequest & { nonce: number }) | null>(null);
   const [projectCreateRequest, setProjectCreateRequest] = useState<(OpenProjectCreateRequest & { nonce: number }) | null>(null);
@@ -349,6 +620,9 @@ function App() {
   const setAppView = (view: AppView) => setActiveView(view);
   const openItemDrawer = (id: string) => setSelectedItemId(id);
   const closeItemDrawer = () => setSelectedItemId(null);
+  const getToastLanguage = () => meQuery.data?.user.language ?? "en";
+  const language = getToastLanguage();
+  const isToastSpanish = () => getToastLanguage() === "es";
 
   const pushToast = (title: string, message: string | undefined, tone: ToastItem["tone"]) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
@@ -362,30 +636,282 @@ function App() {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   };
 
-  const handleSessionExpired = (message = "Your session expired. Sign in again to continue.") => {
+  const handleSessionExpired = (message = t(meQuery.data?.user.language ?? "en", "auth.sessionExpiredCopy")) => {
     if (sessionMessage === message) {
       return;
     }
     setForceLoggedOut(true);
     setSessionMessage(message);
     queryClient.removeQueries({ queryKey: ["auth", "me"] });
-    pushToast("Session expired", message, "error");
+    pushToast(t(meQuery.data?.user.language ?? "en", "auth.sessionExpired"), message, "error");
   };
 
   const retryConnection = () => {
     setApiDegraded(false);
     void queryClient.invalidateQueries();
-    pushToast("Retrying connection", "Refreshing active MakeReadyOS data.", "info");
+    pushToast(t(meQuery.data?.user.language ?? "en", "connection.retrying"), t(meQuery.data?.user.language ?? "en", "connection.retryingCopy"), "info");
     void syncQueuedOfflineChanges();
+  };
+
+  const refreshOfflineQueueState = async () => {
+    const [pendingCount, jobs] = await Promise.all([getOfflineSyncPendingCount(), listOfflineSyncJobs()]);
+    setOfflineQueuePendingCount(pendingCount);
+    setOfflineQueueBlockedJobs(jobs.filter((job) => Boolean(job.lastErrorStatus) && job.lastErrorStatus !== 0));
   };
 
   const syncQueuedOfflineChanges = async () => {
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
     const result = await syncOfflineJobs();
+    await refreshOfflineQueueState();
     if (result.synced > 0) {
-      pushToast("Offline changes synced", `${result.synced} queued change${result.synced === 1 ? "" : "s"} reached the server.`, "success");
+      pushToast(
+        t(meQuery.data?.user.language ?? "en", "connection.syncedTitle"),
+        tWithVars(meQuery.data?.user.language ?? "en", result.synced === 1 ? "connection.syncedSingle" : "connection.syncedPlural", { count: String(result.synced) }),
+        "success",
+      );
       await queryClient.invalidateQueries();
     }
+  };
+
+  const discardOfflineQueueJob = async (job: OfflineSyncJobSummary) => {
+    await removeOfflineSyncJob(job.id);
+    await refreshOfflineQueueState();
+    if (selectedOfflineQueueJob?.id === job.id) {
+      setSelectedOfflineQueueJob(null);
+      setSelectedOfflineQueueServerItem(null);
+      setSelectedOfflineQueueServerLeaseIssue(null);
+      setSelectedOfflineQueueServerPestIssue(null);
+      setSelectedOfflineQueueServerPmTask(null);
+      setSelectedOfflineQueueServerPoolEntry(null);
+      setSelectedOfflineQueueServerProjectRecord(null);
+      setSelectedOfflineQueueServerCollaboration(null);
+      setSelectedOfflineQueueServerError("");
+    }
+    pushToast(t(meQuery.data?.user.language ?? "en", "offlineQueue.removed"), t(meQuery.data?.user.language ?? "en", "offlineQueue.removedCopy").replace("{title}", job.title), "info");
+  };
+
+  const reviewOfflineQueueJob = async (job: OfflineSyncJobSummary) => {
+    setOfflineQueueJobLoading(true);
+    setSelectedOfflineQueueServerItem(null);
+    setSelectedOfflineQueueServerLeaseIssue(null);
+    setSelectedOfflineQueueServerPestIssue(null);
+    setSelectedOfflineQueueServerPmTask(null);
+    setSelectedOfflineQueueServerPoolEntry(null);
+    setSelectedOfflineQueueServerProjectRecord(null);
+    setSelectedOfflineQueueServerCollaboration(null);
+    setSelectedOfflineQueueServerError("");
+    try {
+      const detail = await getOfflineSyncJob(job.id);
+      setSelectedOfflineQueueJob(detail);
+      if (detail?.payload.kind === "makeReadyPatch") {
+        try {
+          setSelectedOfflineQueueServerItem(await getMakeReadyItem(detail.payload.itemId));
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.makeReadyRecord"));
+        }
+      } else if (detail?.payload.kind === "makeReadyUpload") {
+        try {
+          setSelectedOfflineQueueServerCollaboration(await getItemCollaboration(detail.payload.itemId, { attachmentLimit: 100 }));
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.makeReadyAttachments"));
+        }
+      } else if (detail?.payload.kind === "projectCreate") {
+        try {
+          const response = await getProjectRecords({
+            propertyId: detail.payload.input.propertyId,
+            recordType: detail.payload.input.recordType,
+            q: [detail.payload.input.title, detail.payload.input.building, detail.payload.input.area]
+              .filter(Boolean)
+              .join(" ") || undefined,
+            includeArchived: true,
+            limit: 25,
+          });
+          setSelectedOfflineQueueServerProjectRecord(pickLikelyProjectRecordMatch(response.records, detail.payload.input));
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.projectRecord"));
+        }
+      } else if (detail?.payload.kind === "leaseCreate") {
+        try {
+          const response = await getLeaseComplianceIssues({
+            propertyId: detail.payload.input.propertyId,
+            unitId: detail.payload.input.unitId ?? undefined,
+            includeArchived: true,
+            q: [detail.payload.input.issueTypeName, detail.payload.input.additionalIssueType, detail.payload.input.area, detail.payload.input.building]
+              .filter(Boolean)
+              .join(" ") || undefined,
+            limit: 25,
+          });
+          setSelectedOfflineQueueServerLeaseIssue(pickLikelyLeaseIssueMatch(response.issues, detail.payload.input));
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.leaseIssue"));
+        }
+      } else if (detail?.payload.kind === "leaseUpload") {
+        const payload = detail.payload;
+        if (!payload.propertyId) {
+          setSelectedOfflineQueueServerError(t(meQuery.data?.user.language ?? "en", "offlineQueue.legacyMissingProperty.leaseUpload"));
+        } else {
+          try {
+            const response = await getLeaseComplianceIssues({
+              propertyId: payload.propertyId,
+              includeArchived: true,
+              limit: 200,
+            });
+            setSelectedOfflineQueueServerLeaseIssue(response.issues.find((issue) => issue.id === payload.issueId) ?? null);
+          } catch (error) {
+            setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.leaseIssue"));
+          }
+        }
+      } else if (detail?.payload.kind === "pestCreate") {
+        try {
+          const response = await getPestIssues({
+            propertyId: detail.payload.input.propertyId,
+            unitId: detail.payload.input.unitId ?? undefined,
+            makeReadyItemId: detail.payload.input.makeReadyItemId ?? undefined,
+            includeArchived: true,
+            q: [detail.payload.input.pestType, detail.payload.input.additionalPestType, detail.payload.input.area]
+              .filter(Boolean)
+              .join(" ") || undefined,
+            limit: 25,
+          });
+          setSelectedOfflineQueueServerPestIssue(pickLikelyPestIssueMatch(response.issues, detail.payload.input));
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pestIssue"));
+        }
+      } else if (detail?.payload.kind === "poolCreate") {
+        try {
+          const response = await getPoolEntries({
+            propertyId: detail.payload.input.propertyId,
+            facilityId: detail.payload.input.facilityId,
+            from: detail.payload.input.logDate,
+            to: detail.payload.input.logDate,
+            limit: 25,
+          });
+          setSelectedOfflineQueueServerPoolEntry(pickLikelyPoolEntryMatch(response.entries, detail.payload.input));
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.poolEntry"));
+        }
+      } else if (detail?.payload.kind === "pestUpload") {
+        const payload = detail.payload;
+        if (!payload.propertyId) {
+          setSelectedOfflineQueueServerError(t(meQuery.data?.user.language ?? "en", "offlineQueue.legacyMissingProperty.pestUpload"));
+        } else {
+          try {
+            const response = await getPestIssues({
+              propertyId: payload.propertyId,
+              includeArchived: true,
+              limit: 200,
+            });
+            setSelectedOfflineQueueServerPestIssue(response.issues.find((issue) => issue.id === payload.issueId) ?? null);
+          } catch (error) {
+            setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pestIssue"));
+          }
+        }
+      } else if (detail?.payload.kind === "pmComplete" || detail?.payload.kind === "pmSkip") {
+        try {
+          const [activeResponse, historyResponse] = await Promise.all([
+            getPreventiveMaintenanceTasks({ limit: 200 }),
+            getPreventiveMaintenanceHistory({ limit: 200 }),
+          ]);
+          setSelectedOfflineQueueServerPmTask(
+            findPmTaskById(activeResponse.tasks, detail.payload.taskId)
+            ?? findPmTaskById(historyResponse.tasks, detail.payload.taskId),
+          );
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pmTask"));
+        }
+      } else if (detail?.payload.kind === "pmUpload") {
+        if (!detail.payload.propertyId) {
+          setSelectedOfflineQueueServerError(t(meQuery.data?.user.language ?? "en", "offlineQueue.legacyMissingProperty.pmUpload"));
+        } else {
+          try {
+            const [activeResponse, historyResponse] = await Promise.all([
+              getPreventiveMaintenanceTasks({ propertyId: detail.payload.propertyId, limit: 200 }),
+              getPreventiveMaintenanceHistory({ propertyId: detail.payload.propertyId, limit: 200 }),
+            ]);
+            setSelectedOfflineQueueServerPmTask(
+              findPmTaskById(activeResponse.tasks, detail.payload.taskId)
+              ?? findPmTaskById(historyResponse.tasks, detail.payload.taskId),
+            );
+          } catch (error) {
+            setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pmTask"));
+          }
+        }
+      } else if (detail?.payload.kind === "projectUpload") {
+        try {
+          const response = await getProjectRecord(detail.payload.recordId);
+          setSelectedOfflineQueueServerProjectRecord(response.record);
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.projectRecord"));
+        }
+      } else if (detail?.payload.kind === "poolUpload") {
+        const payload = detail.payload;
+        if (!payload.propertyId) {
+          setSelectedOfflineQueueServerError(t(meQuery.data?.user.language ?? "en", "offlineQueue.legacyMissingProperty.poolUpload"));
+        } else {
+          try {
+            const response = await getPoolEntries({ propertyId: payload.propertyId, limit: 200 });
+            setSelectedOfflineQueueServerPoolEntry(response.entries.find((entry) => entry.id === payload.entryId) ?? null);
+          } catch (error) {
+            setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.poolEntry"));
+          }
+        }
+      } else if (
+        detail?.payload.kind === "makeReadyCommentCreate"
+        || detail?.payload.kind === "makeReadyCommentUpdate"
+        || detail?.payload.kind === "makeReadyCommentDelete"
+        || detail?.payload.kind === "makeReadyChecklistAttach"
+        || (detail?.payload.kind === "makeReadyChecklistUpdate" && Boolean(detail.payload.itemId))
+      ) {
+        try {
+          setSelectedOfflineQueueServerCollaboration(await getItemCollaboration(detail.payload.itemId!, { commentLimit: 100, checklistLimit: 100 }));
+        } catch (error) {
+          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.collaboration"));
+        }
+      }
+    } finally {
+      setOfflineQueueJobLoading(false);
+    }
+  };
+
+  const retrySingleOfflineQueueJob = async (job: OfflineSyncJobSummary) => {
+    try {
+      const result = await retryOfflineSyncJob(job.id);
+      await refreshOfflineQueueState();
+      if (result.synced) {
+        if (selectedOfflineQueueJob?.id === job.id) {
+          setSelectedOfflineQueueJob(null);
+          setSelectedOfflineQueueServerItem(null);
+          setSelectedOfflineQueueServerLeaseIssue(null);
+          setSelectedOfflineQueueServerPestIssue(null);
+          setSelectedOfflineQueueServerPmTask(null);
+          setSelectedOfflineQueueServerPoolEntry(null);
+          setSelectedOfflineQueueServerProjectRecord(null);
+          setSelectedOfflineQueueServerCollaboration(null);
+          setSelectedOfflineQueueServerError("");
+        }
+        pushToast("Queued change synced", `${job.title} reached the server.`, "success");
+        await queryClient.invalidateQueries();
+        return;
+      }
+      pushToast("Retry skipped", "Reconnect before retrying this queued change.", "info");
+    } catch (error) {
+      await reviewOfflineQueueJob(job);
+      pushToast("Retry failed", error instanceof Error ? error.message : "Retry failed", "error");
+    }
+  };
+
+  const reapplyQueuedMakeReadyPatch = async (job: OfflineSyncJob) => {
+    if (job.payload.kind !== "makeReadyPatch") return;
+    await patchMakeReadyItem(job.payload.itemId, job.payload.data);
+    await removeOfflineSyncJob(job.id);
+    setSelectedOfflineQueueJob(null);
+    setSelectedOfflineQueueServerItem(null);
+    setSelectedOfflineQueueServerPoolEntry(null);
+    setSelectedOfflineQueueServerProjectRecord(null);
+    setSelectedOfflineQueueServerError("");
+    await refreshOfflineQueueState();
+    await queryClient.invalidateQueries();
+    pushToast("Local values reapplied", "The queued make-ready change was applied to the live record.", "success");
   };
 
   const applyQueuedMakeReadyPatch = (id: string, data: Record<string, unknown>) => {
@@ -409,6 +935,239 @@ function App() {
     window.addEventListener(openWikiRecordEventName, handleOpenWikiRecord as EventListener);
     return () => window.removeEventListener(openWikiRecordEventName, handleOpenWikiRecord as EventListener);
   }, []);
+
+  const selectedOfflineQueueComparison = useMemo<OfflineQueueComparisonRow[]>(() => {
+    if (selectedOfflineQueueJob?.payload.kind !== "makeReadyPatch" || !selectedOfflineQueueServerItem) {
+      return [];
+    }
+    return Object.entries(selectedOfflineQueueJob.payload.data).map(([field, queuedValue]) => {
+      const serverValue = selectedOfflineQueueServerItem[field as keyof MakeReadyItem];
+      return comparisonRow(field, queuedValue, serverValue);
+    });
+  }, [selectedOfflineQueueJob, selectedOfflineQueueServerItem]);
+
+  const selectedOfflineQueueLeaseComparison = useMemo<OfflineQueueComparisonRow[]>(() => {
+    if (selectedOfflineQueueJob?.payload.kind !== "leaseCreate" || !selectedOfflineQueueServerLeaseIssue) {
+      return [];
+    }
+    const queued = selectedOfflineQueueJob.payload.input;
+    return [
+      comparisonRow("unit", queued.unitId ?? null, selectedOfflineQueueServerLeaseIssue.unit?.number ?? selectedOfflineQueueServerLeaseIssue.unitId),
+      comparisonRow("building", queued.building ?? null, selectedOfflineQueueServerLeaseIssue.building),
+      comparisonRow("area", queued.area ?? null, selectedOfflineQueueServerLeaseIssue.area),
+      comparisonRow("issueTypeName", queued.issueTypeName, selectedOfflineQueueServerLeaseIssue.issueTypeName),
+      comparisonRow("additionalIssueType", queued.additionalIssueType ?? null, selectedOfflineQueueServerLeaseIssue.additionalIssueType),
+      comparisonRow("priority", queued.priority ?? null, selectedOfflineQueueServerLeaseIssue.priority),
+      comparisonRow("status", queued.status ?? null, selectedOfflineQueueServerLeaseIssue.status),
+      comparisonRow("source", queued.source ?? null, selectedOfflineQueueServerLeaseIssue.source),
+      comparisonRow("description", queued.description ?? null, selectedOfflineQueueServerLeaseIssue.description),
+      comparisonRow("locationNotes", queued.locationNotes ?? null, selectedOfflineQueueServerLeaseIssue.locationNotes),
+      comparisonRow("assignedUserId", queued.assignedUserId ?? null, selectedOfflineQueueServerLeaseIssue.assignedUserName ?? selectedOfflineQueueServerLeaseIssue.assignedUserId),
+    ];
+  }, [selectedOfflineQueueJob, selectedOfflineQueueServerLeaseIssue]);
+
+  const selectedOfflineQueueProjectComparison = useMemo<OfflineQueueComparisonRow[]>(() => {
+    if (selectedOfflineQueueJob?.payload.kind !== "projectCreate" || !selectedOfflineQueueServerProjectRecord) {
+      return [];
+    }
+    const queued = selectedOfflineQueueJob.payload.input;
+    return [
+      comparisonRow("title", queued.title, selectedOfflineQueueServerProjectRecord.title),
+      comparisonRow("recordType", queued.recordType, selectedOfflineQueueServerProjectRecord.recordType),
+      comparisonRow("building", queued.building ?? null, selectedOfflineQueueServerProjectRecord.building),
+      comparisonRow("area", queued.area ?? null, selectedOfflineQueueServerProjectRecord.area),
+      comparisonRow("status", queued.status, selectedOfflineQueueServerProjectRecord.status),
+      comparisonRow("priority", queued.priority ?? null, selectedOfflineQueueServerProjectRecord.priority),
+      comparisonRow("source", queued.source ?? null, selectedOfflineQueueServerProjectRecord.source),
+      comparisonRow("description", queued.description ?? null, selectedOfflineQueueServerProjectRecord.description),
+      comparisonRow("locationNotes", queued.locationNotes ?? null, selectedOfflineQueueServerProjectRecord.locationNotes),
+      comparisonRow("companyName", queued.companyName ?? null, selectedOfflineQueueServerProjectRecord.companyName),
+      comparisonRow("estimatedCost", queued.estimatedCost ?? null, selectedOfflineQueueServerProjectRecord.estimatedCost),
+      comparisonRow("files", selectedOfflineQueueJob.payload.files.map((file) => file.name), selectedOfflineQueueServerProjectRecord.attachments.map((attachment) => attachment.originalName)),
+    ];
+  }, [selectedOfflineQueueJob, selectedOfflineQueueServerProjectRecord]);
+
+  const selectedOfflineQueuePestComparison = useMemo<OfflineQueueComparisonRow[]>(() => {
+    if (selectedOfflineQueueJob?.payload.kind !== "pestCreate" || !selectedOfflineQueueServerPestIssue) {
+      return [];
+    }
+    const queued = selectedOfflineQueueJob.payload.input;
+    return [
+      comparisonRow("unit", queued.unitId ?? null, selectedOfflineQueueServerPestIssue.unit?.number ?? selectedOfflineQueueServerPestIssue.unitId),
+      comparisonRow("makeReadyItemId", queued.makeReadyItemId ?? null, selectedOfflineQueueServerPestIssue.makeReadyItem?.unitNumber ?? selectedOfflineQueueServerPestIssue.makeReadyItemId),
+      comparisonRow("building", queued.building ?? null, selectedOfflineQueueServerPestIssue.building),
+      comparisonRow("area", queued.area ?? null, selectedOfflineQueueServerPestIssue.area),
+      comparisonRow("pestType", queued.pestType, selectedOfflineQueueServerPestIssue.pestType),
+      comparisonRow("additionalPestType", queued.additionalPestType ?? null, selectedOfflineQueueServerPestIssue.additionalPestType),
+      comparisonRow("priority", queued.priority ?? null, selectedOfflineQueueServerPestIssue.priority),
+      comparisonRow("status", queued.status ?? null, selectedOfflineQueueServerPestIssue.status),
+      comparisonRow("source", queued.source ?? null, selectedOfflineQueueServerPestIssue.source),
+      comparisonRow("vendorId", queued.vendorId ?? null, selectedOfflineQueueServerPestIssue.vendor?.vendorName ?? selectedOfflineQueueServerPestIssue.vendorId),
+      comparisonRow("assignedUserId", queued.assignedUserId ?? null, selectedOfflineQueueServerPestIssue.assignedUser?.fullName ?? selectedOfflineQueueServerPestIssue.assignedUserId),
+      comparisonRow("description", queued.description ?? null, selectedOfflineQueueServerPestIssue.description),
+    ];
+  }, [selectedOfflineQueueJob, selectedOfflineQueueServerPestIssue]);
+
+  const selectedOfflineQueuePoolComparison = useMemo<OfflineQueueComparisonRow[]>(() => {
+    if (selectedOfflineQueueJob?.payload.kind !== "poolCreate" || !selectedOfflineQueueServerPoolEntry) {
+      return [];
+    }
+    const queued = selectedOfflineQueueJob.payload.input;
+    return [
+      comparisonRow("facility", queued.facilityId, selectedOfflineQueueServerPoolEntry.facility.name),
+      comparisonRow("logDate", queued.logDate, selectedOfflineQueueServerPoolEntry.logDate),
+      comparisonRow("logTime", queued.logTime ?? null, selectedOfflineQueueServerPoolEntry.logTime),
+      comparisonRow("ph", queued.ph ?? null, selectedOfflineQueueServerPoolEntry.ph),
+      comparisonRow("freeChlorine", queued.freeChlorine ?? null, selectedOfflineQueueServerPoolEntry.freeChlorine),
+      comparisonRow("combinedChlorine", queued.combinedChlorine ?? null, selectedOfflineQueueServerPoolEntry.combinedChlorine),
+      comparisonRow("waterTemperature", queued.waterTemperature ?? null, selectedOfflineQueueServerPoolEntry.waterTemperature),
+      comparisonRow("notes", queued.notes ?? null, selectedOfflineQueueServerPoolEntry.notes),
+      comparisonRow("chemicalAdditions", queued.chemicalAdditions?.map((entry) => `${entry.chemicalName} ${entry.amount} ${entry.unit}`) ?? [], selectedOfflineQueueServerPoolEntry.chemicalAdditions.map((entry) => `${entry.chemicalName} ${entry.amount} ${entry.unit}`)),
+    ];
+  }, [selectedOfflineQueueJob, selectedOfflineQueueServerPoolEntry]);
+
+  const selectedOfflineQueuePmComparison = useMemo<OfflineQueueComparisonRow[]>(() => {
+    if (
+      (selectedOfflineQueueJob?.payload.kind !== "pmComplete" && selectedOfflineQueueJob?.payload.kind !== "pmSkip")
+      || !selectedOfflineQueueServerPmTask
+    ) {
+      return [];
+    }
+    if (selectedOfflineQueueJob.payload.kind === "pmComplete") {
+      return [
+        comparisonRow("taskName", selectedOfflineQueueServerPmTask.taskName, selectedOfflineQueueServerPmTask.taskName),
+        comparisonRow("status", t(meQuery.data?.user.language ?? "en", "offlineQueue.pmQueuedComplete"), selectedOfflineQueueServerPmTask.status),
+        comparisonRow("queuedOutcome", selectedOfflineQueueJob.payload.input.outcome, selectedOfflineQueueServerPmTask.completionOutcome),
+        comparisonRow("queuedNotes", selectedOfflineQueueJob.payload.input.notes ?? null, selectedOfflineQueueServerPmTask.completionNotes),
+        comparisonRow("completedAt", t(meQuery.data?.user.language ?? "en", "offlineQueue.pendingSync"), selectedOfflineQueueServerPmTask.completedAt),
+        comparisonRow("completedBy", t(meQuery.data?.user.language ?? "en", "offlineQueue.localQueuedAction"), selectedOfflineQueueServerPmTask.completedByName),
+      ];
+    }
+    return [
+      comparisonRow("taskName", selectedOfflineQueueServerPmTask.taskName, selectedOfflineQueueServerPmTask.taskName),
+      comparisonRow("status", t(meQuery.data?.user.language ?? "en", "offlineQueue.pmQueuedSkip"), selectedOfflineQueueServerPmTask.status),
+      comparisonRow("queuedNotes", selectedOfflineQueueJob.payload.input.notes ?? null, selectedOfflineQueueServerPmTask.completionNotes),
+      comparisonRow("completedAt", t(meQuery.data?.user.language ?? "en", "offlineQueue.pendingSync"), selectedOfflineQueueServerPmTask.completedAt),
+      comparisonRow("completedBy", t(meQuery.data?.user.language ?? "en", "offlineQueue.localQueuedAction"), selectedOfflineQueueServerPmTask.completedByName),
+    ];
+  }, [selectedOfflineQueueJob, selectedOfflineQueueServerPmTask]);
+
+  const selectedOfflineQueueCollaborationComparison = useMemo<OfflineQueueComparisonRow[]>(() => {
+    if (!selectedOfflineQueueJob || !selectedOfflineQueueServerCollaboration) {
+      return [];
+    }
+    switch (selectedOfflineQueueJob.payload.kind) {
+      case "makeReadyCommentCreate": {
+        const latestComment = selectedOfflineQueueServerCollaboration.comments[0] ?? null;
+        return [
+          comparisonRow("queuedComment", selectedOfflineQueueJob.payload.body, latestComment?.body ?? null),
+          comparisonRow("latestLiveCommentAt", "Pending sync", latestComment?.createdAt ?? null),
+        ];
+      }
+      case "makeReadyCommentUpdate": {
+        const payload = selectedOfflineQueueJob.payload;
+        const liveComment = selectedOfflineQueueServerCollaboration.comments.find((comment) => comment.id === payload.commentId) ?? null;
+        return [
+          comparisonRow("commentId", payload.commentId, liveComment?.id ?? null),
+          comparisonRow("queuedComment", payload.body, liveComment?.body ?? null),
+          comparisonRow("editedAt", "Pending sync", liveComment?.editedAt ?? liveComment?.createdAt ?? null),
+        ];
+      }
+      case "makeReadyCommentDelete": {
+        const payload = selectedOfflineQueueJob.payload;
+        const liveComment = selectedOfflineQueueServerCollaboration.comments.find((comment) => comment.id === payload.commentId) ?? null;
+        return [
+          comparisonRow("commentId", payload.commentId, liveComment?.id ?? null),
+          comparisonRow("queuedDelete", "Delete comment", liveComment?.body ?? "Already removed"),
+        ];
+      }
+      case "makeReadyChecklistAttach": {
+        return [
+          comparisonRow("templateId", selectedOfflineQueueJob.payload.templateId, "Live checklist instances loaded below"),
+          comparisonRow("liveChecklistCount", "Pending attach", selectedOfflineQueueServerCollaboration.checklistInstances.length),
+        ];
+      }
+      case "makeReadyChecklistUpdate": {
+        const payload = selectedOfflineQueueJob.payload;
+        const liveChecklistItem = selectedOfflineQueueServerCollaboration.checklistInstances
+          .flatMap((instance) => instance.items)
+          .find((entry) => entry.id === payload.checklistItemId) ?? null;
+        return [
+          comparisonRow("checklistItemId", payload.checklistItemId, liveChecklistItem?.id ?? null),
+          comparisonRow("completed", payload.input.completed ?? null, liveChecklistItem?.completed ?? null),
+          comparisonRow("notes", payload.input.notes ?? null, liveChecklistItem?.notes ?? null),
+          comparisonRow("completedAt", t(meQuery.data?.user.language ?? "en", "offlineQueue.pendingSync"), liveChecklistItem?.completedAt ?? null),
+        ];
+      }
+      default:
+        return [];
+    }
+  }, [selectedOfflineQueueJob, selectedOfflineQueueServerCollaboration]);
+
+  const selectedOfflineQueueUploadReview = useMemo<OfflineQueueUploadReview | null>(() => {
+    if (!selectedOfflineQueueJob) {
+      return null;
+    }
+    const buildReview = (recordLabel: string, queuedFiles: string[], liveFiles: string[]) => {
+      const normalizedLiveNames = new Set(liveFiles.map((name) => name.trim().toLowerCase()).filter(Boolean));
+      const duplicateFiles = queuedFiles.filter((name) => normalizedLiveNames.has(name.trim().toLowerCase()));
+      return { recordLabel, queuedFiles, liveFiles, duplicateFiles };
+    };
+    switch (selectedOfflineQueueJob.payload.kind) {
+      case "makeReadyUpload":
+        if (!selectedOfflineQueueServerCollaboration) return null;
+        return buildReview(
+          `Item ${selectedOfflineQueueJob.payload.itemId}`,
+          selectedOfflineQueueJob.payload.files.map((file) => file.name),
+          selectedOfflineQueueServerCollaboration.attachments.map((attachment) => attachment.originalName),
+        );
+      case "projectUpload":
+        if (!selectedOfflineQueueServerProjectRecord) return null;
+        return buildReview(
+          selectedOfflineQueueServerProjectRecord.title,
+          selectedOfflineQueueJob.payload.files.map((file) => file.name),
+          selectedOfflineQueueServerProjectRecord.attachments.map((attachment) => attachment.originalName),
+        );
+      case "leaseUpload":
+        if (!selectedOfflineQueueServerLeaseIssue) return null;
+        return buildReview(
+          selectedOfflineQueueServerLeaseIssue.unit?.number ?? selectedOfflineQueueServerLeaseIssue.area ?? selectedOfflineQueueServerLeaseIssue.building ?? selectedOfflineQueueServerLeaseIssue.issueTypeName,
+          selectedOfflineQueueJob.payload.files.map((file) => file.name),
+          selectedOfflineQueueServerLeaseIssue.photos.map((photo) => photo.originalName),
+        );
+      case "pestUpload":
+        if (!selectedOfflineQueueServerPestIssue) return null;
+        return buildReview(
+          selectedOfflineQueueServerPestIssue.unit?.number ?? selectedOfflineQueueServerPestIssue.area ?? selectedOfflineQueueServerPestIssue.pestType,
+          selectedOfflineQueueJob.payload.files.map((file) => file.name),
+          selectedOfflineQueueServerPestIssue.attachments.map((attachment) => attachment.originalName),
+        );
+      case "poolUpload":
+        if (!selectedOfflineQueueServerPoolEntry) return null;
+        return buildReview(
+          `${selectedOfflineQueueServerPoolEntry.facility.name} ${new Date(selectedOfflineQueueServerPoolEntry.logDate).toLocaleDateString()}`,
+          selectedOfflineQueueJob.payload.files.map((file) => file.name),
+          selectedOfflineQueueServerPoolEntry.attachments.map((attachment) => attachment.originalName),
+        );
+      case "pmUpload":
+        if (!selectedOfflineQueueServerPmTask) return null;
+        return buildReview(
+          selectedOfflineQueueServerPmTask.taskName,
+          selectedOfflineQueueJob.payload.files.map((file) => file.name),
+          selectedOfflineQueueServerPmTask.attachments.map((attachment) => attachment.originalName),
+        );
+      default:
+        return null;
+    }
+  }, [
+    selectedOfflineQueueJob,
+    selectedOfflineQueueServerCollaboration,
+    selectedOfflineQueueServerLeaseIssue,
+    selectedOfflineQueueServerPestIssue,
+    selectedOfflineQueueServerPmTask,
+    selectedOfflineQueueServerPoolEntry,
+    selectedOfflineQueueServerProjectRecord,
+  ]);
 
   useEffect(() => {
     const handleOpenProjectRecord = (event: Event) => {
@@ -535,7 +1294,13 @@ function App() {
     queryKey: ["meta"],
     queryFn: getMeta,
     enabled: meQuery.isSuccess,
+    initialData: readCachedMeta,
   });
+  useEffect(() => {
+    if (metaQuery.data) {
+      writeCachedMeta(metaQuery.data);
+    }
+  }, [metaQuery.data]);
 
   const itemServerFilters = useMemo(() => ({
     propertyId: propertyId || undefined,
@@ -780,23 +1545,23 @@ function App() {
       setForceLoggedOut(false);
       setLoginError("");
       setSessionMessage("");
-      pushToast("Signed in", "Your board workspace is ready.", "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "auth.signedIn"), t(meQuery.data?.user.language ?? "en", "auth.signedInCopy"), "success");
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
       await queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
       await queryClient.invalidateQueries({ queryKey: ["saved-views"] });
     },
     onError: (error) => {
-      setLoginError(error instanceof Error ? error.message : "Sign-in failed");
-      pushToast("Sign-in failed", error instanceof Error ? error.message : "Sign-in failed", "error");
+      setLoginError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "auth.signInFailed"));
+      pushToast(t(meQuery.data?.user.language ?? "en", "auth.signInFailed"), error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "auth.signInFailed"), "error");
     },
   });
 
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSuccess: async () => {
-      pushToast("Signed out", "Your current session has been closed.", "info");
-      setSessionMessage("You have been signed out.");
+      pushToast(t(meQuery.data?.user.language ?? "en", "auth.signedOut"), t(meQuery.data?.user.language ?? "en", "auth.signedOutCopy"), "info");
+      setSessionMessage(t(meQuery.data?.user.language ?? "en", "auth.signedOutMessage"));
       setForceLoggedOut(true);
       queryClient.setQueryData(["auth", "me"], null);
       queryClient.setQueryData(["meta"], undefined);
@@ -814,9 +1579,10 @@ function App() {
       queryClient.removeQueries({ queryKey: ["admin"] });
       queryClient.removeQueries({ queryKey: ["custom-fields"] });
       queryClient.removeQueries({ queryKey: ["automations"] });
+      window.localStorage.removeItem(metaCacheStorageKey);
     },
     onError: (error) => {
-      pushToast("Logout failed", error instanceof Error ? error.message : "Logout failed", "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "auth.logoutFailed"), error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "auth.logoutFailed"), "error");
     },
   });
 
@@ -837,11 +1603,17 @@ function App() {
       const field = Object.keys(variables.data)[0] ?? "item";
       if (result.queued) {
         applyQueuedMakeReadyPatch(variables.id, variables.data);
-        pushToast("Change queued", `${humanizeField(field)} will sync after the device reconnects.`, "info");
+        pushToast(
+          t(meQuery.data?.user.language ?? "en", "updates.changeQueued"),
+          tWithVars(meQuery.data?.user.language ?? "en", "updates.changeQueuedCopy", { field: humanizeField(field) }),
+          "info",
+        );
         return;
       }
-      const title = activeView === "kanban" ? "Card moved" : "Item updated";
-      pushToast(title, `${humanizeField(field)} saved successfully.`, "success");
+      const title = activeView === "kanban"
+        ? t(meQuery.data?.user.language ?? "en", "updates.cardMoved")
+        : t(meQuery.data?.user.language ?? "en", "updates.itemUpdated");
+      pushToast(title, tWithVars(meQuery.data?.user.language ?? "en", "updates.fieldSaved", { field: humanizeField(field) }), "success");
       queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
     },
     onError: (error) => {
@@ -849,7 +1621,7 @@ function App() {
         handleSessionExpired();
         return;
       }
-      pushToast("Update failed", error instanceof Error ? error.message : "Update failed", "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "updates.updateFailed"), error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "updates.updateFailed"), "error");
     },
   });
 
@@ -859,21 +1631,21 @@ function App() {
       await queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
       await queryClient.invalidateQueries({ queryKey: ["activity"] });
       await queryClient.invalidateQueries({ queryKey: ["notifications"] });
-      pushToast("Unit marked ready", "Final walk signoff moved the unit to Ready Units.", "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "updates.unitMarkedReady"), t(meQuery.data?.user.language ?? "en", "updates.unitMarkedReadyCopy"), "success");
     },
     onError: (error) => {
-      pushToast("Mark ready failed", error instanceof Error ? error.message : "Could not mark unit ready", "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "updates.markReadyFailed"), error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "updates.markReadyFailedCopy"), "error");
     },
   });
 
   const customValueMutation = useMutation({
     mutationFn: ({ itemId, fieldId, value }: { itemId: string; fieldId: string; value: unknown }) => updateCustomFieldValue(itemId, fieldId, value),
     onSuccess: async () => {
-      pushToast("Custom value updated", "The custom field value was saved.", "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "updates.customValueUpdated"), t(meQuery.data?.user.language ?? "en", "updates.customValueUpdatedCopy"), "success");
       await queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
     },
     onError: (error) => {
-      pushToast("Custom value failed", error instanceof Error ? error.message : "Could not save custom field value", "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "updates.customValueFailed"), error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "updates.customValueFailedCopy"), "error");
     },
   });
 
@@ -898,11 +1670,11 @@ function App() {
     mutationFn: createProperty,
     onSuccess: async (data) => {
       await refreshOperations(`Created property ${data.property.code}`);
-      pushToast("Property created", `${data.property.name} is ready for unit setup.`, "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.propertyCreated"), tWithVars(meQuery.data?.user.language ?? "en", "ops.propertyCreatedCopy", { name: data.property.name }), "success");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Property creation failed");
-      pushToast("Property creation failed", error instanceof Error ? error.message : undefined, "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.propertyCreationFailed"), error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -910,11 +1682,11 @@ function App() {
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateProperty>[1] }) => updateProperty(id, data),
     onSuccess: async (data) => {
       await refreshOperations(`Updated property ${data.property.code}`);
-      pushToast("Property updated", `${data.property.name} was saved.`, "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.propertyUpdated"), tWithVars(meQuery.data?.user.language ?? "en", "ops.propertyUpdatedCopy", { name: data.property.name }), "success");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Property update failed");
-      pushToast("Property update failed", error instanceof Error ? error.message : undefined, "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.propertyUpdateFailed"), error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -922,11 +1694,11 @@ function App() {
     mutationFn: ({ id, restore }: { id: string; restore: boolean }) => restore ? restoreProperty(id) : archiveProperty(id),
     onSuccess: async (data) => {
       await refreshOperations(`${data.property.isActive ? "Restored" : "Archived"} property ${data.property.code}`);
-      pushToast("Property status updated", `${data.property.code} is ${data.property.isActive ? "active" : "archived"}.`, "info");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.propertyStatusUpdated"), tWithVars(meQuery.data?.user.language ?? "en", "ops.propertyStatusUpdatedCopy", { code: data.property.code, status: data.property.isActive ? t(meQuery.data?.user.language ?? "en", "ops.active") : t(meQuery.data?.user.language ?? "en", "ops.archived") }), "info");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Property status update failed");
-      pushToast("Property status failed", error instanceof Error ? error.message : undefined, "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.propertyStatusFailed"), error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -934,11 +1706,11 @@ function App() {
     mutationFn: deleteProperty,
     onSuccess: async () => {
       await refreshOperations("Deleted archived property");
-      pushToast("Property deleted", "The unlinked archived property was removed.", "info");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.propertyDeleted"), t(meQuery.data?.user.language ?? "en", "ops.propertyDeletedCopy"), "info");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Property deletion failed");
-      pushToast("Property deletion blocked", error instanceof Error ? error.message : undefined, "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.propertyDeletionBlocked"), error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -946,11 +1718,11 @@ function App() {
     mutationFn: createUnit,
     onSuccess: async (data) => {
       await refreshOperations(`Created unit ${data.unit.number}`);
-      pushToast("Unit created", `${data.unit.property.code} ${data.unit.number} was added.`, "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.unitCreated"), tWithVars(meQuery.data?.user.language ?? "en", "ops.unitCreatedCopy", { property: data.unit.property.code, unit: data.unit.number }), "success");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Unit creation failed");
-      pushToast("Unit creation failed", error instanceof Error ? error.message : undefined, "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.unitCreationFailed"), error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -958,11 +1730,11 @@ function App() {
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateUnit>[1] }) => updateUnit(id, data),
     onSuccess: async (data) => {
       await refreshOperations(`Updated unit ${data.unit.number}`);
-      pushToast("Unit updated", `${data.unit.number} was saved.`, "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.unitUpdated"), tWithVars(meQuery.data?.user.language ?? "en", "ops.unitUpdatedCopy", { unit: data.unit.number }), "success");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Unit update failed");
-      pushToast("Unit update failed", error instanceof Error ? error.message : undefined, "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.unitUpdateFailed"), error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -973,11 +1745,11 @@ function App() {
       const floorPlanSummary = data.summary.floorPlansCreated || data.summary.floorPlansUpdated
         ? ` ${data.summary.floorPlansCreated ?? 0} floor plans created, ${data.summary.floorPlansUpdated ?? 0} updated.`
         : "";
-      pushToast("Unit directory imported", `${data.summary.created} created, ${data.summary.updated} updated, ${data.summary.skipped} skipped.${floorPlanSummary}`, "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.unitDirectoryImported"), tWithVars(meQuery.data?.user.language ?? "en", "ops.unitDirectoryImportedCopy", { created: String(data.summary.created), updated: String(data.summary.updated), skipped: String(data.summary.skipped), extra: floorPlanSummary }), "success");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Unit import failed");
-      pushToast("Unit import failed", error instanceof Error ? error.message : undefined, "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.unitImportFailed"), error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -992,15 +1764,15 @@ function App() {
       const floorPlanSummary = data.summary.floorPlansCreated || data.summary.floorPlansUpdated
         ? ` ${data.summary.floorPlansCreated ?? 0} floor plans created, ${data.summary.floorPlansUpdated ?? 0} updated.`
         : "";
-      pushToast("Availability imported", `${data.summary.turnsCreated} turns created, ${data.summary.turnsUpdated} turns updated, ${data.summary.skipped} skipped.${floorPlanSummary}`, "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.availabilityImported"), tWithVars(meQuery.data?.user.language ?? "en", "ops.availabilityImportedCopy", { created: String(data.summary.turnsCreated), updated: String(data.summary.turnsUpdated), skipped: String(data.summary.skipped), extra: floorPlanSummary }), "success");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Availability import failed");
       if (isApiError(error) && error.status === 409) {
-        pushToast("Availability import blocked", error.message, "info");
+        pushToast(t(meQuery.data?.user.language ?? "en", "ops.availabilityImportBlocked"), error.message, "info");
         return;
       }
-      pushToast("Availability import failed", error instanceof Error ? error.message : undefined, "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.availabilityImportFailed"), error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -1009,11 +1781,11 @@ function App() {
     onSuccess: async (data) => {
       await refreshOperations(`Reverted unit directory import: ${data.summary.deleted} created units removed`);
       const blocked = data.summary.blocked.length ? ` ${data.summary.blocked.length} linked units were kept.` : "";
-      pushToast("Unit import reverted", `${data.summary.deleted} created units removed.${blocked}`, "info");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.unitImportReverted"), tWithVars(meQuery.data?.user.language ?? "en", "ops.unitImportRevertedCopy", { deleted: String(data.summary.deleted), blocked }), "info");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Unit import revert failed");
-      pushToast("Import revert failed", error instanceof Error ? error.message : undefined, "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.importRevertFailed"), error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -1021,11 +1793,11 @@ function App() {
     mutationFn: ({ id, restore }: { id: string; restore: boolean }) => restore ? restoreUnit(id) : archiveUnit(id),
     onSuccess: async (data) => {
       await refreshOperations(`${data.unit.isActive ? "Restored" : "Archived"} unit ${data.unit.number}`);
-      pushToast("Unit status updated", `${data.unit.number} is ${data.unit.isActive ? "active" : "archived"}.`, "info");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.unitStatusUpdated"), tWithVars(meQuery.data?.user.language ?? "en", "ops.unitStatusUpdatedCopy", { unit: data.unit.number, status: data.unit.isActive ? t(meQuery.data?.user.language ?? "en", "ops.active") : t(meQuery.data?.user.language ?? "en", "ops.archived") }), "info");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Unit status update failed");
-      pushToast("Unit status failed", error instanceof Error ? error.message : undefined, "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.unitStatusFailed"), error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -1033,11 +1805,11 @@ function App() {
     mutationFn: deleteUnit,
     onSuccess: async () => {
       await refreshOperations("Deleted archived unit");
-      pushToast("Unit deleted", "The unlinked archived unit was removed.", "info");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.unitDeleted"), t(meQuery.data?.user.language ?? "en", "ops.unitDeletedCopy"), "info");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Unit deletion failed");
-      pushToast("Unit deletion blocked", error instanceof Error ? error.message : undefined, "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.unitDeletionBlocked"), error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -1045,11 +1817,11 @@ function App() {
     mutationFn: createMakeReadyItem,
     onSuccess: async (data) => {
       await refreshOperations(`Created make-ready item ${data.unitNumber}`);
-      pushToast("Turn created", `${data.unitNumber} is now on the board.`, "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.turnCreated"), tWithVars(meQuery.data?.user.language ?? "en", "ops.turnCreatedCopy", { unit: data.unitNumber }), "success");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Turn creation failed");
-      pushToast("Turn creation failed", error instanceof Error ? error.message : undefined, "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.turnCreationFailed"), error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -1057,11 +1829,11 @@ function App() {
     mutationFn: ({ id, restore }: { id: string; restore: boolean }) => restore ? restoreMakeReadyItem(id) : archiveMakeReadyItem(id),
     onSuccess: async (data) => {
       await refreshOperations(`${data.isArchived ? "Archived" : "Restored"} make-ready item ${data.unitNumber}`);
-      pushToast("Turn status updated", `${data.unitNumber} is ${data.isArchived ? "archived" : "active"}.`, "info");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.turnStatusUpdated"), tWithVars(meQuery.data?.user.language ?? "en", "ops.turnStatusUpdatedCopy", { unit: data.unitNumber, status: data.isArchived ? t(meQuery.data?.user.language ?? "en", "ops.archived") : t(meQuery.data?.user.language ?? "en", "ops.active") }), "info");
     },
     onError: (error) => {
       setOperationsError(error instanceof Error ? error.message : "Turn status update failed");
-      pushToast("Turn status failed", error instanceof Error ? error.message : undefined, "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.turnStatusFailed"), error instanceof Error ? error.message : undefined, "error");
     },
   });
 
@@ -1070,17 +1842,17 @@ function App() {
     onSuccess: async (data) => {
       await queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
       await queryClient.invalidateQueries({ queryKey: ["activity"] });
-      pushToast("Batch update complete", `${data.count} item${data.count === 1 ? "" : "s"} updated.`, "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.batchUpdateComplete"), tWithVars(meQuery.data?.user.language ?? "en", "ops.batchUpdateCompleteCopy", { count: String(data.count) }), "success");
     },
-    onError: (error) => pushToast("Batch update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.batchUpdateFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const renameSectionMutation = useMutation({
     mutationFn: ({ id, displayName }: { id: string; displayName: string }) => updateBoardSection(id, displayName),
     onSuccess: async (data) => {
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
-      pushToast("Section renamed", `${data.section.displayName} is now used across the board.`, "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.sectionRenamed"), tWithVars(meQuery.data?.user.language ?? "en", "ops.sectionRenamedCopy", { name: data.section.displayName }), "success");
     },
-    onError: (error) => pushToast("Section rename failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.sectionRenameFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const readNotificationMutation = useMutation({
     mutationFn: markNotificationRead,
@@ -1098,9 +1870,9 @@ function App() {
     mutationFn: ({ category, enabled }: { category: string; enabled: boolean }) => updateNotificationPreference(category, enabled),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
-      pushToast("Preference updated", "In-app alert delivery was updated.", "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.preferenceUpdated"), t(meQuery.data?.user.language ?? "en", "ops.preferenceUpdatedCopy"), "success");
     },
-    onError: (error) => pushToast("Preference update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.preferenceUpdateFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
 
   const optionCreateMutation = useMutation({
@@ -1108,27 +1880,27 @@ function App() {
     onSuccess: async (data) => {
       await queryClient.invalidateQueries({ queryKey: ["operations", "options"] });
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
-      pushToast("Label added", `${data.option.value} is available on the board.`, "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.labelAdded"), tWithVars(meQuery.data?.user.language ?? "en", "ops.labelAddedCopy", { name: data.option.value }), "success");
     },
-    onError: (error) => pushToast("Label creation failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.labelCreationFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const optionUpdateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateBoardOption>[1] }) => updateBoardOption(id, data),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["operations", "options"] });
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
-      pushToast("Label updated", "Board label changes were saved.", "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.labelUpdated"), t(meQuery.data?.user.language ?? "en", "ops.labelUpdatedCopy"), "success");
     },
-    onError: (error) => pushToast("Label update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.labelUpdateFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const optionArchiveMutation = useMutation({
     mutationFn: ({ id, restore }: { id: string; restore: boolean }) => archiveBoardOption(id, restore),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["operations", "options"] });
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
-      pushToast("Label status updated", "Archived choices remain in historical records.", "info");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.labelStatusUpdated"), t(meQuery.data?.user.language ?? "en", "ops.labelStatusUpdatedCopy"), "info");
     },
-    onError: (error) => pushToast("Label update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.labelUpdateFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const optionReorderMutation = useMutation({
     mutationFn: reorderBoardOptions,
@@ -1141,9 +1913,9 @@ function App() {
     mutationFn: createFloorPlan,
     onSuccess: async (data) => {
       await queryClient.invalidateQueries({ queryKey: ["operations", "floor-plans"] });
-      pushToast("Floor plan created", `${data.floorPlan.name} can now be assigned to units.`, "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.floorPlanCreated"), tWithVars(meQuery.data?.user.language ?? "en", "ops.floorPlanCreatedCopy", { name: data.floorPlan.name }), "success");
     },
-    onError: (error) => pushToast("Floor plan creation failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.floorPlanCreationFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const floorPlanUpdateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateFloorPlan>[1] }) => updateFloorPlan(id, data),
@@ -1151,44 +1923,44 @@ function App() {
       await queryClient.invalidateQueries({ queryKey: ["operations", "floor-plans"] });
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
       await queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
-      pushToast("Floor plan updated", "Floor plan settings were saved.", "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.floorPlanUpdated"), t(meQuery.data?.user.language ?? "en", "ops.floorPlanUpdatedCopy"), "success");
     },
-    onError: (error) => pushToast("Floor plan update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.floorPlanUpdateFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const floorPlanArchiveMutation = useMutation({
     mutationFn: ({ id, restore }: { id: string; restore: boolean }) => archiveFloorPlan(id, restore),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["operations", "floor-plans"] });
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
-      pushToast("Floor plan status updated", "Existing unit history remains unchanged.", "info");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.floorPlanStatusUpdated"), t(meQuery.data?.user.language ?? "en", "ops.floorPlanStatusUpdatedCopy"), "info");
     },
-    onError: (error) => pushToast("Floor plan update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.floorPlanUpdateFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const columnUpdateMutation = useMutation({
     mutationFn: ({ fieldKey, label, reset }: { fieldKey: string; label?: string; reset?: boolean }) => updateBoardColumn(fieldKey, label, reset),
     onSuccess: async (data) => {
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
-      pushToast("Column label updated", `${data.column.label} is now shown on the board.`, "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.columnLabelUpdated"), tWithVars(meQuery.data?.user.language ?? "en", "ops.columnLabelUpdatedCopy", { name: data.column.label }), "success");
     },
-    onError: (error) => pushToast("Column update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.columnUpdateFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const scheduleTrackCreateMutation = useMutation({
     mutationFn: createScheduleTrack,
     onSuccess: async (data) => {
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
       await queryClient.invalidateQueries({ queryKey: ["operations", "schedule-tracks"] });
-      pushToast("Schedule track created", `${data.track.displayName} is available in Calendar.`, "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.scheduleTrackCreated"), tWithVars(meQuery.data?.user.language ?? "en", "ops.scheduleTrackCreatedCopy", { name: data.track.displayName }), "success");
     },
-    onError: (error) => pushToast("Schedule track creation failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.scheduleTrackCreationFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const scheduleTrackUpdateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateScheduleTrack>[1] }) => updateScheduleTrack(id, data),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
       await queryClient.invalidateQueries({ queryKey: ["operations", "schedule-tracks"] });
-      pushToast("Schedule track updated", "Calendar settings were saved.", "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.scheduleTrackUpdated"), t(meQuery.data?.user.language ?? "en", "ops.scheduleTrackUpdatedCopy"), "success");
     },
-    onError: (error) => pushToast("Schedule track update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.scheduleTrackUpdateFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const scheduleTrackReorderMutation = useMutation({
     mutationFn: reorderScheduleTracks,
@@ -1196,24 +1968,24 @@ function App() {
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
       await queryClient.invalidateQueries({ queryKey: ["operations", "schedule-tracks"] });
     },
-    onError: (error) => pushToast("Schedule track reorder failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.scheduleTrackReorderFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const scheduleTrackArchiveMutation = useMutation({
     mutationFn: ({ id, restore }: { id: string; restore: boolean }) => archiveScheduleTrack(id, restore),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
       await queryClient.invalidateQueries({ queryKey: ["operations", "schedule-tracks"] });
-      pushToast("Schedule track status updated", "Archived tracks remain available to restore in Setup.", "info");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.scheduleTrackStatusUpdated"), t(meQuery.data?.user.language ?? "en", "ops.scheduleTrackStatusUpdatedCopy"), "info");
     },
-    onError: (error) => pushToast("Schedule track status failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.scheduleTrackStatusFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const operatingCalendarUpdateMutation = useMutation({
     mutationFn: ({ propertyId, data }: { propertyId: string; data: Parameters<typeof updateOperatingCalendar>[1] }) => updateOperatingCalendar(propertyId, data),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["operations", "operating-calendars"] });
-      pushToast("Operating calendar saved", "Scheduling guardrails are ready for planning and automation review.", "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.operatingCalendarSaved"), t(meQuery.data?.user.language ?? "en", "ops.operatingCalendarSavedCopy"), "success");
     },
-    onError: (error) => pushToast("Operating calendar update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.operatingCalendarUpdateFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
   const riskPolicyUpdateMutation = useMutation({
     mutationFn: ({ propertyId, data }: { propertyId: string; data: Parameters<typeof updateRiskPolicy>[1] }) => updateRiskPolicy(propertyId, data),
@@ -1221,9 +1993,9 @@ function App() {
       await queryClient.invalidateQueries({ queryKey: ["operations", "risk-policies"] });
       await queryClient.invalidateQueries({ queryKey: ["risk"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      pushToast("Risk policy saved", "Thresholds will apply to the next risk evaluation.", "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "ops.riskPolicySaved"), t(meQuery.data?.user.language ?? "en", "ops.riskPolicySavedCopy"), "success");
     },
-    onError: (error) => pushToast("Risk policy update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.riskPolicyUpdateFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
 
   const refreshVendors = async () => {
@@ -1237,33 +2009,33 @@ function App() {
     mutationFn: createVendor,
     onSuccess: async (data) => {
       await refreshVendors();
-      pushToast("Vendor created", `${data.vendor.name} is available for assignments.`, "success");
+      pushToast(t("ops.vendorCreated", language), tWithVars("ops.vendorCreatedCopy", language, { name: data.vendor.name }), "success");
     },
-    onError: (error) => pushToast("Vendor creation failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.vendorCreationFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
   const vendorArchiveMutation = useMutation({
     mutationFn: ({ id, restore }: { id: string; restore: boolean }) => archiveVendor(id, restore),
     onSuccess: async () => {
       await refreshVendors();
-      pushToast("Vendor status updated", "Vendor directory changes were saved.", "info");
+      pushToast(t("ops.vendorStatusUpdated", language), t("ops.vendorStatusUpdatedCopy", language), "info");
     },
-    onError: (error) => pushToast("Vendor update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.vendorUpdateFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
   const vendorAssignmentCreateMutation = useMutation({
     mutationFn: createVendorAssignment,
     onSuccess: async () => {
       await refreshVendors();
-      pushToast("Vendor work added", "The assignment is now tracked on the item and schedule.", "success");
+      pushToast(t("ops.vendorWorkAdded", language), t("ops.vendorWorkAddedCopy", language), "success");
     },
-    onError: (error) => pushToast("Vendor assignment failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.vendorAssignmentFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
   const vendorAssignmentUpdateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateVendorAssignment>[1] }) => updateVendorAssignment(id, data),
     onSuccess: async () => {
       await refreshVendors();
-      pushToast("Vendor work updated", "Assignment status was saved.", "success");
+      pushToast(t("ops.vendorWorkUpdated", language), t("ops.vendorWorkUpdatedCopy", language), "success");
     },
-    onError: (error) => pushToast("Vendor update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.vendorUpdateFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
 
   const refreshPlanning = async () => {
@@ -1277,17 +2049,17 @@ function App() {
     mutationFn: createWorkAssignmentBlock,
     onSuccess: async () => {
       await refreshPlanning();
-      pushToast("Work planned", "The assignment is now on the workload plan.", "success");
+      pushToast(t("ops.workPlanned", language), t("ops.workPlannedCopy", language), "success");
     },
-    onError: (error) => pushToast("Planning failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.planningFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
   const workBlockUpdateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateWorkAssignmentBlock>[1] }) => updateWorkAssignmentBlock(id, data),
     onSuccess: async () => {
       await refreshPlanning();
-      pushToast("Planned work updated", "Workload changes were saved.", "success");
+      pushToast(t("ops.plannedWorkUpdated", language), t("ops.plannedWorkUpdatedCopy", language), "success");
     },
-    onError: (error) => pushToast("Planning update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.planningUpdateFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
   const refreshMaps = async () => {
     await queryClient.invalidateQueries({ queryKey: ["property-maps"] });
@@ -1296,69 +2068,99 @@ function App() {
     await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     await queryClient.invalidateQueries({ queryKey: ["activity"] });
   };
+  const upsertPropertyMapCache = (map: PropertyMap) => {
+    queryClient.setQueriesData<{ maps: PropertyMap[] }>({ queryKey: ["property-maps"] }, (current) => {
+      if (!current) return current;
+      const maps = [...current.maps.filter((entry) => entry.id !== map.id), map].sort((left, right) => {
+        const propertyCompare = left.propertyId.localeCompare(right.propertyId);
+        if (propertyCompare !== 0) return propertyCompare;
+        if (left.isActive !== right.isActive) return left.isActive ? -1 : 1;
+        return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
+      });
+      return { ...current, maps };
+    });
+  };
+  const removePropertyMapFromCache = (id: string) => {
+    queryClient.setQueriesData<{ maps: PropertyMap[] }>({ queryKey: ["property-maps"] }, (current) => {
+      if (!current) return current;
+      return { ...current, maps: current.maps.filter((entry) => entry.id !== id) };
+    });
+  };
   const propertyMapCreateMutation = useMutation({
     mutationFn: createPropertyMap,
     onSuccess: async (data) => {
+      upsertPropertyMapCache(data.map);
       await refreshMaps();
-      pushToast("Property map created", `${data.map.name} is ready for unit markers.`, "success");
+      pushToast(t("ops.propertyMapCreated", language), tWithVars("ops.propertyMapCreatedCopy", language, { name: data.map.name }), "success");
     },
-    onError: (error) => pushToast("Map creation failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.mapCreationFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
   const propertyMapArchiveMutation = useMutation({
     mutationFn: ({ id, restore }: { id: string; restore: boolean }) => archivePropertyMap(id, restore),
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      upsertPropertyMapCache(data.map);
       await refreshMaps();
-      pushToast("Map status updated", "Property map availability was saved.", "info");
+      pushToast(t("ops.mapStatusUpdated", language), t("ops.mapStatusUpdatedCopy", language), "info");
     },
-    onError: (error) => pushToast("Map status failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.mapStatusFailed", language), error instanceof Error ? error.message : undefined, "error"),
+  });
+  const propertyMapDeleteMutation = useMutation({
+    mutationFn: deletePropertyMap,
+    onSuccess: async (_data, id) => {
+      removePropertyMapFromCache(id);
+      await refreshMaps();
+      pushToast(t("ops.mapDeleted", language), t("ops.mapDeletedCopy", language), "success");
+    },
+    onError: (error) => pushToast(t("ops.mapDeleteFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
   const propertyMapUploadMutation = useMutation({
     mutationFn: ({ id, file }: { id: string; file: File }) => uploadPropertyMap(id, file),
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      upsertPropertyMapCache(data.map);
       await refreshMaps();
-      pushToast("Map uploaded", "The local map file is available to authorized users.", "success");
+      pushToast(t("ops.mapUploaded", language), t("ops.mapUploadedCopy", language), "success");
     },
-    onError: (error) => pushToast("Map upload failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.mapUploadFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
   const unitMapLocationSaveMutation = useMutation({
     mutationFn: saveUnitMapLocation,
     onSuccess: async () => {
       await refreshMaps();
-      pushToast("Unit marker saved", "Map location was updated.", "success");
+      pushToast(t("ops.unitMarkerSaved", language), t("ops.unitMarkerSavedCopy", language), "success");
     },
-    onError: (error) => pushToast("Marker save failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.markerSaveFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
   const unitMapLocationRemoveMutation = useMutation({
     mutationFn: removeUnitMapLocation,
     onSuccess: async () => {
       await refreshMaps();
-      pushToast("Unit marker removed", "The unit is now listed as unmapped.", "info");
+      pushToast(t("ops.unitMarkerRemoved", language), t("ops.unitMarkerRemovedCopy", language), "info");
     },
-    onError: (error) => pushToast("Marker remove failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.markerRemoveFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
   const propertyMapAreaCreateMutation = useMutation({
     mutationFn: createPropertyMapArea,
     onSuccess: async () => {
       await refreshMaps();
-      pushToast("Map area saved", "Building or area marker was added.", "success");
+      pushToast(t("ops.mapAreaSaved", language), t("ops.mapAreaSavedCopy", language), "success");
     },
-    onError: (error) => pushToast("Area save failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.areaSaveFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
   const propertyMapAreaUpdateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updatePropertyMapArea>[1] }) => updatePropertyMapArea(id, data),
     onSuccess: async () => {
       await refreshMaps();
-      pushToast("Map area updated", "Building or area marker was updated.", "success");
+      pushToast(t("ops.mapAreaUpdated", language), t("ops.mapAreaUpdatedCopy", language), "success");
     },
-    onError: (error) => pushToast("Area update failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.areaUpdateFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
   const propertyMapAreaRemoveMutation = useMutation({
     mutationFn: removePropertyMapArea,
     onSuccess: async () => {
       await refreshMaps();
-      pushToast("Map area archived", "The building or area marker was hidden.", "info");
+      pushToast(t("ops.mapAreaArchived", language), t("ops.mapAreaArchivedCopy", language), "info");
     },
-    onError: (error) => pushToast("Area archive failed", error instanceof Error ? error.message : undefined, "error"),
+    onError: (error) => pushToast(t("ops.areaArchiveFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
 
   const refreshFields = async (message: string) => {
@@ -1373,12 +2175,12 @@ function App() {
     mutationFn: createCustomField,
     onSuccess: async (data) => {
       await refreshFields(`Created field ${data.field.label}`);
-      pushToast("Field created", `${data.field.label} is now available on the board.`, "success");
+      pushToast(t("ops.fieldCreated", language), tWithVars("ops.fieldCreatedCopy", language, { name: data.field.label }), "success");
     },
     onError: (error) => {
       setFieldMessage("");
       setFieldError(error instanceof Error ? error.message : "Create field failed");
-      pushToast("Create field failed", error instanceof Error ? error.message : "Create field failed", "error");
+      pushToast(t("ops.fieldCreationFailed", language), error instanceof Error ? error.message : t("ops.fieldCreationFailed", language), "error");
     },
   });
 
@@ -1386,12 +2188,12 @@ function App() {
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateCustomField>[1] }) => updateCustomField(id, data),
     onSuccess: async (data) => {
       await refreshFields(`Updated field ${data.field.label}`);
-      pushToast("Field updated", `${data.field.label} was saved.`, "success");
+      pushToast(t("ops.fieldUpdated", language), tWithVars("ops.fieldUpdatedCopy", language, { name: data.field.label }), "success");
     },
     onError: (error) => {
       setFieldMessage("");
       setFieldError(error instanceof Error ? error.message : "Update field failed");
-      pushToast("Update field failed", error instanceof Error ? error.message : "Update field failed", "error");
+      pushToast(t("ops.fieldUpdateFailed", language), error instanceof Error ? error.message : t("ops.fieldUpdateFailed", language), "error");
     },
   });
 
@@ -1399,12 +2201,12 @@ function App() {
     mutationFn: archiveCustomField,
     onSuccess: async () => {
       await refreshFields("Archived custom field");
-      pushToast("Field archived", "The field was hidden while retaining its historical values.", "info");
+      pushToast(t("ops.fieldArchived", language), t("ops.fieldArchivedCopy", language), "info");
     },
     onError: (error) => {
       setFieldMessage("");
       setFieldError(error instanceof Error ? error.message : "Archive field failed");
-      pushToast("Archive failed", error instanceof Error ? error.message : "Archive field failed", "error");
+      pushToast(t("ops.fieldArchiveFailed", language), error instanceof Error ? error.message : t("ops.fieldArchiveFailed", language), "error");
     },
   });
 
@@ -1412,12 +2214,12 @@ function App() {
     mutationFn: restoreCustomField,
     onSuccess: async () => {
       await refreshFields("Restored custom field");
-      pushToast("Field restored", "The field is active again.", "success");
+      pushToast(t("ops.fieldRestored", language), t("ops.fieldRestoredCopy", language), "success");
     },
     onError: (error) => {
       setFieldMessage("");
       setFieldError(error instanceof Error ? error.message : "Restore field failed");
-      pushToast("Restore failed", error instanceof Error ? error.message : "Restore field failed", "error");
+      pushToast(t("ops.fieldRestoreFailed", language), error instanceof Error ? error.message : t("ops.fieldRestoreFailed", language), "error");
     },
   });
 
@@ -1425,12 +2227,12 @@ function App() {
     mutationFn: trashCustomField,
     onSuccess: async (data) => {
       await refreshFields("Moved custom field to trash");
-      pushToast("Field moved to trash", `Retained until ${new Date(data.deleteAfter).toLocaleDateString()}.`, "info");
+      pushToast(t("ops.fieldTrashed", language), tWithVars("ops.fieldTrashedCopy", language, { date: new Date(data.deleteAfter).toLocaleDateString() }), "info");
     },
     onError: (error) => {
       setFieldMessage("");
       setFieldError(error instanceof Error ? error.message : "Move field to trash failed");
-      pushToast("Trash failed", error instanceof Error ? error.message : "Move field to trash failed", "error");
+      pushToast(t("ops.fieldTrashFailed", language), error instanceof Error ? error.message : t("ops.fieldTrashFailed", language), "error");
     },
   });
 
@@ -1438,12 +2240,12 @@ function App() {
     mutationFn: permanentlyDeleteCustomField,
     onSuccess: async () => {
       await refreshFields("Permanently deleted custom field");
-      pushToast("Field deleted", "The field was permanently removed.", "success");
+      pushToast(t("ops.fieldDeleted", language), t("ops.fieldDeletedCopy", language), "success");
     },
     onError: (error) => {
       setFieldMessage("");
       setFieldError(error instanceof Error ? error.message : "Permanent delete failed");
-      pushToast("Delete failed", error instanceof Error ? error.message : "Permanent delete failed", "error");
+      pushToast(t("ops.fieldDeleteFailed", language), error instanceof Error ? error.message : t("ops.fieldDeleteFailed", language), "error");
     },
   });
 
@@ -1455,7 +2257,7 @@ function App() {
     onError: (error) => {
       setFieldMessage("");
       setFieldError(error instanceof Error ? error.message : "Reorder fields failed");
-      pushToast("Reorder failed", error instanceof Error ? error.message : "Reorder fields failed", "error");
+      pushToast(t("ops.fieldReorderFailed", language), error instanceof Error ? error.message : t("ops.fieldReorderFailed", language), "error");
     },
   });
 
@@ -1471,12 +2273,12 @@ function App() {
     onSuccess: async (data) => {
       setAutomationRuleId(data.rule.id);
       await refreshAutomations(`Created automation ${data.rule.name}`);
-      pushToast("Automation created", `${data.rule.name} is ready for structured execution.`, "success");
+      pushToast(t("ops.automationCreated", language), tWithVars("ops.automationCreatedCopy", language, { name: data.rule.name }), "success");
     },
     onError: (error) => {
       setAutomationMessage("");
       setAutomationError(error instanceof Error ? error.message : "Create automation failed");
-      pushToast("Automation failed", error instanceof Error ? error.message : "Create automation failed", "error");
+      pushToast(t("ops.automationFailed", language), error instanceof Error ? error.message : t("ops.automationCreationFailed", language), "error");
     },
   });
 
@@ -1485,12 +2287,19 @@ function App() {
     onSuccess: async (data) => {
       setAutomationRuleId(data.rule.id);
       await refreshAutomations(`Installed template ${data.rule.name}`);
-      pushToast("Template installed", `${data.rule.name} was installed ${data.rule.enabled ? "and enabled" : "as a disabled rule for review"}.`, "success");
+      pushToast(
+        t("ops.templateInstalled", language),
+        tWithVars("ops.templateInstalledCopy", language, {
+          name: data.rule.name,
+          state: data.rule.enabled ? t("ops.templateEnabled", language) : t("ops.templateDisabledForReview", language),
+        }),
+        "success",
+      );
     },
     onError: (error) => {
       setAutomationMessage("");
       setAutomationError(error instanceof Error ? error.message : "Template installation failed");
-      pushToast("Template installation failed", error instanceof Error ? error.message : "Template installation failed", "error");
+      pushToast(t("ops.templateInstallationFailed", language), error instanceof Error ? error.message : t("ops.templateInstallationFailed", language), "error");
     },
   });
 
@@ -1500,12 +2309,12 @@ function App() {
       const lines = Object.entries(data.summary).map(([bucket, summary]) => `${bucket}: ${summary.created} create, ${summary.skipped} skip, ${summary.conflicts} conflict`);
       setLibraryPreview(lines.join("\n"));
       setAutomationError("");
-      pushToast("Library preview complete", `${data.pack.name} was validated without changing data.`, "info");
+      pushToast(t("ops.libraryPreviewComplete", language), tWithVars("ops.libraryPreviewCompleteCopy", language, { name: data.pack.name }), "info");
     },
     onError: (error) => {
       setLibraryPreview("");
       setAutomationError(error instanceof Error ? error.message : "Library preview failed");
-      pushToast("Library preview failed", error instanceof Error ? error.message : "Library preview failed", "error");
+      pushToast(t("ops.libraryPreviewFailed", language), error instanceof Error ? error.message : t("ops.libraryPreviewFailed", language), "error");
     },
   });
 
@@ -1519,11 +2328,11 @@ function App() {
       await queryClient.invalidateQueries({ queryKey: ["automations"] });
       await queryClient.invalidateQueries({ queryKey: ["custom-fields"] });
       await queryClient.invalidateQueries({ queryKey: ["meta"] });
-      pushToast("Library installed", `${created} library item${created === 1 ? "" : "s"} created; duplicates were skipped.`, "success");
+      pushToast(t("ops.libraryInstalled", language), tWithVars("ops.libraryInstalledCopy", language, { count: created }), "success");
     },
     onError: (error) => {
       setAutomationError(error instanceof Error ? error.message : "Library install failed");
-      pushToast("Library install failed", error instanceof Error ? error.message : "Library install failed", "error");
+      pushToast(t("ops.libraryInstallFailed", language), error instanceof Error ? error.message : t("ops.libraryInstallFailed", language), "error");
     },
   });
 
@@ -1537,12 +2346,12 @@ function App() {
       ];
       setTemplatePreview(lines.join("\n"));
       setAutomationError("");
-      pushToast("Template preview complete", "Reusable property configuration was summarized without saving.", "info");
+      pushToast(t("ops.templatePreviewComplete", language), t("ops.templatePreviewCompleteCopy", language), "info");
     },
     onError: (error) => {
       setTemplatePreview("");
       setAutomationError(error instanceof Error ? error.message : "Template preview failed");
-      pushToast("Template preview failed", error instanceof Error ? error.message : "Template preview failed", "error");
+      pushToast(t("ops.templatePreviewFailed", language), error instanceof Error ? error.message : t("ops.templatePreviewFailed", language), "error");
     },
   });
 
@@ -1552,11 +2361,11 @@ function App() {
       setTemplatePreview(`Saved template ${data.template.name}`);
       await queryClient.invalidateQueries({ queryKey: ["property-templates"] });
       await queryClient.invalidateQueries({ queryKey: ["activity"] });
-      pushToast("Property template saved", `${data.template.name} is ready to reuse.`, "success");
+      pushToast(t("ops.propertyTemplateSaved", language), tWithVars("ops.propertyTemplateSavedCopy", language, { name: data.template.name }), "success");
     },
     onError: (error) => {
       setAutomationError(error instanceof Error ? error.message : "Template create failed");
-      pushToast("Template create failed", error instanceof Error ? error.message : "Template create failed", "error");
+      pushToast(t("ops.templateCreateFailed", language), error instanceof Error ? error.message : t("ops.templateCreateFailed", language), "error");
     },
   });
 
@@ -1573,11 +2382,15 @@ function App() {
       await queryClient.invalidateQueries({ queryKey: ["automations"] });
       await queryClient.invalidateQueries({ queryKey: ["saved-views"] });
       await queryClient.invalidateQueries({ queryKey: ["custom-fields"] });
-      pushToast(data.dryRun ? "Template dry run complete" : "Template applied", data.dryRun ? "No data was changed." : "Reusable property setup was merged duplicate-safely.", data.dryRun ? "info" : "success");
+      pushToast(
+        data.dryRun ? t("ops.templateDryRunComplete", language) : t("ops.templateApplied", language),
+        data.dryRun ? t("ops.templateDryRunCompleteCopy", language) : t("ops.templateAppliedCopy", language),
+        data.dryRun ? "info" : "success",
+      );
     },
     onError: (error) => {
       setAutomationError(error instanceof Error ? error.message : "Template apply failed");
-      pushToast("Template apply failed", error instanceof Error ? error.message : "Template apply failed", "error");
+      pushToast(t("ops.templateApplyFailed", language), error instanceof Error ? error.message : t("ops.templateApplyFailed", language), "error");
     },
   });
 
@@ -1585,11 +2398,11 @@ function App() {
     mutationFn: archivePropertyTemplate,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["property-templates"] });
-      pushToast("Template archived", "The property template was hidden from the active library.", "info");
+      pushToast(t("ops.templateArchived", language), t("ops.templateArchivedCopy", language), "info");
     },
     onError: (error) => {
       setAutomationError(error instanceof Error ? error.message : "Template archive failed");
-      pushToast("Template archive failed", error instanceof Error ? error.message : "Template archive failed", "error");
+      pushToast(t("ops.templateArchiveFailed", language), error instanceof Error ? error.message : t("ops.templateArchiveFailed", language), "error");
     },
   });
 
@@ -1597,12 +2410,12 @@ function App() {
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateAutomation>[1] }) => updateAutomation(id, data),
     onSuccess: async (data) => {
       await refreshAutomations(`Updated automation ${data.rule.name}`);
-      pushToast("Automation updated", `${data.rule.name} was saved.`, "success");
+      pushToast(t("ops.automationUpdated", language), tWithVars("ops.automationUpdatedCopy", language, { name: data.rule.name }), "success");
     },
     onError: (error) => {
       setAutomationMessage("");
       setAutomationError(error instanceof Error ? error.message : "Update automation failed");
-      pushToast("Automation update failed", error instanceof Error ? error.message : "Update automation failed", "error");
+      pushToast(t("ops.automationUpdateFailed", language), error instanceof Error ? error.message : t("ops.automationUpdateFailed", language), "error");
     },
   });
 
@@ -1610,11 +2423,18 @@ function App() {
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => toggleAutomation(id, enabled),
     onSuccess: async (data) => {
       await refreshAutomations(`${data.rule.enabled ? "Enabled" : "Disabled"} ${data.rule.name}`);
-      pushToast("Automation status updated", `${data.rule.name} is ${data.rule.enabled ? "enabled" : "disabled"}.`, "success");
+      pushToast(
+        t("ops.automationStatusUpdated", language),
+        tWithVars("ops.automationStatusUpdatedCopy", language, {
+          name: data.rule.name,
+          state: data.rule.enabled ? t("ops.enabled", language) : t("ops.disabled", language),
+        }),
+        "success",
+      );
     },
     onError: (error) => {
       setAutomationError(error instanceof Error ? error.message : "Automation toggle failed");
-      pushToast("Automation status failed", error instanceof Error ? error.message : "Automation toggle failed", "error");
+      pushToast(t("ops.automationStatusFailed", language), error instanceof Error ? error.message : t("ops.automationToggleFailed", language), "error");
     },
   });
 
@@ -1623,11 +2443,11 @@ function App() {
     onSuccess: async () => {
       setAutomationRuleId(undefined);
       await refreshAutomations("Archived automation rule");
-      pushToast("Automation archived", "The rule is disabled and retained for history.", "info");
+      pushToast(t("ops.automationArchived", language), t("ops.automationArchivedCopy", language), "info");
     },
     onError: (error) => {
       setAutomationError(error instanceof Error ? error.message : "Archive automation failed");
-      pushToast("Automation archive failed", error instanceof Error ? error.message : "Archive automation failed", "error");
+      pushToast(t("ops.automationArchiveFailed", language), error instanceof Error ? error.message : t("ops.automationArchiveFailed", language), "error");
     },
   });
 
@@ -1636,13 +2456,13 @@ function App() {
     onSuccess: (data) => {
       setAutomationError("");
       setAutomationPreview(data);
-      pushToast("Preview complete", `${data.matchingItemCount} matching item${data.matchingItemCount === 1 ? "" : "s"}. No board changes made.`, "info");
+      pushToast(t("ops.previewComplete", language), tWithVars("ops.previewCompleteCopy", language, { count: data.matchingItemCount }), "info");
       queryClient.invalidateQueries({ queryKey: ["activity"] });
     },
     onError: (error) => {
       setAutomationPreview(null);
       setAutomationError(error instanceof Error ? error.message : "Automation preview failed");
-      pushToast("Preview failed", error instanceof Error ? error.message : "Automation preview failed", "error");
+      pushToast(t("ops.previewFailed", language), error instanceof Error ? error.message : t("ops.automationPreviewFailed", language), "error");
     },
   });
 
@@ -1655,11 +2475,11 @@ function App() {
       await queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
       const execution = data.execution;
       setAutomationMessage(`Run completed: ${execution.matchedCount} matched, ${execution.actionCount} actions`);
-      pushToast("Scheduled check completed", `${execution.matchedCount} matched item${execution.matchedCount === 1 ? "" : "s"}; ${execution.actionCount} action${execution.actionCount === 1 ? "" : "s"}.`, "success");
+      pushToast(t("ops.scheduledCheckCompleted", language), tWithVars("ops.scheduledCheckCompletedCopy", language, { matched: execution.matchedCount, actions: execution.actionCount }), "success");
     },
     onError: (error) => {
       setAutomationError(error instanceof Error ? error.message : "Run automation failed");
-      pushToast("Scheduled check failed", error instanceof Error ? error.message : "Run automation failed", "error");
+      pushToast(t("ops.scheduledCheckFailed", language), error instanceof Error ? error.message : t("ops.runAutomationFailed", language), "error");
     },
   });
 
@@ -1683,19 +2503,19 @@ function App() {
           : "";
       await refreshAdmin(`Created user ${data.user.fullName}${inviteSuffix}`);
       pushToast(
-        "User created",
+        t("ops.userCreated", language),
         data.inviteSent
-          ? `${data.user.fullName} was added and the invite email was sent.`
+          ? tWithVars("ops.userCreatedInviteSentCopy", language, { name: data.user.fullName })
           : data.inviteError
-            ? `${data.user.fullName} was added, but the invite email failed.`
-            : `${data.user.fullName} was added successfully.`,
+            ? tWithVars("ops.userCreatedInviteFailedCopy", language, { name: data.user.fullName })
+            : tWithVars("ops.userCreatedCopy", language, { name: data.user.fullName }),
         data.inviteError ? "info" : "success"
       );
     },
     onError: (error) => {
       setAdminMessage("");
       setAdminError(error instanceof Error ? error.message : "Create user failed");
-      pushToast("Create user failed", error instanceof Error ? error.message : "Create user failed", "error");
+      pushToast(t("ops.userCreationFailed", language), error instanceof Error ? error.message : t("ops.userCreationFailed", language), "error");
     },
   });
 
@@ -1711,13 +2531,13 @@ function App() {
         ));
       }
       await refreshAdmin(`Updated ${data.user.fullName}`);
-      pushToast("User updated", `${data.user.fullName} was saved.`, "success");
+      pushToast(t("ops.userUpdated", language), tWithVars("ops.userUpdatedCopy", language, { name: data.user.fullName }), "success");
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
     },
     onError: (error) => {
       setAdminMessage("");
       setAdminError(error instanceof Error ? error.message : "Update user failed");
-      pushToast("Update failed", error instanceof Error ? error.message : "Update user failed", "error");
+      pushToast(t("ops.userUpdateFailed", language), error instanceof Error ? error.message : t("ops.userUpdateFailed", language), "error");
     },
   });
 
@@ -1727,10 +2547,10 @@ function App() {
       queryClient.setQueryData<{ user: CurrentUser; roles: string[]; csrfToken: string } | null | undefined>(["auth", "me"], (current) => (
         current ? { ...current, user: data.user } : current
       ));
-      pushToast("Language updated", data.user.language === "es" ? "La interfaz principal ahora usa español." : "Core interface labels now use English.", "success");
+      pushToast(t("ops.languageUpdated", data.user.language), t("ops.languageUpdatedCopy", data.user.language), "success");
     },
     onError: (error) => {
-      pushToast("Language update failed", error instanceof Error ? error.message : "Language preference was not saved", "error");
+      pushToast(t("ops.languageUpdateFailed", language), error instanceof Error ? error.message : t("ops.languagePreferenceNotSaved", language), "error");
     },
   });
 
@@ -1739,12 +2559,12 @@ function App() {
     onSuccess: async (_, variables) => {
       const name = adminUsersQuery.data?.users.find((user) => user.id === variables.id)?.fullName ?? "user";
       await refreshAdmin(`Reset password for ${name}`);
-      pushToast("Password reset", `${name}'s password was reset.`, "success");
+      pushToast(t("ops.passwordReset", language), tWithVars("ops.passwordResetCopy", language, { name }), "success");
     },
     onError: (error) => {
       setAdminMessage("");
       setAdminError(error instanceof Error ? error.message : "Password reset failed");
-      pushToast("Password reset failed", error instanceof Error ? error.message : "Password reset failed", "error");
+      pushToast(t("ops.passwordResetFailed", language), error instanceof Error ? error.message : t("ops.passwordResetFailed", language), "error");
     },
   });
 
@@ -1755,12 +2575,12 @@ function App() {
         current ? { users: replaceAdminUser(current.users, data.user) ?? current.users } : current
       ));
       await refreshAdmin(`Deactivated ${data.user.fullName}`);
-      pushToast("User deactivated", `${data.user.fullName} can no longer sign in.`, "info");
+      pushToast(t("ops.userDeactivated", language), tWithVars("ops.userDeactivatedCopy", language, { name: data.user.fullName }), "info");
     },
     onError: (error) => {
       setAdminMessage("");
       setAdminError(error instanceof Error ? error.message : "Deactivate user failed");
-      pushToast("Deactivation failed", error instanceof Error ? error.message : "Deactivate user failed", "error");
+      pushToast(t("ops.userDeactivationFailed", language), error instanceof Error ? error.message : t("ops.userDeactivationFailed", language), "error");
     },
   });
 
@@ -1771,12 +2591,12 @@ function App() {
         current ? { users: replaceAdminUser(current.users, data.user) ?? current.users } : current
       ));
       await refreshAdmin(`Updated property access for ${data.user.fullName}`);
-      pushToast("Property access updated", `${data.user.fullName}'s property access was saved.`, "success");
+      pushToast(t("ops.propertyAccessUpdated", language), tWithVars("ops.propertyAccessUpdatedCopy", language, { name: data.user.fullName }), "success");
     },
     onError: (error) => {
       setAdminMessage("");
       setAdminError(error instanceof Error ? error.message : "Property access update failed");
-      pushToast("Property access failed", error instanceof Error ? error.message : "Property access update failed", "error");
+      pushToast(t("ops.propertyAccessFailed", language), error instanceof Error ? error.message : t("ops.propertyAccessFailed", language), "error");
     },
   });
 
@@ -1794,12 +2614,12 @@ function App() {
         views: [...(current?.views ?? []), data.view],
       }));
       await refreshViews(`Saved view ${data.view.name}`);
-      pushToast("Saved view created", `${data.view.name} is now available in your view list.`, "success");
+      pushToast(t("ops.savedViewCreated", language), tWithVars("ops.savedViewCreatedCopy", language, { name: data.view.name }), "success");
     },
     onError: (error) => {
       setViewMessage("");
       setViewError(error instanceof Error ? error.message : "Create view failed");
-      pushToast("Save view failed", error instanceof Error ? error.message : "Create view failed", "error");
+      pushToast(t("ops.saveViewFailed", language), error instanceof Error ? error.message : t("ops.createViewFailed", language), "error");
     },
   });
 
@@ -1810,12 +2630,12 @@ function App() {
         current ? { views: current.views.map((view) => (view.id === data.view.id ? data.view : view)) } : current
       ));
       await refreshViews(`Updated view ${data.view.name}`);
-      pushToast("Saved view updated", `${data.view.name} was updated.`, "success");
+      pushToast(t("ops.savedViewUpdated", language), tWithVars("ops.savedViewUpdatedCopy", language, { name: data.view.name }), "success");
     },
     onError: (error) => {
       setViewMessage("");
       setViewError(error instanceof Error ? error.message : "Update view failed");
-      pushToast("Update view failed", error instanceof Error ? error.message : "Update view failed", "error");
+      pushToast(t("ops.updateViewFailed", language), error instanceof Error ? error.message : t("ops.updateViewFailed", language), "error");
     },
   });
 
@@ -1826,12 +2646,12 @@ function App() {
         current ? { views: current.views.filter((view) => view.id !== id) } : current
       ));
       await refreshViews("Deleted saved view");
-      pushToast("Saved view deleted", "The selected view was removed.", "info");
+      pushToast(t("ops.savedViewDeleted", language), t("ops.savedViewDeletedCopy", language), "info");
     },
     onError: (error) => {
       setViewMessage("");
       setViewError(error instanceof Error ? error.message : "Delete view failed");
-      pushToast("Delete view failed", error instanceof Error ? error.message : "Delete view failed", "error");
+      pushToast(t("ops.deleteViewFailed", language), error instanceof Error ? error.message : t("ops.deleteViewFailed", language), "error");
     },
   });
 
@@ -1930,15 +2750,13 @@ function App() {
 
   useEffect(() => {
     const queueEventName = getOfflineSyncEventName();
-    const refreshQueueState = async () => {
-      setOfflineQueuePendingCount(await getOfflineSyncPendingCount());
-    };
     const handleQueueState = (event: Event) => {
       const detail = event instanceof CustomEvent ? event.detail as { pendingCount?: number; syncing?: boolean } : {};
       setOfflineQueuePendingCount(detail.pendingCount ?? 0);
       setOfflineQueueSyncing(Boolean(detail.syncing));
+      void refreshOfflineQueueState();
     };
-    void refreshQueueState();
+    void refreshOfflineQueueState();
     window.addEventListener(queueEventName, handleQueueState as EventListener);
     return () => window.removeEventListener(queueEventName, handleQueueState as EventListener);
   }, []);
@@ -1947,14 +2765,14 @@ function App() {
     const online = () => {
       setIsOnline(true);
       setApiDegraded(false);
-      pushToast("Back online", "Refreshing current workspace data.", "success");
+      pushToast(t(meQuery.data?.user.language ?? "en", "connection.backOnline"), t(meQuery.data?.user.language ?? "en", "connection.backOnlineCopy"), "success");
       void queryClient.invalidateQueries();
       void syncQueuedOfflineChanges();
     };
     const offline = () => {
       setIsOnline(false);
       setLastConnectionIssueAt(new Date().toISOString());
-      pushToast("Offline", "Cached screens stay available. Queued edits and uploads will sync after reconnecting.", "error");
+      pushToast(t(meQuery.data?.user.language ?? "en", "connection.offlineToast"), t(meQuery.data?.user.language ?? "en", "connection.offlineToastCopy"), "error");
     };
     const unreachable = (event: Event) => {
       const detail = event instanceof CustomEvent ? event.detail as { at?: string } : {};
@@ -2013,36 +2831,36 @@ function App() {
     const groups: CommandPaletteWorkspaceGroup[] = [
       {
         id: "operations",
-        label: "Operations",
+        label: t(currentUser.language, "nav.operations"),
         actions: [
-          { id: "table", label: "Board", description: "Open the main spreadsheet-style board.", view: "table" as const },
-          { id: "kanban", label: "Kanban", description: "Open lane-based turn management.", view: "kanban" as const },
-          { id: "calendar", label: "Schedule", description: "Open the scheduling calendar workspace.", view: "calendar" as const },
-          { id: "mywork", label: "My Work", description: "Open assigned field work.", view: "mywork" as const },
-          { id: "planning", label: "Planning", description: "Open workload planning and coverage.", view: "planning" as const },
+          { id: "table", label: t(currentUser.language, "command.board"), description: t(currentUser.language, "command.boardCopy"), view: "table" as const },
+          { id: "kanban", label: t(currentUser.language, "nav.kanban"), description: t(currentUser.language, "command.kanbanCopy"), view: "kanban" as const },
+          { id: "calendar", label: t(currentUser.language, "nav.schedule"), description: t(currentUser.language, "command.scheduleCopy"), view: "calendar" as const },
+          { id: "mywork", label: t(currentUser.language, "nav.myWork"), description: t(currentUser.language, "command.myWorkCopy"), view: "mywork" as const },
+          { id: "planning", label: t(currentUser.language, "nav.planning"), description: t(currentUser.language, "command.planningCopy"), view: "planning" as const },
         ] as CommandPaletteWorkspaceGroup["actions"],
       },
       {
         id: "visibility",
-        label: "Visibility",
+        label: t(currentUser.language, "nav.visibility"),
         actions: [
-          { id: "dashboard", label: "Dashboard", description: "Open KPI, risk, and recent-change dashboards.", view: "dashboard" as const },
-          { id: "activity", label: "Activity", description: "Open the audit and reporting activity feed.", view: "activity" as const },
-          { id: "maps", label: "Maps", description: "Open property maps and pin overlays.", view: "maps" as const },
-          { id: "pond", label: "Pond", description: "Open the Frog Pond visualization.", view: "pond" as const },
+          { id: "dashboard", label: t(currentUser.language, "nav.dashboard"), description: t(currentUser.language, "command.dashboardCopy"), view: "dashboard" as const },
+          { id: "activity", label: t(currentUser.language, "nav.activity"), description: t(currentUser.language, "command.activityCopy"), view: "activity" as const },
+          { id: "maps", label: t(currentUser.language, "nav.maps"), description: t(currentUser.language, "command.mapsCopy"), view: "maps" as const },
+          { id: "pond", label: "Frog Pond", description: t(currentUser.language, "command.pondCopy"), view: "pond" as const },
         ].filter((action) => action.view !== "activity" || currentUser.role === "ADMIN" || currentUser.role === "MANAGER") as CommandPaletteWorkspaceGroup["actions"],
       },
       {
         id: "modules",
-        label: "Modules",
+        label: t(currentUser.language, "command.modules"),
         actions: [
-          { id: "refrigerant", label: "Refrigerant", description: "Open refrigerant tracking and compliance logs.", view: "refrigerant" as const },
-          { id: "pool", label: "Pool Log", description: "Open pool readings, chemicals, and safety logs.", view: "pool" as const },
-          { id: "pest", label: "Pest Control", description: "Open pest requests, vendors, and follow-ups.", view: "pest" as const },
-          { id: "lease", label: "Lease Compliance", description: "Open lease-issue capture and notice workflows.", view: "lease" as const },
-          { id: "pm", label: "Preventive Maintenance", description: "Open recurring PM templates and tasks.", view: "pm" as const },
-          { id: "projects", label: "Projects", description: "Open recommendations, bids, and project tracking.", view: "projects" as const },
-          { id: "wiki", label: "Property Wiki", description: "Open property knowledge, SOPs, and emergency references.", view: "wiki" as const },
+          { id: "refrigerant", label: t(currentUser.language, "command.refrigerant"), description: t(currentUser.language, "command.refrigerantCopy"), view: "refrigerant" as const },
+          { id: "pool", label: t(currentUser.language, "command.pool"), description: t(currentUser.language, "command.poolCopy"), view: "pool" as const },
+          { id: "pest", label: t(currentUser.language, "command.pest"), description: t(currentUser.language, "command.pestCopy"), view: "pest" as const },
+          { id: "lease", label: t(currentUser.language, "command.lease"), description: t(currentUser.language, "command.leaseCopy"), view: "lease" as const },
+          { id: "pm", label: t(currentUser.language, "command.pm"), description: t(currentUser.language, "command.pmCopy"), view: "pm" as const },
+          { id: "projects", label: t(currentUser.language, "command.projects"), description: t(currentUser.language, "command.projectsCopy"), view: "projects" as const },
+          { id: "wiki", label: t(currentUser.language, "command.wiki"), description: t(currentUser.language, "command.wikiCopy"), view: "wiki" as const },
         ].filter((action) => {
           if (action.view === "refrigerant") {
             return currentUser.role !== "CLEANER" && currentUser.role !== "LEASING";
@@ -2056,8 +2874,8 @@ function App() {
     ];
 
     const managementActions: CommandPaletteWorkspaceGroup["actions"] = [
-      { id: "vendors", label: "Vendors", description: "Open vendor directories and assignments.", view: "vendors" as const },
-      { id: "automations", label: "Automations", description: "Open rules, templates, and rollout checks.", view: "automations" as const },
+      { id: "vendors", label: t(currentUser.language, "nav.vendors"), description: t(currentUser.language, "command.vendorsCopy"), view: "vendors" as const },
+      { id: "automations", label: t(currentUser.language, "nav.automations"), description: t(currentUser.language, "command.automationsCopy"), view: "automations" as const },
     ].filter((action) => {
       if (action.view === "vendors") {
         return currentUser.role !== "VIEWER" && currentUser.role !== "CLEANER" && currentUser.role !== "LEASING";
@@ -2068,13 +2886,13 @@ function App() {
       return true;
     });
     if (managementActions.length) {
-      groups.push({ id: "management", label: "Management", actions: managementActions });
+      groups.push({ id: "management", label: t(currentUser.language, "nav.manage"), actions: managementActions });
     }
 
     const adminActions: CommandPaletteWorkspaceGroup["actions"] = [
-      { id: "operations", label: "Setup", description: "Open imports, options, templates, and configuration.", view: "operations" as const },
-      { id: "fields", label: "Fields", description: "Open custom field management.", view: "fields" as const },
-      { id: "admin", label: "Admin", description: "Open users, API tokens, and deployment controls.", view: "admin" as const },
+      { id: "operations", label: t(currentUser.language, "nav.setup"), description: t(currentUser.language, "command.setupCopy"), view: "operations" as const },
+      { id: "fields", label: t(currentUser.language, "nav.fields"), description: t(currentUser.language, "command.fieldsCopy"), view: "fields" as const },
+      { id: "admin", label: "Admin", description: t(currentUser.language, "command.adminCopy"), view: "admin" as const },
     ].filter((action) => {
       if (action.view === "operations" || action.view === "fields") {
         return currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
@@ -2085,7 +2903,7 @@ function App() {
       return true;
     });
     if (adminActions.length) {
-      groups.push({ id: "admin", label: "Admin / Setup", actions: adminActions });
+      groups.push({ id: "admin", label: t(currentUser.language, "command.adminSetup"), actions: adminActions });
     }
 
     return groups;
@@ -2357,10 +3175,15 @@ function App() {
           }}
         />
         <PWAInstallPrompt />
-        <ToastViewport toasts={toasts} onDismiss={dismissToast} />
+        <ToastViewport toasts={toasts} onDismiss={dismissToast} language="en" />
       </>
     );
   }
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.documentElement.lang = currentUser.language;
+    }
+  }, [currentUser.language]);
 
   return (
     <div className={`${compactMode ? "app-shell compact-mode" : "app-shell"}${eyeStrainMode ? " reading-mode" : ""}${dyslexiaMode ? " dyslexia-mode" : ""}`} data-theme={themeMode}>
@@ -2504,9 +3327,12 @@ function App() {
             degraded={apiDegraded}
             lastIssueAt={lastConnectionIssueAt}
             pendingSyncCount={offlineQueuePendingCount}
+            blockedCount={offlineQueueBlockedJobs.length}
+            conflictCount={offlineQueueBlockedJobs.filter((job) => job.lastErrorStatus === 409).length}
             syncing={offlineQueueSyncing}
             language={currentUser.language}
             onRetry={retryConnection}
+            onReviewQueue={() => setOfflineQueueReviewOpen(true)}
           />
           <Suspense fallback={
             <div className="panel-state-wrap">
@@ -2595,6 +3421,7 @@ function App() {
               properties={metaQuery.data?.properties ?? []}
               items={boardItems}
               propertyId={propertyId}
+              language={currentUser.language}
               onPropertyChange={setPropertyId}
               loading={planningQuery.isLoading || itemsQuery.isLoading}
               error={planningQuery.isError}
@@ -2654,6 +3481,7 @@ function App() {
                 onUpdateRiskPolicy={async (propertyId, input) => { await riskPolicyUpdateMutation.mutateAsync({ propertyId, data: input }); }}
               />
               <BoardConfigurationPanel
+                language={currentUser.language}
                 properties={operationsPropertiesQuery.data?.properties ?? []}
                 boardSections={metaQuery.data?.boardSections ?? []}
                 options={operationsOptionsQuery.data?.options ?? []}
@@ -2690,12 +3518,14 @@ function App() {
               boardSections={metaQuery.data?.boardSections ?? []}
               selectedPropertyId={propertyId}
               canManage={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
+              language={currentUser.language}
               loading={propertyMapsQuery.isLoading || unitMapLocationsQuery.isLoading || propertyMapAreasQuery.isLoading}
               error={propertyMapsQuery.isError || unitMapLocationsQuery.isError || propertyMapAreasQuery.isError ? "Property map data failed to load." : null}
               onPropertyChange={setPropertyId}
-              onCreateMap={async (input) => { await propertyMapCreateMutation.mutateAsync(input); }}
+              onCreateMap={async (input) => (await propertyMapCreateMutation.mutateAsync(input)).map}
               onArchiveMap={async (id, restore = false) => { await propertyMapArchiveMutation.mutateAsync({ id, restore }); }}
-              onUploadMap={async (id, file) => { await propertyMapUploadMutation.mutateAsync({ id, file }); }}
+              onDeleteMap={async (id) => { await propertyMapDeleteMutation.mutateAsync(id); }}
+              onUploadMap={async (id, file) => (await propertyMapUploadMutation.mutateAsync({ id, file })).map}
               onSaveLocation={async (input) => { await unitMapLocationSaveMutation.mutateAsync(input); }}
               onRemoveLocation={async (id) => { await unitMapLocationRemoveMutation.mutateAsync(id); }}
               onCreateArea={async (input) => { await propertyMapAreaCreateMutation.mutateAsync(input); }}
@@ -2709,6 +3539,7 @@ function App() {
               properties={metaQuery.data?.properties ?? []}
               boardSections={metaQuery.data?.boardSections ?? []}
               labelsByField={labelsByField}
+              language={currentUser.language}
               selectedPropertyId={propertyId}
               loading={metaQuery.isLoading || itemsQuery.isLoading}
               error={metaQuery.isError || itemsQuery.isError}
@@ -2735,6 +3566,7 @@ function App() {
               properties={metaQuery.data?.properties ?? []}
               items={boardItems}
               canManage={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
+              language={currentUser.language}
               loading={vendorsQuery.isLoading || vendorAssignmentsQuery.isLoading}
               error={vendorsQuery.isError || vendorAssignmentsQuery.isError ? "Vendor data failed to load." : null}
               onCreateVendor={async (input) => { await vendorCreateMutation.mutateAsync(input); }}
@@ -2747,12 +3579,14 @@ function App() {
               properties={metaQuery.data?.properties ?? []}
               units={metaQuery.data?.units ?? []}
               userRole={currentUser.role}
+              language={currentUser.language}
             />
           ) : activeView === "pool" ? (
             <PoolLogPanel
               properties={metaQuery.data?.properties ?? []}
               selectedPropertyId={propertyId}
               userRole={currentUser.role}
+              language={currentUser.language}
             />
           ) : activeView === "pest" ? (
             <PestControlPanel
@@ -2761,6 +3595,7 @@ function App() {
               users={adminUsersQuery.data?.users?.map((user) => ({ id: user.id, fullName: user.fullName, role: user.role })) ?? []}
               selectedPropertyId={propertyId}
               userRole={currentUser.role}
+              language={currentUser.language}
               openQuickAddRequest={pestQuickAddRequest}
               workspaceRequest={pestWorkspaceRequest}
             />
@@ -2771,6 +3606,7 @@ function App() {
               users={adminUsersQuery.data?.users?.map((user) => ({ id: user.id, fullName: user.fullName, role: user.role })) ?? []}
               selectedPropertyId={propertyId}
               userRole={currentUser.role}
+              language={currentUser.language}
               openQuickAddRequest={leaseQuickAddRequest}
             />
           ) : activeView === "pm" ? (
@@ -2778,6 +3614,7 @@ function App() {
               properties={metaQuery.data?.properties ?? []}
               selectedPropertyId={propertyId}
               userRole={currentUser.role}
+              language={currentUser.language}
             />
           ) : activeView === "projects" && currentUser.role !== "CLEANER" ? (
             <ProjectsPanel
@@ -2785,6 +3622,7 @@ function App() {
               users={adminUsersQuery.data?.users?.map((user) => ({ id: user.id, fullName: user.fullName, role: user.role })) ?? []}
               selectedPropertyId={propertyId}
               userRole={currentUser.role}
+              language={currentUser.language}
               openRecordRequest={projectRecordRequest}
               openCreateRequest={projectCreateRequest}
             />
@@ -2793,6 +3631,7 @@ function App() {
               properties={metaQuery.data?.properties ?? []}
               selectedPropertyId={propertyId}
               userRole={currentUser.role}
+              language={currentUser.language}
               openRecordRequest={wikiRecordRequest}
             />
           ) : activeView === "fields" && (currentUser.role === "ADMIN" || currentUser.role === "MANAGER") ? (
@@ -2806,6 +3645,7 @@ function App() {
               </div>
             ) : (
               <CustomFieldsPanel
+                language={currentUser.language}
                 fields={customFieldsQuery.data?.fields ?? []}
                 loading={createFieldMutation.isPending || updateFieldMutation.isPending || archiveFieldMutation.isPending || restoreFieldMutation.isPending || trashFieldMutation.isPending || deleteFieldMutation.isPending || reorderFieldMutation.isPending}
                 message={fieldMessage}
@@ -2845,6 +3685,7 @@ function App() {
             ) : (
               <AutomationPanel
                 role={currentUser.role}
+                language={currentUser.language}
                 properties={metaQuery.data?.properties ?? []}
                 customFields={metaQuery.data?.customFields ?? []}
                 rules={automationsQuery.data?.rules ?? []}
@@ -2908,7 +3749,7 @@ function App() {
               />
             )
           ) : activeView === "activity" && (currentUser.role === "ADMIN" || currentUser.role === "MANAGER") ? (
-            <ActivityPanel onSessionExpired={handleSessionExpired} />
+            <ActivityPanel onSessionExpired={handleSessionExpired} language={currentUser.language} />
           ) : activeView === "admin" && currentUser.role === "ADMIN" ? (
             adminUsersQuery.isLoading || adminPropertiesQuery.isLoading ? (
               <div className="panel-state-wrap">
@@ -2958,7 +3799,7 @@ function App() {
                   await queryClient.invalidateQueries({ queryKey: ["meta"] });
                   await queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
                   await queryClient.invalidateQueries({ queryKey: ["saved-views"] });
-                  pushToast("Backup imported", "Operational data was refreshed from the transferred backup.", "success");
+                  pushToast(t("ops.backupImported", language), t("ops.backupImportedCopy", language), "success");
                 }}
               />
             )
@@ -3206,6 +4047,7 @@ function App() {
               staff={metaQuery.data?.staff ?? []}
               boardGroups={metaQuery.data?.boardGroups ?? []}
               boardSections={metaQuery.data?.boardSections ?? []}
+              language={currentUser.language}
               preferredPropertyId={propertyId}
               archiveState={structuredFilters.archiveState}
               searchText={deferredSearch}
@@ -3321,6 +4163,7 @@ function App() {
                 if (next.sortBy) setKanbanSortBy(next.sortBy);
                 if (next.hideEmpty !== undefined) setKanbanHideEmpty(next.hideEmpty);
               }}
+              language={currentUser.language}
             />
           ) : (
             <CalendarView
@@ -3328,6 +4171,7 @@ function App() {
               labelsByField={labelsByField}
               fieldOptions={scheduleFieldOptions}
               layout={calendarLayout}
+              language={currentUser.language}
               selectedFields={calendarPanelFields.length ? calendarPanelFields : [activeScheduleTrack?.id ?? ""]}
               onLayoutChange={setCalendarLayout}
               onFieldChange={(index, value) => {
@@ -3374,6 +4218,7 @@ function App() {
       ) : null}
       <NotificationDrawer
         open={notificationsOpen}
+        language={currentUser.language}
         data={notificationsQuery.data}
         loading={notificationsQuery.isLoading}
         onClose={() => setNotificationsOpen(false)}
@@ -3385,6 +4230,7 @@ function App() {
       />
       <CommandPalette
         open={commandPaletteOpen}
+        language={currentUser.language}
         items={boardItems}
         properties={metaQuery.data?.properties ?? []}
         views={savedViewsQuery.data?.views ?? []}
@@ -3419,8 +4265,371 @@ function App() {
           setOnboardingOpen(false);
         }}
       />
+      <Modal
+        open={offlineQueueReviewOpen}
+        title={t(currentUser.language, "offlineQueue.title")}
+        onClose={() => setOfflineQueueReviewOpen(false)}
+        testId="offline-queue-review-modal"
+        actions={(
+          <>
+            <button type="button" className="button button-secondary" onClick={() => void refreshOfflineQueueState()}>
+              {t(currentUser.language, "offlineQueue.refresh")}
+            </button>
+            <button type="button" className="button button-primary" onClick={() => void syncQueuedOfflineChanges()} disabled={offlineQueueSyncing || !isOnline}>
+              {offlineQueueSyncing ? t(currentUser.language, "connection.syncingNow") : t(currentUser.language, "offlineQueue.syncNow")}
+            </button>
+          </>
+        )}
+      >
+        {!offlineQueueBlockedJobs.length ? (
+          <p className="admin-message success">{t(currentUser.language, "offlineQueue.empty")}</p>
+        ) : (
+          <div className="offline-queue-review-list">
+            <p className="admin-message warning">
+              {t(currentUser.language, "offlineQueue.needsReview").replace("{count}", String(offlineQueueBlockedJobs.length))}
+            </p>
+            {offlineQueueBlockedJobs.map((job) => {
+              const conflict = job.lastErrorStatus === 409;
+              return (
+                <article key={job.id} className="admin-card offline-queue-review-card">
+                  <div className="drawer-section-title">
+                    <h3>{job.title}</h3>
+                    <span className={conflict ? "summary-alert" : "muted"}>{conflict ? t(currentUser.language, "offlineQueue.conflict") : `HTTP ${job.lastErrorStatus ?? t(currentUser.language, "offlineQueue.error")}`}</span>
+                  </div>
+                  <p><strong>{t(currentUser.language, "offlineQueue.module")}:</strong> {job.module}</p>
+                  <p><strong>{t(currentUser.language, "offlineQueue.attempts")}:</strong> {job.attemptCount}</p>
+                  <p><strong>{t(currentUser.language, "offlineQueue.lastError")}:</strong> {job.lastError ?? t(currentUser.language, "offlineQueue.unknownError")}</p>
+                  <p className="helper-copy">
+                    {conflict
+                      ? t(currentUser.language, "offlineQueue.conflictHelp")
+                      : t(currentUser.language, "offlineQueue.serverErrorHelp")}
+                  </p>
+                  <div className="drawer-actions">
+                    <button type="button" className="button button-secondary" onClick={() => void reviewOfflineQueueJob(job)}>
+                      {t(currentUser.language, "offlineQueue.reviewDetails")}
+                    </button>
+                    <button type="button" className="button button-secondary" onClick={() => void syncQueuedOfflineChanges()} disabled={offlineQueueSyncing || !isOnline}>
+                      {t(currentUser.language, "offlineQueue.retrySync")}
+                    </button>
+                    <button type="button" className="button button-secondary" onClick={() => void retrySingleOfflineQueueJob(job)} disabled={offlineQueueSyncing || !isOnline}>
+                      {t(currentUser.language, "offlineQueue.retryThis")}
+                    </button>
+                    <button type="button" className="button button-ghost danger" onClick={() => void discardOfflineQueueJob(job)}>
+                      {t(currentUser.language, "offlineQueue.discard")}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+            <section className="admin-card offline-queue-review-card offline-queue-detail-card">
+              <div className="drawer-section-title">
+                <h3>{t(currentUser.language, "offlineQueue.localChange")}</h3>
+                {selectedOfflineQueueJob ? <span className="muted">{selectedOfflineQueueJob.payload.kind}</span> : null}
+              </div>
+              {offlineQueueJobLoading ? (
+                <p className="helper-copy">{t(currentUser.language, "offlineQueue.loadingDetails")}</p>
+              ) : selectedOfflineQueueJob ? (
+                <>
+                  <p className="helper-copy">{t(currentUser.language, "offlineQueue.reviewHelp")}</p>
+                  <div className="offline-queue-change-list">
+                    {offlineJobChangeSummary(selectedOfflineQueueJob).map((line) => (
+                      <div key={line} className="offline-queue-change-row">{line}</div>
+                    ))}
+                    {!offlineJobChangeSummary(selectedOfflineQueueJob).length ? (
+                      <div className="offline-queue-change-row">{t(currentUser.language, "offlineQueue.noChangePreview")}</div>
+                    ) : null}
+                  </div>
+                  {selectedOfflineQueueJob.payload.kind === "makeReadyPatch" ? (
+                    <>
+                      <div className="drawer-section-title">
+                        <h3>{t(currentUser.language, "offlineQueue.currentRecord")}</h3>
+                        {selectedOfflineQueueServerItem ? <span className="muted">{selectedOfflineQueueServerItem.unitNumber}</span> : null}
+                      </div>
+                      {selectedOfflineQueueServerError ? (
+                        <p className="helper-copy">{selectedOfflineQueueServerError}</p>
+                      ) : !selectedOfflineQueueServerItem ? (
+                        <p className="helper-copy">{t(currentUser.language, "offlineQueue.loadingLiveRecord")}</p>
+                      ) : (
+                        <>
+                          <p className="helper-copy">{t(currentUser.language, "offlineQueue.currentRecordHelp")}</p>
+                          <div className="offline-queue-merge-list">
+                            {selectedOfflineQueueComparison.map((row) => (
+                              <div key={row.field} className={`offline-queue-merge-row${row.changed ? " is-conflict" : ""}`}>
+                                <strong>{humanizeField(row.field)}</strong>
+                                <span>{t(currentUser.language, "offlineQueue.serverValue")}: {row.serverValue}</span>
+                                <span>{t(currentUser.language, "offlineQueue.queuedValue")}: {row.queuedValue}</span>
+                              </div>
+                            ))}
+                            {!selectedOfflineQueueComparison.length ? (
+                              <div className="offline-queue-change-row">{t(currentUser.language, "offlineQueue.noFieldComparison")}</div>
+                            ) : null}
+                          </div>
+                          <button
+                            type="button"
+                            className="button button-primary"
+                            onClick={() => void reapplyQueuedMakeReadyPatch(selectedOfflineQueueJob)}
+                            disabled={offlineQueueSyncing || !isOnline}
+                          >
+                            {t(currentUser.language, "offlineQueue.reapplyLocalValues")}
+                          </button>
+                        </>
+                      )}
+                    </>
+                  ) : null}
+                  {selectedOfflineQueueJob.payload.kind === "projectCreate" ? (
+                    <>
+                      <div className="drawer-section-title">
+                        <h3>{t(currentUser.language, "offlineQueue.currentRecord")}</h3>
+                        {selectedOfflineQueueServerProjectRecord ? <span className="muted">{selectedOfflineQueueServerProjectRecord.title}</span> : null}
+                      </div>
+                      {selectedOfflineQueueServerError ? (
+                        <p className="helper-copy">{selectedOfflineQueueServerError}</p>
+                      ) : !selectedOfflineQueueServerProjectRecord ? (
+                        <p className="helper-copy">{t(currentUser.language, "offlineQueue.noProjectMatch")}</p>
+                      ) : (
+                        <>
+                          <p className="helper-copy">{t(currentUser.language, "offlineQueue.projectCompareHelp")}</p>
+                          <div className="offline-queue-merge-list">
+                            {selectedOfflineQueueProjectComparison.map((row) => (
+                              <div key={row.field} className={`offline-queue-merge-row${row.changed ? " is-conflict" : ""}`}>
+                                <strong>{humanizeField(row.field)}</strong>
+                                <span>{t(currentUser.language, "offlineQueue.serverValue")}: {row.serverValue}</span>
+                                <span>{t(currentUser.language, "offlineQueue.queuedValue")}: {row.queuedValue}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  ) : null}
+                  {selectedOfflineQueueJob.payload.kind === "leaseCreate" ? (
+                    <>
+                      <div className="drawer-section-title">
+                        <h3>{t(currentUser.language, "offlineQueue.currentRecord")}</h3>
+                        {selectedOfflineQueueServerLeaseIssue ? <span className="muted">{selectedOfflineQueueServerLeaseIssue.unit?.number ?? selectedOfflineQueueServerLeaseIssue.area ?? selectedOfflineQueueServerLeaseIssue.building ?? selectedOfflineQueueServerLeaseIssue.issueTypeName}</span> : null}
+                      </div>
+                      {selectedOfflineQueueServerError ? (
+                        <p className="helper-copy">{selectedOfflineQueueServerError}</p>
+                      ) : !selectedOfflineQueueServerLeaseIssue ? (
+                        <p className="helper-copy">{t(currentUser.language, "offlineQueue.noLeaseMatch")}</p>
+                      ) : (
+                        <>
+                          <p className="helper-copy">{t(currentUser.language, "offlineQueue.leaseCompareHelp")}</p>
+                          <div className="offline-queue-merge-list">
+                            {selectedOfflineQueueLeaseComparison.map((row) => (
+                              <div key={row.field} className={`offline-queue-merge-row${row.changed ? " is-conflict" : ""}`}>
+                                <strong>{humanizeField(row.field)}</strong>
+                                <span>{t(currentUser.language, "offlineQueue.serverValue")}: {row.serverValue}</span>
+                                <span>{t(currentUser.language, "offlineQueue.queuedValue")}: {row.queuedValue}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  ) : null}
+                  {selectedOfflineQueueJob.payload.kind === "pestCreate" ? (
+                    <>
+                      <div className="drawer-section-title">
+                        <h3>{t(currentUser.language, "offlineQueue.currentRecord")}</h3>
+                        {selectedOfflineQueueServerPestIssue ? <span className="muted">{selectedOfflineQueueServerPestIssue.unit?.number ?? selectedOfflineQueueServerPestIssue.area ?? selectedOfflineQueueServerPestIssue.pestType}</span> : null}
+                      </div>
+                      {selectedOfflineQueueServerError ? (
+                        <p className="helper-copy">{selectedOfflineQueueServerError}</p>
+                      ) : !selectedOfflineQueueServerPestIssue ? (
+                        <p className="helper-copy">{t(currentUser.language, "offlineQueue.noPestMatch")}</p>
+                      ) : (
+                        <>
+                          <p className="helper-copy">{t(currentUser.language, "offlineQueue.pestCompareHelp")}</p>
+                          <div className="offline-queue-merge-list">
+                            {selectedOfflineQueuePestComparison.map((row) => (
+                              <div key={row.field} className={`offline-queue-merge-row${row.changed ? " is-conflict" : ""}`}>
+                                <strong>{humanizeField(row.field)}</strong>
+                                <span>{t(currentUser.language, "offlineQueue.serverValue")}: {row.serverValue}</span>
+                                <span>{t(currentUser.language, "offlineQueue.queuedValue")}: {row.queuedValue}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            className="button button-secondary"
+                            onClick={() => {
+                              setPropertyId(selectedOfflineQueueServerPestIssue.propertyId);
+                              setPestWorkspaceRequest({
+                                propertyId: selectedOfflineQueueServerPestIssue.propertyId,
+                                tab: "active",
+                                search: selectedOfflineQueueServerPestIssue.unit?.number ?? selectedOfflineQueueServerPestIssue.area ?? selectedOfflineQueueServerPestIssue.pestType,
+                                nonce: Date.now(),
+                              });
+                              setAppView("pest");
+                              setOfflineQueueReviewOpen(false);
+                            }}
+                          >
+                            {t(currentUser.language, "offlineQueue.openPestWorkspace")}
+                          </button>
+                        </>
+                      )}
+                    </>
+                  ) : null}
+                  {selectedOfflineQueueJob.payload.kind === "poolCreate" ? (
+                    <>
+                      <div className="drawer-section-title">
+                        <h3>{t(currentUser.language, "offlineQueue.currentRecord")}</h3>
+                        {selectedOfflineQueueServerPoolEntry ? <span className="muted">{selectedOfflineQueueServerPoolEntry.facility.name}</span> : null}
+                      </div>
+                      {selectedOfflineQueueServerError ? (
+                        <p className="helper-copy">{selectedOfflineQueueServerError}</p>
+                      ) : !selectedOfflineQueueServerPoolEntry ? (
+                        <p className="helper-copy">{t(currentUser.language, "offlineQueue.noPoolMatch")}</p>
+                      ) : (
+                        <>
+                          <p className="helper-copy">{t(currentUser.language, "offlineQueue.poolCompareHelp")}</p>
+                          <div className="offline-queue-merge-list">
+                            {selectedOfflineQueuePoolComparison.map((row) => (
+                              <div key={row.field} className={`offline-queue-merge-row${row.changed ? " is-conflict" : ""}`}>
+                                <strong>{humanizeField(row.field)}</strong>
+                                <span>{t(currentUser.language, "offlineQueue.serverValue")}: {row.serverValue}</span>
+                                <span>{t(currentUser.language, "offlineQueue.queuedValue")}: {row.queuedValue}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  ) : null}
+                  {selectedOfflineQueueJob.payload.kind === "pmComplete" || selectedOfflineQueueJob.payload.kind === "pmSkip" ? (
+                    <>
+                      <div className="drawer-section-title">
+                        <h3>{t(currentUser.language, "offlineQueue.currentRecord")}</h3>
+                        {selectedOfflineQueueServerPmTask ? <span className="muted">{selectedOfflineQueueServerPmTask.taskName}</span> : null}
+                      </div>
+                      {selectedOfflineQueueServerError ? (
+                        <p className="helper-copy">{selectedOfflineQueueServerError}</p>
+                      ) : !selectedOfflineQueueServerPmTask ? (
+                        <p className="helper-copy">{t(currentUser.language, "offlineQueue.noPmMatch")}</p>
+                      ) : (
+                        <>
+                          <p className="helper-copy">{t(currentUser.language, "offlineQueue.pmCompareHelp")}</p>
+                          <div className="offline-queue-merge-list">
+                            {selectedOfflineQueuePmComparison.map((row) => (
+                              <div key={row.field} className={`offline-queue-merge-row${row.changed ? " is-conflict" : ""}`}>
+                                <strong>{humanizeField(row.field)}</strong>
+                                <span>{t(currentUser.language, "offlineQueue.serverValue")}: {row.serverValue}</span>
+                                <span>{t(currentUser.language, "offlineQueue.queuedValue")}: {row.queuedValue}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  ) : null}
+                  {selectedOfflineQueueJob.payload.kind === "makeReadyUpload"
+                  || selectedOfflineQueueJob.payload.kind === "projectUpload"
+                  || selectedOfflineQueueJob.payload.kind === "leaseUpload"
+                  || selectedOfflineQueueJob.payload.kind === "pestUpload"
+                  || selectedOfflineQueueJob.payload.kind === "poolUpload"
+                  || selectedOfflineQueueJob.payload.kind === "pmUpload" ? (
+                    <>
+                      <div className="drawer-section-title">
+                        <h3>{t(currentUser.language, "offlineQueue.currentRecord")}</h3>
+                        {selectedOfflineQueueUploadReview ? <span className="muted">{selectedOfflineQueueUploadReview.recordLabel}</span> : null}
+                      </div>
+                      {selectedOfflineQueueServerError ? (
+                        <p className="helper-copy">{selectedOfflineQueueServerError}</p>
+                      ) : !selectedOfflineQueueUploadReview ? (
+                        <p className="helper-copy">{t(currentUser.language, "offlineQueue.noUploadContext")}</p>
+                      ) : (
+                        <>
+                          <p className="helper-copy">{t(currentUser.language, "offlineQueue.uploadCompareHelp")}</p>
+                          <div className="offline-queue-merge-list">
+                            <div className="offline-queue-merge-row">
+                              <strong>{t(currentUser.language, "offlineQueue.queuedFiles")}</strong>
+                              <span>{selectedOfflineQueueUploadReview.queuedFiles.join(", ") || t(currentUser.language, "offlineQueue.none")}</span>
+                            </div>
+                            <div className="offline-queue-merge-row">
+                              <strong>{t(currentUser.language, "offlineQueue.liveFiles")}</strong>
+                              <span>{selectedOfflineQueueUploadReview.liveFiles.join(", ") || t(currentUser.language, "offlineQueue.none")}</span>
+                            </div>
+                            <div className={`offline-queue-merge-row${selectedOfflineQueueUploadReview.duplicateFiles.length ? " is-conflict" : ""}`}>
+                              <strong>{t(currentUser.language, "offlineQueue.matchingLiveNames")}</strong>
+                              <span>{selectedOfflineQueueUploadReview.duplicateFiles.join(", ") || t(currentUser.language, "offlineQueue.noneDetected")}</span>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  ) : null}
+                  {selectedOfflineQueueJob.payload.kind === "makeReadyCommentCreate"
+                  || selectedOfflineQueueJob.payload.kind === "makeReadyCommentUpdate"
+                  || selectedOfflineQueueJob.payload.kind === "makeReadyCommentDelete"
+                  || selectedOfflineQueueJob.payload.kind === "makeReadyChecklistAttach"
+                  || selectedOfflineQueueJob.payload.kind === "makeReadyChecklistUpdate" ? (
+                    <>
+                      <div className="drawer-section-title">
+                        <h3>{t(currentUser.language, "offlineQueue.currentRecord")}</h3>
+                        {selectedOfflineQueueJob.payload.kind.startsWith("makeReadyComment")
+                          ? <span className="muted">{t(currentUser.language, "offlineQueue.liveComments")}</span>
+                          : <span className="muted">{t(currentUser.language, "offlineQueue.liveChecklists")}</span>}
+                      </div>
+                      {selectedOfflineQueueServerError ? (
+                        <p className="helper-copy">{selectedOfflineQueueServerError}</p>
+                      ) : !selectedOfflineQueueServerCollaboration ? (
+                        <p className="helper-copy">{t(currentUser.language, "offlineQueue.noCollaborationContext")}</p>
+                      ) : (
+                        <>
+                          <p className="helper-copy">{t(currentUser.language, "offlineQueue.collaborationCompareHelp")}</p>
+                          <div className="offline-queue-merge-list">
+                            {selectedOfflineQueueCollaborationComparison.map((row) => (
+                              <div key={row.field} className={`offline-queue-merge-row${row.changed ? " is-conflict" : ""}`}>
+                                <strong>{humanizeField(row.field)}</strong>
+                                <span>{t(currentUser.language, "offlineQueue.serverValue")}: {row.serverValue}</span>
+                                <span>{t(currentUser.language, "offlineQueue.queuedValue")}: {row.queuedValue}</span>
+                              </div>
+                            ))}
+                            {!selectedOfflineQueueCollaborationComparison.length ? (
+                              <div className="offline-queue-change-row">{t(currentUser.language, "offlineQueue.noCollaborationRows")}</div>
+                            ) : null}
+                          </div>
+                          {selectedOfflineQueueJob.payload.kind.startsWith("makeReadyComment") ? (
+                            <div className="offline-queue-change-list">
+                              {selectedOfflineQueueServerCollaboration.comments.slice(0, 3).map((comment) => (
+                                <div key={comment.id} className="offline-queue-change-row">
+                                  {comment.authorName}: {comment.body}
+                                </div>
+                              ))}
+                              {!selectedOfflineQueueServerCollaboration.comments.length ? (
+                                <div className="offline-queue-change-row">{t(currentUser.language, "offlineQueue.noLiveComments")}</div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="offline-queue-change-list">
+                              {selectedOfflineQueueServerCollaboration.checklistInstances.slice(0, 3).map((instance) => (
+                                <div key={instance.id} className="offline-queue-change-row">
+                                  {instance.name}: {instance.items.filter((item) => item.completed).length}/{instance.items.length} {t(currentUser.language, "offlineQueue.checklistComplete")}
+                                </div>
+                              ))}
+                              {!selectedOfflineQueueServerCollaboration.checklistInstances.length ? (
+                                <div className="offline-queue-change-row">{t(currentUser.language, "offlineQueue.noLiveChecklists")}</div>
+                              ) : null}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </>
+                  ) : null}
+                  {selectedOfflineQueueJob.payload.kind === "makeReadyChecklistUpdate" && !selectedOfflineQueueJob.payload.itemId ? (
+                    <p className="helper-copy">{t(currentUser.language, "offlineQueue.legacyChecklistHelp")}</p>
+                  ) : null}
+                </>
+              ) : (
+                <p className="helper-copy">{t(currentUser.language, "offlineQueue.selectJob")}</p>
+              )}
+            </section>
+          </div>
+        )}
+      </Modal>
       <PWAInstallPrompt />
-      <ToastViewport toasts={toasts} onDismiss={dismissToast} />
+        <ToastViewport toasts={toasts} onDismiss={dismissToast} language={currentUser.language} />
     </div>
   );
 }

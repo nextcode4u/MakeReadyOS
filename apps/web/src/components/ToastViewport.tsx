@@ -1,3 +1,5 @@
+import type { UserLanguage } from "../lib/api";
+
 export type ToastTone = "success" | "error" | "info";
 
 export type ToastItem = {
@@ -10,9 +12,11 @@ export type ToastItem = {
 type Props = {
   toasts: ToastItem[];
   onDismiss: (id: number) => void;
+  language?: UserLanguage;
 };
 
-export function ToastViewport({ toasts, onDismiss }: Props) {
+export function ToastViewport({ toasts, onDismiss, language }: Props) {
+  const isSpanish = language === "es";
   return (
     <div className="toast-viewport" aria-live="polite" aria-atomic="true">
       {toasts.map((toast) => (
@@ -21,7 +25,7 @@ export function ToastViewport({ toasts, onDismiss }: Props) {
             <strong>{toast.title}</strong>
             {toast.message ? <p>{toast.message}</p> : null}
           </div>
-          <button type="button" className="icon-button" onClick={() => onDismiss(toast.id)} aria-label="Dismiss notification">
+          <button type="button" className="icon-button" onClick={() => onDismiss(toast.id)} aria-label={isSpanish ? "Descartar notificación" : "Dismiss notification"}>
             ×
           </button>
         </article>

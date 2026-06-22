@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import type { ApiTokenScope, Property, WebhookEventType } from "../lib/api";
+import type { ApiTokenScope, Property, UserLanguage, WebhookEventType } from "../lib/api";
 import {
   createApiToken,
   createWebhook,
@@ -17,6 +17,7 @@ import { StatusState } from "./StatusState";
 
 type Props = {
   properties: Property[];
+  language: UserLanguage;
 };
 
 const defaultTokenScopes: ApiTokenScope[] = ["read:items"];
@@ -27,7 +28,8 @@ function webhookStatusPillClass(status: string) {
   return `status-${status.toLowerCase().replace(/_/g, "-")}`;
 }
 
-export function IntegrationsPanel({ properties }: Props) {
+export function IntegrationsPanel({ properties, language }: Props) {
+  const isSpanish = language === "es";
   const queryClient = useQueryClient();
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: getIntegrations });
   const availableProperties = integrations.data?.properties ?? properties;
@@ -59,7 +61,7 @@ export function IntegrationsPanel({ properties }: Props) {
       setTokenState({ name: "", scopes: defaultTokenScopes, propertyIds: [] });
       await refresh();
     },
-    onError: (error) => setErrorMessage(error instanceof Error ? error.message : "Unable to create API token"),
+    onError: (error) => setErrorMessage(error instanceof Error ? error.message : isSpanish ? "No se pudo crear el token de API." : "Unable to create API token"),
   });
 
   const webhookMutation = useMutation({
@@ -70,18 +72,18 @@ export function IntegrationsPanel({ properties }: Props) {
       setWebhookState({ name: "", url: "", eventTypes: defaultWebhookEvents, propertyIds: [] });
       await refresh();
     },
-    onError: (error) => setErrorMessage(error instanceof Error ? error.message : "Unable to create webhook"),
+    onError: (error) => setErrorMessage(error instanceof Error ? error.message : isSpanish ? "No se pudo crear el webhook." : "Unable to create webhook"),
   });
 
   const revokeTokenMutation = useMutation({
     mutationFn: revokeApiToken,
     onSuccess: refresh,
-    onError: (error) => setErrorMessage(error instanceof Error ? error.message : "Unable to revoke API token"),
+    onError: (error) => setErrorMessage(error instanceof Error ? error.message : isSpanish ? "No se pudo revocar el token de API." : "Unable to revoke API token"),
   });
   const revokeWebhookMutation = useMutation({
     mutationFn: revokeWebhook,
     onSuccess: refresh,
-    onError: (error) => setErrorMessage(error instanceof Error ? error.message : "Unable to disable webhook"),
+    onError: (error) => setErrorMessage(error instanceof Error ? error.message : isSpanish ? "No se pudo desactivar el webhook." : "Unable to disable webhook"),
   });
   const webhookTestMutation = useMutation({
     mutationFn: ({ id, eventType, enqueue }: { id: string; eventType?: WebhookEventType; enqueue: boolean }) =>
@@ -93,7 +95,7 @@ export function IntegrationsPanel({ properties }: Props) {
       await queryClient.invalidateQueries({ queryKey: ["webhook-health", result.delivery.webhookId] });
       await refresh();
     },
-    onError: (error) => setErrorMessage(error instanceof Error ? error.message : "Unable to create webhook test payload"),
+    onError: (error) => setErrorMessage(error instanceof Error ? error.message : isSpanish ? "No se pudo crear la prueba del webhook." : "Unable to create webhook test payload"),
   });
 
   const scopes = integrations.data?.scopes ?? [];
@@ -158,10 +160,10 @@ export function IntegrationsPanel({ properties }: Props) {
   };
 
   const webhookHealth = (webhook: (typeof webhooks)[number]) => {
-    if (!webhook.isEnabled) return { label: "DISABLED", className: "status-muted" };
-    if (webhook.failureCount > 0) return { label: "FAILING", className: "status-danger" };
-    if ((webhook.deliveryAttemptCount ?? 0) === 0) return { label: "READY", className: "status-info" };
-    return { label: "HEALTHY", className: "status-active" };
+    if (!webhook.isEnabled) return { label: isSpanish ? "DESACTIVADO" : "DISABLED", className: "status-muted" };
+    if (webhook.failureCount > 0) return { label: isSpanish ? "CON FALLAS" : "FAILING", className: "status-danger" };
+    if ((webhook.deliveryAttemptCount ?? 0) === 0) return { label: isSpanish ? "LISTO" : "READY", className: "status-info" };
+    return { label: isSpanish ? "SALUDABLE" : "HEALTHY", className: "status-active" };
   };
 
   const formatDate = (value: string | null) => formatDateTime(value);
@@ -179,36 +181,36 @@ export function IntegrationsPanel({ properties }: Props) {
     <section className="admin-card" data-testid="integrations-panel">
       <header className="admin-card-header">
         <div>
-          <p className="eyebrow">Admin</p>
-          <h2>Integrations</h2>
+          <p className="eyebrow">{isSpanish ? "Admin" : "Admin"}</p>
+          <h2>{isSpanish ? "Integraciones" : "Integrations"}</h2>
         </div>
-        <span className="subtitle">Create scoped API tokens and register webhook endpoints for future delivery.</span>
+        <span className="subtitle">{isSpanish ? "Cree tokens de API con alcance limitado y registre endpoints de webhook para entregas futuras." : "Create scoped API tokens and register webhook endpoints for future delivery."}</span>
       </header>
 
-      {integrations.isLoading ? <StatusState title="Loading integrations" description="Loading token and webhook metadata." /> : null}
+      {integrations.isLoading ? <StatusState title={isSpanish ? "Cargando integraciones" : "Loading integrations"} description={isSpanish ? "Cargando metadatos de tokens y webhooks." : "Loading token and webhook metadata."} /> : null}
       {errorMessage ? <div className="admin-message error">{errorMessage}</div> : null}
 
       <div className="admin-grid integrations-grid">
         <section className="admin-section">
-          <h3>Create API Token</h3>
-          <p className="helper-text">Tokens are shown once. Store them in a password manager or deployment secret store.</p>
+          <h3>{isSpanish ? "Crear token de API" : "Create API Token"}</h3>
+          <p className="helper-text">{isSpanish ? "Los tokens se muestran una sola vez. Guárdelos en un administrador de contraseñas o almacén seguro de despliegue." : "Tokens are shown once. Store them in a password manager or deployment secret store."}</p>
           {createdToken ? (
             <div className="admin-message success">
-              <strong>New token, shown once:</strong>
+              <strong>{isSpanish ? "Nuevo token, se muestra una sola vez:" : "New token, shown once:"}</strong>
               <input data-testid="api-token-once" readOnly value={createdToken} onFocus={(event) => event.currentTarget.select()} />
             </div>
           ) : null}
           <label>
-            Token name
+            {isSpanish ? "Nombre del token" : "Token name"}
             <input
               data-testid="api-token-name"
               value={tokenState.name}
               onChange={(event) => setTokenState((current) => ({ ...current, name: event.target.value }))}
-              placeholder="Reporting adapter"
+              placeholder={isSpanish ? "Adaptador de reportes" : "Reporting adapter"}
             />
           </label>
           <div className="property-access-block">
-            <p className="section-label">Scopes</p>
+            <p className="section-label">{isSpanish ? "Permisos" : "Scopes"}</p>
             <div className="checkbox-grid">
               {scopes.map((scope) => (
                 <label key={scope} className="checkbox-pill compact-checkbox">
@@ -224,8 +226,8 @@ export function IntegrationsPanel({ properties }: Props) {
             </div>
           </div>
           <div className="property-access-block">
-            <p className="section-label">Property scope</p>
-            <p className="helper-text">Leave empty for all properties allowed to the creating admin.</p>
+            <p className="section-label">{isSpanish ? "Alcance por propiedad" : "Property scope"}</p>
+            <p className="helper-text">{isSpanish ? "Déjelo vacío para incluir todas las propiedades permitidas para el administrador que lo crea." : "Leave empty for all properties allowed to the creating admin."}</p>
             <div className="checkbox-grid">
               {availableProperties.map((property) => (
                 <label key={property.id} className="checkbox-pill compact-checkbox">
@@ -246,30 +248,30 @@ export function IntegrationsPanel({ properties }: Props) {
             disabled={busy || tokenState.scopes.length === 0 || !tokenState.name.trim()}
             onClick={() => tokenMutation.mutate(tokenState)}
           >
-            Create API Token
+            {isSpanish ? "Crear token de API" : "Create API Token"}
           </button>
         </section>
 
         <section className="admin-section">
-          <h3>Register Webhook</h3>
-          <p className="helper-text">Webhook endpoints can queue signed payloads for the explicit run-webhooks.sh delivery runner.</p>
+          <h3>{isSpanish ? "Registrar webhook" : "Register Webhook"}</h3>
+          <p className="helper-text">{isSpanish ? "Los endpoints webhook pueden poner en cola cargas firmadas para el ejecutor explícito `run-webhooks.sh`." : "Webhook endpoints can queue signed payloads for the explicit run-webhooks.sh delivery runner."}</p>
           {createdWebhookSecret ? (
             <div className="admin-message success">
-              <strong>Webhook secret, shown once:</strong>
+              <strong>{isSpanish ? "Secreto del webhook, se muestra una sola vez:" : "Webhook secret, shown once:"}</strong>
               <input data-testid="webhook-secret-once" readOnly value={createdWebhookSecret} onFocus={(event) => event.currentTarget.select()} />
             </div>
           ) : null}
           <label>
-            Webhook name
+            {isSpanish ? "Nombre del webhook" : "Webhook name"}
             <input
               data-testid="webhook-name"
               value={webhookState.name}
               onChange={(event) => setWebhookState((current) => ({ ...current, name: event.target.value }))}
-              placeholder="Ops event receiver"
+              placeholder={isSpanish ? "Receptor de eventos operativos" : "Ops event receiver"}
             />
           </label>
           <label>
-            Endpoint URL
+            {isSpanish ? "URL del endpoint" : "Endpoint URL"}
             <input
               data-testid="webhook-url"
               value={webhookState.url}
@@ -278,7 +280,7 @@ export function IntegrationsPanel({ properties }: Props) {
             />
           </label>
           <div className="property-access-block">
-            <p className="section-label">Events</p>
+            <p className="section-label">{isSpanish ? "Eventos" : "Events"}</p>
             <div className="checkbox-grid">
               {webhookEvents.map((eventType) => (
                 <label key={eventType} className="checkbox-pill compact-checkbox">
@@ -294,7 +296,7 @@ export function IntegrationsPanel({ properties }: Props) {
             </div>
           </div>
           <div className="property-access-block">
-            <p className="section-label">Property scope</p>
+            <p className="section-label">{isSpanish ? "Alcance por propiedad" : "Property scope"}</p>
             <div className="checkbox-grid">
               {availableProperties.map((property) => (
                 <label key={property.id} className="checkbox-pill compact-checkbox">
@@ -314,7 +316,7 @@ export function IntegrationsPanel({ properties }: Props) {
             disabled={busy || webhookState.eventTypes.length === 0 || !webhookState.name.trim() || !webhookState.url.trim()}
             onClick={() => webhookMutation.mutate(webhookState)}
           >
-            Register Webhook
+            {isSpanish ? "Registrar webhook" : "Register Webhook"}
           </button>
         </section>
       </div>
@@ -322,38 +324,38 @@ export function IntegrationsPanel({ properties }: Props) {
       <section className="admin-section integration-list">
         <div className="admin-section-head">
           <div>
-            <h3>API Tokens</h3>
+            <h3>{isSpanish ? "Tokens de API" : "API Tokens"}</h3>
             {apiTokenRateLimit ? (
               <p className="helper-text">
-                Shared rate limit: {apiTokenRateLimit.max} requests / {apiTokenRateLimit.windowMinutes} minute{apiTokenRateLimit.windowMinutes === 1 ? "" : "s"} per token.
+                {isSpanish ? "Límite compartido: " : "Shared rate limit: "}{apiTokenRateLimit.max} {isSpanish ? "solicitudes" : "requests"} / {apiTokenRateLimit.windowMinutes} {isSpanish ? `minuto${apiTokenRateLimit.windowMinutes === 1 ? "" : "s"}` : `minute${apiTokenRateLimit.windowMinutes === 1 ? "" : "s"}`} {isSpanish ? "por token." : "per token."}
               </p>
             ) : null}
           </div>
-          <span className="subtitle">{activeTokenCount} active</span>
+          <span className="subtitle">{activeTokenCount} {isSpanish ? "activos" : "active"}</span>
         </div>
         {apiTokens.length === 0 ? (
-          <div className="admin-empty-state">No API tokens have been created.</div>
+          <div className="admin-empty-state">{isSpanish ? "No se han creado tokens de API." : "No API tokens have been created."}</div>
         ) : (
           apiTokens.map((token) => (
             <div key={token.id} className="integration-row" data-testid="api-token-row">
               <div>
                 <strong>{token.name}</strong>
                 <p className="helper-text">
-                  {token.tokenPrefix}...{token.tokenLastFour} · {token.scopes.join(", ")} · {token.properties.length ? token.properties.map((property) => property.code).join(", ") : "all properties"}
+                  {token.tokenPrefix}...{token.tokenLastFour} · {token.scopes.join(", ")} · {token.properties.length ? token.properties.map((property) => property.code).join(", ") : isSpanish ? "todas las propiedades" : "all properties"}
                 </p>
                 <p className="helper-text">
-                  Uses: {token.useCount} · Last used: {formatDate(token.lastUsedAt)}
+                  {isSpanish ? "Usos" : "Uses"}: {token.useCount} · {isSpanish ? "Último uso" : "Last used"}: {formatDate(token.lastUsedAt)}
                   {token.lastUsedMethod && token.lastUsedPath ? ` · ${token.lastUsedMethod} ${token.lastUsedPath}` : ""}
                 </p>
               </div>
               <div className="row-actions">
-                <span className={`status-pill ${token.isActive ? "status-active" : "status-muted"}`}>{token.isActive ? "ACTIVE" : "REVOKED"}</span>
+                <span className={`status-pill ${token.isActive ? "status-active" : "status-muted"}`}>{token.isActive ? (isSpanish ? "ACTIVO" : "ACTIVE") : (isSpanish ? "REVOCADO" : "REVOKED")}</span>
                 {token.isActive ? (
                   <button
                     className="button button-danger"
                     onClick={() => setConfirm({ type: "token", id: token.id, label: token.name })}
                   >
-                    Revoke
+                    {isSpanish ? "Revocar" : "Revoke"}
                   </button>
                 ) : null}
               </div>
@@ -364,11 +366,11 @@ export function IntegrationsPanel({ properties }: Props) {
 
       <section className="admin-section integration-list">
         <div className="admin-section-head">
-          <h3>Webhooks</h3>
-          <span className="subtitle">Delivery: {integrations.data?.webhookDelivery ?? "scaffolded"}</span>
+          <h3>{isSpanish ? "Webhooks" : "Webhooks"}</h3>
+          <span className="subtitle">{isSpanish ? "Entrega" : "Delivery"}: {integrations.data?.webhookDelivery ?? (isSpanish ? "preparado" : "scaffolded")}</span>
         </div>
         {webhooks.length === 0 ? (
-          <div className="admin-empty-state">No webhook endpoints are registered.</div>
+          <div className="admin-empty-state">{isSpanish ? "No hay endpoints webhook registrados." : "No webhook endpoints are registered."}</div>
         ) : (
           webhooks.map((webhook) => {
             const health = webhookHealth(webhook);
@@ -380,10 +382,10 @@ export function IntegrationsPanel({ properties }: Props) {
                     <p className="helper-text">{webhook.url}</p>
                     <p className="helper-text">
                       {webhook.eventTypes.join(", ")} · secret ends {webhook.secretLastFour} ·{" "}
-                      {webhook.properties.length ? webhook.properties.map((property) => property.code).join(", ") : "all properties"}
+                      {webhook.properties.length ? webhook.properties.map((property) => property.code).join(", ") : isSpanish ? "todas las propiedades" : "all properties"}
                     </p>
                     <p className="helper-text">
-                      Last delivered: {formatDate(webhook.lastDeliveryAt)} · attempts {webhook.deliveryAttemptCount ?? 0} · failures {webhook.failureCount}
+                      {isSpanish ? "Última entrega" : "Last delivered"}: {formatDate(webhook.lastDeliveryAt)} · {isSpanish ? "intentos" : "attempts"} {webhook.deliveryAttemptCount ?? 0} · {isSpanish ? "fallas" : "failures"} {webhook.failureCount}
                     </p>
                   </div>
                   <div className="row-actions">
@@ -393,28 +395,28 @@ export function IntegrationsPanel({ properties }: Props) {
                       data-testid="webhook-deliveries-toggle"
                       onClick={() => setSelectedWebhookId((current) => (current === webhook.id ? null : webhook.id))}
                     >
-                      {selectedWebhookId === webhook.id ? "Hide deliveries" : "View deliveries"}
+                      {selectedWebhookId === webhook.id ? (isSpanish ? "Ocultar entregas" : "Hide deliveries") : (isSpanish ? "Ver entregas" : "View deliveries")}
                     </button>
                     <button
                       className="button"
                       disabled={busy || !webhook.isEnabled}
                       onClick={() => webhookTestMutation.mutate({ id: webhook.id, eventType: webhook.eventTypes[0], enqueue: false })}
                     >
-                      Dry-run test
+                      {isSpanish ? "Prueba simulada" : "Dry-run test"}
                     </button>
                     <button
                       className="button button-primary"
                       disabled={busy || !webhook.isEnabled}
                       onClick={() => webhookTestMutation.mutate({ id: webhook.id, eventType: webhook.eventTypes[0], enqueue: true })}
                     >
-                      Queue test
+                      {isSpanish ? "Poner prueba en cola" : "Queue test"}
                     </button>
                     {webhook.isEnabled ? (
                       <button
                         className="button button-danger"
                         onClick={() => setConfirm({ type: "webhook", id: webhook.id, label: webhook.name })}
                       >
-                        Disable
+                        {isSpanish ? "Desactivar" : "Disable"}
                       </button>
                     ) : null}
                   </div>
@@ -428,28 +430,28 @@ export function IntegrationsPanel({ properties }: Props) {
           <div className="webhook-delivery-panel" data-testid="webhook-delivery-panel">
             <div className="admin-section-head">
               <div>
-                <h4>Recent deliveries: {selectedWebhook.name}</h4>
-                <p className="helper-text">Queued payloads are delivered only when `./run-webhooks.sh` runs.</p>
+                <h4>{isSpanish ? "Entregas recientes" : "Recent deliveries"}: {selectedWebhook.name}</h4>
+                <p className="helper-text">{isSpanish ? "Las cargas en cola solo se entregan cuando se ejecuta `./run-webhooks.sh`." : "Queued payloads are delivered only when `./run-webhooks.sh` runs."}</p>
               </div>
               <button className="button button-secondary" onClick={() => webhookDeliveries.refetch()} disabled={webhookDeliveries.isFetching}>
-                Refresh
+                {isSpanish ? "Actualizar" : "Refresh"}
               </button>
             </div>
-            {webhookDeliveries.isLoading ? <StatusState title="Loading deliveries" description="Fetching recent webhook attempts." /> : null}
+            {webhookDeliveries.isLoading ? <StatusState title={isSpanish ? "Cargando entregas" : "Loading deliveries"} description={isSpanish ? "Consultando intentos recientes del webhook." : "Fetching recent webhook attempts."} /> : null}
             {webhookHealthDetails.data ? (
               <>
                 <div className="webhook-health-summary" data-testid="webhook-health-summary">
-                  <span>Health: <strong>{webhookHealthDetails.data.health.state}</strong></span>
-                  <span>Pending: <strong>{webhookHealthDetails.data.health.pendingCount}</strong></span>
-                  <span>Total attempts: <strong>{webhookHealthDetails.data.health.total}</strong></span>
-                  <span>Failures: <strong>{webhookHealthDetails.data.health.failureCount}</strong></span>
-                  {webhookHealthDetails.data.health.oldestPendingAt ? <span>Oldest pending: {formatDate(webhookHealthDetails.data.health.oldestPendingAt)}</span> : null}
-                  {webhookHealthDetails.data.health.lastDeliveryAt ? <span>Last delivery: {formatDate(webhookHealthDetails.data.health.lastDeliveryAt)}</span> : null}
+                  <span>{isSpanish ? "Salud" : "Health"}: <strong>{webhookHealthDetails.data.health.state}</strong></span>
+                  <span>{isSpanish ? "Pendientes" : "Pending"}: <strong>{webhookHealthDetails.data.health.pendingCount}</strong></span>
+                  <span>{isSpanish ? "Intentos totales" : "Total attempts"}: <strong>{webhookHealthDetails.data.health.total}</strong></span>
+                  <span>{isSpanish ? "Fallas" : "Failures"}: <strong>{webhookHealthDetails.data.health.failureCount}</strong></span>
+                  {webhookHealthDetails.data.health.oldestPendingAt ? <span>{isSpanish ? "Pendiente más antiguo" : "Oldest pending"}: {formatDate(webhookHealthDetails.data.health.oldestPendingAt)}</span> : null}
+                  {webhookHealthDetails.data.health.lastDeliveryAt ? <span>{isSpanish ? "Última entrega" : "Last delivery"}: {formatDate(webhookHealthDetails.data.health.lastDeliveryAt)}</span> : null}
                 </div>
                 {healthStatusEntries.length ? (
                   <div className="webhook-health-grid">
                     <section className="webhook-health-card">
-                      <h5>Status Breakdown</h5>
+                      <h5>{isSpanish ? "Desglose por estado" : "Status Breakdown"}</h5>
                       <div className="webhook-chip-row">
                         {healthStatusEntries.map((entry) => (
                           <span key={entry.status} className={`status-pill ${webhookStatusPillClass(entry.status)}`}>
@@ -459,7 +461,7 @@ export function IntegrationsPanel({ properties }: Props) {
                       </div>
                     </section>
                     <section className="webhook-health-card">
-                      <h5>Events Seen</h5>
+                      <h5>{isSpanish ? "Eventos vistos" : "Events Seen"}</h5>
                       <div className="webhook-metric-list">
                         {healthEventEntries.map(([eventType, count]) => (
                           <div key={eventType} className="webhook-metric-row">
@@ -471,11 +473,11 @@ export function IntegrationsPanel({ properties }: Props) {
                     </section>
                     {webhookHealthDetails.data.health.latestFailure ? (
                       <section className="webhook-health-card webhook-health-card-danger">
-                        <h5>Latest Failure</h5>
+                        <h5>{isSpanish ? "Última falla" : "Latest Failure"}</h5>
                         <div className="webhook-failure-stack">
                           <strong>{webhookHealthDetails.data.health.latestFailure.eventType}</strong>
                           <span>{formatDate(webhookHealthDetails.data.health.latestFailure.updatedAt)}</span>
-                          <span>{webhookHealthDetails.data.health.latestFailure.responseStatus ? `HTTP ${webhookHealthDetails.data.health.latestFailure.responseStatus}` : "No HTTP response"}</span>
+                          <span>{webhookHealthDetails.data.health.latestFailure.responseStatus ? `HTTP ${webhookHealthDetails.data.health.latestFailure.responseStatus}` : isSpanish ? "Sin respuesta HTTP" : "No HTTP response"}</span>
                           {webhookHealthDetails.data.health.latestFailure.errorMessage ? <p>{webhookHealthDetails.data.health.latestFailure.errorMessage}</p> : null}
                         </div>
                       </section>
@@ -485,9 +487,9 @@ export function IntegrationsPanel({ properties }: Props) {
               </>
             ) : null}
             {webhookDeliveries.isError ? (
-              <div className="admin-message error">Unable to load webhook deliveries.</div>
+              <div className="admin-message error">{isSpanish ? "No se pudieron cargar las entregas del webhook." : "Unable to load webhook deliveries."}</div>
             ) : webhookDeliveries.data && webhookDeliveries.data.deliveries.length === 0 ? (
-              <div className="admin-empty-state">No delivery attempts recorded yet. Use Dry-run test or Queue test to create one.</div>
+              <div className="admin-empty-state">{isSpanish ? "Todavía no hay intentos de entrega registrados. Use una prueba simulada o en cola para crear uno." : "No delivery attempts recorded yet. Use Dry-run test or Queue test to create one."}</div>
             ) : webhookDeliveries.data ? (
               <div className="webhook-delivery-list">
                 {webhookDeliveries.data.deliveries.map((delivery) => (
@@ -495,14 +497,14 @@ export function IntegrationsPanel({ properties }: Props) {
                     <div>
                       <strong>{delivery.eventType}</strong>
                       <p className="helper-text">
-                        {delivery.deliveryId} · created {formatDate(delivery.createdAt)} · attempt {delivery.attemptNumber}
+                        {delivery.deliveryId} · {isSpanish ? "creado" : "created"} {formatDate(delivery.createdAt)} · {isSpanish ? "intento" : "attempt"} {delivery.attemptNumber}
                       </p>
                       {delivery.errorMessage ? <p className="helper-text webhook-error-text">{delivery.errorMessage}</p> : null}
                     </div>
                     <div className="webhook-delivery-meta">
                       <span className={`status-pill status-${delivery.status.toLowerCase().replace("_", "-")}`}>{delivery.status}</span>
-                      <span>{delivery.responseStatus ? `HTTP ${delivery.responseStatus}` : "No response"}</span>
-                      <span>{delivery.deliveredAt ? `Delivered ${formatDate(delivery.deliveredAt)}` : delivery.nextAttemptAt ? `Retry ${formatDate(delivery.nextAttemptAt)}` : ""}</span>
+                      <span>{delivery.responseStatus ? `HTTP ${delivery.responseStatus}` : isSpanish ? "Sin respuesta" : "No response"}</span>
+                      <span>{delivery.deliveredAt ? `${isSpanish ? "Entregado" : "Delivered"} ${formatDate(delivery.deliveredAt)}` : delivery.nextAttemptAt ? `${isSpanish ? "Reintento" : "Retry"} ${formatDate(delivery.nextAttemptAt)}` : ""}</span>
                     </div>
                   </div>
                 ))}
@@ -514,9 +516,10 @@ export function IntegrationsPanel({ properties }: Props) {
 
       <ConfirmDialog
         open={Boolean(confirm)}
-        title={confirm?.type === "token" ? "Revoke API token?" : "Disable webhook?"}
-        description={confirm ? `${confirm.label} will stop working immediately.` : ""}
-        confirmLabel={confirm?.type === "token" ? "Revoke" : "Disable"}
+        language={isSpanish ? "es" : "en"}
+        title={confirm?.type === "token" ? (isSpanish ? "¿Revocar token de API?" : "Revoke API token?") : (isSpanish ? "¿Desactivar webhook?" : "Disable webhook?")}
+        description={confirm ? `${confirm.label} ${isSpanish ? "dejará de funcionar de inmediato." : "will stop working immediately."}` : ""}
+        confirmLabel={confirm?.type === "token" ? (isSpanish ? "Revocar" : "Revoke") : (isSpanish ? "Desactivar" : "Disable")}
         tone="danger"
         onClose={() => setConfirm(null)}
         onConfirm={async () => {

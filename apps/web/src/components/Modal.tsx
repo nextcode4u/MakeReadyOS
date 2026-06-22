@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect } from "react";
+import { t } from "../lib/i18n";
 
 type Props = {
   open: boolean;
@@ -10,6 +11,10 @@ type Props = {
 };
 
 export function Modal({ open, title, children, actions, onClose, testId }: Props) {
+  const language =
+    typeof document !== "undefined" && document.documentElement.lang.toLowerCase().startsWith("es")
+      ? "es"
+      : "en";
   useEffect(() => {
     if (!open) {
       return undefined;
@@ -47,7 +52,7 @@ export function Modal({ open, title, children, actions, onClose, testId }: Props
       >
         <header className="modal-header">
           <h3 id="modal-title">{title}</h3>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Close dialog">
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t(language, "common.closeDialog")}>
             ×
           </button>
         </header>

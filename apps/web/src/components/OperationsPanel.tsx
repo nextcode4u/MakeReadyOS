@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { isApiError, type AvailabilityImportConflict, type AvailabilityImportConflictResponse, type AvailabilityImportInput, type AvailabilityImportResult, type BoardSection, type FloorPlan, type LabelDefinition, type MakeReadyItem, type OperatingCalendar, type OperatingCalendarInput, type Property, type RiskPolicy, type StaffOption, type Unit, type UserRole } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
 import { StatusState } from "./StatusState";
+import { UnitSearchSelect } from "./UnitSearchSelect";
 
 function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
   return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
@@ -395,6 +397,11 @@ export function OperationsPanel({
   const unitsForProperty = units.filter((unit) => unit.propertyId === selectedPropertyId);
   const selectedUnit = units.find((unit) => unit.id === selectedUnitId) ?? null;
   const activeUnitsForItem = units.filter((unit) => unit.propertyId === newItem.propertyId && unit.isActive);
+  const staffOptions = useMemo<SearchSelectOption[]>(() => staff.map((person) => ({
+    value: person.fullName,
+    label: `${person.fullName} - ${person.role}`,
+    keywords: [person.fullName, person.role],
+  })), [staff]);
   const sectionsForNewItem = boardSections
     .filter((section) => section.propertyId === newItem.propertyId && section.isActive && section.sectionType !== "ARCHIVE")
     .sort((left, right) => left.sortOrder - right.sortOrder);
@@ -1180,12 +1187,30 @@ export function OperationsPanel({
           </div>
           <div className="turn-form">
             <label>Property<select data-testid="item-create-property" value={newItem.propertyId} onChange={(event) => setNewItem((current) => ({ ...current, propertyId: event.target.value, unitId: "" }))}>{activeProperties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}</select></label>
-            <label>Unit<select data-testid="item-create-unit" value={newItem.unitId} onChange={(event) => chooseItemUnit(event.target.value)}><option value="">Select unit</option>{activeUnitsForItem.map((unit) => <option key={unit.id} value={unit.id}>{unit.number} - {unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan || "No floor plan"}</option>)}</select></label>
+            <label>Unit
+              <UnitSearchSelect
+                units={activeUnitsForItem}
+                value={newItem.unitId}
+                onChange={chooseItemUnit}
+                placeholder="Search unit..."
+                emptyLabel="No unit selected"
+              />
+            </label>
             <label>Section<select data-testid="item-create-group" value={newItem.boardGroup} onChange={(event) => setNewItem((current) => ({ ...current, boardGroup: event.target.value }))}>{sectionsForNewItem.map((section) => <option key={section.id} value={section.key}>{section.displayName}</option>)}</select></label>
             <label>Vacancy<select data-testid="item-create-vacancy" value={newItem.vacancyStatus} onChange={(event) => setNewItem((current) => ({ ...current, vacancyStatus: event.target.value }))}>{labelOptions("vacancyStatus").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
             <label>Make-ready status<select data-testid="item-create-status" value={newItem.makeReadyStatus} onChange={(event) => setNewItem((current) => ({ ...current, makeReadyStatus: event.target.value }))}><option value="">Unset</option>{labelOptions("makeReadyStatus").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
             <label>Scope<select data-testid="item-create-scope" value={newItem.scopeLevel} onChange={(event) => setNewItem((current) => ({ ...current, scopeLevel: event.target.value }))}><option value="">Unset</option>{labelOptions("scopeLevel").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
-            <label>Assigned tech<select data-testid="item-create-assigned-tech" value={newItem.assignedTech} onChange={(event) => setNewItem((current) => ({ ...current, assignedTech: event.target.value }))}><option value="">Unassigned</option>{staff.map((person) => <option key={person.id} value={person.fullName}>{person.fullName} - {person.role}</option>)}</select></label>
+            <label>Assigned tech
+              <SearchSelect
+                options={staffOptions}
+                value={newItem.assignedTech}
+                onChange={(assignedTech) => setNewItem((current) => ({ ...current, assignedTech }))}
+                placeholder="Search tech..."
+                emptyLabel="Unassigned"
+                noMatchesLabel="No matching techs"
+                clearLabel="Clear assigned tech"
+              />
+            </label>
             <label>Make-ready date<input data-testid="item-create-make-ready-date" type="date" value={newItem.makeReadyDate} onChange={(event) => setNewItem((current) => ({ ...current, makeReadyDate: event.target.value }))} /></label>
             <label>Move-in date<input data-testid="item-create-move-in-date" type="date" value={newItem.moveInDate} onChange={(event) => setNewItem((current) => ({ ...current, moveInDate: event.target.value }))} /></label>
             <button data-testid="item-create-submit" className="button button-primary span-full" disabled={loading || !newItem.unitId} onClick={() => void createItem()}>Create Make-Ready Item</button>
@@ -1285,6 +1310,7 @@ export function OperationsPanel({
 
       <ConfirmDialog
         open={Boolean(confirmTarget)}
+        language="en"
         title={`${confirmTarget?.operation === "delete" ? "Delete" : "Archive"} ${confirmTarget?.type ?? "record"}`}
         description={confirmTarget?.operation === "delete" ? "Deletion is permitted only when no linked operational history remains. This action cannot be undone." : "This hides the record from active workflows without deleting its history. It can be restored later."}
         confirmLabel={confirmTarget?.operation === "delete" ? "Delete" : "Archive"}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { FloorPlan, MakeReadyItem, Property, SavedView, StaffOption } from "../lib/api";
+import type { FloorPlan, MakeReadyItem, Property, SavedView, StaffOption, UserLanguage } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
 
 export type CommandPaletteView =
@@ -44,6 +44,7 @@ function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
 
 type Props = {
   open: boolean;
+  language: UserLanguage;
   items: MakeReadyItem[];
   properties: Property[];
   views: SavedView[];
@@ -62,7 +63,8 @@ function searchableText(value: string | null | undefined) {
   return (value ?? "").toLowerCase();
 }
 
-export function CommandPalette({ open, items, properties, views, staff, floorPlans, workspaceGroups, onClose, onOpenItem, onNavigate, onOpenNotifications, onOpenOnboarding, onLoadView }: Props) {
+export function CommandPalette({ open, language, items, properties, views, staff, floorPlans, workspaceGroups, onClose, onOpenItem, onNavigate, onOpenNotifications, onOpenOnboarding, onLoadView }: Props) {
+  const isSpanish = language === "es";
   const [query, setQuery] = useState("");
   useEffect(() => {
     if (open) setQuery("");
@@ -95,8 +97,8 @@ export function CommandPalette({ open, items, properties, views, staff, floorPla
   return (
     <>
       <div className="palette-backdrop" onClick={onClose} aria-hidden="true" />
-      <section className="command-palette" data-testid="command-palette" aria-label="Quick search and commands">
-        <input autoFocus data-testid="command-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search units, views, properties, staff..." onKeyDown={(event) => { if (event.key === "Escape") onClose(); }} />
+      <section className="command-palette" data-testid="command-palette" aria-label={isSpanish ? "Busqueda rapida y comandos" : "Quick search and commands"}>
+        <input autoFocus data-testid="command-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isSpanish ? "Buscar unidades, vistas, propiedades, personal..." : "Search units, views, properties, staff..."} onKeyDown={(event) => { if (event.key === "Escape") onClose(); }} />
         {!match ? (
           <div className="palette-actions">
             {workspaceGroups.map((group) => (
@@ -120,15 +122,15 @@ export function CommandPalette({ open, items, properties, views, staff, floorPla
               </div>
             ))}
             <div className="palette-section" data-testid="command-palette-group-shortcuts">
-              <strong className="palette-section-label">Shortcuts</strong>
+              <strong className="palette-section-label">{isSpanish ? "Atajos" : "Shortcuts"}</strong>
               <div className="palette-section-grid">
                 <button data-testid="command-palette-action-notifications" onClick={() => { onOpenNotifications(); onClose(); }}>
-                  <strong>Notifications</strong>
-                  <small>Open the unread alerts drawer.</small>
+                  <strong>{isSpanish ? "Notificaciones" : "Notifications"}</strong>
+                  <small>{isSpanish ? "Abrir el panel de alertas no leidas." : "Open the unread alerts drawer."}</small>
                 </button>
                 <button data-testid="command-palette-action-onboarding" onClick={() => { onOpenOnboarding(); onClose(); }}>
-                  <strong>Setup Guide</strong>
-                  <small>Reopen the first-run onboarding checklist.</small>
+                  <strong>{isSpanish ? "Guia de configuracion" : "Setup Guide"}</strong>
+                  <small>{isSpanish ? "Reabrir la lista de inicio inicial." : "Reopen the first-run onboarding checklist."}</small>
                 </button>
               </div>
             </div>
@@ -145,18 +147,18 @@ export function CommandPalette({ open, items, properties, views, staff, floorPla
                 }}
               >
                 <strong>{action.label}</strong>
-                <small>{action.groupLabel} workspace / {action.description}</small>
+                <small>{action.groupLabel} {isSpanish ? "espacio de trabajo" : "workspace"} / {action.description}</small>
               </button>
             ))}
-            {results.items.map((item) => <button key={item.id} onClick={() => { onOpenItem(item.id); onClose(); }}><strong>{displayUnitNumber(item.property.code, item.unitNumber)}</strong><small>Unit / {item.property.name}</small></button>)}
-            {results.views.map((view) => <button key={view.id} onClick={() => { onLoadView(view); onClose(); }}><strong>{view.name}</strong><small>Saved view / {view.viewType}</small></button>)}
-            {results.properties.map((property) => <div key={property.id}><strong>{property.code} / {property.name}</strong><small>Property</small></div>)}
-            {results.people.map((person) => <div key={person.id}><strong>{person.fullName}</strong><small>Staff / {person.role}</small></div>)}
-            {results.floorPlans.map((plan) => <div key={plan.id}><strong>{floorPlanLabel(plan)}</strong><small>Floor plan</small></div>)}
-            {!Object.values(results).some((entries) => entries.length) ? <p className="empty-copy">No matching operational records.</p> : null}
+            {results.items.map((item) => <button key={item.id} onClick={() => { onOpenItem(item.id); onClose(); }}><strong>{displayUnitNumber(item.property.code, item.unitNumber)}</strong><small>{isSpanish ? "Unidad" : "Unit"} / {item.property.name}</small></button>)}
+            {results.views.map((view) => <button key={view.id} onClick={() => { onLoadView(view); onClose(); }}><strong>{view.name}</strong><small>{isSpanish ? "Vista guardada" : "Saved view"} / {view.viewType}</small></button>)}
+            {results.properties.map((property) => <div key={property.id}><strong>{property.code} / {property.name}</strong><small>{isSpanish ? "Propiedad" : "Property"}</small></div>)}
+            {results.people.map((person) => <div key={person.id}><strong>{person.fullName}</strong><small>{isSpanish ? "Personal" : "Staff"} / {person.role}</small></div>)}
+            {results.floorPlans.map((plan) => <div key={plan.id}><strong>{floorPlanLabel(plan)}</strong><small>{isSpanish ? "Plano" : "Floor plan"}</small></div>)}
+            {!Object.values(results).some((entries) => entries.length) ? <p className="empty-copy">{isSpanish ? "No hay registros operativos coincidentes." : "No matching operational records."}</p> : null}
           </div>
         )}
-        <footer>Ctrl/Command + K to open / Escape to close</footer>
+        <footer>{isSpanish ? "Ctrl/Command + K para abrir / Escape para cerrar" : "Ctrl/Command + K to open / Escape to close"}</footer>
       </section>
     </>
   );

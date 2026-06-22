@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
-import type { BoardColumnDefinition, BoardSection, CustomField, FloorPlan, LabelDefinition, MakeReadyItem, Property, StaffOption, Unit } from "../lib/api";
+import type { BoardColumnDefinition, BoardSection, CustomField, FloorPlan, LabelDefinition, MakeReadyItem, Property, StaffOption, Unit, UserLanguage } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import { boardColumns, boardGroupLabel, configuredBoardColumns, customColumnKey, defaultHiddenTableColumnKeys, requiredTableColumnKeys } from "../lib/board";
 import { formatDateDisplay, formatDateInput } from "../lib/dateTime";
+import { t } from "../lib/i18n";
 import { openPestQuickAdd, openPestWorkspace } from "../lib/pestNavigation";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { LabelPill } from "./LabelPill";
@@ -26,6 +27,7 @@ type Props = {
   staff: StaffOption[];
   boardGroups: string[];
   boardSections: BoardSection[];
+  language: UserLanguage;
   preferredPropertyId: string;
   archiveState: ArchiveFilter;
   searchText: string;
@@ -151,7 +153,8 @@ function CellState({ dirty, state, testId }: { dirty: boolean; state?: SaveState
   );
 }
 
-export function BoardTable({ items, labelsByField, customFields, columnDefinitions, visibleColumns, onPatch, onPatchCustomField, canEditField, canEditCustomFields, canManageItems, properties, units, floorPlans, staff, boardGroups, boardSections, preferredPropertyId, archiveState, searchText, onCreateUnit, onCreateItem, onBatch, onOpenFieldManager, onOpenBoardSetup, onAddBuiltInOption, onAddCustomOption, onUpdateBuiltInOption, onArchiveBuiltInOption, onReorderBuiltInOptions, onUpdateCustomOptions, onCreateFloorPlan, onUpdateFloorPlan, onArchiveFloorPlan, onRenameBuiltInColumn, onRenameCustomColumn, onHideColumn, onSortColumn, onOpenItem, onAssignFloorPlan, onReorderColumns, onRenameSection }: Props) {
+export function BoardTable({ items, labelsByField, customFields, columnDefinitions, visibleColumns, onPatch, onPatchCustomField, canEditField, canEditCustomFields, canManageItems, properties, units, floorPlans, staff, boardGroups, boardSections, language, preferredPropertyId, archiveState, searchText, onCreateUnit, onCreateItem, onBatch, onOpenFieldManager, onOpenBoardSetup, onAddBuiltInOption, onAddCustomOption, onUpdateBuiltInOption, onArchiveBuiltInOption, onReorderBuiltInOptions, onUpdateCustomOptions, onCreateFloorPlan, onUpdateFloorPlan, onArchiveFloorPlan, onRenameBuiltInColumn, onRenameCustomColumn, onHideColumn, onSortColumn, onOpenItem, onAssignFloorPlan, onReorderColumns, onRenameSection }: Props) {
+  const isSpanish = language === "es";
   const visibleColumnSet = useMemo(() => visibleColumns === null ? null : new Set([...requiredTableColumnKeys, ...visibleColumns]), [visibleColumns]);
   const defaultHiddenColumnSet = useMemo(() => new Set<string>(defaultHiddenTableColumnKeys), []);
   const configuredColumns = useMemo(() => configuredBoardColumns(columnDefinitions), [columnDefinitions]);
@@ -599,11 +602,11 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   };
 
   const workflowTools = canManageItems ? (
-    <div className="table-workflow-bar" data-testid="table-workflow-bar" role="toolbar" aria-label="Table configuration shortcuts">
-      <strong>Board tools</strong>
-      <button type="button" data-testid="table-add-field-shortcut" className="button button-secondary" onClick={onOpenFieldManager}>+ Add field</button>
-      <button type="button" data-testid="table-setup-shortcut" className="button button-secondary" onClick={onOpenBoardSetup}>Labels &amp; floor plans</button>
-      <span>Use a status cell to add choices without leaving the table.</span>
+    <div className="table-workflow-bar" data-testid="table-workflow-bar" role="toolbar" aria-label={isSpanish ? "Atajos de configuracion de tabla" : "Table configuration shortcuts"}>
+      <strong>{isSpanish ? "Herramientas del tablero" : "Board tools"}</strong>
+      <button type="button" data-testid="table-add-field-shortcut" className="button button-secondary" onClick={onOpenFieldManager}>{isSpanish ? "+ Agregar campo" : "+ Add field"}</button>
+      <button type="button" data-testid="table-setup-shortcut" className="button button-secondary" onClick={onOpenBoardSetup}>{isSpanish ? "Etiquetas y planos" : "Labels & floor plans"}</button>
+      <span>{isSpanish ? "Use una celda de estado para agregar opciones sin salir de la tabla." : "Use a status cell to add choices without leaving the table."}</span>
     </div>
   ) : null;
 
@@ -612,8 +615,8 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
       <div className="board-scroll" data-testid="board-table-view">
         {workflowTools}
         <StatusState
-          title="No board items match this view"
-          description="Try clearing filters, changing the property, or loading a different saved view."
+          title={isSpanish ? "No hay items del tablero en esta vista" : "No board items match this view"}
+          description={isSpanish ? "Pruebe limpiar filtros, cambiar la propiedad o cargar otra vista guardada." : "Try clearing filters, changing the property, or loading a different saved view."}
           tone="subtle"
         />
       </div>
@@ -624,26 +627,26 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
     <div className="board-scroll" data-testid="board-table-view">
       {workflowTools}
       {selectedIds.length > 0 && canManageItems ? (
-        <div className="batch-action-bar" data-testid="batch-action-bar" role="toolbar" aria-label="Actions for selected make-ready items">
-          <strong>{selectedIds.length} selected</strong>
-          <button data-testid="batch-archive" className="button button-danger" onClick={() => void applyBatch({ action: "ARCHIVE", ids: selectedIds })}>Archive</button>
-          {selectedItems.some((item) => item.isArchived) ? <button data-testid="batch-restore" className="button button-secondary" onClick={() => void applyBatch({ action: "RESTORE", ids: selectedIds })}>Restore</button> : null}
+        <div className="batch-action-bar" data-testid="batch-action-bar" role="toolbar" aria-label={isSpanish ? "Acciones para elementos de make-ready seleccionados" : "Actions for selected make-ready items"}>
+          <strong>{selectedIds.length} {isSpanish ? "seleccionados" : "selected"}</strong>
+          <button data-testid="batch-archive" className="button button-danger" onClick={() => void applyBatch({ action: "ARCHIVE", ids: selectedIds })}>{isSpanish ? "Archivar" : "Archive"}</button>
+          {selectedItems.some((item) => item.isArchived) ? <button data-testid="batch-restore" className="button button-secondary" onClick={() => void applyBatch({ action: "RESTORE", ids: selectedIds })}>{isSpanish ? "Restaurar" : "Restore"}</button> : null}
           <select data-testid="batch-tech-select" value={batchTech} onChange={(event) => setBatchTech(event.target.value)}>
-            <option value="">Assign tech...</option>
+            <option value="">{isSpanish ? "Asignar tecnico..." : "Assign tech..."}</option>
             {staff.map((person) => <option key={person.id} value={person.fullName}>{person.fullName} - {person.role}</option>)}
           </select>
-          <button data-testid="batch-assign-tech" className="button button-secondary" disabled={!batchTech} onClick={() => void applyBatch({ action: "ASSIGN_TECH", ids: selectedIds, value: batchTech || null })}>Assign</button>
+          <button data-testid="batch-assign-tech" className="button button-secondary" disabled={!batchTech} onClick={() => void applyBatch({ action: "ASSIGN_TECH", ids: selectedIds, value: batchTech || null })}>{isSpanish ? "Asignar" : "Assign"}</button>
           <select data-testid="batch-status-select" value={batchStatus} onChange={(event) => setBatchStatus(event.target.value)}>
-            <option value="">Set make-ready...</option>
+            <option value="">{isSpanish ? "Definir make-ready..." : "Set make-ready..."}</option>
             {Object.values(labelsByField.makeReadyStatus ?? {}).filter((label) => !label.isArchived).map((label) => <option key={label.id} value={label.value}>{label.value}</option>)}
           </select>
-          <button className="button button-secondary" disabled={!batchStatus} onClick={() => void applyBatch({ action: "SET_FIELD", ids: selectedIds, field: "makeReadyStatus", value: batchStatus || null })}>Set</button>
+          <button className="button button-secondary" disabled={!batchStatus} onClick={() => void applyBatch({ action: "SET_FIELD", ids: selectedIds, field: "makeReadyStatus", value: batchStatus || null })}>{isSpanish ? "Definir" : "Set"}</button>
           <select data-testid="batch-group-select" value={batchGroup} onChange={(event) => setBatchGroup(event.target.value)}>
-            <option value="">Move to section...</option>
+            <option value="">{isSpanish ? "Mover a seccion..." : "Move to section..."}</option>
             {boardGroups.map((group) => <option key={group} value={group}>{groupName(group)}</option>)}
           </select>
-          <button data-testid="batch-move" className="button button-secondary" disabled={!batchGroup} onClick={() => setPendingGroupMove(batchGroup)}>Move</button>
-          <button className="button button-ghost" onClick={() => setSelectedIds([])}>Clear</button>
+          <button data-testid="batch-move" className="button button-secondary" disabled={!batchGroup} onClick={() => setPendingGroupMove(batchGroup)}>{isSpanish ? "Mover" : "Move"}</button>
+          <button className="button button-ghost" onClick={() => setSelectedIds([])}>{isSpanish ? "Limpiar" : "Clear"}</button>
         </div>
       ) : null}
       <div className="mobile-board-list" data-testid="mobile-board-list">
@@ -651,18 +654,18 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
           <article key={item.id} className={item.overdue ? "mobile-board-card overdue" : item.moveInSoon ? "mobile-board-card soon" : "mobile-board-card"}>
             <header className="mobile-board-card-header">
               <div className="mobile-board-card-identity-wrap">
-                {canManageItems && !isOccupiedDirectoryItem(item) ? <input data-testid={`mobile-select-${slug(item.unitNumber)}`} type="checkbox" checked={selectedSet.has(item.id)} onChange={() => toggleSelected(item.id)} aria-label={`Select ${item.unitNumber}`} /> : null}
+                {canManageItems && !isOccupiedDirectoryItem(item) ? <input data-testid={`mobile-select-${slug(item.unitNumber)}`} type="checkbox" checked={selectedSet.has(item.id)} onChange={() => toggleSelected(item.id)} aria-label={isSpanish ? `Seleccionar ${item.unitNumber}` : `Select ${item.unitNumber}`} /> : null}
                 <div className="mobile-board-card-identity">
                   <div className="mobile-board-card-title-row">
                     <strong>{item.unitNumber}</strong>
                     <LabelPill value={item.vacancyStatus} label={item.vacancyStatus ? labelsByField.vacancyStatus?.[item.vacancyStatus] : undefined} muted />
                   </div>
-                  <span>{item.property.code} · {item.floorPlan ?? "No floor plan"}</span>
-                  <small>{boardGroupLabel(item.boardGroup, item.propertyId, boardSections)} · {item.assignedTech || "Unassigned tech"}</small>
+                  <span>{item.property.code} · {item.floorPlan ?? (isSpanish ? "Sin plano" : "No floor plan")}</span>
+                  <small>{boardGroupLabel(item.boardGroup, item.propertyId, boardSections)} · {item.assignedTech || (isSpanish ? "Tecnico sin asignar" : "Unassigned tech")}</small>
                 </div>
               </div>
               {!isOccupiedDirectoryItem(item) ? (
-                <button type="button" className="item-details-button mobile-board-open" data-testid={`mobile-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={`Open details for ${item.unitNumber}`}>Open</button>
+                <button type="button" className="item-details-button mobile-board-open" data-testid={`mobile-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={isSpanish ? `Abrir detalles para ${item.unitNumber}` : `Open details for ${item.unitNumber}`}>{isSpanish ? "Abrir" : "Open"}</button>
               ) : null}
             </header>
             <div className="mobile-board-card-status-grid">
@@ -671,18 +674,18 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                 <LabelPill value={item.makeReadyStatus} label={item.makeReadyStatus ? labelsByField.makeReadyStatus?.[item.makeReadyStatus] : undefined} muted />
               </div>
               <div>
-                <span>Move-In</span>
+                <span>{isSpanish ? "Mudanza" : "Move-In"}</span>
                 <strong>{item.moveInDate ? formatDateDisplay(item.moveInDate) : "—"}</strong>
               </div>
               <div>
-                <span>Pest</span>
+                <span>{isSpanish ? "Plagas" : "Pest"}</span>
                 {!isOccupiedDirectoryItem(item) ? (
                   <button
                     type="button"
                     className="cell-button mobile-status-button"
                     data-testid={`mobile-pest-status-${slug(item.unitNumber)}`}
                     onClick={() => openPestForItem(item)}
-                    aria-label={`${hasActivePestIssue(item) ? "Open" : "Create"} pest record for ${item.unitNumber}`}
+                    aria-label={isSpanish ? `${hasActivePestIssue(item) ? "Abrir" : "Crear"} registro de plagas para ${item.unitNumber}` : `${hasActivePestIssue(item) ? "Open" : "Create"} pest record for ${item.unitNumber}`}
                   >
                     <LabelPill value={item.pestStatus} label={item.pestStatus ? labelsByField.pestStatus?.[item.pestStatus] : undefined} muted />
                   </button>
@@ -691,14 +694,14 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                 )}
               </div>
               <div>
-                <span>Pest Treated</span>
+                <span>{isSpanish ? "Plaga tratada" : "Pest Treated"}</span>
                 {!isOccupiedDirectoryItem(item) ? (
                   <button
                     type="button"
                     className="cell-button mobile-status-button"
                     data-testid={`mobile-pest-treated-${slug(item.unitNumber)}`}
                     onClick={() => openPestForItem(item)}
-                    aria-label={`${hasActivePestIssue(item) ? "Open" : "Create"} pest treatment record for ${item.unitNumber}`}
+                    aria-label={isSpanish ? `${hasActivePestIssue(item) ? "Abrir" : "Crear"} registro de tratamiento de plagas para ${item.unitNumber}` : `${hasActivePestIssue(item) ? "Open" : "Create"} pest treatment record for ${item.unitNumber}`}
                   >
                     <LabelPill value={item.pestTreated} label={item.pestTreated ? labelsByField.pestTreated?.[item.pestTreated] : undefined} muted />
                   </button>
@@ -708,19 +711,19 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
               </div>
             </div>
             <dl className="mobile-board-card-detail-grid">
-              <div><dt>Section</dt><dd>{boardGroupLabel(item.boardGroup, item.propertyId, boardSections)}</dd></div>
-              <div><dt>Tech</dt><dd>{item.assignedTech || "Unassigned"}</dd></div>
-              <div><dt>Vacated</dt><dd>{item.vacatedDate ? formatDateDisplay(item.vacatedDate) : "—"}</dd></div>
-              <div><dt>Days Vacant</dt><dd>{item.daysVacant ?? "—"}</dd></div>
+              <div><dt>{isSpanish ? "Seccion" : "Section"}</dt><dd>{boardGroupLabel(item.boardGroup, item.propertyId, boardSections)}</dd></div>
+              <div><dt>{isSpanish ? "Tecnico" : "Tech"}</dt><dd>{item.assignedTech || (isSpanish ? "Sin asignar" : "Unassigned")}</dd></div>
+              <div><dt>{isSpanish ? "Desocupada" : "Vacated"}</dt><dd>{item.vacatedDate ? formatDateDisplay(item.vacatedDate) : "—"}</dd></div>
+              <div><dt>{isSpanish ? "Dias vacante" : "Days Vacant"}</dt><dd>{item.daysVacant ?? "—"}</dd></div>
             </dl>
-            {item.overdue ? <p className="mobile-alert danger">Overdue make-ready</p> : item.moveInSoon ? <p className="mobile-alert warning">Move-in approaching</p> : null}
+            {item.overdue ? <p className="mobile-alert danger">{t(language, "savedViews.overdueMakeReady")}</p> : item.moveInSoon ? <p className="mobile-alert warning">{t(language, "board.moveInApproaching")}</p> : null}
             <details className="mobile-board-card-more">
-              <summary>More status</summary>
+              <summary>{isSpanish ? "Mas estados" : "More status"}</summary>
               <dl>
-                <div><dt>Flooring</dt><dd>{item.flooringDate ? formatDateDisplay(item.flooringDate) : "—"}</dd></div>
-                <div><dt>Move-Out</dt><dd>{item.moveOutDate ? formatDateDisplay(item.moveOutDate) : "—"}</dd></div>
-                <div><dt>Completion</dt><dd><LabelPill value={item.completionStatus} label={item.completionStatus ? labelsByField.completionStatus?.[item.completionStatus] : undefined} muted /></dd></div>
-                <div><dt>Ready Date</dt><dd>{item.makeReadyDate ? formatDateDisplay(item.makeReadyDate) : "—"}</dd></div>
+                <div><dt>{isSpanish ? "Piso" : "Flooring"}</dt><dd>{item.flooringDate ? formatDateDisplay(item.flooringDate) : "—"}</dd></div>
+                <div><dt>{isSpanish ? "Salida" : "Move-Out"}</dt><dd>{item.moveOutDate ? formatDateDisplay(item.moveOutDate) : "—"}</dd></div>
+                <div><dt>{isSpanish ? "Completado" : "Completion"}</dt><dd><LabelPill value={item.completionStatus} label={item.completionStatus ? labelsByField.completionStatus?.[item.completionStatus] : undefined} muted /></dd></div>
+                <div><dt>{isSpanish ? "Fecha lista" : "Ready Date"}</dt><dd>{item.makeReadyDate ? formatDateDisplay(item.makeReadyDate) : "—"}</dd></div>
               </dl>
             </details>
           </article>
@@ -732,14 +735,14 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
             {renamingSection && renamingSection.id === sectionForGroup(group)?.id ? (
               <form onSubmit={async (event) => { event.preventDefault(); await onRenameSection(renamingSection.id, renamingSection.value); setRenamingSection(null); }}>
                 <input data-testid={`section-name-input-${slug(group)}`} value={renamingSection.value} onChange={(event) => setRenamingSection({ id: renamingSection.id, value: event.target.value })} autoFocus />
-                <button className="button button-secondary" type="submit">Save</button>
-                <button className="button button-ghost" type="button" onClick={() => setRenamingSection(null)}>Cancel</button>
+                <button className="button button-secondary" type="submit">{isSpanish ? "Guardar" : "Save"}</button>
+                <button className="button button-ghost" type="button" onClick={() => setRenamingSection(null)}>{isSpanish ? "Cancelar" : "Cancel"}</button>
               </form>
             ) : (
               <>
                 <span>{groupName(group)}</span>
                 {canManageItems && sectionForGroup(group) ? (
-                  <button data-testid={`section-rename-${slug(group)}`} type="button" className="section-rename-button" onClick={() => setRenamingSection({ id: sectionForGroup(group)!.id, value: groupName(group) })}>Rename</button>
+                  <button data-testid={`section-rename-${slug(group)}`} type="button" className="section-rename-button" onClick={() => setRenamingSection({ id: sectionForGroup(group)!.id, value: groupName(group) })}>{isSpanish ? "Renombrar" : "Rename"}</button>
                 ) : null}
               </>
             )}
@@ -763,7 +766,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                         onDragEnd={() => setDragColumn(null)}
                         className={`${columnClassName(key, entry.custom)} ${!entry.custom && fixed ? "identity-column " : ""}${!fixed ? "draggable-column" : ""}${dragColumn === key ? " dragging-column" : ""}`}
                         data-testid={entry.custom ? `custom-field-header-${entry.field.fieldKey}` : `board-column-header-${entry.column.key}`}
-                        aria-label={`${label}${fixed ? "" : ", drag to reorder column"}`}
+                        aria-label={`${label}${fixed ? "" : isSpanish ? ", arrastre para reordenar columna" : ", drag to reorder column"}`}
                       >
                         <span className="column-header-label">{label}</span>
                         {!fixed ? <span className="column-drag-handle" aria-hidden="true">::</span> : null}
@@ -772,7 +775,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                             type="button"
                             className="column-menu-trigger"
                             data-testid={`column-menu-${entry.custom ? entry.field.fieldKey : entry.column.key}`}
-                            aria-label={`Configure ${label} column`}
+                            aria-label={isSpanish ? `Configurar columna ${label}` : `Configure ${label} column`}
                             aria-expanded={columnMenu?.group === group && columnMenu.key === key}
                             onClick={(event) => {
                               event.stopPropagation();
@@ -786,18 +789,18 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                               const defaultColumn = !entry.custom ? boardColumns.find((column) => column.key === entry.column.key) : undefined;
                               setColumnRename({ key, label, customField: entry.custom ? entry.field : undefined, defaultLabel: defaultColumn?.label });
                               setColumnMenu(null);
-                            }}>Rename column</button>
-                            {!fixed ? <button type="button" role="menuitem" onClick={() => { onHideColumn(key); setColumnMenu(null); }}>Hide column</button> : null}
-                            {!fixed ? <button type="button" role="menuitem" onClick={() => moveColumn(key, -1)}>Move left</button> : null}
-                            {!fixed ? <button type="button" role="menuitem" onClick={() => moveColumn(key, 1)}>Move right</button> : null}
+                            }}>{isSpanish ? "Renombrar columna" : "Rename column"}</button>
+                            {!fixed ? <button type="button" role="menuitem" onClick={() => { onHideColumn(key); setColumnMenu(null); }}>{isSpanish ? "Ocultar columna" : "Hide column"}</button> : null}
+                            {!fixed ? <button type="button" role="menuitem" onClick={() => moveColumn(key, -1)}>{isSpanish ? "Mover a la izquierda" : "Move left"}</button> : null}
+                            {!fixed ? <button type="button" role="menuitem" onClick={() => moveColumn(key, 1)}>{isSpanish ? "Mover a la derecha" : "Move right"}</button> : null}
                             {!entry.custom && label !== boardColumns.find((column) => column.key === entry.column.key)?.label ? (
-                              <button type="button" role="menuitem" onClick={() => { void onRenameBuiltInColumn(entry.column.key, "", true); setColumnMenu(null); }}>Reset label</button>
+                              <button type="button" role="menuitem" onClick={() => { void onRenameBuiltInColumn(entry.column.key, "", true); setColumnMenu(null); }}>{isSpanish ? "Restablecer etiqueta" : "Reset label"}</button>
                             ) : null}
-                            {!entry.custom && entry.column.type === "label" ? <button type="button" role="menuitem" onClick={() => { openOptionManager(entry.column.key, label); setColumnMenu(null); }}>Manage options</button> : null}
-                            {entry.custom && (entry.field.fieldType === "SINGLE_SELECT" || entry.field.fieldType === "MULTI_SELECT") ? <button type="button" role="menuitem" onClick={() => { openOptionManager(entry.field.fieldKey, label, entry.field); setColumnMenu(null); }}>Manage options</button> : null}
-                            {!entry.custom && entry.column.type === "floorplan" ? <button type="button" role="menuitem" onClick={() => { openFloorPlanManager(); setColumnMenu(null); }}>Manage floor plans</button> : null}
-                            {!entry.custom ? <button type="button" role="menuitem" onClick={() => { onSortColumn(key, "asc"); setColumnMenu(null); }}>Sort ascending</button> : null}
-                            {!entry.custom ? <button type="button" role="menuitem" onClick={() => { onSortColumn(key, "desc"); setColumnMenu(null); }}>Sort descending</button> : null}
+                            {!entry.custom && entry.column.type === "label" ? <button type="button" role="menuitem" onClick={() => { openOptionManager(entry.column.key, label); setColumnMenu(null); }}>{isSpanish ? "Administrar opciones" : "Manage options"}</button> : null}
+                            {entry.custom && (entry.field.fieldType === "SINGLE_SELECT" || entry.field.fieldType === "MULTI_SELECT") ? <button type="button" role="menuitem" onClick={() => { openOptionManager(entry.field.fieldKey, label, entry.field); setColumnMenu(null); }}>{isSpanish ? "Administrar opciones" : "Manage options"}</button> : null}
+                            {!entry.custom && entry.column.type === "floorplan" ? <button type="button" role="menuitem" onClick={() => { openFloorPlanManager(); setColumnMenu(null); }}>{isSpanish ? "Administrar planos" : "Manage floor plans"}</button> : null}
+                            {!entry.custom ? <button type="button" role="menuitem" onClick={() => { onSortColumn(key, "asc"); setColumnMenu(null); }}>{isSpanish ? "Orden ascendente" : "Sort ascending"}</button> : null}
+                            {!entry.custom ? <button type="button" role="menuitem" onClick={() => { onSortColumn(key, "desc"); setColumnMenu(null); }}>{isSpanish ? "Orden descendente" : "Sort descending"}</button> : null}
                           </div>
                         ) : null}
                       </th>
@@ -849,7 +852,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                     onKeyDown={(event) => void handleEditorKeys(event, cell, typeof draft === "string" ? draft || null : null)}
                                     onBlur={() => handleBlur(cell, typeof draft === "string" ? draft || null : null)}
                                   >
-                                    <option value="">Select</option>
+                                    <option value="">{isSpanish ? "Seleccionar" : "Select"}</option>
                                     {field.options.filter((option) => !option.isArchived).map((option) => <option key={option.id} value={option.label}>{option.label}</option>)}
                                   </select>
                                 ) : field.fieldType === "MULTI_SELECT" ? (
@@ -878,8 +881,8 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                     onKeyDown={(event) => void handleEditorKeys(event, cell, draft)}
                                     onBlur={() => handleBlur(cell, draft)}
                                   >
-                                    <option value="">Select</option>
-                                    <option value="true">YES</option>
+                                    <option value="">{isSpanish ? "Seleccionar" : "Select"}</option>
+                                    <option value="true">{isSpanish ? "SI" : "YES"}</option>
                                     <option value="false">NO</option>
                                   </select>
                                 ) : field.fieldType === "LONG_TEXT" ? (
@@ -966,14 +969,14 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                     setEditing(null);
                                   }}
                                 >
-                                  <option value="">{legacy ? `LEGACY: ${item.floorPlan}` : "Select managed floor plan"}</option>
+                                  <option value="">{legacy ? `LEGACY: ${item.floorPlan}` : isSpanish ? "Seleccionar plano administrado" : "Select managed floor plan"}</option>
                                   {options.map((plan) => (
                                     <option key={plan.id} value={plan.id}>
                                       {floorPlanLabel(plan)} / {plan.bedrooms ?? "-"} bd / {plan.bathrooms ?? "-"} ba / {plan.squareFeet ?? "-"} sqft
                                     </option>
                                   ))}
                                 </select>
-                                {canManageItems ? <button type="button" data-testid={`manage-floor-plans-${slug(item.unitNumber)}`} className="cell-manage-link" onMouseDown={(event) => event.preventDefault()} onClick={() => openFloorPlanManager(item.propertyId)}>Manage floor plans</button> : null}
+                                {canManageItems ? <button type="button" data-testid={`manage-floor-plans-${slug(item.unitNumber)}`} className="cell-manage-link" onMouseDown={(event) => event.preventDefault()} onClick={() => openFloorPlanManager(item.propertyId)}>{isSpanish ? "Administrar planos" : "Manage floor plans"}</button> : null}
                                 {feedback}
                               </div>
                             ) : (
@@ -984,7 +987,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                   className="cell-button cell-button-text floor-plan-button"
                                   onClick={() => editable && beginEdit(cell)}
                                   disabled={!editable}
-                                  aria-label={`Select ${column.label} for ${item.unitNumber}`}
+                                  aria-label={isSpanish ? `Seleccionar ${column.label} para ${item.unitNumber}` : `Select ${column.label} for ${item.unitNumber}`}
                                 >
                                   <span>{currentPlan ? floorPlanLabel(currentPlan) : item.floorPlan ?? "—"}</span>
                                   {legacy ? <small className="legacy-value">LEGACY</small> : null}
@@ -1131,13 +1134,13 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                 <span className={`${editable ? "" : "read-only-cell"}${column.key === "notes" ? " notes-preview" : ""}`}>
                                   {displayValue}
                                 </span>
-                                {noteHasMore ? <small className="notes-more">... see more</small> : null}
-                                {column.key === "unitNumber" && item.riskLevel && item.riskLevel !== "NONE" ? <small className={`risk-marker ${item.riskLevel === "CRITICAL" || item.riskLevel === "HIGH" ? "danger" : "warning"}`} data-testid={`risk-pill-${slug(item.unitNumber)}`}>{item.riskLevel} risk</small> : null}
-                                {column.key === "unitNumber" && (!item.riskLevel || item.riskLevel === "NONE") && item.overdue ? <small className="risk-marker danger">Overdue</small> : null}
-                                {column.key === "unitNumber" && (!item.riskLevel || item.riskLevel === "NONE") && !item.overdue && item.moveInSoon ? <small className="risk-marker warning">Move-in soon</small> : null}
-                                {column.key === "unitNumber" && item.pestStatus && item.pestStatus !== "NONE" ? <small className="risk-marker warning">Pest: {item.pestStatus}</small> : null}
+                                {noteHasMore ? <small className="notes-more">{isSpanish ? "... ver mas" : "... see more"}</small> : null}
+                                {column.key === "unitNumber" && item.riskLevel && item.riskLevel !== "NONE" ? <small className={`risk-marker ${item.riskLevel === "CRITICAL" || item.riskLevel === "HIGH" ? "danger" : "warning"}`} data-testid={`risk-pill-${slug(item.unitNumber)}`}>{isSpanish ? `Riesgo ${item.riskLevel}` : `${item.riskLevel} risk`}</small> : null}
+                                {column.key === "unitNumber" && (!item.riskLevel || item.riskLevel === "NONE") && item.overdue ? <small className="risk-marker danger">{isSpanish ? "Atrasado" : "Overdue"}</small> : null}
+                                {column.key === "unitNumber" && (!item.riskLevel || item.riskLevel === "NONE") && !item.overdue && item.moveInSoon ? <small className="risk-marker warning">{isSpanish ? "Mudanza proxima" : "Move-in soon"}</small> : null}
+                                {column.key === "unitNumber" && item.pestStatus && item.pestStatus !== "NONE" ? <small className="risk-marker warning">{isSpanish ? "Plagas" : "Pest"}: {item.pestStatus}</small> : null}
                               </button>
-                              {column.key === "unitNumber" && !isOccupiedDirectoryItem(item) ? <button type="button" className="item-details-icon" data-testid={`item-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={`Open details for ${item.unitNumber}`}>›</button> : null}
+                              {column.key === "unitNumber" && !isOccupiedDirectoryItem(item) ? <button type="button" className="item-details-icon" data-testid={`item-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={isSpanish ? `Abrir detalles para ${item.unitNumber}` : `Open details for ${item.unitNumber}`}>›</button> : null}
                               {feedback}
                             </div>
                           )}
@@ -1275,30 +1278,30 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                     <td colSpan={orderedVisibleColumns.length}>
                       {addGroup === group ? (
                         <div className="inline-add-item" data-testid={`add-item-form-${slug(group)}`}>
-                          <span className="inline-add-context">{(activeProperties.find((property) => property.id === newItem.propertyId) ?? propertyForGroup(group))?.code ?? "Choose property"} / {groupName(group)}</span>
+                          <span className="inline-add-context">{(activeProperties.find((property) => property.id === newItem.propertyId) ?? propertyForGroup(group))?.code ?? (isSpanish ? "Elegir propiedad" : "Choose property")} / {groupName(group)}</span>
                           {!propertyForGroup(group) && activeProperties.length > 1 ? (
                             <select data-testid={`add-item-property-${slug(group)}`} value={newItem.propertyId} onChange={(event) => setNewItem((current) => ({ ...current, propertyId: event.target.value }))}>
-                              <option value="">Property</option>
+                              <option value="">{isSpanish ? "Propiedad" : "Property"}</option>
                               {activeProperties.map((property) => <option key={property.id} value={property.id}>{property.code}</option>)}
                             </select>
                           ) : null}
-                          <input data-testid={`add-item-unit-number-${slug(group)}`} value={newItem.unitNumber} onChange={(event) => setNewItem((current) => ({ ...current, unitNumber: event.target.value }))} placeholder="Unit number" aria-label="Unit number" />
+                          <input data-testid={`add-item-unit-number-${slug(group)}`} value={newItem.unitNumber} onChange={(event) => setNewItem((current) => ({ ...current, unitNumber: event.target.value }))} placeholder={isSpanish ? "Numero de unidad" : "Unit number"} aria-label={isSpanish ? "Numero de unidad" : "Unit number"} />
                           <select data-testid={`add-item-tech-${slug(group)}`} value={newItem.assignedTech} onChange={(event) => setNewItem((current) => ({ ...current, assignedTech: event.target.value }))}>
-                            <option value="">Unassigned</option>
+                            <option value="">{isSpanish ? "Sin asignar" : "Unassigned"}</option>
                             {staff.map((person) => <option key={person.id} value={person.fullName}>{person.fullName} - {person.role}</option>)}
                           </select>
                           <select value={newItem.makeReadyStatus} onChange={(event) => setNewItem((current) => ({ ...current, makeReadyStatus: event.target.value }))}>
-                            <option value="">Status</option>
+                            <option value="">{isSpanish ? "Estado" : "Status"}</option>
                             {Object.values(labelsByField.makeReadyStatus ?? {}).filter((label) => !label.isArchived).map((label) => <option key={label.id} value={label.value}>{label.value}</option>)}
                           </select>
-                          <button data-testid={`add-item-save-${slug(group)}`} className="button button-primary" disabled={!newItem.unitNumber.trim() || !(newItem.propertyId || propertyForGroup(group))} onClick={() => void createInGroup(group)}>Add</button>
-                          <button className="button button-ghost" onClick={() => setAddGroup(null)}>Cancel</button>
+                          <button data-testid={`add-item-save-${slug(group)}`} className="button button-primary" disabled={!newItem.unitNumber.trim() || !(newItem.propertyId || propertyForGroup(group))} onClick={() => void createInGroup(group)}>{isSpanish ? "Agregar" : "Add"}</button>
+                          <button className="button button-ghost" onClick={() => setAddGroup(null)}>{isSpanish ? "Cancelar" : "Cancel"}</button>
                         </div>
                       ) : (
                         <button data-testid={`add-item-row-${slug(group)}`} className="add-item-button" onClick={() => {
                           setAddGroup(group);
                           setNewItem((current) => ({ ...current, propertyId: propertyForGroup(group)?.id ?? (current.propertyId || activeProperties[0]?.id || ""), unitNumber: "", assignedTech: "" }));
-                        }}>+ Add item</button>
+                        }}>{isSpanish ? "+ Agregar item" : "+ Add item"}</button>
                       )}
                     </td>
                   </tr>
@@ -1310,25 +1313,25 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
       ))}
       <Modal
         open={Boolean(optionTarget)}
-        title={`Manage ${optionTarget?.label ?? "status"} options`}
+        title={isSpanish ? `Administrar opciones de ${optionTarget?.label ?? "estado"}` : `Manage ${optionTarget?.label ?? "status"} options`}
         testId="table-option-modal"
         onClose={() => setOptionTarget(null)}
         actions={(
           <>
-            <button type="button" className="button button-ghost" onClick={() => setOptionTarget(null)}>Cancel</button>
+            <button type="button" className="button button-ghost" onClick={() => setOptionTarget(null)}>{isSpanish ? "Cancelar" : "Cancel"}</button>
             <button type="button" data-testid="table-option-save-existing" className="button button-secondary" disabled={optionBusy} onClick={() => void saveManagedOptions()}>
-              Save changes
+              {isSpanish ? "Guardar cambios" : "Save changes"}
             </button>
             <button type="button" data-testid="table-option-save" className="button button-primary" disabled={optionBusy || !quickOption.value.trim()} onClick={() => void createQuickOption()}>
-              Add option
+              {isSpanish ? "Agregar opcion" : "Add option"}
             </button>
           </>
         )}
       >
-        <p className="modal-copy">New choices become selectable immediately. Archived choices remain stored for historical rows.</p>
+        <p className="modal-copy">{isSpanish ? "Las nuevas opciones quedan disponibles de inmediato. Las opciones archivadas se mantienen para filas historicas." : "New choices become selectable immediately. Archived choices remain stored for historical rows."}</p>
         <div className="quick-option-form">
-          <label>Label<input autoFocus data-testid="table-option-label" value={quickOption.value} onChange={(event) => setQuickOption((current) => ({ ...current, value: event.target.value }))} /></label>
-          <label>Color<input data-testid="table-option-color" type="color" value={quickOption.color} onChange={(event) => setQuickOption((current) => ({ ...current, color: event.target.value }))} /></label>
+          <label>{isSpanish ? "Etiqueta" : "Label"}<input autoFocus data-testid="table-option-label" value={quickOption.value} onChange={(event) => setQuickOption((current) => ({ ...current, value: event.target.value }))} /></label>
+          <label>{isSpanish ? "Color" : "Color"}<input data-testid="table-option-color" type="color" value={quickOption.color} onChange={(event) => setQuickOption((current) => ({ ...current, color: event.target.value }))} /></label>
         </div>
         <div className="inline-option-list">
           {optionsForTarget.map((option, index) => {
@@ -1341,18 +1344,18 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
               <div className="inline-option-row" key={option.id}>
                 <input aria-label={`Rename ${"value" in option ? option.value : option.label}`} data-testid={`table-option-edit-${option.id}`} value={draft.value} onChange={(event) => setOptionDrafts((current) => ({ ...current, [option.id]: { ...draft, value: event.target.value } }))} />
                 <input type="color" aria-label={`Color for ${draft.value}`} value={draft.color} onChange={(event) => setOptionDrafts((current) => ({ ...current, [option.id]: { ...draft, color: event.target.value } }))} />
-                <label><input type="checkbox" checked={draft.isArchived} onChange={(event) => setOptionDrafts((current) => ({ ...current, [option.id]: { ...draft, isArchived: event.target.checked } }))} /> Archived</label>
-                <button type="button" className="icon-button" aria-label={`Move ${draft.value} up`} disabled={index === 0} onClick={() => void moveManagedOption(option.id, -1)}>↑</button>
-                <button type="button" className="icon-button" aria-label={`Move ${draft.value} down`} disabled={index === optionsForTarget.length - 1} onClick={() => void moveManagedOption(option.id, 1)}>↓</button>
+                <label><input type="checkbox" checked={draft.isArchived} onChange={(event) => setOptionDrafts((current) => ({ ...current, [option.id]: { ...draft, isArchived: event.target.checked } }))} /> {isSpanish ? "Archivado" : "Archived"}</label>
+                <button type="button" className="icon-button" aria-label={isSpanish ? `Mover ${draft.value} arriba` : `Move ${draft.value} up`} disabled={index === 0} onClick={() => void moveManagedOption(option.id, -1)}>↑</button>
+                <button type="button" className="icon-button" aria-label={isSpanish ? `Mover ${draft.value} abajo` : `Move ${draft.value} down`} disabled={index === optionsForTarget.length - 1} onClick={() => void moveManagedOption(option.id, 1)}>↓</button>
               </div>
             );
           })}
         </div>
-        {!optionTarget?.customField ? <button type="button" className="cell-manage-link full-settings-link" onClick={() => { setOptionTarget(null); onOpenBoardSetup(); }}>Open full label management</button> : <button type="button" className="cell-manage-link full-settings-link" onClick={() => { setOptionTarget(null); onOpenFieldManager(); }}>Open full field management</button>}
+        {!optionTarget?.customField ? <button type="button" className="cell-manage-link full-settings-link" onClick={() => { setOptionTarget(null); onOpenBoardSetup(); }}>{isSpanish ? "Abrir administracion completa de etiquetas" : "Open full label management"}</button> : <button type="button" className="cell-manage-link full-settings-link" onClick={() => { setOptionTarget(null); onOpenFieldManager(); }}>{isSpanish ? "Abrir administracion completa de campos" : "Open full field management"}</button>}
       </Modal>
       <Modal
         open={Boolean(columnRename)}
-        title={`Rename ${columnRename?.label ?? "column"}`}
+        title={isSpanish ? `Renombrar ${columnRename?.label ?? "columna"}` : `Rename ${columnRename?.label ?? "column"}`}
         testId="column-rename-modal"
         onClose={() => setColumnRename(null)}
         actions={(
@@ -1361,31 +1364,31 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
               <button type="button" data-testid="column-label-reset" className="button button-secondary" onClick={async () => {
                 await onRenameBuiltInColumn(columnRename.key, "", true);
                 setColumnRename(null);
-              }}>Reset default</button>
+              }}>{isSpanish ? "Restablecer predeterminado" : "Reset default"}</button>
             ) : null}
-            <button type="button" className="button button-ghost" onClick={() => setColumnRename(null)}>Cancel</button>
+            <button type="button" className="button button-ghost" onClick={() => setColumnRename(null)}>{isSpanish ? "Cancelar" : "Cancel"}</button>
             <button type="button" data-testid="column-rename-save" className="button button-primary" disabled={!columnRename?.label.trim()} onClick={async () => {
               if (!columnRename) return;
               if (columnRename.customField) await onRenameCustomColumn(columnRename.customField, columnRename.label.trim());
               else await onRenameBuiltInColumn(columnRename.key, columnRename.label.trim());
               setColumnRename(null);
-            }}>Save label</button>
+            }}>{isSpanish ? "Guardar etiqueta" : "Save label"}</button>
           </>
         )}
       >
-        <label className="inline-config-field">Display label
+        <label className="inline-config-field">{isSpanish ? "Etiqueta visible" : "Display label"}
           <input autoFocus data-testid="column-rename-input" value={columnRename?.label ?? ""} onChange={(event) => setColumnRename((current) => current ? { ...current, label: event.target.value } : current)} />
         </label>
-        <p className="modal-copy">Internal key <code>{columnRename?.customField?.fieldKey ?? columnRename?.key}</code> remains unchanged for rules, imports, exports and saved views.</p>
+        <p className="modal-copy">{isSpanish ? "La clave interna " : "Internal key "}<code>{columnRename?.customField?.fieldKey ?? columnRename?.key}</code>{isSpanish ? " permanece sin cambios para reglas, importaciones, exportaciones y vistas guardadas." : " remains unchanged for rules, imports, exports and saved views."}</p>
       </Modal>
       <Modal
         open={floorPlanPropertyId !== null}
-        title="Manage floor plans"
+        title={isSpanish ? "Administrar planos" : "Manage floor plans"}
         testId="inline-floor-plan-modal"
         onClose={() => setFloorPlanPropertyId(null)}
-        actions={<button type="button" className="button button-ghost" onClick={() => setFloorPlanPropertyId(null)}>Close</button>}
+        actions={<button type="button" className="button button-ghost" onClick={() => setFloorPlanPropertyId(null)}>{isSpanish ? "Cerrar" : "Close"}</button>}
       >
-        <label className="inline-config-field">Property
+        <label className="inline-config-field">{isSpanish ? "Propiedad" : "Property"}
           <select data-testid="inline-floor-plan-property" value={floorPlanPropertyId ?? ""} onChange={(event) => { setFloorPlanPropertyId(event.target.value); setSelectedPlanId(""); }}>
             {activeProperties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
           </select>
@@ -1404,13 +1407,13 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
           });
           setNewPlan({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
         }}>
-          <input data-testid="inline-floor-plan-code" placeholder="Code (B1, C2)" value={newPlan.code} onChange={(event) => setNewPlan((current) => ({ ...current, code: event.target.value }))} required />
-          <input data-testid="inline-floor-plan-name" placeholder="Friendly name (Arlington)" value={newPlan.name} onChange={(event) => setNewPlan((current) => ({ ...current, name: event.target.value }))} />
-          <input data-testid="inline-floor-plan-beds" type="number" min="0" placeholder="Beds" value={newPlan.bedrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bedrooms: event.target.value }))} />
-          <input data-testid="inline-floor-plan-baths" type="number" step="0.5" min="0" placeholder="Baths" value={newPlan.bathrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bathrooms: event.target.value }))} />
-          <input data-testid="inline-floor-plan-sqft" type="number" min="1" placeholder="Sq ft" value={newPlan.squareFeet} onChange={(event) => setNewPlan((current) => ({ ...current, squareFeet: event.target.value }))} />
-          <input data-testid="inline-floor-plan-description" className="span-full" placeholder="Description" value={newPlan.description} onChange={(event) => setNewPlan((current) => ({ ...current, description: event.target.value }))} />
-          <button type="submit" data-testid="inline-floor-plan-add" className="button button-primary span-full">Add floor plan</button>
+          <input data-testid="inline-floor-plan-code" placeholder={isSpanish ? "Codigo (B1, C2)" : "Code (B1, C2)"} value={newPlan.code} onChange={(event) => setNewPlan((current) => ({ ...current, code: event.target.value }))} required />
+          <input data-testid="inline-floor-plan-name" placeholder={isSpanish ? "Nombre visible (Arlington)" : "Friendly name (Arlington)"} value={newPlan.name} onChange={(event) => setNewPlan((current) => ({ ...current, name: event.target.value }))} />
+          <input data-testid="inline-floor-plan-beds" type="number" min="0" placeholder={isSpanish ? "Recamaras" : "Beds"} value={newPlan.bedrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bedrooms: event.target.value }))} />
+          <input data-testid="inline-floor-plan-baths" type="number" step="0.5" min="0" placeholder={isSpanish ? "Banos" : "Baths"} value={newPlan.bathrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bathrooms: event.target.value }))} />
+          <input data-testid="inline-floor-plan-sqft" type="number" min="1" placeholder={isSpanish ? "Pies2" : "Sq ft"} value={newPlan.squareFeet} onChange={(event) => setNewPlan((current) => ({ ...current, squareFeet: event.target.value }))} />
+          <input data-testid="inline-floor-plan-description" className="span-full" placeholder={isSpanish ? "Descripcion" : "Description"} value={newPlan.description} onChange={(event) => setNewPlan((current) => ({ ...current, description: event.target.value }))} />
+          <button type="submit" data-testid="inline-floor-plan-add" className="button button-primary span-full">{isSpanish ? "Agregar plano" : "Add floor plan"}</button>
         </form>
         <div className="inline-plan-list">
           {plansForInlineManager.map((plan) => (
@@ -1418,8 +1421,8 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
               setSelectedPlanId(plan.id);
               setPlanDraft({ code: plan.code, name: plan.name, bedrooms: plan.bedrooms?.toString() ?? "", bathrooms: plan.bathrooms?.toString() ?? "", squareFeet: plan.squareFeet?.toString() ?? "", description: plan.description ?? "" });
             }}>
-              <span><strong>{floorPlanLabel(plan)}</strong>{plan.squareFeet ? ` ${plan.squareFeet} sq ft` : " No square footage"}</span>
-              <span className={plan.isActive ? "status-chip active" : "status-chip inactive"}>{plan.isActive ? "Active" : "Archived"}</span>
+              <span><strong>{floorPlanLabel(plan)}</strong>{plan.squareFeet ? ` ${plan.squareFeet} ${isSpanish ? "pies2" : "sq ft"}` : (isSpanish ? " Sin pies cuadrados" : " No square footage")}</span>
+              <span className={plan.isActive ? "status-chip active" : "status-chip inactive"}>{plan.isActive ? (isSpanish ? "Activo" : "Active") : (isSpanish ? "Archivado" : "Archived")}</span>
             </button>
           ))}
         </div>
@@ -1430,17 +1433,18 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
             <input type="number" min="0" value={planDraft.bedrooms} onChange={(event) => setPlanDraft((current) => ({ ...current, bedrooms: event.target.value }))} />
             <input type="number" step="0.5" min="0" value={planDraft.bathrooms} onChange={(event) => setPlanDraft((current) => ({ ...current, bathrooms: event.target.value }))} />
             <input type="number" min="1" value={planDraft.squareFeet} onChange={(event) => setPlanDraft((current) => ({ ...current, squareFeet: event.target.value }))} />
-            <input className="span-full" value={planDraft.description} onChange={(event) => setPlanDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Description" />
-            <button data-testid="inline-floor-plan-save" type="button" className="button button-primary" onClick={() => void onUpdateFloorPlan(selectedPlan.id, { code: planDraft.code.trim(), name: planDraft.name.trim() || planDraft.code.trim(), bedrooms: numberOrNull(planDraft.bedrooms), bathrooms: numberOrNull(planDraft.bathrooms), squareFeet: numberOrNull(planDraft.squareFeet), description: planDraft.description.trim() || null })}>Save</button>
-            <button data-testid={selectedPlan.isActive ? "inline-floor-plan-archive" : "inline-floor-plan-restore"} type="button" className="button button-secondary" onClick={() => void onArchiveFloorPlan(selectedPlan.id, !selectedPlan.isActive)}>{selectedPlan.isActive ? "Archive" : "Restore"}</button>
+            <input className="span-full" value={planDraft.description} onChange={(event) => setPlanDraft((current) => ({ ...current, description: event.target.value }))} placeholder={isSpanish ? "Descripcion" : "Description"} />
+            <button data-testid="inline-floor-plan-save" type="button" className="button button-primary" onClick={() => void onUpdateFloorPlan(selectedPlan.id, { code: planDraft.code.trim(), name: planDraft.name.trim() || planDraft.code.trim(), bedrooms: numberOrNull(planDraft.bedrooms), bathrooms: numberOrNull(planDraft.bathrooms), squareFeet: numberOrNull(planDraft.squareFeet), description: planDraft.description.trim() || null })}>{isSpanish ? "Guardar" : "Save"}</button>
+            <button data-testid={selectedPlan.isActive ? "inline-floor-plan-archive" : "inline-floor-plan-restore"} type="button" className="button button-secondary" onClick={() => void onArchiveFloorPlan(selectedPlan.id, !selectedPlan.isActive)}>{selectedPlan.isActive ? (isSpanish ? "Archivar" : "Archive") : (isSpanish ? "Restaurar" : "Restore")}</button>
           </div>
         ) : null}
       </Modal>
       <ConfirmDialog
         open={Boolean(pendingGroupMove)}
-        title="Move selected items?"
-        description={`Move ${selectedIds.length} selected make-ready item${selectedIds.length === 1 ? "" : "s"} to ${pendingGroupMove ? groupName(pendingGroupMove) : "the selected section"}?`}
-        confirmLabel="Move items"
+        language={isSpanish ? "es" : "en"}
+        title={isSpanish ? "Mover items seleccionados?" : "Move selected items?"}
+        description={isSpanish ? `Mover ${selectedIds.length} item${selectedIds.length === 1 ? "" : "s"} de make-ready seleccionado${selectedIds.length === 1 ? "" : "s"} a ${pendingGroupMove ? groupName(pendingGroupMove) : "la seccion seleccionada"}?` : `Move ${selectedIds.length} selected make-ready item${selectedIds.length === 1 ? "" : "s"} to ${pendingGroupMove ? groupName(pendingGroupMove) : "the selected section"}?`}
+        confirmLabel={isSpanish ? "Mover items" : "Move items"}
         onClose={() => setPendingGroupMove(null)}
         onConfirm={async () => {
           if (!pendingGroupMove) return;

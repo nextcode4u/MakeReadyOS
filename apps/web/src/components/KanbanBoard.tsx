@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import type { BoardColumnDefinition, CustomField, LabelDefinition, MakeReadyItem, Property } from "../lib/api";
+import type { BoardColumnDefinition, CustomField, LabelDefinition, MakeReadyItem, Property, UserLanguage } from "../lib/api";
 import { configuredBoardColumns, customColumnKey } from "../lib/board";
 import { formatDateDisplay } from "../lib/dateTime";
+import { t } from "../lib/i18n";
 import { LabelPill } from "./LabelPill";
 
 type GroupKey = string;
@@ -24,6 +25,7 @@ type Props = {
   selectedPropertyId: string;
   onPropertyChange: (id: string) => void;
   onConfigChange: (next: { groupBy?: string; colorBy?: string; cardFields?: string[]; sortBy?: string; hideEmpty?: boolean }) => void;
+  language: UserLanguage;
 };
 
 const EMPTY_KEY = "__empty__";
@@ -50,9 +52,9 @@ function valueForGroup(item: MakeReadyItem, groupBy: GroupKey) {
   return typeof value === "string" ? value.slice(0, 10) : String(value ?? "");
 }
 
-function titleForColumn(groupBy: GroupKey, key: string) {
+function titleForColumn(groupBy: GroupKey, key: string, language: UserLanguage) {
   if (key === EMPTY_KEY) {
-    return groupBy === "assignedTech" ? "Unassigned" : "Unset";
+    return groupBy === "assignedTech" ? t(language, "drawer.unassigned") : t(language, "drawer.unset");
   }
   return key;
 }
@@ -70,7 +72,7 @@ function valueForField(item: MakeReadyItem, key: string) {
     : item[key as keyof MakeReadyItem];
 }
 
-export function KanbanBoard({ items, groupBy, properties, labelsByField, customFields, columnDefinitions, canEditField, onMove, onOpenItem, colorBy, cardFields, sortBy, hideEmpty, groupOptions, selectedPropertyId, onPropertyChange, onConfigChange }: Props) {
+export function KanbanBoard({ items, groupBy, properties, labelsByField, customFields, columnDefinitions, canEditField, onMove, onOpenItem, colorBy, cardFields, sortBy, hideEmpty, groupOptions, selectedPropertyId, onPropertyChange, onConfigChange, language }: Props) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [activeColumn, setActiveColumn] = useState<string | null>(null);
 
@@ -177,7 +179,7 @@ export function KanbanBoard({ items, groupBy, properties, labelsByField, customF
       </div>
       <p className="kanban-guide" data-testid="kanban-guide">Lanes group by <strong>{groupBy}</strong>; card accent and legend use <strong>{colorBy}</strong>.</p>
       {groupField === null ? (
-        <div className="kanban-note">Grouping by property is view-only. Dragging between properties is disabled.</div>
+        <div className="kanban-note">{t(language, "kanban.propertyViewOnly")}</div>
       ) : null}
       <div className="kanban-grid">
         {renderedColumns.map((column) => (
@@ -186,7 +188,7 @@ export function KanbanBoard({ items, groupBy, properties, labelsByField, customF
           return (
           <div
             key={column}
-            data-testid={`kanban-column-${slugify(titleForColumn(groupBy, column))}`}
+            data-testid={`kanban-column-${slugify(titleForColumn(groupBy, column, language))}`}
             className={activeColumn === column ? "kanban-column active-drop" : "kanban-column"}
             onDragOver={(event) => {
               if (groupField && !isArchivedTarget) {
@@ -212,18 +214,18 @@ export function KanbanBoard({ items, groupBy, properties, labelsByField, customF
           >
             <header className="kanban-column-header">
               <LabelPill
-                value={titleForColumn(groupBy, column)}
+                value={titleForColumn(groupBy, column, language)}
                 label={labelForGroup(labelsByField, groupBy, column)}
               />
               <span className="kanban-count">{grouped[column]?.length ?? 0}</span>
-              {isArchivedTarget ? <small className="kanban-archived-label">Archived choice</small> : null}
+              {isArchivedTarget ? <small className="kanban-archived-label">{t(language, "kanban.archivedChoice")}</small> : null}
             </header>
 
-            <div className="kanban-cards" data-testid={`kanban-column-body-${slugify(titleForColumn(groupBy, column))}`}>
+            <div className="kanban-cards" data-testid={`kanban-column-body-${slugify(titleForColumn(groupBy, column, language))}`}>
               {(grouped[column] ?? []).length === 0 ? (
                 <div className="kanban-empty-column">
-                  <strong>No items</strong>
-                  <span>Drop a card here or switch filters to widen this lane.</span>
+                  <strong>{t(language, "kanban.noItems")}</strong>
+                  <span>{t(language, "kanban.emptyLaneHelp")}</span>
                 </div>
               ) : null}
               {sortedCardsByColumn[column].map((item) => {
@@ -243,19 +245,19 @@ export function KanbanBoard({ items, groupBy, properties, labelsByField, customF
                   >
                     <div className="kanban-card-title">
                       <LabelPill value={item.unitNumber} label={colorLabel(item)} />
-                      {item.riskLevel && item.riskLevel !== "NONE" ? <span className={`risk-marker ${item.riskLevel === "CRITICAL" || item.riskLevel === "HIGH" ? "danger" : "warning"}`}>{item.riskLevel} risk</span> : null}
+                      {item.riskLevel && item.riskLevel !== "NONE" ? <span className={`risk-marker ${item.riskLevel === "CRITICAL" || item.riskLevel === "HIGH" ? "danger" : "warning"}`}>{item.riskLevel} {t(language, "kanban.risk")}</span> : null}
                     </div>
-                    <div className="kanban-card-subtitle">{item.property.code}{cardFields.includes("floorPlan") ? ` · ${item.floorPlan ?? "No floor plan"}` : ""}</div>
+                    <div className="kanban-card-subtitle">{item.property.code}{cardFields.includes("floorPlan") ? ` · ${item.floorPlan ?? t(language, "kanban.noFloorPlan")}` : ""}</div>
                     <div className="kanban-card-meta">
                       {cardFields.includes("vacancyStatus") ? <LabelPill value={item.vacancyStatus} label={item.vacancyStatus ? labelsByField.vacancyStatus?.[item.vacancyStatus] : undefined} muted /> : null}
                       {cardFields.includes("scopeLevel") ? <LabelPill value={item.scopeLevel} label={item.scopeLevel ? labelsByField.scopeLevel?.[item.scopeLevel] : undefined} muted /> : null}
                     </div>
                     <div className="kanban-card-copy">
-                      {cardFields.includes("assignedTech") ? <span>Tech: {item.assignedTech || "Unassigned"}</span> : null}
-                      {cardFields.includes("moveInDate") ? <span>Move-In: {item.moveInDate ? formatDateDisplay(item.moveInDate) : "-"}</span> : null}
+                      {cardFields.includes("assignedTech") ? <span>{t(language, "kanban.tech")}: {item.assignedTech || t(language, "drawer.unassigned")}</span> : null}
+                      {cardFields.includes("moveInDate") ? <span>{t(language, "kanban.moveIn")}: {item.moveInDate ? formatDateDisplay(item.moveInDate) : "-"}</span> : null}
                       {cardFields.filter((field) => field.startsWith("custom:")).map((field) => <span key={field}>{customFieldsById.get(field.slice(7))?.label}: {String(valueForField(item, field) ?? "-")}</span>)}
                     </div>
-                    <button type="button" className="kanban-details" data-testid={`kanban-details-${slugify(item.unitNumber)}`} onClick={(event) => { event.stopPropagation(); onOpenItem(item.id); }}>Open details</button>
+                    <button type="button" className="kanban-details" data-testid={`kanban-details-${slugify(item.unitNumber)}`} onClick={(event) => { event.stopPropagation(); onOpenItem(item.id); }}>{t(language, "kanban.openDetails")}</button>
                   </article>
                 );
               })}

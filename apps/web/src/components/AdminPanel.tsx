@@ -601,78 +601,84 @@ export function AdminPanel({
       <section className="admin-card" data-testid="admin-updates-panel">
         <header className="admin-card-header">
           <div>
-            <p className="eyebrow">Updates</p>
-            <h2>Deployment updates</h2>
+            <p className="eyebrow">{language === "es" ? "Actualizaciones" : "Updates"}</p>
+            <h2>{language === "es" ? "Actualizaciones de despliegue" : "Deployment updates"}</h2>
           </div>
-          <span className="subtitle">Current install details and the preferred server-side update commands.</span>
+          <span className="subtitle">{language === "es" ? "Detalles de la instalacion actual y los comandos preferidos de actualizacion del lado del servidor." : "Current install details and the preferred server-side update commands."}</span>
         </header>
 
         <div className="admin-grid">
           <section className="admin-section">
-            <h3>Installed build</h3>
+            <h3>{language === "es" ? "Build instalado" : "Installed build"}</h3>
             <div className="admin-form-grid">
               <label>
-                Installed version
-                <input value={appInfo?.version ?? "Unknown"} readOnly />
+                {language === "es" ? "Version instalada" : "Installed version"}
+                <input value={appInfo?.version ?? (language === "es" ? "Desconocida" : "Unknown")} readOnly />
               </label>
               <label>
-                Release channel
-                <input value={appInfo?.releaseChannel ?? "Unknown"} readOnly />
+                {language === "es" ? "Canal de lanzamiento" : "Release channel"}
+                <input value={appInfo?.releaseChannel ?? (language === "es" ? "Desconocido" : "Unknown")} readOnly />
               </label>
               <label>
-                Build ref
-                <input value={appInfo?.buildRef ?? "Not captured"} readOnly />
+                {language === "es" ? "Referencia del build" : "Build ref"}
+                <input value={appInfo?.buildRef ?? (language === "es" ? "No capturada" : "Not captured")} readOnly />
               </label>
               <label>
-                Build date
-                <input value={appInfo?.buildDate ?? "Not captured"} readOnly />
+                {language === "es" ? "Fecha del build" : "Build date"}
+                <input value={appInfo?.buildDate ?? (language === "es" ? "No capturada" : "Not captured")} readOnly />
               </label>
             </div>
             <div className="admin-message warning">
-              MakeReadyOS still updates from the host server, not from a one-click browser action. This panel keeps the current version visible and gives admins the exact commands to run.
+              {language === "es"
+                ? "MakeReadyOS todavia se actualiza desde el servidor host, no desde una accion de navegador de un clic. Este panel mantiene visible la version actual y da a los administradores los comandos exactos para ejecutar."
+                : "MakeReadyOS still updates from the host server, not from a one-click browser action. This panel keeps the current version visible and gives admins the exact commands to run."}
             </div>
             {appInfo?.latestRelease ? (
               <div className={appInfo.latestRelease.updateAvailable ? "admin-message warning" : "admin-message success"}>
                 {appInfo.latestRelease.updateAvailable
-                  ? `Latest published release ${appInfo.latestRelease.tag} is newer than this install.`
-                  : `This install matches the latest published release ${appInfo.latestRelease.tag}.`}
-                {appInfo.latestRelease.publishedAt ? ` Published ${new Date(appInfo.latestRelease.publishedAt).toLocaleString()}.` : ""}
-                {appInfo.latestRelease.url ? <> <a href={appInfo.latestRelease.url} target="_blank" rel="noreferrer">Open release page</a>.</> : null}
+                  ? (language === "es"
+                    ? `La ultima version publicada ${appInfo.latestRelease.tag} es mas nueva que esta instalacion.`
+                    : `Latest published release ${appInfo.latestRelease.tag} is newer than this install.`)
+                  : (language === "es"
+                    ? `Esta instalacion coincide con la ultima version publicada ${appInfo.latestRelease.tag}.`
+                    : `This install matches the latest published release ${appInfo.latestRelease.tag}.`)}
+                {appInfo.latestRelease.publishedAt ? (language === "es" ? ` Publicada ${new Date(appInfo.latestRelease.publishedAt).toLocaleString()}.` : ` Published ${new Date(appInfo.latestRelease.publishedAt).toLocaleString()}.`) : ""}
+                {appInfo.latestRelease.url ? <> <a href={appInfo.latestRelease.url} target="_blank" rel="noreferrer">{language === "es" ? "Abrir pagina de lanzamiento" : "Open release page"}</a>.</> : null}
               </div>
             ) : null}
-            <h3>Origin diagnostics</h3>
+            <h3>{language === "es" ? "Diagnosticos de origen" : "Origin diagnostics"}</h3>
             <div className="admin-form-grid">
               <label>
                 APP_URL
-                <input value={appInfo?.deployment.appUrl ?? "Not configured"} readOnly />
+                <input value={appInfo?.deployment.appUrl ?? (language === "es" ? "No configurada" : "Not configured")} readOnly />
               </label>
               <label>
-                Current origin
-                <input value={appInfo?.deployment.currentOrigin ?? "Unavailable"} readOnly />
+                {language === "es" ? "Origen actual" : "Current origin"}
+                <input value={appInfo?.deployment.currentOrigin ?? (language === "es" ? "No disponible" : "Unavailable")} readOnly />
               </label>
               <label>
-                Environment
-                <input value={appInfo?.deployment.environment ?? "Unknown"} readOnly />
+                {language === "es" ? "Entorno" : "Environment"}
+                <input value={appInfo?.deployment.environment ?? (language === "es" ? "Desconocido" : "Unknown")} readOnly />
               </label>
               <label>
-                Trusted proxy
-                <input value={appInfo?.deployment.trustedProxy ? "Enabled" : "Disabled"} readOnly />
+                {language === "es" ? "Proxy confiable" : "Trusted proxy"}
+                <input value={appInfo?.deployment.trustedProxy ? (language === "es" ? "Habilitado" : "Enabled") : (language === "es" ? "Deshabilitado" : "Disabled")} readOnly />
               </label>
               <label>
-                Secure cookies
-                <input value={appInfo?.deployment.secureCookies ? "Enabled" : "Disabled"} readOnly />
+                {language === "es" ? "Cookies seguras" : "Secure cookies"}
+                <input value={appInfo?.deployment.secureCookies ? (language === "es" ? "Habilitadas" : "Enabled") : (language === "es" ? "Deshabilitadas" : "Disabled")} readOnly />
               </label>
               <label>
-                Cookie domain
-                <input value={appInfo?.deployment.cookieDomain ?? "Host-only"} readOnly />
+                {language === "es" ? "Dominio de cookie" : "Cookie domain"}
+                <input value={appInfo?.deployment.cookieDomain ?? (language === "es" ? "Solo host" : "Host-only")} readOnly />
               </label>
             </div>
             <div className="admin-message success">
-              Allowed origins: <code>{appInfo?.deployment.allowedOrigins.join(", ") || "None"}</code>
+              {language === "es" ? "Origenes permitidos:" : "Allowed origins:"} <code>{appInfo?.deployment.allowedOrigins.join(", ") || (language === "es" ? "Ninguno" : "None")}</code>
             </div>
             {appInfo?.deployment.extraAllowedOrigins.length ? (
               <div className="admin-message success">
-                Extra allowed origins: <code>{appInfo.deployment.extraAllowedOrigins.join(", ")}</code>
+                {language === "es" ? "Origenes adicionales permitidos:" : "Extra allowed origins:"} <code>{appInfo.deployment.extraAllowedOrigins.join(", ")}</code>
               </div>
             ) : null}
             {appInfo?.deployment.startupWarnings.length ? (
@@ -683,36 +689,39 @@ export function AdminPanel({
           </section>
 
           <section className="admin-section">
-            <h3>Preferred commands</h3>
+            <h3>{language === "es" ? "Comandos preferidos" : "Preferred commands"}</h3>
             <div className="admin-inline-form">
               <code className="admin-command-block">{appInfo?.updateCommand ?? "./update.sh --yes"}</code>
               <button type="button" className="button button-secondary" onClick={() => void copyCommand("standard")}>
-                {copiedCommand === "standard" ? "Copied" : "Copy command"}
+                {copiedCommand === "standard" ? (language === "es" ? "Copiado" : "Copied") : (language === "es" ? "Copiar comando" : "Copy command")}
               </button>
             </div>
             <div className="admin-inline-form">
               <code className="admin-command-block">{appInfo?.updatePullCommand ?? "./update.sh --pull --yes"}</code>
               <button type="button" className="button button-secondary" onClick={() => void copyCommand("pull")}>
-                {copiedCommand === "pull" ? "Copied" : "Copy pull-latest"}
+                {copiedCommand === "pull" ? (language === "es" ? "Copiado" : "Copied") : (language === "es" ? "Copiar pull-latest" : "Copy pull-latest")}
               </button>
             </div>
-            <p className="subtitle">Use the first command for an already-updated checkout. Use the pull variant when this install should fetch the latest `main` changes before rebuilding.</p>
+            <p className="subtitle">{language === "es" ? "Usa el primer comando para un checkout ya actualizado. Usa la variante con pull cuando esta instalacion deba obtener los ultimos cambios de `main` antes de reconstruir." : "Use the first command for an already-updated checkout. Use the pull variant when this install should fetch the latest `main` changes before rebuilding."}</p>
             <div className="admin-message success">
-              Deployment guide: <code>{appInfo?.deploymentDocsPath ?? "docs/DEPLOYMENT.md"}</code>
+              {language === "es" ? "Guia de despliegue:" : "Deployment guide:"} <code>{appInfo?.deploymentDocsPath ?? "docs/DEPLOYMENT.md"}</code>
             </div>
           </section>
         </div>
       </section>
 
-      <IntegrationsPanel properties={properties} />
-      <StorageSettingsPanel />
-      <BackupTransferPanel onImported={onBackupImported} />
+      <IntegrationsPanel properties={properties} language={language} />
+      <StorageSettingsPanel language={language} />
+      <BackupTransferPanel onImported={onBackupImported} language={language} />
 
       <ConfirmDialog
         open={confirmAction === "role" && Boolean(selectedUser)}
-        title="Confirm role change"
-        description={`Change ${selectedUser?.fullName ?? "this user"} from ${selectedUser?.role ?? "their current role"} to ${editState.role}?`}
-        confirmLabel="Change role"
+        language={language}
+        title={language === "es" ? "Confirmar cambio de rol" : "Confirm role change"}
+        description={language === "es"
+          ? `Cambiar a ${selectedUser?.fullName ?? "este usuario"} de ${selectedUser?.role ?? "su rol actual"} a ${editState.role}?`
+          : `Change ${selectedUser?.fullName ?? "this user"} from ${selectedUser?.role ?? "their current role"} to ${editState.role}?`}
+        confirmLabel={language === "es" ? "Cambiar rol" : "Change role"}
         onClose={() => setConfirmAction(null)}
         onConfirm={async () => {
           if (!selectedUser) {
@@ -732,9 +741,12 @@ export function AdminPanel({
 
       <ConfirmDialog
         open={confirmAction === "deactivate" && Boolean(selectedUser)}
-        title="Deactivate user"
-        description={`Deactivate ${selectedUser?.fullName ?? "this user"}? This is a soft delete and future sign-ins will be blocked until reactivated.`}
-        confirmLabel="Deactivate user"
+        language={language}
+        title={language === "es" ? "Desactivar usuario" : "Deactivate user"}
+        description={language === "es"
+          ? `Desactivar a ${selectedUser?.fullName ?? "este usuario"}? Esto es una eliminacion suave y los futuros inicios de sesion se bloquearan hasta reactivarlo.`
+          : `Deactivate ${selectedUser?.fullName ?? "this user"}? This is a soft delete and future sign-ins will be blocked until reactivated.`}
+        confirmLabel={language === "es" ? "Desactivar usuario" : "Deactivate user"}
         tone="danger"
         onClose={() => setConfirmAction(null)}
         onConfirm={async () => {
@@ -748,9 +760,12 @@ export function AdminPanel({
 
       <ConfirmDialog
         open={confirmAction === "password" && Boolean(selectedUser)}
-        title="Reset password"
-        description={`Reset the password for ${selectedUser?.fullName ?? "this user"}? Existing sessions will be revoked.`}
-        confirmLabel="Reset password"
+        language={language}
+        title={language === "es" ? "Restablecer contrasena" : "Reset password"}
+        description={language === "es"
+          ? `Restablecer la contrasena de ${selectedUser?.fullName ?? "este usuario"}? Las sesiones existentes seran revocadas.`
+          : `Reset the password for ${selectedUser?.fullName ?? "this user"}? Existing sessions will be revoked.`}
+        confirmLabel={language === "es" ? "Restablecer contrasena" : "Reset password"}
         onClose={() => setConfirmAction(null)}
         onConfirm={async () => {
           if (!selectedUser) {

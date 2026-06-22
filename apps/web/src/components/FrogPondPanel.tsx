@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
-import type { BoardSection, LabelDefinition, MakeReadyItem, Property } from "../lib/api";
+import type { BoardSection, LabelDefinition, MakeReadyItem, Property, UserLanguage } from "../lib/api";
 import { boardGroupLabel, displayUnitNumber } from "../lib/board";
 import { StatusState } from "./StatusState";
 
@@ -27,6 +27,7 @@ type Props = {
   properties: Property[];
   boardSections: BoardSection[];
   labelsByField: Record<string, Record<string, LabelDefinition>>;
+  language: UserLanguage;
   selectedPropertyId: string;
   loading: boolean;
   error: boolean;
@@ -316,7 +317,8 @@ function loadPositions(): Record<string, PondPosition> {
   }
 }
 
-export function FrogPondPanel({ items, properties, boardSections, labelsByField, selectedPropertyId, loading, error, onOpenItem, onPropertyChange, onGroupDrillDown }: Props) {
+export function FrogPondPanel({ items, properties, boardSections, labelsByField, language, selectedPropertyId, loading, error, onOpenItem, onPropertyChange, onGroupDrillDown }: Props) {
+  const isSpanish = language === "es";
   const sceneRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const suppressClickRef = useRef(false);
@@ -530,91 +532,91 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
     }, 5000);
   };
 
-  if (loading) return <StatusState title="Loading Frog Pond" description="Gathering board data for the pond visualization." />;
-  if (error) return <StatusState title="Frog Pond unavailable" description="Refresh the board data and try again." tone="error" />;
+  if (loading) return <StatusState title={isSpanish ? "Cargando Frog Pond" : "Loading Frog Pond"} description={isSpanish ? "Reuniendo datos del tablero para la visualizacion del estanque." : "Gathering board data for the pond visualization."} />;
+  if (error) return <StatusState title={isSpanish ? "Frog Pond no disponible" : "Frog Pond unavailable"} description={isSpanish ? "Actualice los datos del tablero e intentelo de nuevo." : "Refresh the board data and try again."} tone="error" />;
 
   return (
     <section className={`frog-pond-shell frog-theme-${config.theme} frog-density-${config.density}${motionEnabled ? " frog-animated" : ""}`} data-testid="frog-pond-panel">
       <header className="panel-heading">
         <div>
           <h2>Frog Pond</h2>
-          <p>Whimsical operations view: frogs represent real make-ready records. Use the table for precision edits.</p>
+          <p>{isSpanish ? "Vista operativa visual: las ranas representan registros reales de make-ready. Use la tabla para ediciones precisas." : "Whimsical operations view: frogs represent real make-ready records. Use the table for precision edits."}</p>
         </div>
         <div className="frog-summary" data-testid="frog-summary">
-          <strong>{scopedItems.length}</strong><span>{config.metricSource.replace(/([A-Z])/g, " $1")} frogs</span>
-          <strong>{groups.length}</strong><span>groups</span>
-          <strong>{hiddenCount}</strong><span>clustered</span>
+          <strong>{scopedItems.length}</strong><span>{config.metricSource.replace(/([A-Z])/g, " $1")} {isSpanish ? "ranas" : "frogs"}</span>
+          <strong>{groups.length}</strong><span>{isSpanish ? "grupos" : "groups"}</span>
+          <strong>{hiddenCount}</strong><span>{isSpanish ? "agrupadas" : "clustered"}</span>
         </div>
       </header>
 
       <div className="frog-config" data-testid="frog-config">
-        <label>Frogs represent
+        <label>{isSpanish ? "Las ranas representan" : "Frogs represent"}
           <select data-testid="frog-metric-source" value={config.metricSource} onChange={(event) => updateConfig({ metricSource: event.target.value as MetricSource })}>
-            <option value="active">Active make-readies</option>
-            <option value="risk">High/Critical risk items</option>
-            <option value="techWorkload">Assigned tech workload</option>
-            <option value="vacant">Vacant / NTV units</option>
-            <option value="moveInsWeek">Move-ins this week</option>
+            <option value="active">{isSpanish ? "Make-readies activos" : "Active make-readies"}</option>
+            <option value="risk">{isSpanish ? "Elementos de riesgo alto/critico" : "High/Critical risk items"}</option>
+            <option value="techWorkload">{isSpanish ? "Carga asignada por tecnico" : "Assigned tech workload"}</option>
+            <option value="vacant">{isSpanish ? "Unidades vacantes / NTV" : "Vacant / NTV units"}</option>
+            <option value="moveInsWeek">{isSpanish ? "Mudanzas esta semana" : "Move-ins this week"}</option>
           </select>
         </label>
-        <label>Group by
+        <label>{isSpanish ? "Agrupar por" : "Group by"}
           <select data-testid="frog-group-by" value={config.groupBy} onChange={(event) => updateConfig({ groupBy: event.target.value as GroupSource })}>
-            <option value="property">Property</option>
-            <option value="boardSection">Board section</option>
-            <option value="riskLevel">Risk level</option>
-            <option value="assignedTech">Assigned tech</option>
+            <option value="property">{isSpanish ? "Propiedad" : "Property"}</option>
+            <option value="boardSection">{isSpanish ? "Seccion del tablero" : "Board section"}</option>
+            <option value="riskLevel">{isSpanish ? "Nivel de riesgo" : "Risk level"}</option>
+            <option value="assignedTech">{isSpanish ? "Tecnico asignado" : "Assigned tech"}</option>
           </select>
         </label>
-        <label>Color by
+        <label>{isSpanish ? "Color por" : "Color by"}
           <select data-testid="frog-color-by" value={config.colorBy} onChange={(event) => updateConfig({ colorBy: event.target.value as ColorSource })}>
-            <option value="riskLevel">Risk level</option>
-            <option value="vacancyStatus">Vacancy status</option>
-            <option value="makeReadyStatus">Make-ready status</option>
-            <option value="property">Property</option>
+            <option value="riskLevel">{isSpanish ? "Nivel de riesgo" : "Risk level"}</option>
+            <option value="vacancyStatus">{isSpanish ? "Estado de vacancia" : "Vacancy status"}</option>
+            <option value="makeReadyStatus">{isSpanish ? "Estado de make-ready" : "Make-ready status"}</option>
+            <option value="property">{isSpanish ? "Propiedad" : "Property"}</option>
           </select>
         </label>
-        <label>Property
+        <label>{isSpanish ? "Propiedad" : "Property"}
           <select data-testid="frog-property-filter" value={config.propertyId} onChange={(event) => updateConfig({ propertyId: event.target.value })}>
-            <option value="">All accessible properties</option>
+            <option value="">{isSpanish ? "Todas las propiedades accesibles" : "All accessible properties"}</option>
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} · {property.name}</option>)}
           </select>
         </label>
-        <label>Max frogs
+        <label>{isSpanish ? "Maximo de ranas" : "Max frogs"}
           <input data-testid="frog-max-visible" type="number" min="6" max="120" value={config.maxFrogs} onChange={(event) => updateConfig({ maxFrogs: Number(event.target.value) || 36 })} />
         </label>
-        <label>Theme
+        <label>{isSpanish ? "Tema" : "Theme"}
           <select data-testid="frog-theme" value={config.theme} onChange={(event) => updateConfig({ theme: event.target.value as PondTheme })}>
             {pondThemes.map((theme) => <option key={theme.key} value={theme.key}>{theme.label}</option>)}
           </select>
         </label>
-        <label>Density
+        <label>{isSpanish ? "Densidad" : "Density"}
           <select data-testid="frog-density" value={config.density} onChange={(event) => updateConfig({ density: event.target.value as DensityMode })}>
-            <option value="comfortable">Comfortable</option>
-            <option value="dense">Dense</option>
+            <option value="comfortable">{isSpanish ? "Comoda" : "Comfortable"}</option>
+            <option value="dense">{isSpanish ? "Densa" : "Dense"}</option>
           </select>
         </label>
-        <label className="toggle-row"><input data-testid="frog-animation-toggle" type="checkbox" checked={config.animated} onChange={(event) => updateConfig({ animated: event.target.checked })} /> Animation</label>
-        <button type="button" className="button button-secondary frog-reset-positions" data-testid="frog-reset-positions" onClick={resetPositions}>Reset frog positions</button>
+        <label className="toggle-row"><input data-testid="frog-animation-toggle" type="checkbox" checked={config.animated} onChange={(event) => updateConfig({ animated: event.target.checked })} /> {isSpanish ? "Animacion" : "Animation"}</label>
+        <button type="button" className="button button-secondary frog-reset-positions" data-testid="frog-reset-positions" onClick={resetPositions}>{isSpanish ? "Restablecer posiciones" : "Reset frog positions"}</button>
         <div className="frog-presets">
           <select data-testid="frog-preset-select" value="" onChange={(event) => {
             const preset = presets.find((entry) => entry.name === event.target.value);
             if (preset) updateConfig(preset.config);
           }}>
-            <option value="">Load preset</option>
+            <option value="">{isSpanish ? "Cargar preajuste" : "Load preset"}</option>
             {presets.map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}
           </select>
-          <input data-testid="frog-preset-name" value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder="Preset name" />
-          <button data-testid="frog-save-preset" type="button" className="button button-secondary" onClick={savePreset} disabled={!presetName.trim()}>Save</button>
+          <input data-testid="frog-preset-name" value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder={isSpanish ? "Nombre del preajuste" : "Preset name"} />
+          <button data-testid="frog-save-preset" type="button" className="button button-secondary" onClick={savePreset} disabled={!presetName.trim()}>{isSpanish ? "Guardar" : "Save"}</button>
         </div>
       </div>
 
       {scopedItems.length === 0 ? (
         <div className="frog-empty" data-testid="frog-empty-state">
-          <strong>No frogs in this pond.</strong>
-          <span>Try a broader property filter or switch the metric source.</span>
+          <strong>{isSpanish ? "No hay ranas en este estanque." : "No frogs in this pond."}</strong>
+          <span>{isSpanish ? "Pruebe un filtro de propiedad mas amplio o cambie la metrica." : "Try a broader property filter or switch the metric source."}</span>
         </div>
       ) : (
-        <div ref={sceneRef} className="frog-pond-scene" data-testid="frog-pond-scene" aria-label="Frog Pond operational visualization" style={{ "--pond-image": `url("${activePond.url}")` } as CSSProperties}>
+        <div ref={sceneRef} className="frog-pond-scene" data-testid="frog-pond-scene" aria-label={isSpanish ? "Visualizacion operativa de Frog Pond" : "Frog Pond operational visualization"} style={{ "--pond-image": `url("${activePond.url}")` } as CSSProperties}>
           {renderedFrogs.map(({ item, index, group, colorLabel, color, pose, sheet, frame, tadpoleUrl, x, y }) => {
             return (
               <button

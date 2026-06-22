@@ -2,9 +2,10 @@ import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BoardColumnDefinition, BoardSection, ChargePriceSheetItem, CurrentUser, CustomField, FloorPlan, ItemCollaboration, LabelDefinition, MakeReadyItem, StaffOption, UnitHistoryResponse, Vendor, VendorAssignment, WorkAssignmentBlock } from "../lib/api";
 import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, chargeReportCsvUrl, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getPestIssues, getUnitHistory, isApiError, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
-import { enqueueMakeReadyAttachmentUpload } from "../lib/offlineSync";
+import { enqueueMakeReadyAttachmentUpload, enqueueMakeReadyChecklistAttach, enqueueMakeReadyChecklistUpdate, enqueueMakeReadyCommentCreate, enqueueMakeReadyCommentDelete, enqueueMakeReadyCommentUpdate, getOfflineSyncEventName, getOfflineSyncJobs } from "../lib/offlineSync";
 import { boardGroupLabel, configuredBoardColumns } from "../lib/board";
 import { formatDateTime } from "../lib/dateTime";
+import { t, tWithVars } from "../lib/i18n";
 import { openPestQuickAdd, openPestWorkspace } from "../lib/pestNavigation";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { LabelPill } from "./LabelPill";
@@ -112,6 +113,10 @@ function nextAnnotationId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `pin-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function nextOfflineCommentId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? `offline-comment-${crypto.randomUUID()}` : `offline-comment-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function dollarsToCents(value: string) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) : null;
@@ -122,23 +127,23 @@ function centsToDollars(value: number | null | undefined) {
 }
 
 function formatCents(value: number | null | undefined) {
-  return typeof value === "number" ? `$${(value / 100).toFixed(2)}` : "No estimate";
+  return typeof value === "number" ? `$${(value / 100).toFixed(2)}` : t("en", "drawer.noEstimate");
 }
 
-function AttachmentMedia({ attachment, onOpen }: { attachment: DrawerAttachment; onOpen: () => void }) {
+function AttachmentMedia({ attachment, onOpen, language }: { attachment: DrawerAttachment; onOpen: () => void; language: CurrentUser["language"] }) {
   const [failed, setFailed] = useState(false);
   if (attachment.mimeType.startsWith("image/") && !failed) {
     return (
-      <button type="button" className="attachment-preview" data-testid="attachment-preview-trigger" onClick={onOpen} aria-label={`Preview ${attachment.originalName}`}>
+      <button type="button" className="attachment-preview" data-testid="attachment-preview-trigger" onClick={onOpen} aria-label={tWithVars(language, "drawer.previewAttachment", { name: attachment.originalName })}>
         <img src={attachmentDownloadUrl(attachment.id)} alt={attachment.note || attachment.originalName} loading="lazy" onError={() => setFailed(true)} />
       </button>
     );
   }
   return (
-    <button type="button" className="attachment-file" data-testid="attachment-preview-trigger" onClick={onOpen} aria-label={`View details for ${attachment.originalName}`}>
+    <button type="button" className="attachment-file" data-testid="attachment-preview-trigger" onClick={onOpen} aria-label={tWithVars(language, "drawer.viewAttachmentDetails", { name: attachment.originalName })}>
       <span>{attachment.originalName.split(".").pop()?.toUpperCase() || "FILE"}</span>
       <strong>{attachment.originalName}</strong>
-      {failed ? <small>Preview unavailable</small> : null}
+      {failed ? <small>{t(language, "drawer.previewUnavailable")}</small> : null}
     </button>
   );
 }
@@ -170,6 +175,7 @@ export function ItemDrawer({
   onBatch,
 }: Props) {
   const queryClient = useQueryClient();
+  const language = currentUser.language;
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [commentText, setCommentText] = useState("");
@@ -191,6 +197,7 @@ export function ItemDrawer({
   const [vendorDraft, setVendorDraft] = useState({ vendorId: "", trade: "", scheduledDate: "", dueDate: "", notes: "" });
   const [newTemplateName, setNewTemplateName] = useState("");
   const [newTemplateItems, setNewTemplateItems] = useState("");
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const columns = useMemo(() => configuredBoardColumns(columnDefinitions), [columnDefinitions]);
   const drawerColumns = useMemo(() => columns.filter((column) => column.key !== "unitNumber" && column.key !== "notes" && column.key !== "completionStatus"), [columns]);
   const readinessBlockers = useMemo(() => completionBlockers(item), [item]);
@@ -269,6 +276,23 @@ export function ItemDrawer({
     await queryClient.invalidateQueries({ queryKey: ["collaboration", item.id] });
     await queryClient.invalidateQueries({ queryKey: ["notifications"] });
     await queryClient.invalidateQueries({ queryKey: ["my-work"] });
+  };
+  const refreshPendingSyncCount = async () => {
+    const jobs = await getOfflineSyncJobs();
+    const count = jobs.filter((job) => {
+      const payload = job.payload;
+      if ("itemId" in payload && payload.itemId === item.id) {
+        return true;
+      }
+      if (payload.kind === "makeReadyChecklistUpdate") {
+        if (payload.itemId === item.id) {
+          return true;
+        }
+        return Boolean(collaborationQuery.data?.checklistInstances.some((instance) => instance.items.some((entry) => entry.id === payload.checklistItemId)));
+      }
+      return false;
+    }).length;
+    setPendingSyncCount(count);
   };
   const patchAttachmentMetadata = (attachmentId: string, patch: Parameters<typeof updateItemAttachment>[1]) => {
     queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current ? {
@@ -357,10 +381,11 @@ export function ItemDrawer({
       await refreshCollaboration();
       await queryClient.invalidateQueries({ queryKey: ["charge-report", item.id] });
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Operation failed");
+      setError(nextError instanceof Error ? nextError.message : t(language, "drawer.operationFailed"));
       await refreshCollaboration();
     } finally {
       setSaving(null);
+      await refreshPendingSyncCount();
     }
   };
   const toggleChecklistItem = (id: string, completed: boolean) => {
@@ -371,8 +396,25 @@ export function ItemDrawer({
         items: instance.items.map((entry) => entry.id === id ? { ...entry, completed } : entry),
       })),
     } : current);
-    void operation(id, () => updateChecklistItem(id, { completed }));
+    void operation(id, async () => {
+      try {
+        await updateChecklistItem(id, { completed });
+      } catch (nextError) {
+        if (!(isApiError(nextError) && nextError.status === 0)) {
+          throw nextError;
+        }
+        await enqueueMakeReadyChecklistUpdate(item.id, id, { completed });
+      }
+    });
   };
+
+  useEffect(() => {
+    void refreshPendingSyncCount();
+    const queueEventName = getOfflineSyncEventName();
+    const handleQueueUpdate = () => { void refreshPendingSyncCount(); };
+    window.addEventListener(queueEventName, handleQueueUpdate as EventListener);
+    return () => window.removeEventListener(queueEventName, handleQueueUpdate as EventListener);
+  }, [item.id, collaborationQuery.data]);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -401,7 +443,7 @@ export function ItemDrawer({
     try {
       await onPatch(item.id, { [key]: value });
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Update failed");
+      setError(nextError instanceof Error ? nextError.message : t(language, "drawer.updateFailed"));
     } finally {
       setSaving(null);
     }
@@ -412,7 +454,7 @@ export function ItemDrawer({
     try {
       await onPatchCustomField(item.id, field.id, value);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Update failed");
+      setError(nextError instanceof Error ? nextError.message : t(language, "drawer.updateFailed"));
     } finally {
       setSaving(null);
     }
@@ -421,24 +463,24 @@ export function ItemDrawer({
   const renderAttachmentCard = (attachment: DrawerAttachment) => (
     <article key={attachment.id} className={attachment.mimeType.startsWith("image/") ? "attachment-card image" : "attachment-card"} data-testid="attachment-card">
       <div className="attachment-media-wrap">
-        <AttachmentMedia attachment={attachment} onOpen={() => setPreviewAttachmentId(attachment.id)} />
+        <AttachmentMedia attachment={attachment} onOpen={() => setPreviewAttachmentId(attachment.id)} language={language} />
       </div>
       <div className="attachment-card-summary">
         <div className="attachment-meta">
           <strong title={attachment.originalName}>{attachment.originalName}</strong>
           <small>{Math.ceil(attachment.sizeBytes / 1024)} KB / {attachment.uploaderName}</small>
-          <small>{attachmentStageOptions.find((stage) => stage.value === (attachment.inspectionStage || "GENERAL"))?.label ?? "General"}{attachment.category ? ` / ${attachment.category}` : ""}{attachment.chargeCandidate ? " / Charge candidate" : ""}</small>
-          {attachment.chargeCandidate ? <small>{attachment.chargePriceSheetItem?.name ?? "No price-sheet item"} / {formatCents(attachment.chargeEstimatedCents)}</small> : null}
-          {(attachment.markupAnnotations?.length ?? 0) > 0 ? <small>{attachment.markupAnnotations?.length} markup pin{attachment.markupAnnotations?.length === 1 ? "" : "s"}</small> : null}
+          <small>{attachmentStageOptions.find((stage) => stage.value === (attachment.inspectionStage || "GENERAL"))?.label ?? t(language, "drawer.general")}{attachment.category ? ` / ${attachment.category}` : ""}{attachment.chargeCandidate ? ` / ${t(language, "drawer.chargeCandidate")}` : ""}</small>
+          {attachment.chargeCandidate ? <small>{attachment.chargePriceSheetItem?.name ?? t(language, "drawer.noPriceSheetItem")} / {formatCents(attachment.chargeEstimatedCents)}</small> : null}
+          {(attachment.markupAnnotations?.length ?? 0) > 0 ? <small>{attachment.markupAnnotations?.length} {t(language, "drawer.pinCount")}</small> : null}
         </div>
-        <a className="button button-secondary attachment-download-button" data-testid="attachment-download-button" href={attachmentDownloadUrl(attachment.id)} download={attachment.originalName} aria-label={`Download ${attachment.originalName}`}>
-          Download
+        <a className="button button-secondary attachment-download-button" data-testid="attachment-download-button" href={attachmentDownloadUrl(attachment.id)} download={attachment.originalName} aria-label={`${t(language, "drawer.download")} ${attachment.originalName}`}>
+          {t(language, "drawer.download")}
         </a>
       </div>
       <details className="attachment-editor">
-        <summary data-testid="attachment-editor-toggle">Details & notes</summary>
+        <summary data-testid="attachment-editor-toggle">{t(language, "drawer.detailsAndNotes")}</summary>
         <div className="attachment-metadata-grid">
-          <label>Inspection stage
+          <label>{t(language, "drawer.inspectionStage")}
             <select
               data-testid="attachment-stage-select"
               value={attachment.inspectionStage || "GENERAL"}
@@ -448,13 +490,13 @@ export function ItemDrawer({
               {attachmentStageOptions.filter((stage) => !["ALL", "NEEDS_CLASSIFICATION", "CHARGE_CANDIDATES"].includes(stage.value)).map((stage) => <option key={stage.value} value={stage.value}>{stage.label}</option>)}
             </select>
           </label>
-          <label>Category
+          <label>{t(language, "drawer.category")}
             <input
               list="attachment-category-options"
               data-testid="attachment-category-input"
               defaultValue={attachment.category ?? ""}
               disabled={!canCollaborate || (attachment.uploadedById !== currentUser.id && !canManageItems)}
-              placeholder="Damage, cleaning, trash-out..."
+              placeholder={t(language, "drawer.damagePlaceholder")}
               onBlur={(event) => patchAttachmentMetadata(attachment.id, { category: event.target.value || null })}
             />
           </label>
@@ -466,11 +508,11 @@ export function ItemDrawer({
               disabled={!canCollaborate || (attachment.uploadedById !== currentUser.id && !canManageItems)}
               onChange={(event) => patchAttachmentMetadata(attachment.id, { chargeCandidate: event.target.checked })}
             />
-            Charge candidate
+            {t(language, "drawer.chargeCandidate")}
           </label>
           {attachment.chargeCandidate ? (
             <>
-              <label>Price sheet
+              <label>{t(language, "drawer.priceSheet")}
                 <select
                   data-testid="attachment-charge-price-select"
                   value={attachment.chargePriceSheetItemId ?? ""}
@@ -484,13 +526,13 @@ export function ItemDrawer({
                     });
                   }}
                 >
-                  <option value="">No price-sheet item</option>
+                  <option value="">{t(language, "drawer.noPriceSheetItem")}</option>
                   {(chargePriceSheetQuery.data?.items ?? []).filter((entry) => entry.isActive && !entry.isArchived).map((entry) => (
                     <option key={entry.id} value={entry.id}>{entry.name}{entry.defaultCents !== null ? ` (${formatCents(entry.defaultCents)})` : ""}</option>
                   ))}
                 </select>
               </label>
-              <label>Quantity
+              <label>{t(language, "drawer.quantity")}
                 <input
                   type="number"
                   min="0"
@@ -501,7 +543,7 @@ export function ItemDrawer({
                   onBlur={(event) => patchAttachmentMetadata(attachment.id, { chargeQuantity: event.target.value ? Number(event.target.value) : null })}
                 />
               </label>
-              <label>Estimate
+              <label>{t(language, "drawer.estimate")}
                 <input
                   type="number"
                   min="0"
@@ -515,25 +557,25 @@ export function ItemDrawer({
             </>
           ) : null}
         </div>
-        <label className="attachment-note">Image/file note
+        <label className="attachment-note">{t(language, "drawer.imageFileNote")}
           <textarea
             data-testid={`attachment-note-${attachment.id}`}
             defaultValue={attachment.note ?? ""}
             disabled={!canCollaborate || (attachment.uploadedById !== currentUser.id && !canManageItems)}
-            placeholder="Damage, cleaning, trash-out, charge notes..."
+            placeholder={t(language, "drawer.chargeNotesPlaceholder")}
             onBlur={(event) => patchAttachmentMetadata(attachment.id, { note: event.target.value || null })}
           />
         </label>
-        <label className="attachment-note">Charge / recovery note
+        <label className="attachment-note">{t(language, "drawer.chargeRecoveryNote")}
           <textarea
             data-testid={`attachment-charge-note-${attachment.id}`}
             defaultValue={attachment.chargeNote ?? ""}
             disabled={!canCollaborate || (attachment.uploadedById !== currentUser.id && !canManageItems)}
-            placeholder="Optional charge context, damage responsibility, or follow-up..."
+            placeholder={t(language, "drawer.chargeContextPlaceholder")}
             onBlur={(event) => patchAttachmentMetadata(attachment.id, { chargeNote: event.target.value || null })}
           />
         </label>
-        {canCollaborate && (attachment.uploadedById === currentUser.id || canManageItems) ? <button className="button button-ghost danger" type="button" onClick={() => void operation(`attachment-delete-${attachment.id}`, () => deleteItemAttachment(attachment.id))}>Remove</button> : null}
+        {canCollaborate && (attachment.uploadedById === currentUser.id || canManageItems) ? <button className="button button-ghost danger" type="button" onClick={() => void operation(`attachment-delete-${attachment.id}`, () => deleteItemAttachment(attachment.id))}>{t(language, "drawer.remove")}</button> : null}
       </details>
     </article>
   );
@@ -541,7 +583,7 @@ export function ItemDrawer({
   return (
     <>
       <div className="item-drawer-backdrop" onClick={onClose} aria-hidden="true" />
-      <aside className="item-drawer" data-testid="item-drawer" aria-label={`Details for ${item.unitNumber}`}>
+      <aside className="item-drawer" data-testid="item-drawer" aria-label={tWithVars(language, "drawer.detailsForUnit", { unit: item.unitNumber })}>
         <header className="item-drawer-header">
           <div>
             <span className="drawer-kicker">{item.property.code} / {boardGroupLabel(item.boardGroup, item.propertyId, boardSections)}</span>
@@ -552,23 +594,24 @@ export function ItemDrawer({
               {item.riskLevel && item.riskLevel !== "NONE" ? <span className={`risk-level-badge ${item.riskLevel.toLowerCase()}`}>{item.riskLevel} risk / {item.riskScore}</span> : null}
             </div>
           </div>
-          <button type="button" className="drawer-close" data-testid="item-drawer-close" onClick={onClose} aria-label="Close item details">×</button>
+          <button type="button" className="drawer-close" data-testid="item-drawer-close" onClick={onClose} aria-label={t(language, "drawer.closeDetails")}>×</button>
         </header>
 
         {error ? <p className="drawer-error" role="alert">{error}</p> : null}
+        {pendingSyncCount ? <p className="drawer-empty" role="status">{t(language, "drawer.pendingSync").replace("{count}", String(pendingSyncCount))}</p> : null}
         <section className="drawer-section risk-drawer-section" data-testid="drawer-risk-section">
-          <h3>SLA / Risk</h3>
+          <h3>{t(language, "drawer.slaRisk")}</h3>
           {item.riskLevel && item.riskLevel !== "NONE" ? (
             <>
-              <p><strong className={`risk-level-badge ${item.riskLevel.toLowerCase()}`}>{item.riskLevel}</strong> Score {item.riskScore}{item.lastRiskEvaluatedAt ? ` / evaluated ${formatDateTime(item.lastRiskEvaluatedAt)}` : ""}</p>
+              <p><strong className={`risk-level-badge ${item.riskLevel.toLowerCase()}`}>{item.riskLevel}</strong> Score {item.riskScore}{item.lastRiskEvaluatedAt ? ` / ${t(language, "drawer.evaluated")} ${formatDateTime(item.lastRiskEvaluatedAt)}` : ""}</p>
               <ul className="risk-reason-list">
                 {(item.riskReasons ?? []).map((reason, index) => <li key={`${reason.category}-${index}`}><strong>{reason.category.replace(/_/g, " ")}</strong><span>{reason.message}</span></li>)}
               </ul>
             </>
-          ) : <p className="drawer-empty">No active SLA risk flags for this item.</p>}
+          ) : <p className="drawer-empty">{t(language, "drawer.noActiveRiskFlags")}</p>}
         </section>
         <section className="drawer-section">
-          <h3>Turn Details</h3>
+          <h3>{t(language, "drawer.turnDetails")}</h3>
           <div className="drawer-fields">
             {drawerColumns.map((column) => {
               const value = item[column.key as keyof MakeReadyItem];
@@ -580,7 +623,7 @@ export function ItemDrawer({
                 const options = floorPlans.filter((plan) => plan.propertyId === item.propertyId && (plan.isActive || plan.id === currentPlan?.id));
                 return (
                   <label className="drawer-field" key={column.key}>
-                    <span>{column.label}{legacy ? " / LEGACY" : ""}</span>
+                    <span>{column.label}{legacy ? ` / ${t(language, "drawer.legacy")}` : ""}</span>
                     <select
                       data-testid={`drawer-field-${column.key}`}
                       value={currentPlan?.id ?? ""}
@@ -595,7 +638,7 @@ export function ItemDrawer({
                         }
                       }}
                     >
-                      <option value="">{legacy ? `LEGACY: ${item.floorPlan}` : "Select managed floor plan"}</option>
+                      <option value="">{legacy ? `${t(language, "drawer.legacy")}: ${item.floorPlan}` : t(language, "drawer.selectManagedFloorPlan")}</option>
                       {options.map((plan) => <option key={plan.id} value={plan.id}>{floorPlanLabel(plan)} / {plan.bedrooms ?? "-"} bd / {plan.bathrooms ?? "-"} ba / {plan.squareFeet ?? "-"} sqft</option>)}
                     </select>
                     {currentPlan?.description ? <small>{currentPlan.description}</small> : null}
@@ -608,7 +651,7 @@ export function ItemDrawer({
                   <label className="drawer-field" key={column.key}>
                     <span>{column.label}</span>
                     <select data-testid={`drawer-field-${column.key}`} value={typeof value === "string" ? value : ""} disabled={!editable || busy} onChange={(event) => void commit(column.key, event.target.value || null)}>
-                      <option value="">Unset</option>
+                      <option value="">{t(language, "drawer.unset")}</option>
                       {options.map((option) => <option key={option.id} value={option.value}>{option.value}{option.isArchived ? " (archived)" : ""}</option>)}
                     </select>
                   </label>
@@ -620,7 +663,7 @@ export function ItemDrawer({
                   <label className="drawer-field" key={column.key}>
                     <span>{column.label}</span>
                     <select data-testid={`drawer-field-${column.key}`} value={typeof value === "string" ? value : ""} disabled={!editable || busy} onChange={(event) => void commit(column.key, event.target.value || null)}>
-                      <option value="">Unassigned</option>
+                      <option value="">{t(language, "drawer.unassigned")}</option>
                       {legacy ? <option value={String(value)}>{String(value)} (legacy)</option> : null}
                       {staff.map((person) => <option key={person.id} value={person.fullName}>{person.fullName} - {person.role}</option>)}
                     </select>
@@ -629,7 +672,7 @@ export function ItemDrawer({
               }
               return (
                 <label className="drawer-field" key={column.key}>
-                  <span>{column.label}{busy ? " / Saving" : ""}</span>
+                  <span>{column.label}{busy ? ` / ${t(language, "drawer.saving")}` : ""}</span>
                   <input
                     key={`${column.key}:${String(value ?? "")}`}
                     data-testid={`drawer-field-${column.key}`}
@@ -645,8 +688,8 @@ export function ItemDrawer({
         </section>
 
         <section className="drawer-section">
-          <h3>Custom Fields</h3>
-          {customFields.length === 0 ? <p className="drawer-empty">No custom fields configured.</p> : (
+          <h3>{t(language, "drawer.customFields")}</h3>
+          {customFields.length === 0 ? <p className="drawer-empty">{t(language, "drawer.noCustomFields")}</p> : (
             <div className="drawer-fields">
               {customFields.filter((field) => !field.isArchived).map((field) => {
                 const value = customValue(item, field.id);
@@ -655,7 +698,7 @@ export function ItemDrawer({
                   <label className="drawer-field" key={field.id}>
                     <span>{field.label}</span>
                     <select value={typeof value === "string" ? value : ""} disabled={!canEditCustomFields || busy} onChange={(event) => void commitCustom(field, event.target.value || null)}>
-                      <option value="">Unset</option>
+                      <option value="">{t(language, "drawer.unset")}</option>
                       {field.options.filter((option) => !option.isArchived || option.label === value).map((option) => <option key={option.id} value={option.label}>{option.label}</option>)}
                     </select>
                   </label>
@@ -682,7 +725,7 @@ export function ItemDrawer({
                   <label className="drawer-field" key={field.id}>
                     <span>{field.label}</span>
                     <select value={typeof value === "boolean" ? String(value) : ""} disabled={!canEditCustomFields || busy} onChange={(event) => void commitCustom(field, event.target.value === "" ? null : event.target.value === "true")}>
-                      <option value="">Unset</option><option value="true">Yes</option><option value="false">No</option>
+                      <option value="">{t(language, "drawer.unset")}</option><option value="true">{t(language, "drawer.yes")}</option><option value="false">{t(language, "drawer.no")}</option>
                     </select>
                   </label>
                 );
@@ -698,30 +741,30 @@ export function ItemDrawer({
         </section>
 
         <section className="drawer-section completion-section" data-testid="drawer-completion-section">
-          <h3>Completion & Final Walk</h3>
+          <h3>{t(language, "drawer.completionFinalWalk")}</h3>
           <p className="drawer-empty">
-            Tech completion moves this turn to Final Walk and notifies managers/admins. A manager/admin final walk is required before the unit moves to Ready Units.
+            {t(language, "drawer.completionHelp")}
           </p>
           {readinessBlockers.length > 0 ? (
             <div className="completion-warning" role="status">
-              <strong>Readiness warnings</strong>
+              <strong>{t(language, "drawer.readinessWarnings")}</strong>
               <ul>
                 {readinessBlockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
               </ul>
             </div>
           ) : (
-            <div className="completion-ready" role="status">No common readiness blockers detected.</div>
+            <div className="completion-ready" role="status">{t(language, "drawer.noReadinessBlockers")}</div>
           )}
           <div className="drawer-fields">
             <label className="drawer-field">
-              <span>Completed{saving === "completionStatus" ? " / Saving" : ""}</span>
+              <span>{t(language, "drawer.completed")}{saving === "completionStatus" ? ` / ${t(language, "drawer.saving")}` : ""}</span>
               <select
                 data-testid="drawer-field-completionStatus"
                 value={item.completionStatus ?? ""}
                 disabled={!canEditField(item, "completionStatus") || saving === "completionStatus"}
                 onChange={(event) => void commit("completionStatus", event.target.value || null)}
               >
-                <option value="">Unset</option>
+                <option value="">{t(language, "drawer.unset")}</option>
                 {completionOptions.map((option) => <option key={option.id} value={option.value}>{option.value}{option.isArchived ? " (archived)" : ""}</option>)}
               </select>
             </label>
@@ -738,20 +781,20 @@ export function ItemDrawer({
                 try {
                   await onMarkReady(item.id);
                 } catch (nextError) {
-                  setError(nextError instanceof Error ? nextError.message : "Could not mark unit ready");
+                  setError(nextError instanceof Error ? nextError.message : t(language, "drawer.couldNotMarkReady"));
                 } finally {
                   setSaving(null);
                 }
               }}
             >
-              {saving === "markReady" ? "Marking ready..." : "Manager Signoff: Mark Ready"}
+              {saving === "markReady" ? t(language, "drawer.markingReady") : t(language, "drawer.managerSignoffMarkReady")}
             </button>
           ) : null}
         </section>
 
         <section className="drawer-section" data-testid="drawer-planning-summary">
-          <div className="drawer-section-title"><h3>In-House Planning</h3><span className="muted">{itemWorkBlocks.length} block{itemWorkBlocks.length === 1 ? "" : "s"}</span></div>
-          {itemWorkBlocks.length === 0 ? <p className="drawer-empty">No in-house work is planned yet. Use the Planning tab to schedule staff coverage.</p> : (
+          <div className="drawer-section-title"><h3>{t(language, "drawer.inHousePlanning")}</h3><span className="muted">{t(language, "drawer.blocksCount").replace("{count}", String(itemWorkBlocks.length)).replace("{suffix}", itemWorkBlocks.length === 1 ? "" : "s")}</span></div>
+          {itemWorkBlocks.length === 0 ? <p className="drawer-empty">{t(language, "drawer.noInHousePlanning")}</p> : (
             <div className="attachment-list">
               {itemWorkBlocks.map((block) => (
                 <div key={block.id} className="attachment-row vendor-assignment-row">
@@ -766,7 +809,7 @@ export function ItemDrawer({
 
         <section className="drawer-section" data-testid="drawer-wiki-context">
           <PropertyWikiWorkflowPanel
-            title="Wiki References, Standards, and Known Issues"
+            title={t(language, "drawer.wikiTitle")}
             module="MAKE_READY"
             propertyId={item.propertyId}
             recordType="MAKE_READY_ITEM"
@@ -782,8 +825,8 @@ export function ItemDrawer({
 
         <section className="drawer-section" data-testid="drawer-pest-context">
           <div className="drawer-section-title">
-            <h3>Pest Control</h3>
-            <span className="muted">{linkedPestIssuesQuery.data?.issues.length ?? 0} linked</span>
+            <h3>{t(language, "drawer.pestControl")}</h3>
+            <span className="muted">{t(language, "drawer.linkedCount").replace("{count}", String(linkedPestIssuesQuery.data?.issues.length ?? 0))}</span>
           </div>
           <div className="drawer-actions" style={{ marginBottom: 12 }}>
             <button
@@ -799,27 +842,27 @@ export function ItemDrawer({
                 description: item.notes ?? undefined,
               })}
             >
-              Create Pest Request
+              {t(language, "drawer.createPestRequest")}
             </button>
             <button
               type="button"
               className="button button-ghost"
               onClick={() => openPestWorkspace({ propertyId: item.propertyId, tab: "make-ready", makeReadyItemId: item.id })}
             >
-              Open Linked Pest
+              {t(language, "drawer.openLinkedPest")}
             </button>
           </div>
-          {linkedPestIssuesQuery.isLoading ? <p className="drawer-empty">Loading linked pest requests...</p> : linkedPestIssuesQuery.isError ? (
-            <p className="drawer-empty">Linked pest requests could not be loaded.</p>
+          {linkedPestIssuesQuery.isLoading ? <p className="drawer-empty">{t(language, "drawer.loadingLinkedPest")}</p> : linkedPestIssuesQuery.isError ? (
+            <p className="drawer-empty">{t(language, "drawer.linkedPestLoadFailed")}</p>
           ) : !(linkedPestIssuesQuery.data?.issues.length) ? (
-            <p className="drawer-empty">No pest requests are linked to this make-ready item yet.</p>
+            <p className="drawer-empty">{t(language, "drawer.noLinkedPest")}</p>
           ) : (
             <div className="attachment-list">
               {linkedPestIssuesQuery.data?.issues.slice(0, 4).map((issue) => (
                 <div key={issue.id} className="attachment-row vendor-assignment-row">
                   <strong>{issue.pestType}{issue.additionalPestType ? ` / ${issue.additionalPestType}` : ""}</strong>
                   <small>{issue.status} / {issue.priority} / {issue.requestDate.slice(0, 10)}</small>
-                  <small>{issue.area ?? issue.unit?.number ?? item.unitNumber}{issue.followUpDate ? ` / Follow up ${issue.followUpDate.slice(0, 10)}` : ""}</small>
+                  <small>{issue.area ?? issue.unit?.number ?? item.unitNumber}{issue.followUpDate ? ` / ${t(language, "drawer.followUpDateShort").replace("{date}", issue.followUpDate.slice(0, 10))}` : ""}</small>
                 </div>
               ))}
             </div>
@@ -827,20 +870,20 @@ export function ItemDrawer({
         </section>
 
         <section className="drawer-section" data-testid="drawer-vendor-assignments">
-          <div className="drawer-section-title"><h3>Vendor Work</h3><span className="muted">{itemVendorAssignments.length} assignment{itemVendorAssignments.length === 1 ? "" : "s"}</span></div>
-          {itemVendorAssignments.length === 0 ? <p className="drawer-empty">No vendor or contractor work assigned.</p> : (
+          <div className="drawer-section-title"><h3>{t(language, "drawer.vendorWork")}</h3><span className="muted">{t(language, "drawer.assignmentCount").replace("{count}", String(itemVendorAssignments.length)).replace("{suffix}", itemVendorAssignments.length === 1 ? "" : "s")}</span></div>
+          {itemVendorAssignments.length === 0 ? <p className="drawer-empty">{t(language, "drawer.noVendorWork")}</p> : (
             <div className="attachment-list">
               {itemVendorAssignments.map((assignment) => (
                 <div key={assignment.id} className="attachment-row vendor-assignment-row">
                   <strong>{assignment.vendor.name} / {assignment.trade}</strong>
-                  <small>Scheduled {assignment.scheduledDate?.slice(0, 10) ?? "not set"} / Due {assignment.dueDate?.slice(0, 10) ?? "not set"}</small>
+                  <small>{t(language, "drawer.scheduled")} {assignment.scheduledDate?.slice(0, 10) ?? t(language, "drawer.notSet")} / {t(language, "drawer.due")} {assignment.dueDate?.slice(0, 10) ?? t(language, "drawer.notSet")}</small>
                   <select disabled={!canUpdateVendorWork || saving === assignment.id} value={assignment.status} onChange={(event) => void operation(assignment.id, () => onUpdateVendorAssignment(assignment.id, { status: event.target.value as VendorAssignment["status"] }))}>
-                    <option value="REQUESTED">Requested</option>
-                    <option value="SCHEDULED">Scheduled</option>
-                    <option value="IN_PROGRESS">In Progress</option>
-                    <option value="COMPLETED">Completed</option>
-                    <option value="CANCELED">Canceled</option>
-                    <option value="FOLLOW_UP_NEEDED">Follow-Up Needed</option>
+                    <option value="REQUESTED">{t(language, "drawer.requested")}</option>
+                    <option value="SCHEDULED">{t(language, "drawer.scheduled")}</option>
+                    <option value="IN_PROGRESS">{t(language, "drawer.inProgress")}</option>
+                    <option value="COMPLETED">{t(language, "drawer.completedStatus")}</option>
+                    <option value="CANCELED">{t(language, "drawer.canceled")}</option>
+                    <option value="FOLLOW_UP_NEEDED">{t(language, "drawer.followUpNeeded")}</option>
                   </select>
                 </div>
               ))}
@@ -867,53 +910,97 @@ export function ItemDrawer({
                 const vendor = vendors.find((entry) => entry.id === event.target.value);
                 setVendorDraft((current) => ({ ...current, vendorId: event.target.value, trade: vendor?.trade ?? current.trade }));
               }}>
-                <option value="">Assign vendor...</option>
+                <option value="">{t(language, "drawer.assignVendor")}</option>
                 {vendors.filter((vendor) => vendor.isActive).map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name} / {vendor.trade}</option>)}
               </select>
-              <input value={vendorDraft.trade} onChange={(event) => setVendorDraft((current) => ({ ...current, trade: event.target.value }))} placeholder="Trade" />
-              <label>Scheduled<input type="date" value={vendorDraft.scheduledDate} onChange={(event) => setVendorDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></label>
-              <label>Due<input type="date" value={vendorDraft.dueDate} onChange={(event) => setVendorDraft((current) => ({ ...current, dueDate: event.target.value }))} /></label>
-              <textarea value={vendorDraft.notes} onChange={(event) => setVendorDraft((current) => ({ ...current, notes: event.target.value }))} placeholder="Vendor notes" />
-              <button className="button button-secondary" data-testid="drawer-vendor-assignment-submit" disabled={!vendorDraft.vendorId || !vendorDraft.trade.trim()}>Add Vendor Work</button>
+              <input value={vendorDraft.trade} onChange={(event) => setVendorDraft((current) => ({ ...current, trade: event.target.value }))} placeholder={t(language, "drawer.tradePlaceholder")} />
+              <label>{t(language, "drawer.scheduled")}<input type="date" value={vendorDraft.scheduledDate} onChange={(event) => setVendorDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></label>
+              <label>{t(language, "drawer.due")}<input type="date" value={vendorDraft.dueDate} onChange={(event) => setVendorDraft((current) => ({ ...current, dueDate: event.target.value }))} /></label>
+              <textarea value={vendorDraft.notes} onChange={(event) => setVendorDraft((current) => ({ ...current, notes: event.target.value }))} placeholder={t(language, "drawer.vendorNotesPlaceholder")} />
+              <button className="button button-secondary" data-testid="drawer-vendor-assignment-submit" disabled={!vendorDraft.vendorId || !vendorDraft.trade.trim()}>{t(language, "drawer.addVendorWork")}</button>
             </form>
           ) : null}
         </section>
 
         <section className="drawer-section">
-          <h3>Notes &amp; Updates</h3>
-          <textarea key={`notes:${item.notes ?? ""}`} data-testid="drawer-notes" defaultValue={item.notes ?? ""} disabled={!canEditField(item, "notes")} placeholder="Operational notes" onBlur={(event) => void commit("notes", event.target.value || null)} />
+          <h3>{t(language, "drawer.notesUpdates")}</h3>
+          <textarea key={`notes:${item.notes ?? ""}`} data-testid="drawer-notes" defaultValue={item.notes ?? ""} disabled={!canEditField(item, "notes")} placeholder={t(language, "drawer.operationalNotes")} onBlur={(event) => void commit("notes", event.target.value || null)} />
           {canCollaborate ? (
             <form className="comment-compose" data-testid="comment-compose" onSubmit={(event) => {
               event.preventDefault();
               if (!commentText.trim()) return;
               void operation("comment", async () => {
-                if (editingCommentId) await updateItemComment(item.id, editingCommentId, commentText);
-                else await createItemComment(item.id, commentText);
+                try {
+                  if (editingCommentId) await updateItemComment(item.id, editingCommentId, commentText);
+                  else await createItemComment(item.id, commentText);
+                } catch (nextError) {
+                  if (!(isApiError(nextError) && nextError.status === 0)) {
+                    throw nextError;
+                  }
+                  if (editingCommentId) {
+                    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current ? {
+                      ...current,
+                      comments: current.comments.map((comment) => comment.id === editingCommentId ? { ...comment, body: commentText, editedAt: new Date().toISOString() } : comment),
+                    } : current);
+                    await enqueueMakeReadyCommentUpdate(item.id, editingCommentId, commentText);
+                  } else {
+                    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current ? {
+                      ...current,
+                      comments: [
+                        {
+                          id: nextOfflineCommentId(),
+                          body: commentText,
+                          authorName: currentUser.fullName,
+                          authorUserId: currentUser.id,
+                          category: "GENERAL",
+                          createdAt: new Date().toISOString(),
+                          editedAt: null,
+                        },
+                        ...current.comments,
+                      ],
+                    } : current);
+                    await enqueueMakeReadyCommentCreate(item.id, commentText);
+                  }
+                }
                 setCommentText("");
                 setEditingCommentId(null);
               });
             }}>
-              <label><span className="sr-only">Add operational update</span>
-                <textarea data-testid="comment-input" value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder="Add update: work completed, vendor scheduled, issue found..." />
+              <label><span className="sr-only">{t(language, "drawer.addOperationalUpdate")}</span>
+                <textarea data-testid="comment-input" value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder={t(language, "drawer.updatePlaceholder")} />
               </label>
               <div>
-                {editingCommentId ? <button className="button button-ghost" type="button" onClick={() => { setEditingCommentId(null); setCommentText(""); }}>Cancel edit</button> : null}
-                <button className="button button-primary" data-testid="comment-submit" disabled={!commentText.trim() || saving === "comment"}>{editingCommentId ? "Save update" : "Post update"}</button>
+                {editingCommentId ? <button className="button button-ghost" type="button" onClick={() => { setEditingCommentId(null); setCommentText(""); }}>{t(language, "drawer.cancelEdit")}</button> : null}
+                <button className="button button-primary" data-testid="comment-submit" disabled={!commentText.trim() || saving === "comment"}>{editingCommentId ? t(language, "drawer.saveUpdate") : t(language, "drawer.postUpdate")}</button>
               </div>
             </form>
           ) : null}
-          {collaborationQuery.isLoading ? <p className="drawer-empty">Loading updates...</p> : !collaborationQuery.data?.comments.length ? <p className="drawer-empty">No updates recorded. Use this space for field notes and handoffs.</p> : (
+          {collaborationQuery.isLoading ? <p className="drawer-empty">{t(language, "drawer.loadingUpdates")}</p> : !collaborationQuery.data?.comments.length ? <p className="drawer-empty">{t(language, "drawer.noUpdates")}</p> : (
             <div className="comment-list" data-testid="comment-list">
               {collaborationQuery.data.comments.map((comment) => (
                 <article key={comment.id} className="comment-card">
-                  <header><strong>{comment.authorName}</strong><time>{formatDateTime(comment.createdAt)}{comment.editedAt ? " / edited" : ""}</time></header>
+                  <header><strong>{comment.authorName}</strong><time>{formatDateTime(comment.createdAt)}{comment.editedAt ? ` / ${t(language, "drawer.edited")}` : ""}</time></header>
                   <p>{comment.body}</p>
-                  {canCollaborate && (comment.authorUserId === currentUser.id || canManageItems) ? (
+                  {canCollaborate && !comment.id.startsWith("offline-comment-") && (comment.authorUserId === currentUser.id || canManageItems) ? (
                     <div className="comment-actions">
-                      <button type="button" className="button button-ghost" onClick={() => { setEditingCommentId(comment.id); setCommentText(comment.body); }}>Edit</button>
-                      <button type="button" className="button button-ghost danger" onClick={() => void operation(`comment-delete-${comment.id}`, () => deleteItemComment(item.id, comment.id))}>Remove</button>
+                      <button type="button" className="button button-ghost" onClick={() => { setEditingCommentId(comment.id); setCommentText(comment.body); }}>{t(language, "drawer.edit")}</button>
+                      <button type="button" className="button button-ghost danger" onClick={() => void operation(`comment-delete-${comment.id}`, async () => {
+                        queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current ? {
+                          ...current,
+                          comments: current.comments.filter((entry) => entry.id !== comment.id),
+                        } : current);
+                        try {
+                          await deleteItemComment(item.id, comment.id);
+                        } catch (nextError) {
+                          if (!(isApiError(nextError) && nextError.status === 0)) {
+                            throw nextError;
+                          }
+                          await enqueueMakeReadyCommentDelete(item.id, comment.id);
+                        }
+                      })}>{t(language, "drawer.remove")}</button>
                     </div>
                   ) : null}
+                  {comment.id.startsWith("offline-comment-") ? <small>{t(language, "drawer.pendingCommentSync")}</small> : null}
                 </article>
               ))}
             </div>
@@ -921,9 +1008,9 @@ export function ItemDrawer({
         </section>
 
         <section className="drawer-section" data-testid="drawer-attachments">
-          <div className="drawer-section-title"><h3>Photos &amp; Attachments</h3>{canCollaborate ? (
+          <div className="drawer-section-title"><h3>{t(language, "drawer.photosAttachments")}</h3>{canCollaborate ? (
             <label className="button button-secondary file-action">
-              Upload Photos/Files
+              {t(language, "drawer.uploadPhotosFiles")}
               <input data-testid="attachment-upload" type="file" multiple accept={attachmentAccept} onChange={(event) => {
                 uploadFiles(event.target.files);
                 event.target.value = "";
@@ -931,11 +1018,11 @@ export function ItemDrawer({
             </label>
           ) : null}</div>
           <div className="attachment-workflow-summary">
-            <span><strong>{attachments.length}</strong> files</span>
-            <span><strong>{imageCount}</strong> images</span>
-            <span><strong>{chargeCount}</strong> charge candidates</span>
-            <span><strong>{needsClassification.length}</strong> need classification</span>
-            <span>Use stages for NTV, vacated, initial walk, scope, work, and final-walk documentation.</span>
+            <span><strong>{attachments.length}</strong> {t(language, "drawer.files")}</span>
+            <span><strong>{imageCount}</strong> {t(language, "drawer.images")}</span>
+            <span><strong>{chargeCount}</strong> {t(language, "drawer.chargeCandidates")}</span>
+            <span><strong>{needsClassification.length}</strong> {t(language, "drawer.needClassification")}</span>
+            <span>{t(language, "drawer.galleryHelp")}</span>
           </div>
           {attachments.length ? (
             <div className="attachment-stage-filter" data-testid="attachment-stage-filter">
@@ -955,7 +1042,7 @@ export function ItemDrawer({
               })}
             </div>
           ) : null}
-          {!attachments.length ? <p className="drawer-empty">No local files uploaded. Phone photo capture is supported.</p> : filteredAttachments.length === 0 ? <p className="drawer-empty">No files match this inspection stage.</p> : (
+          {!attachments.length ? <p className="drawer-empty">{t(language, "drawer.noLocalFiles")}</p> : filteredAttachments.length === 0 ? <p className="drawer-empty">{t(language, "drawer.noFilesMatchStage")}</p> : (
             <div className="attachment-drawer-preview">
               <div className="attachment-thumb-strip">
                 {recentAttachments.map((attachment) => (
@@ -965,14 +1052,14 @@ export function ItemDrawer({
                 ))}
               </div>
               <button type="button" className="button button-primary" data-testid="attachment-gallery-open" onClick={() => setAttachmentGalleryOpen(true)}>
-                Open Inspection Gallery
+                {t(language, "drawer.openInspectionGallery")}
               </button>
               {chargeCount ? (
                 <a className="button button-secondary" data-testid="attachment-charge-package-download" href={attachmentArchiveUrl(item.id, { stage: "CHARGE_CANDIDATES" })} download={`${item.unitNumber}-charge-candidates.zip`}>
-                  Download Charge Package
+                  {t(language, "drawer.downloadChargePackage")}
                 </a>
               ) : null}
-              <p className="drawer-empty">{filteredAttachments.length > recentAttachments.length ? `${filteredAttachments.length - recentAttachments.length} more files in this filter. ` : ""}Use the gallery to classify walk photos, damage candidates, and charge notes without crowding the drawer.</p>
+              <p className="drawer-empty">{filteredAttachments.length > recentAttachments.length ? tWithVars(language, "drawer.moreFilesInFilter", { count: filteredAttachments.length - recentAttachments.length }) : ""}{t(language, "drawer.classifyPhotosHelp")}</p>
             </div>
           )}
           <datalist id="attachment-category-options">
@@ -981,14 +1068,46 @@ export function ItemDrawer({
         </section>
 
         <section className="drawer-section" data-testid="drawer-checklists">
-          <h3>Checklists</h3>
+          <h3>{t(language, "drawer.checklists")}</h3>
           {canManageItems ? (
             <div className="checklist-attach">
               <select data-testid="checklist-template-select" value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
-                <option value="">Attach template...</option>
+                <option value="">{t(language, "drawer.attachTemplate")}</option>
                 {collaborationQuery.data?.templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
               </select>
-              <button className="button button-secondary" data-testid="checklist-attach" type="button" disabled={!templateId} onClick={() => void operation("attach-checklist", async () => { await attachChecklist(item.id, templateId); setTemplateId(""); })}>Attach</button>
+              <button className="button button-secondary" data-testid="checklist-attach" type="button" disabled={!templateId} onClick={() => void operation("attach-checklist", async () => {
+                const selectedTemplate = collaborationQuery.data?.templates.find((template) => template.id === templateId) ?? null;
+                try {
+                  await attachChecklist(item.id, templateId);
+                } catch (nextError) {
+                  if (!(isApiError(nextError) && nextError.status === 0)) {
+                    throw nextError;
+                  }
+                  if (selectedTemplate) {
+                    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current ? {
+                      ...current,
+                      checklistInstances: [
+                        ...current.checklistInstances,
+                        {
+                          id: `offline-checklist-${Date.now()}`,
+                          name: `${selectedTemplate.name} (${t(language, "drawer.pendingChecklistSync")})`,
+                          items: selectedTemplate.items.map((entry) => ({
+                            id: `offline-checklist-item-${entry.id}`,
+                            title: entry.label,
+                            notes: entry.notes,
+                            required: entry.required,
+                            completed: false,
+                            completedAt: null,
+                            completedBy: null,
+                          })),
+                        },
+                      ],
+                    } : current);
+                  }
+                  await enqueueMakeReadyChecklistAttach(item.id, templateId);
+                }
+                setTemplateId("");
+              })}>{t(language, "drawer.attach")}</button>
             </div>
           ) : null}
           {collaborationQuery.data?.checklistInstances.map((instance) => {
@@ -1008,39 +1127,39 @@ export function ItemDrawer({
               </article>
             );
           })}
-          {!collaborationQuery.data?.checklistInstances.length ? <p className="drawer-empty">No checklist attached to this turnover.</p> : null}
+          {!collaborationQuery.data?.checklistInstances.length ? <p className="drawer-empty">{t(language, "drawer.noChecklist")}</p> : null}
           {canManageItems ? (
             <details className="template-quick-create">
-              <summary>Create template</summary>
-              <input data-testid="checklist-template-name" value={newTemplateName} onChange={(event) => setNewTemplateName(event.target.value)} placeholder="Template name" />
-              <textarea data-testid="checklist-template-items" value={newTemplateItems} onChange={(event) => setNewTemplateItems(event.target.value)} placeholder={"One task per line\nFinal clean\nTake finish photos"} />
+              <summary>{language === "es" ? "Crear plantilla" : "Create template"}</summary>
+              <input data-testid="checklist-template-name" value={newTemplateName} onChange={(event) => setNewTemplateName(event.target.value)} placeholder={t(language, "drawer.templateNamePlaceholder")} />
+              <textarea data-testid="checklist-template-items" value={newTemplateItems} onChange={(event) => setNewTemplateItems(event.target.value)} placeholder={t(language, "drawer.templateItemsPlaceholder")} />
               <button className="button button-secondary" type="button" disabled={!newTemplateName.trim() || !newTemplateItems.trim()} onClick={() => void operation("new-template", async () => {
                 await createChecklistTemplate({ propertyId: item.propertyId, name: newTemplateName, items: newTemplateItems.split("\n").map((title) => title.trim()).filter(Boolean).map((title) => ({ title })) });
                 setNewTemplateName("");
                 setNewTemplateItems("");
-              })}>Create template</button>
+              })}>{language === "es" ? "Crear plantilla" : "Create template"}</button>
             </details>
           ) : null}
         </section>
 
         <section className="drawer-section" data-testid="unit-history-section">
-          <h3>Unit History</h3>
-          {!item.unitId ? <p className="drawer-empty">This turnover is not linked to a managed unit yet.</p> : historyQuery.isLoading ? (
-            <StatusState title="Loading unit history" description="Building the timeline from existing operational records." tone="subtle" />
+          <h3>{t(language, "drawer.unitHistory")}</h3>
+          {!item.unitId ? <p className="drawer-empty">{t(language, "drawer.turnNotLinked")}</p> : historyQuery.isLoading ? (
+            <StatusState title={t(language, "drawer.loadingUnitHistory")} description={t(language, "drawer.loadingUnitHistoryCopy")} tone="subtle" />
           ) : historyQuery.isError ? (
-            <p className="drawer-empty">Unit history could not be loaded.</p>
+            <p className="drawer-empty">{t(language, "drawer.unitHistoryLoadFailed")}</p>
           ) : (
             <>
               <div className="analytics-metrics">
-                <span><strong>{historyQuery.data?.turns.length ?? 0}</strong> turns</span>
-                <span><strong>{historyQuery.data?.recurringSignals.highRisk ?? 0}</strong> high-risk</span>
-                <span><strong>{historyQuery.data?.recurringSignals.vendor ?? 0}</strong> vendor-backed</span>
+                <span><strong>{historyQuery.data?.turns.length ?? 0}</strong> {t(language, "drawer.turns")}</span>
+                <span><strong>{historyQuery.data?.recurringSignals.highRisk ?? 0}</strong> {t(language, "drawer.highRisk")}</span>
+                <span><strong>{historyQuery.data?.recurringSignals.vendor ?? 0}</strong> {t(language, "drawer.vendorBacked")}</span>
               </div>
               <div className="turn-history-list">
                 {historyQuery.data?.turns.slice(0, 4).map((turn) => (
                   <div className="drawer-timeline-row" key={turn.itemId}>
-                    <strong>{turn.current ? "Current turn" : "Previous turn"} / {turn.riskLevel}</strong>
-                    <span>Created {new Date(turn.createdAt).toLocaleDateString()} / Duration {turn.turnDuration ?? "-"} days / Checklist {turn.checklistCompletionPercent}%</span>
+                    <strong>{turn.current ? t(language, "drawer.currentTurn") : t(language, "drawer.previousTurn")} / {turn.riskLevel}</strong>
+                    <span>{t(language, "drawer.created")} {new Date(turn.createdAt).toLocaleDateString()} / {t(language, "drawer.duration")} {turn.turnDuration ?? "-"} {t(language, "drawer.days")} / Checklist {turn.checklistCompletionPercent}%</span>
                   </div>
                 ))}
               </div>
@@ -1058,7 +1177,7 @@ export function ItemDrawer({
 
         {canManageItems ? (
           <section className="drawer-section">
-            <h3>Quick Actions</h3>
+            <h3>{t(language, "drawer.quickActions")}</h3>
             <div className="drawer-actions">
               <button
                 type="button"
@@ -1073,33 +1192,33 @@ export function ItemDrawer({
                   description: item.notes ?? undefined,
                 })}
               >
-                Pest Request
+                {t(language, "drawer.pestRequest")}
               </button>
-              <label>Move section
+              <label>{t(language, "drawer.moveSection")}
                 <select data-testid="drawer-move-section" value={item.boardGroup} onChange={(event) => void onBatch({ action: "MOVE_GROUP", ids: [item.id], boardGroup: event.target.value })}>
                   {boardGroups.map((group) => <option key={group} value={group}>{boardGroupLabel(group, item.propertyId, boardSections)}</option>)}
                 </select>
               </label>
-              <button className={item.isArchived ? "button button-secondary" : "button button-danger"} data-testid="drawer-archive-toggle" onClick={() => void onBatch({ action: item.isArchived ? "RESTORE" : "ARCHIVE", ids: [item.id] })}>{item.isArchived ? "Restore Item" : "Archive Item"}</button>
+              <button className={item.isArchived ? "button button-secondary" : "button button-danger"} data-testid="drawer-archive-toggle" onClick={() => void onBatch({ action: item.isArchived ? "RESTORE" : "ARCHIVE", ids: [item.id] })}>{item.isArchived ? t(language, "drawer.restoreItem") : t(language, "drawer.archiveItem")}</button>
             </div>
           </section>
         ) : null}
 
         <section className="drawer-section drawer-timeline">
-          <h3>Activity</h3>
-          {!canViewActivity ? <p className="drawer-empty">Activity is visible to managers and administrators.</p> : activityQuery.isLoading ? (
-            <StatusState title="Loading activity" description="Retrieving item changes." tone="subtle" />
-          ) : (activityQuery.data?.activity.length ?? 0) === 0 ? <p className="drawer-empty">No recorded item activity.</p> : (
+          <h3>{t(language, "drawer.activity")}</h3>
+          {!canViewActivity ? <p className="drawer-empty">{t(language, "drawer.activityVisibleManagers")}</p> : activityQuery.isLoading ? (
+            <StatusState title={t(language, "drawer.loadingActivity")} description={t(language, "drawer.loadingActivityCopy")} tone="subtle" />
+          ) : (activityQuery.data?.activity.length ?? 0) === 0 ? <p className="drawer-empty">{t(language, "drawer.noRecordedActivity")}</p> : (
             activityQuery.data?.activity.map((record) => (
               <div key={record.id} className="drawer-timeline-row">
                 <strong>{record.description}</strong>
-                <span>{record.actor?.fullName ?? "System"} / {formatDateTime(record.createdAt)}</span>
+                <span>{record.actor?.fullName ?? t(language, "drawer.system")} / {formatDateTime(record.createdAt)}</span>
               </div>
             ))
           )}
           {canViewActivity && (runsQuery.data?.runs.length ?? 0) > 0 ? (
             <>
-              <h3>Automation History</h3>
+              <h3>{t(language, "drawer.automationHistory")}</h3>
               {runsQuery.data?.runs.map((run) => <div key={run.id} className="drawer-timeline-row"><strong>{run.rule.name}</strong><span>{run.message} / {formatDateTime(run.ranAt)}</span></div>)}
             </>
           ) : null}
@@ -1108,14 +1227,14 @@ export function ItemDrawer({
       <Modal open={attachmentGalleryOpen} title={`${item.unitNumber} Inspection Gallery`} onClose={() => setAttachmentGalleryOpen(false)} testId="attachment-gallery-modal">
         <div className="inspection-gallery-toolbar">
           <div className="attachment-workflow-summary">
-            <span><strong>{attachments.length}</strong> files</span>
-            <span><strong>{imageCount}</strong> images</span>
-            <span><strong>{chargeCount}</strong> charge candidates</span>
-            <span><strong>{needsClassification.length}</strong> need classification</span>
+            <span><strong>{attachments.length}</strong> {t(language, "drawer.files")}</span>
+            <span><strong>{imageCount}</strong> {t(language, "drawer.images")}</span>
+            <span><strong>{chargeCount}</strong> {t(language, "drawer.chargeCandidates")}</span>
+            <span><strong>{needsClassification.length}</strong> {t(language, "drawer.needClassification")}</span>
           </div>
           {canCollaborate ? (
             <label className="button button-secondary file-action">
-              Upload Multiple
+              {t(language, "drawer.uploadMultiple")}
               <input data-testid="attachment-gallery-upload" type="file" multiple accept={attachmentAccept} onChange={(event) => {
                 uploadFiles(event.target.files);
                 event.target.value = "";
@@ -1129,7 +1248,7 @@ export function ItemDrawer({
               href={attachmentArchiveUrl(item.id, { stage: attachmentStageFilter })}
               download={`${item.unitNumber}-${attachmentStageFilter.toLowerCase()}-attachments.zip`}
             >
-              Download {attachmentStageFilter === "ALL" ? "All" : activeStageLabel} ZIP
+              {t(language, "drawer.download")} {attachmentStageFilter === "ALL" ? t(language, "drawer.allPhotosFiles") : activeStageLabel} ZIP
             </a>
           ) : null}
         </div>
@@ -1149,50 +1268,48 @@ export function ItemDrawer({
             );
           })}
         </div>
-        <div className="inspection-gallery-help">
-          Classify walk photos after bulk upload. Click a photo to preview it in-app; use explicit download buttons only when you need the original file.
-        </div>
+        <div className="inspection-gallery-help">{t(language, "drawer.galleryHelp")}</div>
         <div className={chargeCandidatesMissingContext.length ? "inspection-evidence-panel warning" : "inspection-evidence-panel"} data-testid="inspection-evidence-panel">
           <div>
-            <strong>Evidence package</strong>
+            <strong>{t(language, "drawer.evidencePackage")}</strong>
             <span>
-              {chargeCount || chargePinCount ? `${chargeCount} file${chargeCount === 1 ? "" : "s"} / ${chargePinCount} pin${chargePinCount === 1 ? "" : "s"}` : "No charge candidates marked yet"}
-              {chargeCandidatesMissingContext.length ? ` / ${chargeCandidatesMissingContext.length} need pricing or notes` : ""}
-              {" / "}Estimate total {formatCents(chargeEstimateTotal)}
+              {chargeCount || chargePinCount ? `${chargeCount} ${t(language, "drawer.fileCount")} / ${chargePinCount} ${t(language, "drawer.pinCount")}` : t(language, "drawer.noChargeCandidatesMarked")}
+              {chargeCandidatesMissingContext.length ? ` / ${chargeCandidatesMissingContext.length} ${t(language, "drawer.needPricingOrNotes")}` : ""}
+              {` / ${t(language, "drawer.estimateTotal")} ${formatCents(chargeEstimateTotal)}`}
             </span>
           </div>
           <div className="inspection-evidence-actions">
             <button type="button" className="button button-secondary" data-testid="charge-report-open" onClick={() => setChargeReportOpen(true)}>
-              Open charge report
+              {t(language, "drawer.openChargeReport")}
             </button>
-            <button type="button" className="button button-ghost" onClick={() => setAttachmentStageFilter("CHARGE_CANDIDATES")}>Review charge candidates</button>
+            <button type="button" className="button button-ghost" onClick={() => setAttachmentStageFilter("CHARGE_CANDIDATES")}>{t(language, "drawer.reviewChargeCandidates")}</button>
             {chargeCount ? (
               <a className="button button-secondary" data-testid="attachment-gallery-charge-zip" href={attachmentArchiveUrl(item.id, { stage: "CHARGE_CANDIDATES" })} download={`${item.unitNumber}-charge-candidates.zip`}>
-                Download Charge ZIP
+                {t(language, "drawer.downloadChargeZip")}
               </a>
             ) : null}
           </div>
         </div>
         <div className="inspection-price-sheet-panel" data-testid="inspection-price-sheet-panel">
           <div>
-            <strong>Property price sheet</strong>
-            <span>{chargePriceSheetQuery.data?.items.length ?? 0} estimate option{chargePriceSheetQuery.data?.items.length === 1 ? "" : "s"} for this property. Use estimates for walk documentation only.</span>
+            <strong>{t(language, "drawer.propertyPriceSheet")}</strong>
+            <span>{chargePriceSheetQuery.data?.items.length ?? 0} {t(language, "drawer.estimateOptionsForProperty")}</span>
           </div>
           {canManageChargePriceSheet ? (
             <div className="inspection-price-sheet-form">
               <input
                 data-testid="charge-price-name"
-                placeholder="Item, e.g. blind replacement"
+                placeholder={t(language, "drawer.chargeItemPlaceholder")}
                 value={newChargeItem.name}
                 onChange={(event) => setNewChargeItem((current) => ({ ...current, name: event.target.value }))}
               />
               <input
-                placeholder="Category"
+                placeholder={t(language, "drawer.categoryPlaceholder")}
                 value={newChargeItem.category}
                 onChange={(event) => setNewChargeItem((current) => ({ ...current, category: event.target.value }))}
               />
               <input
-                placeholder="Unit"
+                placeholder={t(language, "drawer.unitPlaceholder")}
                 value={newChargeItem.unitLabel}
                 onChange={(event) => setNewChargeItem((current) => ({ ...current, unitLabel: event.target.value }))}
               />
@@ -1201,17 +1318,17 @@ export function ItemDrawer({
                 type="number"
                 min="0"
                 step="0.01"
-                placeholder="Default $"
+                placeholder={t(language, "drawer.defaultDollarPlaceholder")}
                 value={newChargeItem.amount}
                 onChange={(event) => setNewChargeItem((current) => ({ ...current, amount: event.target.value }))}
               />
-              <button type="button" className="button button-secondary" data-testid="charge-price-create" disabled={!newChargeItem.name.trim()} onClick={addChargePriceSheetItem}>Add price item</button>
+              <button type="button" className="button button-secondary" data-testid="charge-price-create" disabled={!newChargeItem.name.trim()} onClick={addChargePriceSheetItem}>{t(language, "drawer.addPriceItem")}</button>
             </div>
           ) : null}
         </div>
         {attachmentCategories.length ? (
-          <div className="inspection-gallery-downloads" data-testid="attachment-category-downloads" aria-label="Download category ZIPs">
-            <strong>Category ZIPs</strong>
+          <div className="inspection-gallery-downloads" data-testid="attachment-category-downloads" aria-label={t(language, "drawer.downloadCategoryZips")}>
+            <strong>{t(language, "drawer.categoryZips")}</strong>
             {attachmentCategories.map((category) => (
               <a key={category} className="button button-ghost" href={attachmentArchiveUrl(item.id, { category })} download={`${item.unitNumber}-${category.toLowerCase().replace(/\s+/g, "-")}-attachments.zip`}>
                 {category}
@@ -1220,7 +1337,7 @@ export function ItemDrawer({
           </div>
         ) : null}
         {!filteredAttachments.length ? (
-          <p className="drawer-empty">No files match this inspection stage.</p>
+          <p className="drawer-empty">{t(language, "drawer.noFilesMatchStage")}</p>
         ) : (
           <div className="attachment-gallery inspection-gallery-grid" data-testid="attachment-gallery-grid">
             {filteredAttachments.map(renderAttachmentCard)}
@@ -1229,74 +1346,74 @@ export function ItemDrawer({
       </Modal>
       <Modal
         open={chargeReportOpen}
-        title={`${item.unitNumber} Charge / Evidence Report`}
+        title={tWithVars(language, "drawer.chargeReportTitle", { unit: item.unitNumber })}
         onClose={() => setChargeReportOpen(false)}
         testId="charge-report-modal"
         actions={chargeReportQuery.data?.summary.lineCount ? (
           <>
             <a className="button button-secondary" data-testid="charge-report-csv-download" href={chargeReportCsvUrl(item.id)} download={`${item.unitNumber}-charge-report.csv`}>
-              Download CSV
+              {t(language, "nav.csv")}
             </a>
             <a className="button button-secondary" href={attachmentArchiveUrl(item.id, { stage: "CHARGE_CANDIDATES" })} download={`${item.unitNumber}-charge-candidates.zip`}>
-              Download Charge ZIP
+              {t(language, "drawer.downloadChargeZip")}
             </a>
           </>
         ) : null}
       >
         <div className="charge-report-panel" data-testid="charge-report-panel">
           {chargeReportQuery.isLoading ? (
-            <p className="drawer-empty">Loading charge evidence report...</p>
+            <p className="drawer-empty">{t(language, "drawer.loadingChargeReport")}</p>
           ) : chargeReportQuery.isError ? (
-            <p className="drawer-error">Unable to load charge report.</p>
+            <p className="drawer-error">{t(language, "drawer.unableToLoadChargeReport")}</p>
           ) : chargeReportQuery.data ? (
             <>
               <div className="charge-report-summary">
-                <span><strong>{chargeReportQuery.data.summary.lineCount}</strong> lines</span>
-                <span><strong>{chargeReportQuery.data.summary.fileCount}</strong> files</span>
-                <span><strong>{chargeReportQuery.data.summary.pinCount}</strong> pins</span>
-                <span><strong>{formatCents(chargeReportQuery.data.summary.totalEstimatedCents)}</strong> total estimate</span>
-                {chargeReportQuery.data.summary.missingContext ? <span className="warning"><strong>{chargeReportQuery.data.summary.missingContext}</strong> need pricing or notes</span> : null}
+                <span><strong>{chargeReportQuery.data.summary.lineCount}</strong> {t(language, "drawer.lines")}</span>
+                <span><strong>{chargeReportQuery.data.summary.fileCount}</strong> {t(language, "drawer.files")}</span>
+                <span><strong>{chargeReportQuery.data.summary.pinCount}</strong> {t(language, "drawer.pinCount")}</span>
+                <span><strong>{formatCents(chargeReportQuery.data.summary.totalEstimatedCents)}</strong> {t(language, "drawer.totalEstimate")}</span>
+                {chargeReportQuery.data.summary.missingContext ? <span className="warning"><strong>{chargeReportQuery.data.summary.missingContext}</strong> {t(language, "drawer.needPricingOrNotes")}</span> : null}
               </div>
               {chargeReportQuery.data.lines.length ? (
-                <div className="charge-report-table" role="table" aria-label="Charge evidence line items">
+                <div className="charge-report-table" role="table" aria-label={t(language, "drawer.chargeEvidenceItems")}>
                   <div className="charge-report-row header" role="row">
-                    <span>Type</span>
-                    <span>Evidence</span>
-                    <span>Price sheet</span>
-                    <span>Qty</span>
-                    <span>Estimate</span>
-                    <span>Notes</span>
+                    <span>{t(language, "drawer.type")}</span>
+                    <span>{t(language, "drawer.evidence")}</span>
+                    <span>{t(language, "drawer.priceSheet")}</span>
+                    <span>{t(language, "drawer.quantity")}</span>
+                    <span>{t(language, "drawer.estimate")}</span>
+                    <span>{t(language, "drawer.notes")}</span>
                   </div>
                   {chargeReportQuery.data.lines.map((line, index) => (
                     <div key={`${line.type}-${line.attachmentId}-${line.pinId ?? index}`} className="charge-report-row" role="row">
-                      <span>{line.type === "PIN" ? "Pin" : "File"}</span>
+                      <span>{line.type === "PIN" ? t(language, "drawer.pin") : t(language, "drawer.file")}</span>
                       <span>
                         <strong>{line.label}</strong>
                         <small>{line.attachmentName}{line.category ? ` / ${line.category}` : ""} / {line.inspectionStage}</small>
                       </span>
-                      <span>{line.priceSheetItemName ?? "No price-sheet item"}</span>
+                      <span>{line.priceSheetItemName ?? t(language, "drawer.noPriceSheetItem")}</span>
                       <span>{line.quantity ?? "-"}</span>
                       <span>{formatCents(line.estimatedCents)}</span>
-                      <span>{line.chargeNote || line.note || "No note"}</span>
+                      <span>{line.chargeNote || line.note || t(language, "drawer.noNote")}</span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="drawer-empty">No charge-candidate photos or pins are marked yet.</p>
+                <p className="drawer-empty">{t(language, "drawer.noChargeCandidates")}</p>
               )}
-              <p className="modal-copy">This report is for review and evidence collection. It does not create resident ledger charges, invoices, or accounting entries.</p>
+              <p className="modal-copy">{t(language, "drawer.chargeReportCopy")}</p>
             </>
           ) : null}
         </div>
       </Modal>
       <Modal
         open={Boolean(previewAttachment)}
-        title={previewAttachment?.originalName ?? "Attachment preview"}
+        title={previewAttachment?.originalName ?? t(language, "drawer.attachmentPreview")}
         onClose={() => setPreviewAttachmentId(null)}
         testId="attachment-preview-modal"
         actions={previewAttachment ? (
           <a className="button button-primary" data-testid="attachment-preview-download" href={attachmentDownloadUrl(previewAttachment.id)} download={previewAttachment.originalName}>
-            Download file
+            {t(language, "drawer.downloadFile")}
           </a>
         ) : null}
       >
@@ -1306,7 +1423,7 @@ export function ItemDrawer({
               <>
                 {canUpdatePreviewAttachment ? (
                   <div className="attachment-markup-toolbar" data-testid="attachment-markup-toolbar">
-                    <label>Pin label
+                    <label>{t(language, "drawer.pinLabel")}
                       <input
                         data-testid="attachment-pin-label"
                         value={newPinLabel}
@@ -1314,7 +1431,7 @@ export function ItemDrawer({
                         onChange={(event) => setNewPinLabel(event.target.value)}
                       />
                     </label>
-                    <label>Category
+                    <label>{t(language, "drawer.category")}
                       <select
                         data-testid="attachment-pin-category"
                         value={newPinCategory}
@@ -1331,11 +1448,11 @@ export function ItemDrawer({
                         checked={newPinChargeCandidate}
                         onChange={(event) => setNewPinChargeCandidate(event.target.checked)}
                       />
-                      Charge pin
+                      {t(language, "drawer.chargePin")}
                     </label>
                     {newPinChargeCandidate ? (
                       <>
-                        <label>Price sheet
+                        <label>{t(language, "drawer.priceSheet")}
                           <select
                             data-testid="attachment-pin-price-sheet"
                             value={newPinPriceSheetItemId}
@@ -1345,13 +1462,13 @@ export function ItemDrawer({
                               setNewPinChargeEstimate(centsToDollars(selected?.defaultCents));
                             }}
                           >
-                            <option value="">No price-sheet item</option>
+                            <option value="">{t(language, "drawer.noPriceSheetItem")}</option>
                             {activeChargePriceSheetItems.map((entry) => (
                               <option key={entry.id} value={entry.id}>{entry.name}{entry.defaultCents !== null ? ` (${formatCents(entry.defaultCents)})` : ""}</option>
                             ))}
                           </select>
                         </label>
-                        <label>Qty
+                        <label>{t(language, "drawer.quantity")}
                           <input
                             type="number"
                             min="0"
@@ -1360,7 +1477,7 @@ export function ItemDrawer({
                             onChange={(event) => setNewPinChargeQuantity(event.target.value)}
                           />
                         </label>
-                        <label>Estimate
+                        <label>{t(language, "drawer.estimate")}
                           <input
                             type="number"
                             min="0"
@@ -1377,19 +1494,19 @@ export function ItemDrawer({
                       data-testid="attachment-add-pin-mode"
                       onClick={() => setPinModeAttachmentId(pinModeAttachmentId === previewAttachment.id ? null : previewAttachment.id)}
                     >
-                      {pinModeAttachmentId === previewAttachment.id ? "Click image to place pin" : "Add markup pin"}
+                      {pinModeAttachmentId === previewAttachment.id ? t(language, "drawer.clickImageToPlacePin") : t(language, "drawer.addMarkupPin")}
                     </button>
                   </div>
                 ) : null}
-                <div className="attachment-preview-controls" aria-label="Photo preview controls">
-                  <button type="button" className="button button-secondary" onClick={() => openPreviewImageAt(-1)} disabled={!canCyclePreviewImages} aria-label="Previous photo">
-                    Previous
+                <div className="attachment-preview-controls" aria-label={t(language, "drawer.photoPreviewControls")}>
+                  <button type="button" className="button button-secondary" onClick={() => openPreviewImageAt(-1)} disabled={!canCyclePreviewImages} aria-label={t(language, "drawer.previousPhoto")}>
+                    {t(language, "drawer.previous")}
                   </button>
                   <span>{previewImageIndex >= 0 ? `${previewImageIndex + 1} of ${previewImageAttachments.length}` : "1 of 1"}</span>
-                  <button type="button" className="button button-secondary" onClick={() => openPreviewImageAt(1)} disabled={!canCyclePreviewImages} aria-label="Next photo">
-                    Next
+                  <button type="button" className="button button-secondary" onClick={() => openPreviewImageAt(1)} disabled={!canCyclePreviewImages} aria-label={t(language, "drawer.nextPhoto")}>
+                    {t(language, "drawer.next")}
                   </button>
-                  <div className="attachment-zoom-controls" aria-label="Zoom controls">
+                  <div className="attachment-zoom-controls" aria-label={t(language, "drawer.zoomControls")}>
                     <button type="button" className="button button-secondary" onClick={() => setAttachmentZoom((value) => Math.max(1, Number((value - 0.25).toFixed(2))))} disabled={attachmentZoom <= 1}>
                       Zoom -
                     </button>
@@ -1398,12 +1515,12 @@ export function ItemDrawer({
                       Zoom +
                     </button>
                     <button type="button" className="button button-ghost" onClick={() => setAttachmentZoom(1)}>
-                      Reset
+                      {t(language, "drawer.reset")}
                     </button>
                   </div>
                 </div>
                 <div className="attachment-image-scroll">
-                  <button type="button" className="attachment-cycle previous" onClick={() => openPreviewImageAt(-1)} disabled={!canCyclePreviewImages} aria-label="Previous photo">
+                  <button type="button" className="attachment-cycle previous" onClick={() => openPreviewImageAt(-1)} disabled={!canCyclePreviewImages} aria-label={t(language, "drawer.previousPhoto")}>
                     ‹
                   </button>
                   <div
@@ -1426,7 +1543,7 @@ export function ItemDrawer({
                       </button>
                     ))}
                   </div>
-                  <button type="button" className="attachment-cycle next" onClick={() => openPreviewImageAt(1)} disabled={!canCyclePreviewImages} aria-label="Next photo">
+                  <button type="button" className="attachment-cycle next" onClick={() => openPreviewImageAt(1)} disabled={!canCyclePreviewImages} aria-label={t(language, "drawer.nextPhoto")}>
                     ›
                   </button>
                 </div>
@@ -1436,11 +1553,11 @@ export function ItemDrawer({
                       <div key={annotation.id} className="attachment-pin-row">
                         <div>
                           <strong>{index + 1}. {annotation.label}</strong>
-                          <span>{annotation.category || "Uncategorized"}{annotation.chargeCandidate ? " / charge candidate" : ""}</span>
+                          <span>{annotation.category || t(language, "drawer.uncategorized")}{annotation.chargeCandidate ? ` / ${t(language, "drawer.chargeCandidate")}` : ""}</span>
                         </div>
                         {annotation.chargeCandidate ? (
                           <div className="attachment-pin-charge-fields">
-                            <label>Price sheet
+                            <label>{t(language, "drawer.priceSheet")}
                               <select
                                 value={annotation.chargePriceSheetItemId ?? ""}
                                 disabled={!canUpdatePreviewAttachment}
@@ -1454,13 +1571,13 @@ export function ItemDrawer({
                                   });
                                 }}
                               >
-                                <option value="">No price-sheet item</option>
+                                <option value="">{t(language, "drawer.noPriceSheetItem")}</option>
                                 {activeChargePriceSheetItems.map((entry) => (
                                   <option key={entry.id} value={entry.id}>{entry.name}{entry.defaultCents !== null ? ` (${formatCents(entry.defaultCents)})` : ""}</option>
                                 ))}
                               </select>
                             </label>
-                            <label>Qty
+                            <label>{t(language, "drawer.quantity")}
                               <input
                                 type="number"
                                 min="0"
@@ -1470,7 +1587,7 @@ export function ItemDrawer({
                                 onBlur={(event) => updateAttachmentAnnotation(previewAttachment, annotation.id, { chargeQuantity: event.target.value ? Number(event.target.value) : null })}
                               />
                             </label>
-                            <label>Estimate
+                            <label>{t(language, "drawer.estimate")}
                               <input
                                 type="number"
                                 min="0"
@@ -1480,17 +1597,17 @@ export function ItemDrawer({
                                 onBlur={(event) => updateAttachmentAnnotation(previewAttachment, annotation.id, { chargeEstimatedCents: event.target.value ? dollarsToCents(event.target.value) : null })}
                               />
                             </label>
-                            <span>{annotation.chargePriceSheetItemName || "Unassigned"} / {formatCents(annotation.chargeEstimatedCents)}</span>
+                            <span>{annotation.chargePriceSheetItemName || t(language, "drawer.unassignedValue")} / {formatCents(annotation.chargeEstimatedCents)}</span>
                           </div>
                         ) : (
-                          <span>{annotation.category || "Uncategorized"}</span>
+                          <span>{annotation.category || t(language, "drawer.uncategorized")}</span>
                         )}
-                        {canUpdatePreviewAttachment ? <button type="button" className="button button-ghost danger" onClick={() => removeAttachmentAnnotation(previewAttachment, annotation.id)}>Remove pin</button> : null}
+                        {canUpdatePreviewAttachment ? <button type="button" className="button button-ghost danger" onClick={() => removeAttachmentAnnotation(previewAttachment, annotation.id)}>{t(language, "drawer.removePin")}</button> : null}
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="drawer-empty">No markup pins yet. Use pins for damage, trash-out, cleaning, vendor proof, or charge context.</p>
+                  <p className="drawer-empty">{t(language, "drawer.noMarkupPins")}</p>
                 )}
               </>
             ) : (
@@ -1501,13 +1618,13 @@ export function ItemDrawer({
               </div>
             )}
             <div className="attachment-lightbox-meta">
-              <span>{attachmentStageOptions.find((stage) => stage.value === (previewAttachment.inspectionStage || "GENERAL"))?.label ?? "General"}</span>
+              <span>{attachmentStageOptions.find((stage) => stage.value === (previewAttachment.inspectionStage || "GENERAL"))?.label ?? t(language, "drawer.general")}</span>
               {previewAttachment.category ? <span>{previewAttachment.category}</span> : null}
-              {previewAttachment.chargeCandidate ? <span>Charge candidate</span> : null}
-              {previewAttachment.chargeCandidate ? <span>{previewAttachment.chargePriceSheetItem?.name ?? "No price-sheet item"} / {formatCents(previewAttachment.chargeEstimatedCents)}</span> : null}
+              {previewAttachment.chargeCandidate ? <span>{t(language, "drawer.chargeCandidate")}</span> : null}
+              {previewAttachment.chargeCandidate ? <span>{previewAttachment.chargePriceSheetItem?.name ?? t(language, "drawer.noPriceSheetItem")} / {formatCents(previewAttachment.chargeEstimatedCents)}</span> : null}
             </div>
             {previewAttachment.note ? <p>{previewAttachment.note}</p> : null}
-            {previewAttachment.chargeNote ? <p><strong>Charge / recovery:</strong> {previewAttachment.chargeNote}</p> : null}
+            {previewAttachment.chargeNote ? <p><strong>{t(language, "drawer.chargeRecoveryLabel")}:</strong> {previewAttachment.chargeNote}</p> : null}
           </div>
         ) : null}
       </Modal>

@@ -7,20 +7,31 @@ type Props = {
   degraded: boolean;
   lastIssueAt: string | null;
   pendingSyncCount: number;
+  blockedCount: number;
+  conflictCount: number;
   syncing: boolean;
   language: UserLanguage;
   onRetry: () => void;
+  onReviewQueue: () => void;
 };
 
-export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCount, syncing, language, onRetry }: Props) {
+export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCount, blockedCount, conflictCount, syncing, language, onRetry, onReviewQueue }: Props) {
   if (online && !degraded && pendingSyncCount === 0) {
     return null;
   }
 
-  const title = pendingSyncCount > 0 && online
+  const title = blockedCount > 0 && online
+    ? conflictCount > 0
+      ? t(language, "connection.syncConflicts")
+      : t(language, "connection.syncBlocked")
+    : pendingSyncCount > 0 && online
     ? syncing ? t(language, "connection.syncingOfflineChanges") : t(language, "connection.offlineChangesPending")
     : online ? t(language, "connection.connectionUnstable") : t(language, "connection.offline");
-  const description = pendingSyncCount > 0
+  const description = blockedCount > 0
+    ? conflictCount > 0
+      ? t(language, "connection.syncConflictsDescription").replace("{count}", String(blockedCount))
+      : t(language, "connection.syncBlockedDescription").replace("{count}", String(blockedCount))
+    : pendingSyncCount > 0
     ? pendingSyncCount === 1
       ? t(language, "connection.pendingSingle")
       : t(language, "connection.pendingPlural").replace("{count}", String(pendingSyncCount))
@@ -38,6 +49,11 @@ export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCou
       <button type="button" className="button button-secondary" data-testid="connection-retry" onClick={onRetry}>
         {syncing ? t(language, "connection.syncingNow") : t(language, "connection.retryNow")}
       </button>
+      {blockedCount > 0 ? (
+        <button type="button" className="button button-secondary" data-testid="connection-review-queue" onClick={onReviewQueue}>
+          {t(language, "connection.reviewQueue")}
+        </button>
+      ) : null}
     </aside>
   );
 }

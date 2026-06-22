@@ -4,12 +4,12 @@ import { formatDateDisplay, formatDateTime } from "../lib/dateTime";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusState } from "./StatusState";
 
-const triggers: Array<{ value: AutomationTriggerType; label: string }> = [
-  { value: "ITEM_CREATED", label: "Make-ready item created" },
-  { value: "ITEM_UPDATED", label: "Make-ready item updated" },
-  { value: "DATE_FIELD_CHANGED", label: "Date field changed" },
-  { value: "STATUS_FIELD_CHANGED", label: "Status field changed" },
-  { value: "SCHEDULED_CHECK", label: "Scheduled check" },
+const triggers: AutomationTriggerType[] = [
+  "ITEM_CREATED",
+  "ITEM_UPDATED",
+  "DATE_FIELD_CHANGED",
+  "STATUS_FIELD_CHANGED",
+  "SCHEDULED_CHECK",
 ];
 const conditionFields = ["moveInDate", "makeReadyDate", "vacatedDate", "vacancyStatus", "completionStatus", "scopeLevel", "pestStatus", "floorsStatus", "makeReadyStatus", "cleaningStatus", "overdue", "moveInSoon"];
 const builtInOperators: AutomationCondition["operator"][] = ["equals", "notEquals", "in", "isEmpty", "notEmpty", "dateBefore", "dateAfter", "dateBeforeToday", "dateAfterToday", "dateWithinNextDays", "dateMissing", "dateOnWeekend", "dateOnMondayOrFriday"];
@@ -47,6 +47,7 @@ type Draft = {
 
 type Props = {
   role: UserRole;
+  language?: string;
   properties: Property[];
   customFields: CustomField[];
   rules: AutomationRule[];
@@ -236,6 +237,23 @@ function humanize(value: string) {
   return value.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+function triggerLabel(value: AutomationTriggerType, isSpanish: boolean) {
+  switch (value) {
+    case "ITEM_CREATED":
+      return isSpanish ? "Item de make-ready creado" : "Make-ready item created";
+    case "ITEM_UPDATED":
+      return isSpanish ? "Item de make-ready actualizado" : "Make-ready item updated";
+    case "DATE_FIELD_CHANGED":
+      return isSpanish ? "Campo de fecha cambiado" : "Date field changed";
+    case "STATUS_FIELD_CHANGED":
+      return isSpanish ? "Campo de estado cambiado" : "Status field changed";
+    case "SCHEDULED_CHECK":
+      return isSpanish ? "Revision programada" : "Scheduled check";
+    default:
+      return humanize(value);
+  }
+}
+
 function templateHasLeastLoadedAssignment(template: AutomationTemplate) {
   return Boolean(template.draft?.actions.some((action) => action.type === "assignLeastLoadedStaff"));
 }
@@ -297,37 +315,55 @@ function assignmentValidationDecision(preview: AutomationPreviewResponse["assign
   };
 }
 
-function buildAssignmentValidationNotes(preview: NonNullable<AutomationPreviewResponse["assignmentSummary"]> | null, runs: AutomationRun[]) {
+function buildAssignmentValidationNotes(preview: NonNullable<AutomationPreviewResponse["assignmentSummary"]> | null, runs: AutomationRun[], isSpanish: boolean) {
   const decision = assignmentValidationDecision(preview, runs);
   const notes: string[] = [
-    `Starter default policy: keep least-loaded auto-assignment starters review-only by default until a property passes validation.`,
+    isSpanish
+      ? "Politica predeterminada del paquete inicial: mantenga los inicios de autoasignacion por menor carga solo en revision hasta que una propiedad apruebe la validacion."
+      : "Starter default policy: keep least-loaded auto-assignment starters review-only by default until a property passes validation.",
   ];
 
   if (!preview) {
-    notes.push("No assignment preview is loaded yet.");
+    notes.push(isSpanish ? "Todavia no hay una vista previa de asignacion cargada." : "No assignment preview is loaded yet.");
   } else {
-    notes.push(`Preview summary: ${preview.assignedItemCount} would assign, ${preview.alreadyAssignedItemCount} already assigned, ${preview.noEligibleStaffItemCount} with no eligible staff, ${preview.dailyCapBlockedItemCount} blocked by daily cap, ${preview.otherBlockedItemCount} blocked for other reasons.`);
+    notes.push(
+      isSpanish
+        ? `Resumen de la vista previa: ${preview.assignedItemCount} se asignarian, ${preview.alreadyAssignedItemCount} ya asignados, ${preview.noEligibleStaffItemCount} sin personal elegible, ${preview.dailyCapBlockedItemCount} bloqueados por el limite diario, ${preview.otherBlockedItemCount} bloqueados por otras razones.`
+        : `Preview summary: ${preview.assignedItemCount} would assign, ${preview.alreadyAssignedItemCount} already assigned, ${preview.noEligibleStaffItemCount} with no eligible staff, ${preview.dailyCapBlockedItemCount} blocked by daily cap, ${preview.otherBlockedItemCount} blocked for other reasons.`,
+    );
     if (preview.selectedUsers.length) {
-      notes.push(`Preview selected users: ${preview.selectedUsers.map((entry) => `${entry.fullName} (${entry.count})`).join(", ")}.`);
+      notes.push(
+        isSpanish
+          ? `Usuarios seleccionados en la vista previa: ${preview.selectedUsers.map((entry) => `${entry.fullName} (${entry.count})`).join(", ")}.`
+          : `Preview selected users: ${preview.selectedUsers.map((entry) => `${entry.fullName} (${entry.count})`).join(", ")}.`,
+      );
     }
   }
 
-  notes.push(`Recent assignment-aware runs: ${decision.relevantRuns.length} total, ${decision.successfulRuns.length} successful, ${decision.warningRuns.length} with warnings/errors, ${decision.matchedRuns.length} with matches, ${decision.actionRuns.length} with actions.`);
+  notes.push(
+    isSpanish
+      ? `Ejecuciones recientes con diagnostico de asignacion: ${decision.relevantRuns.length} en total, ${decision.successfulRuns.length} exitosas, ${decision.warningRuns.length} con advertencias o errores, ${decision.matchedRuns.length} con coincidencias, ${decision.actionRuns.length} con acciones.`
+      : `Recent assignment-aware runs: ${decision.relevantRuns.length} total, ${decision.successfulRuns.length} successful, ${decision.warningRuns.length} with warnings/errors, ${decision.matchedRuns.length} with matches, ${decision.actionRuns.length} with actions.`,
+  );
 
   if (decision.liveReady) {
-    notes.push("Recommendation: keep the starter disabled globally, but this property has enough clean signals for an opt-in live rollout with close monitoring.");
+    notes.push(isSpanish ? "Recomendacion: mantenga el paquete inicial deshabilitado globalmente, pero esta propiedad tiene suficientes senales limpias para una activacion en vivo opcional con seguimiento cercano." : "Recommendation: keep the starter disabled globally, but this property has enough clean signals for an opt-in live rollout with close monitoring.");
   } else if (decision.tone === "caution") {
-    notes.push("Recommendation: continue property-level validation only. Do not change the default starter posture yet.");
+    notes.push(isSpanish ? "Recomendacion: continue solo con validacion a nivel de propiedad. Todavia no cambie la postura predeterminada del paquete inicial." : "Recommendation: continue property-level validation only. Do not change the default starter posture yet.");
   } else {
-    notes.push("Recommendation: remain review-only. Fix staffing coverage, eligibility, or rule constraints before enabling live assignment.");
+    notes.push(isSpanish ? "Recomendacion: mantengalo solo en revision. Corrija cobertura de personal, elegibilidad o restricciones de la regla antes de habilitar la asignacion en vivo." : "Recommendation: remain review-only. Fix staffing coverage, eligibility, or rule constraints before enabling live assignment.");
   }
 
-  notes.push("Required field-validation steps: preview on one property, install the starter disabled for that property only, enable during an observed work window, review at least two clean recent runs, and confirm assignments match supervisor expectations before broader reuse.");
+  notes.push(
+    isSpanish
+      ? "Pasos requeridos de validacion en campo: ejecute la vista previa en una sola propiedad, instale el paquete inicial deshabilitado solo para esa propiedad, habilitelo durante una ventana observada de trabajo, revise al menos dos ejecuciones recientes limpias y confirme que las asignaciones coinciden con lo esperado por supervision antes de reutilizarlo mas ampliamente."
+      : "Required field-validation steps: preview on one property, install the starter disabled for that property only, enable during an observed work window, review at least two clean recent runs, and confirm assignments match supervisor expectations before broader reuse.",
+  );
 
   return notes.join("\n");
 }
 
-function formatPreviewActionDiagnostics(action: AutomationActionSummary) {
+function formatPreviewActionDiagnostics(action: AutomationActionSummary, isSpanish: boolean) {
   const assignment = action.diagnostics?.assignment;
   if (!assignment) {
     return null;
@@ -336,15 +372,15 @@ function formatPreviewActionDiagnostics(action: AutomationActionSummary) {
   return (
     <div className="automation-preview-diagnostics">
       <small>
-        Target date {formatDateDisplay(assignment.targetDate)} · look ahead {assignment.lookAheadDays} day{assignment.lookAheadDays === 1 ? "" : "s"} · planned work {assignment.includePlannedWork ? "included" : "ignored"}
-        {assignment.dailyAssignmentCap ? ` · daily cap ${assignment.dailyAssignmentCap}` : ""}
+        {isSpanish ? "Fecha objetivo" : "Target date"} {formatDateDisplay(assignment.targetDate)} · {isSpanish ? "horizonte de" : "look ahead"} {assignment.lookAheadDays} {isSpanish ? `dia${assignment.lookAheadDays === 1 ? "" : "s"}` : `day${assignment.lookAheadDays === 1 ? "" : "s"}`} · {isSpanish ? "trabajo planificado" : "planned work"} {assignment.includePlannedWork ? (isSpanish ? "incluido" : "included") : (isSpanish ? "ignorado" : "ignored")}
+        {assignment.dailyAssignmentCap ? (isSpanish ? ` · limite diario ${assignment.dailyAssignmentCap}` : ` · daily cap ${assignment.dailyAssignmentCap}`) : ""}
       </small>
       {assignment.selectedUserName ? <small>{assignment.selectedUserName}: {assignment.selectedReason}</small> : null}
       {assignment.candidates.length > 0 ? (
         <ul className="automation-preview-candidate-list">
           {assignment.candidates.map((candidate) => (
             <li key={candidate.userId}>
-              <strong>{candidate.fullName}</strong> ({candidate.role}) · workload {candidate.workloadScore} · active {candidate.activeCount} · planned {candidate.plannedCount} · target-day {candidate.plannedDayCount} · {candidate.status.replace(/-/g, " ")}
+              <strong>{candidate.fullName}</strong> ({candidate.role}) · {isSpanish ? "carga" : "workload"} {candidate.workloadScore} · {isSpanish ? "activo" : "active"} {candidate.activeCount} · {isSpanish ? "planificado" : "planned"} {candidate.plannedCount} · {isSpanish ? "dia objetivo" : "target-day"} {candidate.plannedDayCount} · {candidate.status.replace(/-/g, " ")}
               {candidate.reason ? ` · ${candidate.reason}` : ""}
             </li>
           ))}
@@ -354,50 +390,50 @@ function formatPreviewActionDiagnostics(action: AutomationActionSummary) {
   );
 }
 
-function renderAssignmentValidation(summary: NonNullable<AutomationPreviewResponse["assignmentSummary"]>) {
+function renderAssignmentValidation(summary: NonNullable<AutomationPreviewResponse["assignmentSummary"]>, isSpanish: boolean) {
   const blockedCount = summary.noEligibleStaffItemCount + summary.dailyCapBlockedItemCount + summary.otherBlockedItemCount;
   const assignedCount = summary.assignedItemCount;
   const largestAssigneeCount = summary.selectedUsers.reduce((max, entry) => Math.max(max, entry.count), 0);
   const isHeavilySkewed = assignedCount > 1 && largestAssigneeCount / assignedCount >= 0.75;
 
   let tone: "safe" | "caution" | "unsafe" = "safe";
-  let title = "Ready for property-level field validation";
+  let title = isSpanish ? "Listo para validacion de campo por propiedad" : "Ready for property-level field validation";
 
   if (assignedCount === 0 && blockedCount > 0) {
     tone = "unsafe";
-    title = "Not ready to enable";
+    title = isSpanish ? "No esta listo para habilitarse" : "Not ready to enable";
   } else if (summary.noEligibleStaffItemCount > 0 || summary.otherBlockedItemCount > 0) {
     tone = "unsafe";
-    title = "Fix staffing or rule constraints before enabling";
+    title = isSpanish ? "Corrija personal o restricciones de la regla antes de habilitar" : "Fix staffing or rule constraints before enabling";
   } else if (summary.dailyCapBlockedItemCount > 0 || isHeavilySkewed || summary.alreadyAssignedItemCount > 0) {
     tone = "caution";
-    title = "Use caution during property-level validation";
+    title = isSpanish ? "Use precaucion durante la validacion por propiedad" : "Use caution during property-level validation";
   }
 
   const notes: string[] = [];
   if (assignedCount > 0) {
-    notes.push(`${assignedCount} matched item${assignedCount === 1 ? "" : "s"} would receive a fresh assignment in this preview.`);
+    notes.push(isSpanish ? `${assignedCount} elemento${assignedCount === 1 ? "" : "s"} coincidente${assignedCount === 1 ? "" : "s"} recibiria${assignedCount === 1 ? "" : "n"} una asignacion nueva en esta vista previa.` : `${assignedCount} matched item${assignedCount === 1 ? "" : "s"} would receive a fresh assignment in this preview.`);
   }
   if (summary.noEligibleStaffItemCount > 0) {
-    notes.push(`${summary.noEligibleStaffItemCount} item${summary.noEligibleStaffItemCount === 1 ? "" : "s"} have no eligible staff based on the selected roles/users and property staffing.`);
+    notes.push(isSpanish ? `${summary.noEligibleStaffItemCount} elemento${summary.noEligibleStaffItemCount === 1 ? "" : "s"} no tiene${summary.noEligibleStaffItemCount === 1 ? "" : "n"} personal elegible segun los roles, usuarios y personal de la propiedad seleccionados.` : `${summary.noEligibleStaffItemCount} item${summary.noEligibleStaffItemCount === 1 ? "" : "s"} have no eligible staff based on the selected roles/users and property staffing.`);
   }
   if (summary.dailyCapBlockedItemCount > 0) {
-    notes.push(`${summary.dailyCapBlockedItemCount} item${summary.dailyCapBlockedItemCount === 1 ? "" : "s"} would be blocked by the configured daily cap.`);
+    notes.push(isSpanish ? `${summary.dailyCapBlockedItemCount} elemento${summary.dailyCapBlockedItemCount === 1 ? "" : "s"} seria${summary.dailyCapBlockedItemCount === 1 ? "" : "n"} bloqueado${summary.dailyCapBlockedItemCount === 1 ? "" : "s"} por el limite diario configurado.` : `${summary.dailyCapBlockedItemCount} item${summary.dailyCapBlockedItemCount === 1 ? "" : "s"} would be blocked by the configured daily cap.`);
   }
   if (summary.otherBlockedItemCount > 0) {
-    notes.push(`${summary.otherBlockedItemCount} item${summary.otherBlockedItemCount === 1 ? "" : "s"} were blocked for other rule reasons and should be inspected before enabling.`);
+    notes.push(isSpanish ? `${summary.otherBlockedItemCount} elemento${summary.otherBlockedItemCount === 1 ? "" : "s"} fue${summary.otherBlockedItemCount === 1 ? "" : "ron"} bloqueado${summary.otherBlockedItemCount === 1 ? "" : "s"} por otras razones de la regla y debe${summary.otherBlockedItemCount === 1 ? "" : "n"} revisarse antes de habilitar.` : `${summary.otherBlockedItemCount} item${summary.otherBlockedItemCount === 1 ? "" : "s"} were blocked for other rule reasons and should be inspected before enabling.`);
   }
   if (summary.alreadyAssignedItemCount > 0) {
-    notes.push(`${summary.alreadyAssignedItemCount} matched item${summary.alreadyAssignedItemCount === 1 ? "" : "s"} are already assigned, so live results may be smaller than the match count.`);
+    notes.push(isSpanish ? `${summary.alreadyAssignedItemCount} elemento${summary.alreadyAssignedItemCount === 1 ? "" : "s"} coincidente${summary.alreadyAssignedItemCount === 1 ? "" : "s"} ya esta${summary.alreadyAssignedItemCount === 1 ? "" : "n"} asignado${summary.alreadyAssignedItemCount === 1 ? "" : "s"}, por lo que los resultados en vivo pueden ser menores que el conteo de coincidencias.` : `${summary.alreadyAssignedItemCount} matched item${summary.alreadyAssignedItemCount === 1 ? "" : "s"} are already assigned, so live results may be smaller than the match count.`);
   }
   if (isHeavilySkewed) {
     const topAssignee = summary.selectedUsers.find((entry) => entry.count === largestAssigneeCount);
     if (topAssignee) {
-      notes.push(`${topAssignee.fullName} would receive ${topAssignee.count} of ${assignedCount} new assignments in this preview, so confirm that workload concentration is intentional.`);
+      notes.push(isSpanish ? `${topAssignee.fullName} recibiria ${topAssignee.count} de ${assignedCount} asignaciones nuevas en esta vista previa, por lo que debe confirmarse que esa concentracion de carga sea intencional.` : `${topAssignee.fullName} would receive ${topAssignee.count} of ${assignedCount} new assignments in this preview, so confirm that workload concentration is intentional.`);
     }
   }
   if (tone === "safe") {
-    notes.push("Preview diagnostics look consistent enough for a single-property live validation pass. Keep starter templates scoped to one property until run history confirms the same behavior.");
+    notes.push(isSpanish ? "Los diagnosticos de la vista previa se ven lo bastante consistentes para una validacion en vivo en una sola propiedad. Mantenga las plantillas iniciales limitadas a una propiedad hasta que el historial de ejecucion confirme el mismo comportamiento." : "Preview diagnostics look consistent enough for a single-property live validation pass. Keep starter templates scoped to one property until run history confirms the same behavior.");
   }
 
   return (
@@ -412,7 +448,7 @@ function renderAssignmentValidation(summary: NonNullable<AutomationPreviewRespon
   );
 }
 
-function formatAutomationRunContext(run: AutomationRun) {
+function formatAutomationRunContext(run: AutomationRun, isSpanish: boolean) {
   if (run.context?.matchedItems?.length) {
     return (
       <div className="automation-preview-actions">
@@ -422,12 +458,12 @@ function formatAutomationRunContext(run: AutomationRun) {
             {item.actionSummaries.map((action, index) => (
               <div key={`${item.itemId}-${action.type}-${index}`}>
                 <span>{action.summary}</span>
-                {formatPreviewActionDiagnostics(action)}
+                {formatPreviewActionDiagnostics(action, isSpanish)}
               </div>
             ))}
           </div>
         ))}
-        {run.context.matchedItemsTruncated ? <div className="automation-preview-diagnostics"><small>Run details truncated to the first {run.context.matchedItems.length} matched items for readability.</small></div> : null}
+        {run.context.matchedItemsTruncated ? <div className="automation-preview-diagnostics"><small>{isSpanish ? `Los detalles de la ejecucion se recortaron a los primeros ${run.context.matchedItems.length} elementos coincidentes para facilitar la lectura.` : `Run details truncated to the first ${run.context.matchedItems.length} matched items for readability.`}</small></div> : null}
       </div>
     );
   }
@@ -437,7 +473,7 @@ function formatAutomationRunContext(run: AutomationRun) {
         {run.context.actionSummaries.map((action, index) => (
           <div key={`${run.id}-${action.type}-${index}`} className="automation-preview-action">
             <span>{action.summary}</span>
-            {formatPreviewActionDiagnostics(action)}
+            {formatPreviewActionDiagnostics(action, isSpanish)}
           </div>
         ))}
       </div>
@@ -446,25 +482,25 @@ function formatAutomationRunContext(run: AutomationRun) {
   return null;
 }
 
-function renderAssignmentRolloutPack(preview: NonNullable<AutomationPreviewResponse["assignmentSummary"]> | null, runs: AutomationRun[], validationNotes: string, onCopy: () => void) {
+function renderAssignmentRolloutPack(preview: NonNullable<AutomationPreviewResponse["assignmentSummary"]> | null, runs: AutomationRun[], validationNotes: string, onCopy: () => void, isSpanish: boolean) {
   const decision = assignmentValidationDecision(preview, runs);
   const checklist = [
-    "Preview the rule for one property only and confirm there are no missing eligible staff blockers.",
-    "Install the starter disabled for that same property only.",
-    "Enable it during a supervised work window and confirm supervisors expect the target assignment distribution.",
-    "Review at least two recent assignment-aware runs and confirm they are successful with no unexpected warnings/errors.",
-    "Keep the global starter default review-only unless real-property validation repeatedly passes.",
+    isSpanish ? "Ejecute la vista previa de la regla solo para una propiedad y confirme que no existan bloqueos por falta de personal elegible." : "Preview the rule for one property only and confirm there are no missing eligible staff blockers.",
+    isSpanish ? "Instale el paquete inicial deshabilitado solo para esa misma propiedad." : "Install the starter disabled for that same property only.",
+    isSpanish ? "Habilitelo durante una ventana de trabajo supervisada y confirme que supervision espera esa distribucion de asignaciones." : "Enable it during a supervised work window and confirm supervisors expect the target assignment distribution.",
+    isSpanish ? "Revise al menos dos ejecuciones recientes con diagnostico de asignacion y confirme que sean exitosas sin advertencias o errores inesperados." : "Review at least two recent assignment-aware runs and confirm they are successful with no unexpected warnings/errors.",
+    isSpanish ? "Mantenga el paquete inicial global solo en revision a menos que la validacion real por propiedad pase repetidamente." : "Keep the global starter default review-only unless real-property validation repeatedly passes.",
   ];
 
   return (
     <section className={`automation-preview-validation ${decision.tone}`} data-testid="assignment-rollout-pack">
       <div className="admin-section-head">
         <div>
-          <p className="eyebrow">Assignment Rollout Pack</p>
+          <p className="eyebrow">{isSpanish ? "Paquete de despliegue de asignacion" : "Assignment Rollout Pack"}</p>
           <h4>{decision.title}</h4>
         </div>
         <button type="button" className="button button-secondary" data-testid="copy-assignment-validation-notes" onClick={onCopy}>
-          Copy Validation Notes
+          {isSpanish ? "Copiar notas de validacion" : "Copy Validation Notes"}
         </button>
       </div>
       <ul>
@@ -474,8 +510,12 @@ function renderAssignmentRolloutPack(preview: NonNullable<AutomationPreviewRespo
       </ul>
       <div className="automation-preview-diagnostics">
         <small>
-          Recent assignment-aware runs: {decision.relevantRuns.length}
-          {decision.relevantRuns.length ? ` · ${decision.successfulRuns.length} successful · ${decision.warningRuns.length} with warnings/errors · ${decision.matchedRuns.length} with matches · ${decision.actionRuns.length} with actions` : " · none yet"}
+          {isSpanish ? "Ejecuciones recientes con diagnostico de asignacion" : "Recent assignment-aware runs"}: {decision.relevantRuns.length}
+          {decision.relevantRuns.length
+            ? (isSpanish
+              ? ` · ${decision.successfulRuns.length} exitosas · ${decision.warningRuns.length} con advertencias o errores · ${decision.matchedRuns.length} con coincidencias · ${decision.actionRuns.length} con acciones`
+              : ` · ${decision.successfulRuns.length} successful · ${decision.warningRuns.length} with warnings/errors · ${decision.matchedRuns.length} with matches · ${decision.actionRuns.length} with actions`)
+            : (isSpanish ? " · ninguna aun" : " · none yet")}
         </small>
         <textarea readOnly value={validationNotes} rows={8} aria-label="Assignment validation notes" />
       </div>
@@ -497,7 +537,8 @@ const defaultTemplateInclude: PropertyTemplateInclude = {
   planningDefaults: false,
 };
 
-export function AutomationPanel({ role, properties, customFields, rules, templates, libraryPacks, propertyTemplates, libraryPreview, templatePreview, runs, preview, loading, previewLoading, message, error, onCreate, onInstallTemplate, onPreviewLibraryPack, onInstallLibraryPack, onPreviewPropertyTemplate, onCreatePropertyTemplate, onApplyPropertyTemplate, onArchivePropertyTemplate, onUpdate, onToggle, onArchive, onPreviewStored, onPreviewDraft, onRunNow, onSelectRule }: Props) {
+export function AutomationPanel({ role, language = "en", properties, customFields, rules, templates, libraryPacks, propertyTemplates, libraryPreview, templatePreview, runs, preview, loading, previewLoading, message, error, onCreate, onInstallTemplate, onPreviewLibraryPack, onInstallLibraryPack, onPreviewPropertyTemplate, onCreatePropertyTemplate, onApplyPropertyTemplate, onArchivePropertyTemplate, onUpdate, onToggle, onArchive, onPreviewStored, onPreviewDraft, onRunNow, onSelectRule }: Props) {
+  const isSpanish = language === "es";
   const [selectedId, setSelectedId] = useState(() => rules[0]?.id ?? "");
   const [creating, setCreating] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<AutomationRule | null>(null);
@@ -518,8 +559,8 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
   const templateScopeId = templatePropertyId || null;
   const assignmentValidationActive = Boolean(preview?.assignmentSummary || ruleHasLeastLoadedAssignment(selected) || draftHasLeastLoadedAssignment(draft) || runs.some(runHasAssignmentDiagnostics));
   const assignmentValidationNotes = useMemo(
-    () => buildAssignmentValidationNotes(preview?.assignmentSummary ?? null, runs),
-    [preview?.assignmentSummary, runs],
+    () => buildAssignmentValidationNotes(preview?.assignmentSummary ?? null, runs, isSpanish),
+    [isSpanish, preview?.assignmentSummary, runs],
   );
 
   useEffect(() => {
@@ -538,10 +579,10 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
   const copyAssignmentValidationNotes = async () => {
     try {
       await navigator.clipboard.writeText(assignmentValidationNotes);
-      setValidationCopyMessage("Validation notes copied.");
+      setValidationCopyMessage(isSpanish ? "Notas de validacion copiadas." : "Validation notes copied.");
       window.setTimeout(() => setValidationCopyMessage(""), 2500);
     } catch {
-      setValidationCopyMessage("Copy failed. Select the notes manually.");
+      setValidationCopyMessage(isSpanish ? "La copia fallo. Selecciona las notas manualmente." : "Copy failed. Select the notes manually.");
       window.setTimeout(() => setValidationCopyMessage(""), 2500);
     }
   };
@@ -549,38 +590,38 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
   return (
     <div className="automation-shell" data-testid="automation-panel">
       <nav className="automation-section-nav span-full" aria-label="Automation workspace sections">
-        <a href="#automation-rule-templates">Rule templates</a>
-        <a href="#automation-library-packs">Library packs</a>
-        <a href="#property-template-library-section">Property templates</a>
-        <a href="#automation-rules-section">Rules</a>
-        <a href="#automation-history-section">Run history</a>
+        <a href="#automation-rule-templates">{isSpanish ? "Plantillas de reglas" : "Rule templates"}</a>
+        <a href="#automation-library-packs">{isSpanish ? "Packs de biblioteca" : "Library packs"}</a>
+        <a href="#property-template-library-section">{isSpanish ? "Plantillas de propiedad" : "Property templates"}</a>
+        <a href="#automation-rules-section">{isSpanish ? "Reglas" : "Rules"}</a>
+        <a href="#automation-history-section">{isSpanish ? "Historial de ejecucion" : "Run history"}</a>
       </nav>
 
       <section id="automation-rule-templates" className="automation-templates span-full" data-testid="automation-template-library">
         <header className="admin-section-head">
           <div>
-            <p className="eyebrow">Rule Templates</p>
-            <h2>Operational Library</h2>
+            <p className="eyebrow">{isSpanish ? "Plantillas de reglas" : "Rule Templates"}</p>
+            <h2>{isSpanish ? "Biblioteca operativa" : "Operational Library"}</h2>
           </div>
           <div className="automation-template-controls">
-            <label>Category
+            <label>{isSpanish ? "Categoria" : "Category"}
               <select data-testid="automation-template-category" value={templateCategory} onChange={(event) => setTemplateCategory(event.target.value)}>
                 {categories.map((category) => <option key={category} value={category}>{category}</option>)}
               </select>
             </label>
-            <label>Install scope
+            <label>{isSpanish ? "Alcance de instalacion" : "Install scope"}
               <select data-testid="automation-template-property" value={templatePropertyId} disabled={role === "MANAGER"} onChange={(event) => setTemplatePropertyId(event.target.value)}>
-                {role === "ADMIN" ? <option value="">Global - all properties</option> : null}
+                {role === "ADMIN" ? <option value="">{isSpanish ? "Global - todas las propiedades" : "Global - all properties"}</option> : null}
                 {properties.map((property) => <option key={property.id} value={property.id}>{property.code}</option>)}
               </select>
             </label>
             <label className="toggle-row automation-template-enable">
               <input data-testid="automation-template-enable" type="checkbox" checked={enableTemplateOnInstall} onChange={(event) => setEnableTemplateOnInstall(event.target.checked)} />
-              Enable on install
+              {isSpanish ? "Habilitar al instalar" : "Enable on install"}
             </label>
           </div>
         </header>
-        <p className="subtitle">Templates install as editable structured rules. They stay disabled unless you explicitly enable them during installation.</p>
+        <p className="subtitle">{isSpanish ? "Las plantillas se instalan como reglas estructuradas editables. Permanecen deshabilitadas a menos que las habilites explicitamente durante la instalacion." : "Templates install as editable structured rules. They stay disabled unless you explicitly enable them during installation."}</p>
         <div className="automation-template-grid">
           {visibleTemplates.map((template) => {
             const installedForScope = template.installedRules.some((rule) => rule.propertyId === templateScopeId);
@@ -591,23 +632,27 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
               <article className="automation-template" key={template.id} data-testid={`automation-template-${template.id}`}>
                 <div className="automation-template-head">
                   <span className="automation-template-category">{template.category}</span>
-                  <span className={`status-chip ${installedForScope ? "active" : "inactive"}`}>{installedForScope ? "Installed" : "Available"}</span>
+                  <span className={`status-chip ${installedForScope ? "active" : "inactive"}`}>{installedForScope ? (isSpanish ? "Instalada" : "Installed") : (isSpanish ? "Disponible" : "Available")}</span>
                 </div>
                 <h3>{template.name}</h3>
                 <p>{template.description}</p>
                 <div className="automation-template-meta">
                   <span>{humanize(template.triggerType)}</span>
-                  <span>{template.requiredFields.length} required field{template.requiredFields.length === 1 ? "" : "s"}</span>
+                  <span>
+                    {isSpanish
+                      ? `${template.requiredFields.length} campo${template.requiredFields.length === 1 ? "" : "s"} obligatorio${template.requiredFields.length === 1 ? "" : "s"}`
+                      : `${template.requiredFields.length} required field${template.requiredFields.length === 1 ? "" : "s"}`}
+                  </span>
                 </div>
                 {propertyScopeRequired ? (
                   <div className="automation-template-requirement">
-                    <strong>Property validation required</strong>
-                    <span>Least-loaded auto-assignment starters must be previewed and installed for one property at a time.</span>
+                    <strong>{isSpanish ? "Se requiere validacion por propiedad" : "Property validation required"}</strong>
+                    <span>{isSpanish ? "Los inicios de autoasignacion por menor carga deben previsualizarse e instalarse para una propiedad a la vez." : "Least-loaded auto-assignment starters must be previewed and installed for one property at a time."}</span>
                   </div>
                 ) : null}
                 {template.setupRequirements.length > 0 ? (
                   <div className="automation-template-requirement" data-testid={`automation-template-requirements-${template.id}`}>
-                    <strong>Setup required</strong>
+                    <strong>{isSpanish ? "Configuracion requerida" : "Setup required"}</strong>
                     {template.setupRequirements.map((requirement) => <span key={requirement}>{requirement}</span>)}
                   </div>
                 ) : (
@@ -620,14 +665,14 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                     data-testid={`automation-template-preview-${template.id}`}
                     disabled={!template.draft || previewLoading || scopeMissing || assignmentScopeMissing}
                     onClick={() => template.draft && void onPreviewDraft({ ...template.draft, propertyId: templateScopeId, enabled: false })}
-                  >Preview</button>
+                  >{isSpanish ? "Vista previa" : "Preview"}</button>
                   <button
                     className="button button-primary"
                     type="button"
                     data-testid={`automation-template-install-${template.id}`}
                     disabled={!template.readyToInstall || installedForScope || loading || scopeMissing || assignmentScopeMissing}
                     onClick={() => void onInstallTemplate(template.id, templateScopeId, enableTemplateOnInstall)}
-                  >{installedForScope ? "Installed" : "Install"}</button>
+                  >{installedForScope ? (isSpanish ? "Instalada" : "Installed") : (isSpanish ? "Instalar" : "Install")}</button>
                 </div>
               </article>
             );
@@ -638,13 +683,13 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
       <section id="automation-library-packs" className="automation-templates span-full" data-testid="operational-library">
         <header className="admin-section-head">
           <div>
-            <p className="eyebrow">Library Packs</p>
-            <h2>Operational Library Packs</h2>
+            <p className="eyebrow">{isSpanish ? "Packs de biblioteca" : "Library Packs"}</p>
+            <h2>{isSpanish ? "Packs de biblioteca operativa" : "Operational Library Packs"}</h2>
           </div>
         </header>
-        <p className="subtitle">Packs are versioned MakeReadyOS JSON data. They may add fields, options, checklists, views, schedule tracks, and disabled automation rules; JavaScript is never imported or executed.</p>
+        <p className="subtitle">{isSpanish ? "Los packs son datos JSON versionados de MakeReadyOS. Pueden agregar campos, opciones, listas, vistas, pistas de programacion y reglas de automatizacion deshabilitadas; JavaScript nunca se importa ni se ejecuta." : "Packs are versioned MakeReadyOS JSON data. They may add fields, options, checklists, views, schedule tracks, and disabled automation rules; JavaScript is never imported or executed."}</p>
         {libraryPacks.length === 0 ? (
-          <StatusState title="No library packs" description="Bundled and imported operational packs appear here." tone="subtle" />
+          <StatusState title={isSpanish ? "No hay packs de biblioteca" : "No library packs"} description={isSpanish ? "Los packs operativos integrados e importados aparecen aqui." : "Bundled and imported operational packs appear here."} tone="subtle" />
         ) : (
           <div className="automation-template-grid">
             {libraryPacks.map((pack) => {
@@ -652,25 +697,29 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
               return (
                 <article className="automation-template" key={pack.packKey} data-testid={`library-pack-${pack.packKey}`}>
                   <div className="automation-template-head">
-                    <span className="automation-template-category">{pack.category ?? "Library"}</span>
-                    <span className={`status-chip ${pack.installed ? "active" : "inactive"}`}>{pack.installed ? "Installed" : "Available"}</span>
+                    <span className="automation-template-category">{pack.category ?? (isSpanish ? "Biblioteca" : "Library")}</span>
+                    <span className={`status-chip ${pack.installed ? "active" : "inactive"}`}>{pack.installed ? (isSpanish ? "Instalado" : "Installed") : (isSpanish ? "Disponible" : "Available")}</span>
                   </div>
                   <h3>{pack.name}</h3>
                   <p>{pack.description}</p>
                   <div className="automation-template-meta">
                     <span>v{pack.version}</span>
-                    <span>{pack.usageCount ?? 0} installed item{pack.usageCount === 1 ? "" : "s"}</span>
+                    <span>
+                      {isSpanish
+                        ? `${pack.usageCount ?? 0} elemento${(pack.usageCount ?? 0) === 1 ? "" : "s"} instalado${(pack.usageCount ?? 0) === 1 ? "" : "s"}`
+                        : `${pack.usageCount ?? 0} installed item${pack.usageCount === 1 ? "" : "s"}`}
+                    </span>
                   </div>
                   {counts.length > 0 ? <p className="automation-template-note">{counts.join(" · ")}</p> : null}
                   {pack.setupNotes?.length ? (
                     <div className="automation-template-requirement">
-                      <strong>Setup notes</strong>
+                      <strong>{isSpanish ? "Notas de configuracion" : "Setup notes"}</strong>
                       {pack.setupNotes.slice(0, 2).map((note) => <span key={note}>{note}</span>)}
                     </div>
                   ) : null}
                   <div className="automation-template-actions">
-                    <button className="button button-secondary" type="button" data-testid={`library-pack-preview-${pack.packKey}`} disabled={loading} onClick={() => void onPreviewLibraryPack({ packKey: pack.packKey })}>Preview Pack</button>
-                    <button className="button button-primary" type="button" data-testid={`library-pack-install-${pack.packKey}`} disabled={loading} onClick={() => void onInstallLibraryPack({ packKey: pack.packKey })}>Install Pack</button>
+                    <button className="button button-secondary" type="button" data-testid={`library-pack-preview-${pack.packKey}`} disabled={loading} onClick={() => void onPreviewLibraryPack({ packKey: pack.packKey })}>{isSpanish ? "Vista previa del pack" : "Preview Pack"}</button>
+                    <button className="button button-primary" type="button" data-testid={`library-pack-install-${pack.packKey}`} disabled={loading} onClick={() => void onInstallLibraryPack({ packKey: pack.packKey })}>{isSpanish ? "Instalar pack" : "Install Pack"}</button>
                   </div>
                 </article>
               );
@@ -678,7 +727,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
           </div>
         )}
         <div className="library-import" data-testid="library-import">
-          <label className="span-full">Import library pack JSON
+          <label className="span-full">{isSpanish ? "Importar JSON de pack de biblioteca" : "Import library pack JSON"}
             <textarea
               data-testid="library-import-json"
               value={libraryImportText}
@@ -697,10 +746,10 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                   const pack = JSON.parse(libraryImportText);
                   void onPreviewLibraryPack({ pack });
                 } catch {
-                  window.alert("Invalid library pack JSON.");
+                  window.alert(isSpanish ? "JSON de pack de biblioteca invalido." : "Invalid library pack JSON.");
                 }
               }}
-            >Preview Imported JSON</button>
+            >{isSpanish ? "Vista previa del JSON importado" : "Preview Imported JSON"}</button>
             <button
               className="button button-primary"
               type="button"
@@ -711,10 +760,10 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                   const pack = JSON.parse(libraryImportText);
                   void onInstallLibraryPack({ pack });
                 } catch {
-                  window.alert("Invalid library pack JSON.");
+                  window.alert(isSpanish ? "JSON de pack de biblioteca invalido." : "Invalid library pack JSON.");
                 }
               }}
-            >Install Imported JSON</button>
+            >{isSpanish ? "Instalar JSON importado" : "Install Imported JSON"}</button>
           </div>
         </div>
         {libraryPreview ? <pre className="library-preview" data-testid="library-preview-summary">{libraryPreview}</pre> : null}
@@ -723,25 +772,25 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
       <section id="property-template-library-section" className="automation-templates span-full" data-testid="property-template-library">
         <header className="admin-section-head">
           <div>
-            <p className="eyebrow">Property Templates</p>
-            <h2>Reusable Board Setups</h2>
+            <p className="eyebrow">{isSpanish ? "Plantillas de propiedad" : "Property Templates"}</p>
+            <h2>{isSpanish ? "Configuraciones reutilizables del tablero" : "Reusable Board Setups"}</h2>
           </div>
         </header>
-        <p className="subtitle">Templates copy reusable configuration only. They do not clone units, make-ready items, comments, attachments, history, users, tokens, or sessions.</p>
+        <p className="subtitle">{isSpanish ? "Las plantillas solo copian configuracion reutilizable. No clonan unidades, items de make-ready, comentarios, adjuntos, historial, usuarios, tokens ni sesiones." : "Templates copy reusable configuration only. They do not clone units, make-ready items, comments, attachments, history, users, tokens, or sessions."}</p>
         <div className="library-import template-quick-create" data-testid="property-template-create">
-          <label>Source property
+          <label>{isSpanish ? "Propiedad origen" : "Source property"}
             <select data-testid="property-template-source" value={templateDraft.propertyId} onChange={(event) => setTemplateDraft((current) => ({ ...current, propertyId: event.target.value }))}>
               {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
             </select>
           </label>
-          <label>Template name
-            <input data-testid="property-template-name" value={templateDraft.name} onChange={(event) => setTemplateDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Standard Make Ready Setup" />
+          <label>{isSpanish ? "Nombre de la plantilla" : "Template name"}
+            <input data-testid="property-template-name" value={templateDraft.name} onChange={(event) => setTemplateDraft((current) => ({ ...current, name: event.target.value }))} placeholder={isSpanish ? "Configuracion estandar de Make Ready" : "Standard Make Ready Setup"} />
           </label>
-          <label>Category
+          <label>{isSpanish ? "Categoria" : "Category"}
             <input data-testid="property-template-category" value={templateDraft.category} onChange={(event) => setTemplateDraft((current) => ({ ...current, category: event.target.value }))} />
           </label>
-          <label className="span-full">Description
-            <textarea data-testid="property-template-description" value={templateDraft.description} onChange={(event) => setTemplateDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Reusable sections, labels, fields, views, schedules, checklists, and disabled automations." />
+          <label className="span-full">{isSpanish ? "Descripcion" : "Description"}
+            <textarea data-testid="property-template-description" value={templateDraft.description} onChange={(event) => setTemplateDraft((current) => ({ ...current, description: event.target.value }))} placeholder={isSpanish ? "Secciones, etiquetas, campos, vistas, programaciones, listas y automatizaciones deshabilitadas reutilizables." : "Reusable sections, labels, fields, views, schedules, checklists, and disabled automations."} />
           </label>
           <div className="span-full template-check-grid">
             {Object.entries(templateInclude).map(([key, value]) => (
@@ -763,39 +812,39 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
               data-testid="property-template-preview-create"
               disabled={loading || !templateDraft.propertyId || !templateDraft.name.trim()}
               onClick={() => void onPreviewPropertyTemplate({ ...templateDraft, include: templateInclude, description: templateDraft.description || null, notes: templateDraft.notes || null })}
-            >Preview Template</button>
+            >{isSpanish ? "Vista previa de la plantilla" : "Preview Template"}</button>
             <button
               className="button button-primary"
               type="button"
               data-testid="property-template-create-submit"
               disabled={loading || !templateDraft.propertyId || !templateDraft.name.trim()}
               onClick={() => void onCreatePropertyTemplate({ ...templateDraft, include: templateInclude, description: templateDraft.description || null, notes: templateDraft.notes || null })}
-            >Save Template</button>
+            >{isSpanish ? "Guardar plantilla" : "Save Template"}</button>
           </div>
         </div>
 
         {propertyTemplates.length === 0 ? (
-          <StatusState title="No property templates" description="Save a setup from an existing property to reuse it later." tone="subtle" />
+          <StatusState title={isSpanish ? "No hay plantillas de propiedad" : "No property templates"} description={isSpanish ? "Guarda una configuracion de una propiedad existente para reutilizarla despues." : "Save a setup from an existing property to reuse it later."} tone="subtle" />
         ) : (
           <div className="automation-template-grid">
             {propertyTemplates.map((template) => (
               <article className="automation-template" key={template.id} data-testid={`property-template-${template.id}`}>
                 <div className="automation-template-head">
-                  <span className="automation-template-category">{template.category ?? "Property Template"}</span>
+                  <span className="automation-template-category">{template.category ?? (isSpanish ? "Plantilla de propiedad" : "Property Template")}</span>
                   <span className="status-chip inactive">v{template.version}</span>
                 </div>
                 <h3>{template.name}</h3>
-                <p>{template.description ?? "Reusable MakeReadyOS property setup."}</p>
+                <p>{template.description ?? (isSpanish ? "Configuracion reutilizable de propiedad de MakeReadyOS." : "Reusable MakeReadyOS property setup.")}</p>
                 <div className="automation-template-meta">
-                  <span>Source {template.sourcePropertyCode ?? "library"}</span>
-                  <span>{Object.values(template.counts ?? {}).reduce((sum, count) => sum + count, 0)} config records</span>
+                  <span>{isSpanish ? "Origen" : "Source"} {template.sourcePropertyCode ?? (isSpanish ? "biblioteca" : "library")}</span>
+                  <span>{Object.values(template.counts ?? {}).reduce((sum, count) => sum + count, 0)} {isSpanish ? "registros de configuracion" : "config records"}</span>
                 </div>
                 <p className="automation-template-note">
-                  {Object.entries(template.counts ?? {}).filter(([, count]) => count > 0).slice(0, 5).map(([key, count]) => `${count} ${humanize(key)}`).join(" · ") || "No config records"}
+                  {Object.entries(template.counts ?? {}).filter(([, count]) => count > 0).slice(0, 5).map(([key, count]) => `${count} ${humanize(key)}`).join(" · ") || (isSpanish ? "Sin registros de configuracion" : "No config records")}
                 </p>
                 <div className="automation-template-actions">
-                  <button className="button button-secondary" type="button" data-testid={`property-template-select-${template.id}`} onClick={() => setApplyTarget((current) => ({ ...current, templateId: template.id }))}>Select</button>
-                  <button className="button button-danger" type="button" data-testid={`property-template-archive-${template.id}`} disabled={loading} onClick={() => void onArchivePropertyTemplate(template.id)}>Archive</button>
+                  <button className="button button-secondary" type="button" data-testid={`property-template-select-${template.id}`} onClick={() => setApplyTarget((current) => ({ ...current, templateId: template.id }))}>{isSpanish ? "Seleccionar" : "Select"}</button>
+                  <button className="button button-danger" type="button" data-testid={`property-template-archive-${template.id}`} disabled={loading} onClick={() => void onArchivePropertyTemplate(template.id)}>{isSpanish ? "Archivar" : "Archive"}</button>
                 </div>
               </article>
             ))}
@@ -803,27 +852,27 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
         )}
 
         <div className="library-import" data-testid="property-template-apply">
-          <label>Template
+          <label>{isSpanish ? "Plantilla" : "Template"}
             <select data-testid="property-template-apply-template" value={applyTarget.templateId} onChange={(event) => setApplyTarget((current) => ({ ...current, templateId: event.target.value }))}>
-              <option value="">Choose template</option>
+              <option value="">{isSpanish ? "Elegir plantilla" : "Choose template"}</option>
               {propertyTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
             </select>
           </label>
           <label className="toggle-row">
             <input data-testid="property-template-create-new-toggle" type="checkbox" checked={applyTarget.createNew} onChange={(event) => setApplyTarget((current) => ({ ...current, createNew: event.target.checked }))} />
-            Apply to new property
+            {isSpanish ? "Aplicar a una nueva propiedad" : "Apply to new property"}
           </label>
           {applyTarget.createNew ? (
             <>
-              <label>New property name
+              <label>{isSpanish ? "Nombre de la nueva propiedad" : "New property name"}
                 <input data-testid="property-template-new-name" value={applyTarget.newName} onChange={(event) => setApplyTarget((current) => ({ ...current, newName: event.target.value }))} />
               </label>
-              <label>New property code
+              <label>{isSpanish ? "Codigo de la nueva propiedad" : "New property code"}
                 <input data-testid="property-template-new-code" value={applyTarget.newCode} onChange={(event) => setApplyTarget((current) => ({ ...current, newCode: event.target.value.toUpperCase() }))} />
               </label>
             </>
           ) : (
-            <label>Target property
+            <label>{isSpanish ? "Propiedad destino" : "Target property"}
               <select data-testid="property-template-target" value={applyTarget.propertyId} onChange={(event) => setApplyTarget((current) => ({ ...current, propertyId: event.target.value }))}>
                 {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
               </select>
@@ -831,7 +880,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
           )}
           <label className="toggle-row">
             <input data-testid="property-template-enable-automations" type="checkbox" checked={applyTarget.enableAutomations} onChange={(event) => setApplyTarget((current) => ({ ...current, enableAutomations: event.target.checked }))} />
-            Enable installed automations
+            {isSpanish ? "Habilitar automatizaciones instaladas" : "Enable installed automations"}
           </label>
           <div className="automation-template-actions">
             <button
@@ -845,7 +894,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                 newProperty: applyTarget.createNew ? { name: applyTarget.newName, code: applyTarget.newCode } : null,
                 enableAutomations: applyTarget.enableAutomations,
               })}
-            >Dry Run Apply</button>
+            >{isSpanish ? "Aplicacion en seco" : "Dry Run Apply"}</button>
             <button
               className="button button-primary"
               type="button"
@@ -857,7 +906,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                 newProperty: applyTarget.createNew ? { name: applyTarget.newName, code: applyTarget.newCode } : null,
                 enableAutomations: applyTarget.enableAutomations,
               })}
-            >Apply Template</button>
+            >{isSpanish ? "Aplicar plantilla" : "Apply Template"}</button>
           </div>
         </div>
         {templatePreview ? <pre className="library-preview" data-testid="property-template-preview-summary">{templatePreview}</pre> : null}
@@ -866,7 +915,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
       <section id="automation-rules-section" className="automation-rule-list">
         <header className="admin-section-head">
           <div>
-            <p className="eyebrow">Structured Rules</p>
+            <p className="eyebrow">{isSpanish ? "Reglas estructuradas" : "Structured Rules"}</p>
             <h2>Automations</h2>
           </div>
           <button className="button button-primary" type="button" data-testid="automation-new" onClick={() => {
@@ -874,20 +923,20 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
             setSelectedId("");
             onSelectRule();
             setDraft(emptyDraft(role, properties));
-          }}>New Rule</button>
+          }}>{isSpanish ? "Nueva regla" : "New Rule"}</button>
         </header>
-        <p className="subtitle">Rules use validated conditions and actions only. JavaScript is never executed.</p>
+        <p className="subtitle">{isSpanish ? "Las reglas solo usan condiciones y acciones validadas. JavaScript nunca se ejecuta." : "Rules use validated conditions and actions only. JavaScript is never executed."}</p>
         {rules.length === 0 ? (
-          <StatusState title="No automation rules" description="Create a structured rule for a make-ready workflow." tone="subtle" />
+          <StatusState title={isSpanish ? "No hay reglas de automatizacion" : "No automation rules"} description={isSpanish ? "Crea una regla estructurada para un flujo de make-ready." : "Create a structured rule for a make-ready workflow."} tone="subtle" />
         ) : (
           <div className="automation-items">
             {rules.map((rule) => (
               <div className={selected?.id === rule.id && !creating ? "automation-item active" : "automation-item"} key={rule.id}>
                 <button type="button" data-testid={`automation-item-${rule.id}`} onClick={() => chooseRule(rule)}>
                   <strong>{rule.name}</strong>
-                  <small>{humanize(rule.triggerType)} · {rule.property?.code ?? "Global"}</small>
+                  <small>{humanize(rule.triggerType)} · {rule.property?.code ?? (isSpanish ? "Global" : "Global")}</small>
                 </button>
-                <label className="toggle-row" title={role === "MANAGER" && !rule.propertyId ? "Global rules are admin-controlled" : "Enable automation rule"}>
+                <label className="toggle-row" title={role === "MANAGER" && !rule.propertyId ? (isSpanish ? "Las reglas globales son controladas por administracion" : "Global rules are admin-controlled") : (isSpanish ? "Habilitar regla de automatizacion" : "Enable automation rule")}>
                   <input
                     data-testid={`automation-toggle-${rule.id}`}
                     type="checkbox"
@@ -895,7 +944,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                     disabled={loading || (role === "MANAGER" && !rule.propertyId)}
                     onChange={(event) => void onToggle(rule.id, event.target.checked)}
                   />
-                  {rule.enabled ? "On" : "Off"}
+                  {rule.enabled ? (isSpanish ? "Activa" : "On") : (isSpanish ? "Apagada" : "Off")}
                 </label>
               </div>
             ))}
@@ -905,7 +954,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
 
       <section id="automation-editor-section" className="automation-editor">
         <header className="admin-section-head">
-          <h3>{creating ? "Create Rule" : selected ? "Edit Rule" : "Rule Setup"}</h3>
+          <h3>{creating ? (isSpanish ? "Crear regla" : "Create Rule") : selected ? (isSpanish ? "Editar regla" : "Edit Rule") : (isSpanish ? "Configuracion de regla" : "Rule Setup")}</h3>
           {!creating && selected ? (
             <div className="automation-editor-actions">
               <button
@@ -913,9 +962,9 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                 data-testid="automation-preview-stored"
                 type="button"
                 disabled={previewLoading || (role === "MANAGER" && !selected.propertyId)}
-                title={role === "MANAGER" && !selected.propertyId ? "Managers may preview assigned-property rules only" : "Preview this saved rule"}
+                title={role === "MANAGER" && !selected.propertyId ? (isSpanish ? "Los gerentes solo pueden previsualizar reglas asignadas a propiedades" : "Managers may preview assigned-property rules only") : (isSpanish ? "Vista previa de esta regla guardada" : "Preview this saved rule")}
                 onClick={() => void onPreviewStored(selected.id)}
-              >Preview</button>
+              >{isSpanish ? "Vista previa" : "Preview"}</button>
               {selected.triggerType === "SCHEDULED_CHECK" && selected.enabled && canEditSelected ? (
                 <button
                   className="button button-primary"
@@ -923,34 +972,34 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                   type="button"
                   disabled={loading}
                   onClick={() => void onRunNow(selected.id)}
-                >Run Now</button>
+                >{isSpanish ? "Ejecutar ahora" : "Run Now"}</button>
               ) : null}
-              {canEditSelected ? <button className="button button-danger" type="button" onClick={() => setArchiveTarget(selected)}>Archive</button> : null}
+              {canEditSelected ? <button className="button button-danger" type="button" onClick={() => setArchiveTarget(selected)}>{isSpanish ? "Archivar" : "Archive"}</button> : null}
             </div>
           ) : null}
         </header>
         {message ? <div className="admin-message success">{message}</div> : null}
         {error ? <div className="admin-message error">{error}</div> : null}
         {!creating && !selected ? (
-          <StatusState title="Choose a rule" description="Select an automation rule or create a new one." tone="subtle" />
+          <StatusState title={isSpanish ? "Elige una regla" : "Choose a rule"} description={isSpanish ? "Selecciona una regla de automatizacion o crea una nueva." : "Select an automation rule or create a new one."} tone="subtle" />
         ) : (
           <div className="automation-form">
-            {!canEditSelected && !creating ? <div className="admin-message warning span-full">This global rule is visible to managers but can only be changed by an admin.</div> : null}
-            <label>Rule name<input data-testid="automation-name" value={draft.name} disabled={!creating && !canEditSelected} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-            <label>Trigger<select data-testid="automation-trigger" value={draft.triggerType} disabled={!creating && !canEditSelected} onChange={(event) => setDraft((current) => ({ ...current, triggerType: event.target.value as AutomationTriggerType }))}>{triggers.map((trigger) => <option key={trigger.value} value={trigger.value}>{trigger.label}</option>)}</select></label>
-            <label className="span-full">Description<input data-testid="automation-description" value={draft.description} disabled={!creating && !canEditSelected} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /></label>
-            <label>Property scope
+            {!canEditSelected && !creating ? <div className="admin-message warning span-full">{isSpanish ? "Esta regla global es visible para gerentes pero solo puede cambiarla un administrador." : "This global rule is visible to managers but can only be changed by an admin."}</div> : null}
+            <label>{isSpanish ? "Nombre de la regla" : "Rule name"}<input data-testid="automation-name" value={draft.name} disabled={!creating && !canEditSelected} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
+            <label>{isSpanish ? "Disparador" : "Trigger"}<select data-testid="automation-trigger" value={draft.triggerType} disabled={!creating && !canEditSelected} onChange={(event) => setDraft((current) => ({ ...current, triggerType: event.target.value as AutomationTriggerType }))}>{triggers.map((trigger) => <option key={trigger} value={trigger}>{triggerLabel(trigger, isSpanish)}</option>)}</select></label>
+            <label className="span-full">{isSpanish ? "Descripcion" : "Description"}<input data-testid="automation-description" value={draft.description} disabled={!creating && !canEditSelected} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /></label>
+            <label>{isSpanish ? "Alcance de propiedad" : "Property scope"}
               <select data-testid="automation-property" value={draft.propertyId} disabled={role === "MANAGER" || (!creating && !canEditSelected)} onChange={(event) => setDraft((current) => ({ ...current, propertyId: event.target.value }))}>
-                {role === "ADMIN" ? <option value="">Global - all properties</option> : null}
+                {role === "ADMIN" ? <option value="">{isSpanish ? "Global - todas las propiedades" : "Global - all properties"}</option> : null}
                 {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
               </select>
             </label>
-            <label className="toggle-row automation-enabled"><input type="checkbox" checked={draft.enabled} disabled={!creating} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} />Enabled on create</label>
+            <label className="toggle-row automation-enabled"><input type="checkbox" checked={draft.enabled} disabled={!creating} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} />{isSpanish ? "Habilitada al crear" : "Enabled on create"}</label>
 
             <section className="automation-builder span-full">
               <div className="admin-section-head">
-                <strong>All Conditions</strong>
-                <button className="button button-secondary" type="button" disabled={!creating && !canEditSelected} onClick={() => setDraft((current) => ({ ...current, conditions: [...current.conditions, { field: "completionStatus", operator: "equals", value: "DONE" }] }))}>Add Condition</button>
+                <strong>{isSpanish ? "Todas las condiciones" : "All Conditions"}</strong>
+                <button className="button button-secondary" type="button" disabled={!creating && !canEditSelected} onClick={() => setDraft((current) => ({ ...current, conditions: [...current.conditions, { field: "completionStatus", operator: "equals", value: "DONE" }] }))}>{isSpanish ? "Agregar condicion" : "Add Condition"}</button>
               </div>
               {draft.conditions.map((condition, index) => {
                 const customField = customFieldForTarget(condition.field, customFields);
@@ -971,16 +1020,16 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                         }));
                       }}
                     >
-                      <optgroup label="Built-in fields">{conditionFields.map((field) => <option key={field} value={field}>{humanize(field)}</option>)}</optgroup>
-                      {customFields.length > 0 ? <optgroup label="Custom fields">{customFields.map((field) => <option key={field.id} value={`custom:${field.id}`}>{field.label}</option>)}</optgroup> : null}
+                      <optgroup label={isSpanish ? "Campos integrados" : "Built-in fields"}>{conditionFields.map((field) => <option key={field} value={field}>{humanize(field)}</option>)}</optgroup>
+                      {customFields.length > 0 ? <optgroup label={isSpanish ? "Campos personalizados" : "Custom fields"}>{customFields.map((field) => <option key={field.id} value={`custom:${field.id}`}>{field.label}</option>)}</optgroup> : null}
                     </select>
                     <select data-testid={`automation-condition-operator-${index}`} disabled={!creating && !canEditSelected} value={condition.operator} onChange={(event) => setDraft((current) => ({ ...current, conditions: current.conditions.map((entry, entryIndex) => entryIndex === index ? { ...entry, operator: event.target.value as AutomationCondition["operator"] } : entry) }))}>{availableOperators.map((operator) => <option key={operator} value={operator}>{humanize(operator)}</option>)}</select>
                     {noValueOperators.includes(condition.operator) ? (
-                      <span className="subtitle">No value required</span>
+                      <span className="subtitle">{isSpanish ? "No requiere valor" : "No value required"}</span>
                     ) : customField?.fieldType === "BOOLEAN" ? (
                       <select data-testid={`automation-condition-value-${index}`} disabled={!creating && !canEditSelected} value={condition.value} onChange={(event) => setDraft((current) => ({ ...current, conditions: current.conditions.map((entry, entryIndex) => entryIndex === index ? { ...entry, value: event.target.value } : entry) }))}>
-                        <option value="true">True</option>
-                        <option value="false">False</option>
+                        <option value="true">{isSpanish ? "Verdadero" : "True"}</option>
+                        <option value="false">{isSpanish ? "Falso" : "False"}</option>
                       </select>
                     ) : customField?.fieldType === "SINGLE_SELECT" || customField?.fieldType === "MULTI_SELECT" ? (
                       <select data-testid={`automation-condition-value-${index}`} disabled={!creating && !canEditSelected} value={condition.value} onChange={(event) => setDraft((current) => ({ ...current, conditions: current.conditions.map((entry, entryIndex) => entryIndex === index ? { ...entry, value: event.target.value } : entry) }))}>
@@ -992,11 +1041,11 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                         data-testid={`automation-condition-value-${index}`}
                         disabled={!creating && !canEditSelected}
                         value={condition.value}
-                        placeholder={condition.operator === "dateWithinNextDays" ? "Days (0-365)" : "Value"}
+                        placeholder={condition.operator === "dateWithinNextDays" ? (isSpanish ? "Dias (0-365)" : "Days (0-365)") : (isSpanish ? "Valor" : "Value")}
                         onChange={(event) => setDraft((current) => ({ ...current, conditions: current.conditions.map((entry, entryIndex) => entryIndex === index ? { ...entry, value: event.target.value } : entry) }))}
                       />
                     )}
-                    <button className="icon-button" type="button" aria-label="Remove condition" disabled={draft.conditions.length === 1 || (!creating && !canEditSelected)} onClick={() => setDraft((current) => ({ ...current, conditions: current.conditions.filter((_, entryIndex) => entryIndex !== index) }))}>x</button>
+                    <button className="icon-button" type="button" aria-label={isSpanish ? "Eliminar condicion" : "Remove condition"} disabled={draft.conditions.length === 1 || (!creating && !canEditSelected)} onClick={() => setDraft((current) => ({ ...current, conditions: current.conditions.filter((_, entryIndex) => entryIndex !== index) }))}>x</button>
                   </div>
                 );
               })}
@@ -1004,7 +1053,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
 
             <section className="automation-builder span-full">
               <div className="admin-section-head">
-                <strong>Actions</strong>
+                <strong>{isSpanish ? "Acciones" : "Actions"}</strong>
                 <button className="button button-secondary" type="button" disabled={!creating && !canEditSelected} onClick={() => setDraft((current) => ({ ...current, actions: [...current.actions, {
                   type: "addAuditNote",
                   field: "vacancyStatus",
@@ -1020,7 +1069,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                   dailyAssignmentCap: "",
                   onlyWhenUnassigned: true,
                   includePlannedWork: true,
-                }] }))}>Add Action</button>
+                }] }))}>{isSpanish ? "Agregar accion" : "Add Action"}</button>
               </div>
               {draft.actions.map((action, index) => (
                 <div className="automation-builder-row" key={`action-${index}`}>
@@ -1029,22 +1078,22 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                     type: event.target.value as AutomationAction["type"],
                     value: event.target.value === "addAuditNote" ? entry.value : event.target.value === "assignLeastLoadedStaff" ? "" : entry.value,
                   } : entry) }))}>
-                    <option value="setField">Set field value</option>
-                    <option value="setDateFromField">Set date from operating offset</option>
-                    <option value="setCustomField">Set custom field value</option>
-                    <option value="addAuditNote">Add activity note</option>
-                    {draft.triggerType === "SCHEDULED_CHECK" ? <option value="assignLeastLoadedStaff">Assign least-loaded staff</option> : null}
-                    {draft.triggerType !== "SCHEDULED_CHECK" ? <option value="setPriority">Set priority (existing)</option> : null}
-                    {draft.triggerType !== "SCHEDULED_CHECK" ? <option value="appendNote">Append item note (existing)</option> : null}
+                    <option value="setField">{isSpanish ? "Establecer valor del campo" : "Set field value"}</option>
+                    <option value="setDateFromField">{isSpanish ? "Establecer fecha desde desfase operativo" : "Set date from operating offset"}</option>
+                    <option value="setCustomField">{isSpanish ? "Establecer valor de campo personalizado" : "Set custom field value"}</option>
+                    <option value="addAuditNote">{isSpanish ? "Agregar nota de actividad" : "Add activity note"}</option>
+                    {draft.triggerType === "SCHEDULED_CHECK" ? <option value="assignLeastLoadedStaff">{isSpanish ? "Asignar personal con menor carga" : "Assign least-loaded staff"}</option> : null}
+                    {draft.triggerType !== "SCHEDULED_CHECK" ? <option value="setPriority">{isSpanish ? "Establecer prioridad (existente)" : "Set priority (existing)"}</option> : null}
+                    {draft.triggerType !== "SCHEDULED_CHECK" ? <option value="appendNote">{isSpanish ? "Agregar nota al item (existente)" : "Append item note (existing)"}</option> : null}
                   </select>
                   {action.type === "setField" ? <select disabled={!creating && !canEditSelected} value={action.field} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, field: event.target.value } : entry) }))}>{settableFields.map((field) => <option key={field} value={field}>{humanize(field)}</option>)}</select> : null}
                   {action.type === "setDateFromField" ? (
                     <>
                       <select data-testid={`automation-action-source-field-${index}`} disabled={!creating && !canEditSelected} value={action.sourceField} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, sourceField: event.target.value } : entry) }))}>
-                        {dateActionFields.map((field) => <option key={field} value={field}>From {humanize(field)}</option>)}
+                        {dateActionFields.map((field) => <option key={field} value={field}>{isSpanish ? `Desde ${humanize(field)}` : `From ${humanize(field)}`}</option>)}
                       </select>
                       <select data-testid={`automation-action-target-field-${index}`} disabled={!creating && !canEditSelected} value={action.targetField} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, targetField: event.target.value } : entry) }))}>
-                        {dateActionFields.map((field) => <option key={field} value={field}>Set {humanize(field)}</option>)}
+                        {dateActionFields.map((field) => <option key={field} value={field}>{isSpanish ? `Establecer ${humanize(field)}` : `Set ${humanize(field)}`}</option>)}
                       </select>
                       <input
                         type="number"
@@ -1053,16 +1102,16 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                         value={action.offsetDays}
                         min={-60}
                         max={60}
-                        placeholder="Operating days"
+                        placeholder={isSpanish ? "Dias operativos" : "Operating days"}
                         onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, offsetDays: event.target.value } : entry) }))}
                       />
                     </>
                   ) : null}
-                  {action.type === "setCustomField" ? <select disabled={!creating && !canEditSelected} value={action.fieldId} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, fieldId: event.target.value } : entry) }))}><option value="">Choose field</option>{customFields.map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}</select> : null}
+                  {action.type === "setCustomField" ? <select disabled={!creating && !canEditSelected} value={action.fieldId} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, fieldId: event.target.value } : entry) }))}><option value="">{isSpanish ? "Elegir campo" : "Choose field"}</option>{customFields.map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}</select> : null}
                   {action.type === "assignLeastLoadedStaff" ? (
                     <>
                       <select disabled={!creating && !canEditSelected} value={action.sourceField} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, sourceField: event.target.value } : entry) }))}>
-                        {["makeReadyDate", "moveInDate", "vacatedDate"].map((field) => <option key={field} value={field}>Target {humanize(field)}</option>)}
+                        {["makeReadyDate", "moveInDate", "vacatedDate"].map((field) => <option key={field} value={field}>{isSpanish ? `Objetivo ${humanize(field)}` : `Target ${humanize(field)}`}</option>)}
                       </select>
                       <input
                         type="number"
@@ -1070,19 +1119,19 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                         value={action.lookAheadDays}
                         min={0}
                         max={30}
-                        placeholder="Look-ahead days"
+                        placeholder={isSpanish ? "Dias de anticipacion" : "Look-ahead days"}
                         onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, lookAheadDays: event.target.value } : entry) }))}
                       />
                       <input
                         disabled={!creating && !canEditSelected}
                         value={action.eligibleUserIds}
-                        placeholder="Eligible user IDs (optional)"
+                        placeholder={isSpanish ? "IDs de usuarios elegibles (opcional)" : "Eligible user IDs (optional)"}
                         onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, eligibleUserIds: event.target.value } : entry) }))}
                       />
                       <input
                         disabled={!creating && !canEditSelected}
                         value={action.excludedUserIds}
-                        placeholder="Exclude user IDs (optional)"
+                        placeholder={isSpanish ? "Excluir IDs de usuarios (opcional)" : "Exclude user IDs (optional)"}
                         onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, excludedUserIds: event.target.value } : entry) }))}
                       />
                       <input
@@ -1091,7 +1140,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                         value={action.dailyAssignmentCap}
                         min={1}
                         max={50}
-                        placeholder="Planned-day cap"
+                        placeholder={isSpanish ? "Limite por dia planificado" : "Planned-day cap"}
                         onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, dailyAssignmentCap: event.target.value } : entry) }))}
                       />
                     </>
@@ -1105,12 +1154,12 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                           disabled={!creating && !canEditSelected}
                           onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, onlyWhenUnassigned: event.target.checked } : entry) }))}
                         />
-                        Only when unassigned
+                        {isSpanish ? "Solo cuando no este asignado" : "Only when unassigned"}
                       </label>
                     ) : (
-                      <input data-testid={`automation-action-value-${index}`} disabled={!creating && !canEditSelected} value={action.value} placeholder={action.type === "addAuditNote" ? "Activity note" : "Value"} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, value: event.target.value } : entry) }))} />
+                      <input data-testid={`automation-action-value-${index}`} disabled={!creating && !canEditSelected} value={action.value} placeholder={action.type === "addAuditNote" ? (isSpanish ? "Nota de actividad" : "Activity note") : (isSpanish ? "Valor" : "Value")} onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, value: event.target.value } : entry) }))} />
                     )
-                  ) : <span className="subtitle">Uses property operating calendar rules</span>}
+                  ) : <span className="subtitle">{isSpanish ? "Usa las reglas del calendario operativo de la propiedad" : "Uses property operating calendar rules"}</span>}
                   {action.type === "assignLeastLoadedStaff" ? (
                     <label className="toggle-row">
                       <input
@@ -1119,7 +1168,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                         disabled={!creating && !canEditSelected}
                         onChange={(event) => setDraft((current) => ({ ...current, actions: current.actions.map((entry, entryIndex) => entryIndex === index ? { ...entry, includePlannedWork: event.target.checked } : entry) }))}
                       />
-                      Include planned work
+                      {isSpanish ? "Incluir trabajo planificado" : "Include planned work"}
                     </label>
                   ) : null}
                   {action.type === "assignLeastLoadedStaff" ? (
@@ -1148,7 +1197,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                       })}
                     </div>
                   ) : null}
-                  <button className="icon-button" type="button" aria-label="Remove action" disabled={draft.actions.length === 1 || (!creating && !canEditSelected)} onClick={() => setDraft((current) => ({ ...current, actions: current.actions.filter((_, entryIndex) => entryIndex !== index) }))}>x</button>
+                  <button className="icon-button" type="button" aria-label={isSpanish ? "Eliminar accion" : "Remove action"} disabled={draft.actions.length === 1 || (!creating && !canEditSelected)} onClick={() => setDraft((current) => ({ ...current, actions: current.actions.filter((_, entryIndex) => entryIndex !== index) }))}>x</button>
                 </div>
               ))}
             </section>
@@ -1162,7 +1211,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                     type="button"
                     disabled={loading || !draft.name.trim() || incompleteCondition || draft.actions.some(isActionIncomplete)}
                     onClick={() => void onPreviewDraft(draftPayload(draft, customFields))}
-                  >Preview Draft</button>
+                  >{isSpanish ? "Vista previa del borrador" : "Preview Draft"}</button>
                 ) : null}
                 <button
                   className="button button-primary"
@@ -1178,7 +1227,7 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                       await onUpdate(selected.id, input);
                     }
                   }}
-                >{creating ? "Create Rule" : "Save Rule"}</button>
+            >{creating ? (isSpanish ? "Crear regla" : "Create Rule") : (isSpanish ? "Guardar regla" : "Save Rule")}</button>
               </div>
             ) : null}
           </div>
@@ -1189,40 +1238,42 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
         <section className="automation-preview span-full" data-testid="automation-preview-panel">
           <div className="admin-section-head">
             <div>
-              <p className="eyebrow">Dry Run</p>
-              <h3>Preview: {preview.rule.name}</h3>
+              <p className="eyebrow">{isSpanish ? "Ejecucion en seco" : "Dry Run"}</p>
+              <h3>{isSpanish ? "Vista previa:" : "Preview:"} {preview.rule.name}</h3>
             </div>
-            <strong className="status-chip active">{preview.matchingItemCount} match{preview.matchingItemCount === 1 ? "" : "es"}</strong>
+            <strong className="status-chip active">{preview.matchingItemCount} {isSpanish ? `coincidencia${preview.matchingItemCount === 1 ? "" : "s"}` : `match${preview.matchingItemCount === 1 ? "" : "es"}`}</strong>
           </div>
-          <div className="automation-preview-notice" data-testid="automation-preview-notice">No changes will be made. This preview is audit logged for accountability.</div>
+          <div className="automation-preview-notice" data-testid="automation-preview-notice">{isSpanish ? "No se realizaran cambios. Esta vista previa se registra en auditoria para responsabilidad." : "No changes will be made. This preview is audit logged for accountability."}</div>
           {preview.assignmentSummary ? (
             <>
               <div className="automation-preview-diagnostics">
                 <small>
-                  Assignment preview: {preview.assignmentSummary.assignedItemCount} would assign
-                  {preview.assignmentSummary.alreadyAssignedItemCount ? ` · ${preview.assignmentSummary.alreadyAssignedItemCount} already assigned` : ""}
-                  {preview.assignmentSummary.noEligibleStaffItemCount ? ` · ${preview.assignmentSummary.noEligibleStaffItemCount} no eligible staff` : ""}
-                  {preview.assignmentSummary.dailyCapBlockedItemCount ? ` · ${preview.assignmentSummary.dailyCapBlockedItemCount} blocked by cap` : ""}
-                  {preview.assignmentSummary.otherBlockedItemCount ? ` · ${preview.assignmentSummary.otherBlockedItemCount} other blocked` : ""}
+                  {isSpanish
+                    ? `Vista previa de asignacion: ${preview.assignmentSummary.assignedItemCount} se asignarian`
+                    : `Assignment preview: ${preview.assignmentSummary.assignedItemCount} would assign`}
+                  {preview.assignmentSummary.alreadyAssignedItemCount ? (isSpanish ? ` · ${preview.assignmentSummary.alreadyAssignedItemCount} ya asignados` : ` · ${preview.assignmentSummary.alreadyAssignedItemCount} already assigned`) : ""}
+                  {preview.assignmentSummary.noEligibleStaffItemCount ? (isSpanish ? ` · ${preview.assignmentSummary.noEligibleStaffItemCount} sin personal elegible` : ` · ${preview.assignmentSummary.noEligibleStaffItemCount} no eligible staff`) : ""}
+                  {preview.assignmentSummary.dailyCapBlockedItemCount ? (isSpanish ? ` · ${preview.assignmentSummary.dailyCapBlockedItemCount} bloqueados por limite` : ` · ${preview.assignmentSummary.dailyCapBlockedItemCount} blocked by cap`) : ""}
+                  {preview.assignmentSummary.otherBlockedItemCount ? (isSpanish ? ` · ${preview.assignmentSummary.otherBlockedItemCount} bloqueados por otras razones` : ` · ${preview.assignmentSummary.otherBlockedItemCount} other blocked`) : ""}
                 </small>
                 {preview.assignmentSummary.selectedUsers.length ? (
                   <ul className="automation-preview-candidate-list">
                     {preview.assignmentSummary.selectedUsers.map((entry) => (
                       <li key={entry.fullName}>
-                        <strong>{entry.fullName}</strong> would receive {entry.count} assignment{entry.count === 1 ? "" : "s"}
+                        <strong>{entry.fullName}</strong> {isSpanish ? `recibiria ${entry.count} asignacion${entry.count === 1 ? "" : "es"}` : `would receive ${entry.count} assignment${entry.count === 1 ? "" : "s"}`}
                       </li>
                     ))}
                   </ul>
                 ) : null}
               </div>
-              {renderAssignmentValidation(preview.assignmentSummary)}
+              {renderAssignmentValidation(preview.assignmentSummary, isSpanish)}
             </>
           ) : null}
           <div className="automation-preview-warnings">
             {preview.warnings.map((warning) => <p key={warning}>{warning}</p>)}
           </div>
           {preview.affectedItems.length === 0 ? (
-            <StatusState title="No matching items" description="The current item data does not satisfy this rule's conditions." tone="subtle" />
+            <StatusState title={isSpanish ? "No hay items coincidentes" : "No matching items"} description={isSpanish ? "Los datos actuales del item no satisfacen las condiciones de esta regla." : "The current item data does not satisfy this rule's conditions."} tone="subtle" />
           ) : (
             <div className="automation-preview-items">
               {preview.affectedItems.map((item) => (
@@ -1231,12 +1282,16 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
                     <strong>{item.property.code} / {item.unitNumber}</strong>
                     <small>{item.triggerSummary}</small>
                   </div>
-                  <span>{item.conditionSummary.all.filter((condition) => condition.matched).length} of {item.conditionSummary.all.length} required conditions matched</span>
+                  <span>
+                    {isSpanish
+                      ? `${item.conditionSummary.all.filter((condition) => condition.matched).length} de ${item.conditionSummary.all.length} condiciones obligatorias coinciden`
+                      : `${item.conditionSummary.all.filter((condition) => condition.matched).length} of ${item.conditionSummary.all.length} required conditions matched`}
+                  </span>
                   <div className="automation-preview-actions">
                     {item.proposedActions.map((action, index) => (
                       <div key={`${action.type}-${index}`} className="automation-preview-action">
                         <span>{action.summary}</span>
-                        {formatPreviewActionDiagnostics(action)}
+                        {formatPreviewActionDiagnostics(action, isSpanish)}
                       </div>
                     ))}
                   </div>
@@ -1249,21 +1304,21 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
 
       {assignmentValidationActive ? (
         <div className="span-full">
-          {renderAssignmentRolloutPack(preview?.assignmentSummary ?? null, runs, assignmentValidationNotes, () => void copyAssignmentValidationNotes())}
+          {renderAssignmentRolloutPack(preview?.assignmentSummary ?? null, runs, assignmentValidationNotes, () => void copyAssignmentValidationNotes(), isSpanish)}
           {validationCopyMessage ? <p className="subtitle">{validationCopyMessage}</p> : null}
         </div>
       ) : null}
 
       <section id="automation-history-section" className="automation-history span-full">
-        <div className="admin-section-head"><h3>Recent Runs</h3><span className="subtitle">{selected ? selected.name : "All accessible rules"}</span></div>
-        {runs.length === 0 ? <StatusState title="No recent runs" description="Runs appear here after matching make-ready changes trigger an enabled rule." tone="subtle" /> : (
+        <div className="admin-section-head"><h3>{isSpanish ? "Ejecuciones recientes" : "Recent Runs"}</h3><span className="subtitle">{selected ? selected.name : (isSpanish ? "Todas las reglas accesibles" : "All accessible rules")}</span></div>
+        {runs.length === 0 ? <StatusState title={isSpanish ? "No hay ejecuciones recientes" : "No recent runs"} description={isSpanish ? "Las ejecuciones aparecen aqui despues de que cambios coincidentes de make-ready disparan una regla habilitada." : "Runs appear here after matching make-ready changes trigger an enabled rule."} tone="subtle" /> : (
           <div className="automation-run-list" data-testid="automation-run-history">
             {runs.map((run) => (
               <div className="automation-run" key={run.id}>
                 <strong><span className={`automation-run-type ${run.runType.toLowerCase()}`}>{run.runType}</span>{run.rule.name}</strong>
                 <span>{run.message}</span>
-                <span>{run.item ? `${run.item.property.code} / ${run.item.unitNumber}` : run.checkedCount === null ? "No linked item" : `${run.checkedCount} checked / ${run.matchedCount ?? 0} matched / ${run.actionCount ?? 0} actions`}</span>
-                {formatAutomationRunContext(run)}
+                <span>{run.item ? `${run.item.property.code} / ${run.item.unitNumber}` : run.checkedCount === null ? (isSpanish ? "Sin item vinculado" : "No linked item") : (isSpanish ? `${run.checkedCount} revisados / ${run.matchedCount ?? 0} coincidencias / ${run.actionCount ?? 0} acciones` : `${run.checkedCount} checked / ${run.matchedCount ?? 0} matched / ${run.actionCount ?? 0} actions`)}</span>
+                {formatAutomationRunContext(run, isSpanish)}
                 <time>{formatDateTime(run.ranAt)}</time>
               </div>
             ))}
@@ -1272,9 +1327,10 @@ export function AutomationPanel({ role, properties, customFields, rules, templat
       </section>
       <ConfirmDialog
         open={Boolean(archiveTarget)}
-        title="Archive automation rule"
-        description={`Archive ${archiveTarget?.name ?? "this rule"}? It will be disabled and no longer evaluated.`}
-        confirmLabel="Archive Rule"
+        language={isSpanish ? "es" : "en"}
+        title={isSpanish ? "Archivar regla de automatizacion" : "Archive automation rule"}
+        description={isSpanish ? `Archivar ${archiveTarget?.name ?? "esta regla"}? Se deshabilitara y ya no se evaluara.` : `Archive ${archiveTarget?.name ?? "this rule"}? It will be disabled and no longer evaluated.`}
+        confirmLabel={isSpanish ? "Archivar regla" : "Archive Rule"}
         tone="danger"
         busy={loading}
         onClose={() => setArchiveTarget(null)}

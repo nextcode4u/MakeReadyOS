@@ -23,10 +23,13 @@ import {
   type PreventiveMaintenanceTemplate,
   type PreventiveMaintenanceStatus,
   type Property,
+  type UserLanguage,
   type UserRole,
 } from "../lib/api";
 import { enqueuePmComplete, enqueuePmSkip, enqueuePmUpload } from "../lib/offlineSync";
+import { t } from "../lib/i18n";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
+import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
 import { StatusState } from "./StatusState";
 import { openProjectCreate } from "../lib/projectNavigation";
 
@@ -34,10 +37,12 @@ type Props = {
   properties: Property[];
   userRole: UserRole;
   selectedPropertyId?: string;
+  language?: UserLanguage;
 };
 
 type Tab = "dashboard" | "calendar" | "tasks" | "templates" | "history" | "reports";
 type CalendarMode = "daily" | "weekly" | "monthly";
+type TaskFocus = "all" | "due-now" | "photo-proof" | "notes-required" | "pass-fail";
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -64,6 +69,10 @@ function formatDate(value: string | Date | null | undefined) {
 function formatDateTime(value: string | Date | null | undefined) {
   if (!value) return "-";
   return new Date(value).toLocaleString();
+}
+
+function isDueNow(task: PreventiveMaintenanceTask) {
+  return task.status === "DUE" || task.status === "OVERDUE";
 }
 
 function assignmentLabel(input: {
@@ -110,16 +119,19 @@ function calendarRange(mode: CalendarMode, anchor: string) {
 function TaskCard({
   task,
   canEdit,
+  language,
   onComplete,
   onSkip,
   onUpload,
 }: {
   task: PreventiveMaintenanceTask;
   canEdit: boolean;
+  language: UserLanguage;
   onComplete: (task: PreventiveMaintenanceTask, outcome: "PASS" | "FAIL" | "COMPLETE", notes: string) => void;
   onSkip: (task: PreventiveMaintenanceTask, notes: string) => void;
   onUpload: (taskId: string, files: FileList | null) => void;
 }) {
+  const isSpanish = language === "es";
   const [notes, setNotes] = useState("");
   return (
     <article className="pool-card pm-task-card">
@@ -130,14 +142,14 @@ function TaskCard({
       <div className="pool-reading-stack">
         <span>{task.property.code}</span>
         <span>{task.category}</span>
-        <span>Due {formatDate(task.dueDate)}</span>
+        <span>{t(language, "pm.due")} {formatDate(task.dueDate)}</span>
         <span>{assignmentLabel(task)}</span>
         <span>{task.priority}</span>
       </div>
       {task.description ? <p>{task.description}</p> : null}
       {task.instructions ? <p className="muted">{task.instructions}</p> : null}
       <PropertyWikiWorkflowPanel
-        title="Related Property Wiki Information"
+        title={t(language, "pm.relatedWikiInfo")}
         module="PREVENTIVE_MAINTENANCE"
         propertyId={task.propertyId}
         recordType="PM_TASK"
@@ -157,8 +169,8 @@ function TaskCard({
       ) : null}
       {canEdit ? (
         <>
-          <label>Completion notes
-            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Quick PM notes" />
+          <label>{t(language, "pm.completionNotes")}
+            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={t(language, "pm.quickNotesPlaceholder")} />
           </label>
           <div className="pool-entry-actions">
             <button
@@ -177,10 +189,10 @@ function TaskCard({
                 tags: ["preventive-maintenance", task.category.toLowerCase()],
               })}
             >
-              Create Recommendation
+              {t(language, "pm.createRecommendation")}
             </button>
             <label className="button button-secondary pool-upload-button">
-              Upload Photo/PDF
+              {t(language, "pm.uploadPhotoPdf")}
               <input
                 type="file"
                 hidden
@@ -193,20 +205,21 @@ function TaskCard({
             </label>
             {task.passFailRequired ? (
               <>
-                <button type="button" className="button button-primary" onClick={() => onComplete(task, "PASS", notes)}>Pass</button>
-                <button type="button" className="button button-secondary" onClick={() => onComplete(task, "FAIL", notes)}>Fail</button>
+                <button type="button" className="button button-primary" onClick={() => onComplete(task, "PASS", notes)}>{t(language, "pm.pass")}</button>
+                <button type="button" className="button button-secondary" onClick={() => onComplete(task, "FAIL", notes)}>{t(language, "pm.fail")}</button>
               </>
-            ) : <button type="button" className="button button-primary" onClick={() => onComplete(task, "COMPLETE", notes)}>Complete</button>}
-            <button type="button" className="button button-secondary" onClick={() => onSkip(task, notes)}>Skip</button>
+            ) : <button type="button" className="button button-primary" onClick={() => onComplete(task, "COMPLETE", notes)}>{t(language, "common.complete")}</button>}
+            <button type="button" className="button button-secondary" onClick={() => onSkip(task, notes)}>{t(language, "common.skip")}</button>
           </div>
         </>
       ) : null}
-      {!canEdit ? <p className="muted">Your role can view PM tasks but cannot complete them.</p> : null}
+      {!canEdit ? <p className="muted">{t(language, "pm.viewOnlyTasks")}</p> : null}
     </article>
   );
 }
 
-export function PreventiveMaintenancePanel({ properties, userRole, selectedPropertyId }: Props) {
+export function PreventiveMaintenancePanel({ properties, userRole, selectedPropertyId, language = "en" }: Props) {
+  const isSpanish = language === "es";
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>("dashboard");
   const [propertyId, setPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
@@ -216,6 +229,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   const [taskCategory, setTaskCategory] = useState<PreventiveMaintenanceCategory | "">("");
   const [taskPriority, setTaskPriority] = useState<PreventiveMaintenancePriority | "">("");
   const [taskQuery, setTaskQuery] = useState("");
+  const [taskFocus, setTaskFocus] = useState<TaskFocus>("all");
   const [historyQuery, setHistoryQuery] = useState("");
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [templateDraft, setTemplateDraft] = useState(templateDraftState);
@@ -328,7 +342,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
         return await uploadPreventiveMaintenanceAttachment(taskId, file);
       } catch (error) {
         if (isApiError(error) && error.status === 0) {
-          await enqueuePmUpload(taskId, [file]);
+          await enqueuePmUpload(taskId, propertyId || undefined, [file]);
           return { attachment: null };
         }
         throw error;
@@ -340,10 +354,45 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   const categories = overviewQuery.data?.categories ?? [];
   const assignableUsers = overviewQuery.data?.assignableUsers ?? [];
   const assignableUsersForRole = assignableUsers.filter((user) => user.role === templateDraft.assignedRole);
+  const assignableUserOptions = useMemo<SearchSelectOption[]>(() => assignableUsersForRole.map((user) => ({
+    value: user.id,
+    label: `${user.fullName} / ${user.role}`,
+    keywords: [user.fullName, user.role],
+  })), [assignableUsersForRole]);
   const tasks = tasksQuery.data?.tasks ?? [];
   const historyTasks = historyListQuery.data?.tasks ?? [];
   const templates = templatesQuery.data?.templates ?? [];
   const calendarTasks = calendarQuery.data?.tasks ?? [];
+
+  const taskFocusCounts = useMemo(() => ({
+    dueNow: tasks.filter((task) => isDueNow(task)).length,
+    photoProof: tasks.filter((task) => task.photosRequired).length,
+    notesRequired: tasks.filter((task) => task.notesRequired).length,
+    passFail: tasks.filter((task) => task.passFailRequired).length,
+  }), [tasks]);
+
+  const focusedTasks = useMemo(() => {
+    const filtered = tasks.filter((task) => {
+      switch (taskFocus) {
+        case "due-now":
+          return isDueNow(task);
+        case "photo-proof":
+          return task.photosRequired;
+        case "notes-required":
+          return task.notesRequired;
+        case "pass-fail":
+          return task.passFailRequired;
+        default:
+          return true;
+      }
+    });
+    return [...filtered].sort((left, right) => {
+      const leftRank = left.status === "OVERDUE" ? 0 : left.status === "DUE" ? 1 : 2;
+      const rightRank = right.status === "OVERDUE" ? 0 : right.status === "DUE" ? 1 : 2;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      return left.dueDate.localeCompare(right.dueDate);
+    });
+  }, [taskFocus, tasks]);
 
   const calendarGroups = useMemo(() => {
     return calendarTasks.reduce<Record<string, PreventiveMaintenanceTask[]>>((acc, task) => {
@@ -354,39 +403,46 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   }, [calendarTasks]);
 
   if (!propertyId) {
-    return <StatusState title="No properties available" description="Assign at least one property before using Preventive Maintenance." />;
+    return <StatusState title={t(language, "pm.noPropertiesTitle")} description={t(language, "pm.noPropertiesCopy")} />;
   }
 
   if (overviewQuery.isLoading) {
-    return <StatusState title="Loading preventive maintenance" description="Preparing recurring tasks, templates, and compliance visibility." />;
+    return <StatusState title={t(language, "pm.loadingTitle")} description={t(language, "pm.loadingCopy")} />;
   }
 
   if (overviewQuery.isError) {
-    return <StatusState title="Preventive maintenance failed to load" description="Refresh the workspace and try again." tone="error" />;
+    return <StatusState title={t(language, "pm.failedTitle")} description={t(language, "pm.failedCopy")} tone="error" />;
   }
 
   return (
     <section className="pool-panel module-panel" data-testid="preventive-maintenance-panel">
       <div className="module-heading">
         <div>
-          <span className="eyebrow">Preventive Maintenance</span>
-          <h1>Preventive Maintenance</h1>
-          <p>Lightweight recurring maintenance tasks designed for fast field completion, documentation, and compliance visibility.</p>
+          <span className="eyebrow">{t(language, "pm.title")}</span>
+          <h1>{t(language, "pm.title")}</h1>
+          <p>{t(language, "pm.copy")}</p>
         </div>
         <div className="module-actions">
-          <select value={propertyId} onChange={(event) => setPropertyId(event.target.value)} aria-label="PM property">
+          <select value={propertyId} onChange={(event) => setPropertyId(event.target.value)} aria-label={t(language, "pm.property")}>
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
           </select>
-          <a className="button secondary" href={preventiveMaintenancePrintableReportUrl({ propertyId })} target="_blank" rel="noreferrer">PDF report</a>
-          <a className="button secondary" href={preventiveMaintenanceExportCsvUrl({ propertyId })}>Export CSV</a>
-          <a className="button secondary" href={preventiveMaintenanceExportExcelUrl({ propertyId })}>Export Excel</a>
+          <a className="button secondary" href={preventiveMaintenancePrintableReportUrl({ propertyId })} target="_blank" rel="noreferrer">{t(language, "pm.pdfReport")}</a>
+          <a className="button secondary" href={preventiveMaintenanceExportCsvUrl({ propertyId })}>{t(language, "nav.csv")}</a>
+          <a className="button secondary" href={preventiveMaintenanceExportExcelUrl({ propertyId })}>{t(language, "nav.excel")}</a>
         </div>
       </div>
 
       <div className="module-tabs">
         {(["dashboard", "calendar", "tasks", "templates", "history", "reports"] as Tab[]).map((value) => (
           <button key={value} className={tab === value ? "active" : ""} type="button" onClick={() => setTab(value)}>
-            {value[0].toUpperCase() + value.slice(1)}
+            {{
+              dashboard: t(language, "nav.dashboard"),
+              calendar: t(language, "pm.calendar"),
+              tasks: t(language, "pm.tasks"),
+              templates: t(language, "pm.templates"),
+              history: t(language, "pm.history"),
+              reports: t(language, "pm.reports"),
+            }[value]}
           </button>
         ))}
       </div>
@@ -394,39 +450,39 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
       {tab === "dashboard" ? (
         <>
           <div className="pool-kpi-grid">
-            <div className="pool-kpi"><strong>{overviewQuery.data?.summary.dueToday ?? 0}</strong><span>Due today</span></div>
-            <div className="pool-kpi"><strong>{overviewQuery.data?.summary.dueThisWeek ?? 0}</strong><span>Due this week</span></div>
-            <div className="pool-kpi danger"><strong>{overviewQuery.data?.summary.overdue ?? 0}</strong><span>Overdue</span></div>
-            <div className="pool-kpi"><strong>{overviewQuery.data?.summary.completedThisMonth ?? 0}</strong><span>Completed this month</span></div>
-            <div className="pool-kpi"><strong>{overviewQuery.data?.summary.completionRate ?? 0}%</strong><span>Completion rate</span></div>
+            <div className="pool-kpi"><strong>{overviewQuery.data?.summary.dueToday ?? 0}</strong><span>{t(language, "pm.dueToday")}</span></div>
+            <div className="pool-kpi"><strong>{overviewQuery.data?.summary.dueThisWeek ?? 0}</strong><span>{t(language, "pm.dueThisWeek")}</span></div>
+            <div className="pool-kpi danger"><strong>{overviewQuery.data?.summary.overdue ?? 0}</strong><span>{t(language, "savedViews.overdue")}</span></div>
+            <div className="pool-kpi"><strong>{overviewQuery.data?.summary.completedThisMonth ?? 0}</strong><span>{t(language, "pm.completedThisMonth")}</span></div>
+            <div className="pool-kpi"><strong>{overviewQuery.data?.summary.completionRate ?? 0}%</strong><span>{t(language, "pm.completionRate")}</span></div>
           </div>
           <div className="pool-grid">
             <article className="pool-card">
-              <div className="drawer-section-title"><h2>Upcoming Tasks</h2><button type="button" className="button button-secondary" onClick={() => setTab("tasks")}>Complete Task</button></div>
+              <div className="drawer-section-title"><h2>{t(language, "pm.upcomingTasks")}</h2><button type="button" className="button button-secondary" onClick={() => { setTaskFocus("due-now"); setTab("tasks"); }}>{t(language, "pm.completeTask")}</button></div>
               {(overviewQuery.data?.upcomingTasks ?? []).length ? overviewQuery.data!.upcomingTasks.map((task) => (
                 <div className="pool-row" key={task.id}>
-                  <div><strong>{task.taskName}</strong><span>{task.category} / Due {formatDate(task.dueDate)}</span></div>
+                  <div><strong>{task.taskName}</strong><span>{task.category} / {t(language, "pm.due")} {formatDate(task.dueDate)}</span></div>
                   <span className={`status-pill ${task.status === "DUE" ? "risk-high" : ""}`}>{task.status}</span>
                 </div>
-              )) : <p className="muted">No upcoming tasks.</p>}
+              )) : <p className="muted">{t(language, "pm.noUpcomingTasks")}</p>}
             </article>
             <article className="pool-card">
-              <div className="drawer-section-title"><h2>Overdue Tasks</h2><button type="button" className="button button-secondary" onClick={() => { setTaskStatus("OVERDUE"); setTab("tasks"); }}>View Tasks</button></div>
+              <div className="drawer-section-title"><h2>{t(language, "pm.overdueTasks")}</h2><button type="button" className="button button-secondary" onClick={() => { setTaskStatus("OVERDUE"); setTab("tasks"); }}>{t(language, "pm.viewTasks")}</button></div>
               {(overviewQuery.data?.overdueTasks ?? []).length ? overviewQuery.data!.overdueTasks.map((task) => (
                 <div className="pool-row danger" key={task.id}>
-                  <div><strong>{task.taskName}</strong><span>{task.category} / Due {formatDate(task.dueDate)}</span></div>
+                  <div><strong>{task.taskName}</strong><span>{task.category} / {t(language, "pm.due")} {formatDate(task.dueDate)}</span></div>
                   <span>{assignmentLabel(task)}</span>
                 </div>
-              )) : <p className="muted">No overdue tasks.</p>}
+              )) : <p className="muted">{t(language, "pm.noOverdueTasks")}</p>}
             </article>
             <article className="pool-card">
-              <div className="drawer-section-title"><h2>Recent Completions</h2><button type="button" className="button button-secondary" onClick={() => setTab("history")}>History</button></div>
+              <div className="drawer-section-title"><h2>{t(language, "pm.recentCompletions")}</h2><button type="button" className="button button-secondary" onClick={() => setTab("history")}>{t(language, "pm.history")}</button></div>
               {(overviewQuery.data?.recentCompletions ?? []).length ? overviewQuery.data!.recentCompletions.map((task) => (
                 <div className="pool-row" key={task.id}>
-                  <div><strong>{task.taskName}</strong><span>{task.completedByName ?? "Unknown"} / {formatDateTime(task.completedAt)}</span></div>
+                  <div><strong>{task.taskName}</strong><span>{task.completedByName ?? t(language, "pm.unknown")} / {formatDateTime(task.completedAt)}</span></div>
                   <span>{task.completionOutcome ?? task.status}</span>
                 </div>
-              )) : <p className="muted">No recent completions yet.</p>}
+              )) : <p className="muted">{t(language, "pm.noRecentCompletions")}</p>}
             </article>
           </div>
         </>
@@ -435,12 +491,12 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
       {tab === "calendar" ? (
         <div className="pool-card">
           <div className="drawer-section-title">
-            <h2>Calendar</h2>
+            <h2>{t(language, "pm.calendar")}</h2>
             <div className="pool-entry-actions">
               <select value={calendarMode} onChange={(event) => setCalendarMode(event.target.value as CalendarMode)}>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
+                <option value="daily">{t(language, "pm.daily")}</option>
+                <option value="weekly">{t(language, "pm.weekly")}</option>
+                <option value="monthly">{t(language, "pm.monthly")}</option>
               </select>
               <input type="date" value={calendarAnchor} onChange={(event) => setCalendarAnchor(event.target.value)} />
             </div>
@@ -456,7 +512,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
                   </div>
                 ))}
               </div>
-            )) : <p className="muted">No tasks scheduled in this range.</p>}
+            )) : <p className="muted">{t(language, "pm.noTasksInRange")}</p>}
           </div>
         </div>
       ) : null}
@@ -464,36 +520,51 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
       {tab === "tasks" ? (
         <>
           <div className="toolbar-card">
+            <div className="pm-quick-filter-header">
+              <div>
+                <strong>{t(language, "pm.fieldQueue")}</strong>
+                <span>{t(language, "pm.fieldQueueCopy")}</span>
+              </div>
+              <span className="status-pill status-muted">{focusedTasks.length} {t(language, "pm.shown")}</span>
+            </div>
+            <div className="pm-quick-filters" data-testid="pm-quick-filters">
+              <button type="button" className={taskFocus === "all" ? "active" : ""} onClick={() => setTaskFocus("all")}>{t(language, "pm.allTasks")}</button>
+              <button type="button" className={taskFocus === "due-now" ? "active" : ""} onClick={() => setTaskFocus("due-now")}>{t(language, "pm.dueNow")} ({taskFocusCounts.dueNow})</button>
+              <button type="button" className={taskFocus === "photo-proof" ? "active" : ""} onClick={() => setTaskFocus("photo-proof")}>{t(language, "pm.needsPhoto")} ({taskFocusCounts.photoProof})</button>
+              <button type="button" className={taskFocus === "notes-required" ? "active" : ""} onClick={() => setTaskFocus("notes-required")}>{t(language, "pm.needsNotes")} ({taskFocusCounts.notesRequired})</button>
+              <button type="button" className={taskFocus === "pass-fail" ? "active" : ""} onClick={() => setTaskFocus("pass-fail")}>{t(language, "pm.passFail")} ({taskFocusCounts.passFail})</button>
+            </div>
             <div className="form-grid">
-              <label>Status
+              <label>{t(language, "admin.status")}
                 <select value={taskStatus} onChange={(event) => setTaskStatus(event.target.value as PreventiveMaintenanceStatus | "")}>
-                  <option value="">All</option>
+                  <option value="">{t(language, "pm.all")}</option>
                   {["UPCOMING", "DUE", "COMPLETED", "OVERDUE", "SKIPPED"].map((status) => <option key={status} value={status}>{status}</option>)}
                 </select>
               </label>
-              <label>Category
+              <label>{t(language, "drawer.category")}
                 <select value={taskCategory} onChange={(event) => setTaskCategory(event.target.value as PreventiveMaintenanceCategory | "")}>
-                  <option value="">All</option>
+                  <option value="">{t(language, "pm.all")}</option>
                   {categories.map((category) => <option key={category} value={category}>{category}</option>)}
                 </select>
               </label>
-              <label>Priority
+              <label>{t(language, "lease.priority")}
                 <select value={taskPriority} onChange={(event) => setTaskPriority(event.target.value as PreventiveMaintenancePriority | "")}>
-                  <option value="">All</option>
+                  <option value="">{t(language, "pm.all")}</option>
                   {["Low", "Normal", "High", "Critical"].map((priority) => <option key={priority} value={priority}>{priority}</option>)}
                 </select>
               </label>
-              <label>Search
-                <input value={taskQuery} onChange={(event) => setTaskQuery(event.target.value)} placeholder="Task, template, notes..." />
+              <label>{t(language, "nav.search")}
+                <input value={taskQuery} onChange={(event) => setTaskQuery(event.target.value)} placeholder={t(language, "pm.searchPlaceholder")} />
               </label>
             </div>
           </div>
           <div className="pm-task-grid">
-            {tasks.map((task) => (
+            {focusedTasks.map((task) => (
               <TaskCard
                 key={task.id}
                 task={task}
                 canEdit={canEdit && !["COMPLETED", "SKIPPED"].includes(task.status)}
+                language={language}
                 onComplete={(currentTask, outcome, notes) => completeMutation.mutate({ id: currentTask.id, outcome, notes })}
                 onSkip={(currentTask, notes) => skipMutation.mutate({ id: currentTask.id, notes })}
                 onUpload={(taskId, files) => {
@@ -502,7 +573,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
                 }}
               />
             ))}
-            {!tasks.length ? <StatusState title="No PM tasks found" description="Adjust filters or create PM templates to generate recurring work." /> : null}
+            {!focusedTasks.length ? <StatusState title={t(language, "pm.noTasksFoundTitle")} description={t(language, "pm.noTasksFoundCopy")} /> : null}
           </div>
         </>
       ) : null}
@@ -513,53 +584,58 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
             event.preventDefault();
             saveTemplateMutation.mutate();
           }}>
-            <h2>{editingTemplateId ? "Edit Template" : "Create Template"}</h2>
+            <h2>{editingTemplateId ? t(language, "pm.editTemplate") : t(language, "pm.createTemplate")}</h2>
             <div className="form-grid">
-              <label>Template name<input data-testid="pm-template-name" required value={templateDraft.name} onChange={(event) => setTemplateDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-              <label>Category
+              <label>{t(language, "pm.templateName")}<input data-testid="pm-template-name" required value={templateDraft.name} onChange={(event) => setTemplateDraft((current) => ({ ...current, name: event.target.value }))} /></label>
+              <label>{t(language, "drawer.category")}
                 <select value={templateDraft.category} onChange={(event) => setTemplateDraft((current) => ({ ...current, category: event.target.value as PreventiveMaintenanceCategory }))}>
                   {categories.map((category) => <option key={category} value={category}>{category}</option>)}
                 </select>
               </label>
-              <label>Frequency
+              <label>{t(language, "pm.frequency")}
                 <select value={templateDraft.frequency} onChange={(event) => setTemplateDraft((current) => ({ ...current, frequency: event.target.value as PreventiveMaintenanceFrequency }))}>
                   {(overviewQuery.data?.frequencies ?? []).map((frequency) => <option key={frequency} value={frequency}>{frequency}</option>)}
                 </select>
               </label>
-              <label>Assigned role
+              <label>{t(language, "pm.assignedRole")}
                 <select value={templateDraft.assignedRole} onChange={(event) => setTemplateDraft((current) => ({ ...current, assignedRole: event.target.value as UserRole, assignedUserId: "" }))}>
                   {(overviewQuery.data?.assignedRoles ?? []).map((role) => <option key={role} value={role}>{role}</option>)}
                 </select>
               </label>
-              <label>Assigned user
-                <select value={templateDraft.assignedUserId} onChange={(event) => setTemplateDraft((current) => ({ ...current, assignedUserId: event.target.value }))}>
-                  <option value="">Unassigned</option>
-                  {assignableUsersForRole.map((user) => <option key={user.id} value={user.id}>{user.fullName} / {user.role}</option>)}
-                </select>
+              <label>{t(language, "lease.assignedUser")}
+                <SearchSelect
+                  options={assignableUserOptions}
+                  value={templateDraft.assignedUserId}
+                  onChange={(assignedUserId) => setTemplateDraft((current) => ({ ...current, assignedUserId }))}
+                  placeholder={t(language, "pm.searchUser")}
+                  emptyLabel={t(language, "lease.unassigned")}
+                  noMatchesLabel={t(language, "pm.noMatchingUsers")}
+                  clearLabel={t(language, "pm.clearAssignedUser")}
+                />
               </label>
-              <label>Priority
+              <label>{t(language, "lease.priority")}
                 <select value={templateDraft.priority} onChange={(event) => setTemplateDraft((current) => ({ ...current, priority: event.target.value as PreventiveMaintenancePriority }))}>
                   {(overviewQuery.data?.priorities ?? []).map((priority) => <option key={priority} value={priority}>{priority}</option>)}
                 </select>
               </label>
-              {templateDraft.frequency === "Custom" ? <label>Every X days<input type="number" min="1" value={templateDraft.customEveryDays} onChange={(event) => setTemplateDraft((current) => ({ ...current, customEveryDays: event.target.value }))} /></label> : null}
-              {templateDraft.frequency === "Annual" ? <label>Month<input type="number" min="1" max="12" value={templateDraft.annualMonth} onChange={(event) => setTemplateDraft((current) => ({ ...current, annualMonth: event.target.value }))} /></label> : null}
-              {templateDraft.frequency === "Annual" ? <label>Day<input type="number" min="1" max="31" value={templateDraft.annualDay} onChange={(event) => setTemplateDraft((current) => ({ ...current, annualDay: event.target.value }))} /></label> : null}
+              {templateDraft.frequency === "Custom" ? <label>{t(language, "pm.everyXDays")}<input type="number" min="1" value={templateDraft.customEveryDays} onChange={(event) => setTemplateDraft((current) => ({ ...current, customEveryDays: event.target.value }))} /></label> : null}
+              {templateDraft.frequency === "Annual" ? <label>{t(language, "pm.month")}<input type="number" min="1" max="12" value={templateDraft.annualMonth} onChange={(event) => setTemplateDraft((current) => ({ ...current, annualMonth: event.target.value }))} /></label> : null}
+              {templateDraft.frequency === "Annual" ? <label>{t(language, "pm.day")}<input type="number" min="1" max="31" value={templateDraft.annualDay} onChange={(event) => setTemplateDraft((current) => ({ ...current, annualDay: event.target.value }))} /></label> : null}
             </div>
-            <label>Description<textarea value={templateDraft.description} onChange={(event) => setTemplateDraft((current) => ({ ...current, description: event.target.value }))} /></label>
-            <label>Instructions<textarea value={templateDraft.instructions} onChange={(event) => setTemplateDraft((current) => ({ ...current, instructions: event.target.value }))} /></label>
-            <label className="checkbox-row"><input type="checkbox" checked={templateDraft.photosRequired} onChange={(event) => setTemplateDraft((current) => ({ ...current, photosRequired: event.target.checked }))} /> Photos required</label>
-            <label className="checkbox-row"><input type="checkbox" checked={templateDraft.notesRequired} onChange={(event) => setTemplateDraft((current) => ({ ...current, notesRequired: event.target.checked }))} /> Notes required</label>
-            <label className="checkbox-row"><input type="checkbox" checked={templateDraft.passFailRequired} onChange={(event) => setTemplateDraft((current) => ({ ...current, passFailRequired: event.target.checked }))} /> Pass / fail required</label>
-            <label className="checkbox-row"><input type="checkbox" checked={templateDraft.isActive} onChange={(event) => setTemplateDraft((current) => ({ ...current, isActive: event.target.checked }))} /> Active</label>
+            <label>{t(language, "pm.description")}<textarea value={templateDraft.description} onChange={(event) => setTemplateDraft((current) => ({ ...current, description: event.target.value }))} /></label>
+            <label>{t(language, "pm.instructions")}<textarea value={templateDraft.instructions} onChange={(event) => setTemplateDraft((current) => ({ ...current, instructions: event.target.value }))} /></label>
+            <label className="checkbox-row"><input type="checkbox" checked={templateDraft.photosRequired} onChange={(event) => setTemplateDraft((current) => ({ ...current, photosRequired: event.target.checked }))} /> {t(language, "pm.photosRequired")}</label>
+            <label className="checkbox-row"><input type="checkbox" checked={templateDraft.notesRequired} onChange={(event) => setTemplateDraft((current) => ({ ...current, notesRequired: event.target.checked }))} /> {t(language, "pm.notesRequired")}</label>
+            <label className="checkbox-row"><input type="checkbox" checked={templateDraft.passFailRequired} onChange={(event) => setTemplateDraft((current) => ({ ...current, passFailRequired: event.target.checked }))} /> {t(language, "pm.passFailRequired")}</label>
+            <label className="checkbox-row"><input type="checkbox" checked={templateDraft.isActive} onChange={(event) => setTemplateDraft((current) => ({ ...current, isActive: event.target.checked }))} /> {t(language, "admin.active")}</label>
             <div className="pool-entry-actions">
-              <button data-testid="pm-template-submit" type="submit" className="button button-primary" disabled={!canEdit}>{editingTemplateId ? "Save Template" : "Create Template"}</button>
-              {editingTemplateId ? <button type="button" className="button button-secondary" onClick={() => { setEditingTemplateId(null); setTemplateDraft(templateDraftState()); }}>Cancel</button> : null}
+              <button data-testid="pm-template-submit" type="submit" className="button button-primary" disabled={!canEdit}>{editingTemplateId ? t(language, "pm.saveTemplate") : t(language, "pm.createTemplate")}</button>
+              {editingTemplateId ? <button type="button" className="button button-secondary" onClick={() => { setEditingTemplateId(null); setTemplateDraft(templateDraftState()); }}>{t(language, "common.cancel")}</button> : null}
             </div>
-            {!canEdit ? <p className="muted">Your role can view templates but cannot create or edit them.</p> : null}
+            {!canEdit ? <p className="muted">{t(language, "pm.viewOnlyTemplates")}</p> : null}
             {editingTemplateId ? (
               <PropertyWikiWorkflowPanel
-                title="Template Wiki References"
+                title={t(language, "pm.templateWikiReferences")}
                 module="PREVENTIVE_MAINTENANCE"
                 propertyId={propertyId}
                 recordType="PM_TEMPLATE"
@@ -571,12 +647,12 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
             ) : null}
           </form>
           <article className="pool-card">
-            <h2>Templates</h2>
+            <h2>{t(language, "pm.templates")}</h2>
             {templates.map((template) => (
               <div key={template.id} className="pool-row">
                 <div>
                   <strong>{template.name}</strong>
-                  <span>{template.category} / {template.frequency} / {assignmentLabel(template)}{template.tasks?.[0] ? ` / latest ${template.tasks[0].status} ${formatDate(template.tasks[0].dueDate)}` : ""}</span>
+                  <span>{template.category} / {template.frequency} / {assignmentLabel(template)}{template.tasks?.[0] ? ` / ${t(language, "pm.latest")} ${template.tasks[0].status} ${formatDate(template.tasks[0].dueDate)}` : ""}</span>
                 </div>
                 <div className="pool-entry-actions">
                   <button type="button" className="button button-secondary" onClick={() => {
@@ -598,12 +674,12 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
                       priority: template.priority,
                       isActive: template.isActive,
                     });
-                  }}>Edit</button>
-                  {canAdmin ? <button type="button" className="button button-secondary" onClick={() => updatePreventiveMaintenanceTemplate(template.id, { isArchived: !template.isArchived, isActive: template.isArchived ? false : template.isActive }).then(() => invalidate())}>{template.isArchived ? "Archived" : "Archive"}</button> : null}
+                  }}>{t(language, "drawer.edit")}</button>
+                  {canAdmin ? <button type="button" className="button button-secondary" onClick={() => updatePreventiveMaintenanceTemplate(template.id, { isArchived: !template.isArchived, isActive: template.isArchived ? false : template.isActive }).then(() => invalidate())}>{template.isArchived ? t(language, "pm.archived") : t(language, "common.archive")}</button> : null}
                 </div>
               </div>
             ))}
-            {!templates.length ? <p className="muted">No PM templates created yet.</p> : null}
+            {!templates.length ? <p className="muted">{t(language, "pm.noTemplatesYet")}</p> : null}
           </article>
         </div>
       ) : null}
@@ -611,44 +687,44 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
       {tab === "history" ? (
         <article className="pool-card">
           <div className="drawer-section-title">
-            <h2>History</h2>
-            <input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Search completed tasks..." />
+            <h2>{t(language, "pm.history")}</h2>
+            <input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t(language, "pm.searchCompletedTasks")} />
           </div>
           {historyTasks.length ? historyTasks.map((task) => (
             <div key={task.id} className="pool-history-row">
               <div>
                 <strong>{task.taskName}</strong>
-                <span>{task.property.code} / {task.category} / {task.completedByName ?? "Unknown"} / {formatDateTime(task.completedAt)}</span>
+                <span>{task.property.code} / {task.category} / {task.completedByName ?? t(language, "pm.unknown")} / {formatDateTime(task.completedAt)}</span>
                 {task.completionNotes ? <small>{task.completionNotes}</small> : null}
               </div>
               <div className="pool-entry-actions">
                 <span className="status-pill">{task.completionOutcome ?? task.status}</span>
-                {task.attachments.length ? <span>{task.attachments.length} file{task.attachments.length === 1 ? "" : "s"}</span> : null}
+                {task.attachments.length ? <span>{task.attachments.length} {task.attachments.length === 1 ? t(language, "pm.fileSingular") : t(language, "pm.filePlural")}</span> : null}
               </div>
             </div>
-          )) : <p className="muted">No PM history found.</p>}
+          )) : <p className="muted">{t(language, "pm.noHistoryFound")}</p>}
         </article>
       ) : null}
 
       {tab === "reports" ? (
         <div className="pool-grid">
           <article className="pool-card">
-            <h2>Exports</h2>
+            <h2>{t(language, "pm.exports")}</h2>
             <div className="export-grid">
-              <a className="button button-secondary" href={preventiveMaintenancePrintableReportUrl({ propertyId })} target="_blank" rel="noreferrer">PM Completion PDF Report</a>
-              <a className="button button-secondary" href={preventiveMaintenanceExportCsvUrl({ propertyId })}>PM Compliance CSV</a>
-              <a className="button button-secondary" href={preventiveMaintenanceExportExcelUrl({ propertyId })}>Overdue / History Excel</a>
+              <a className="button button-secondary" href={preventiveMaintenancePrintableReportUrl({ propertyId })} target="_blank" rel="noreferrer">{t(language, "pm.completionPdfReport")}</a>
+              <a className="button button-secondary" href={preventiveMaintenanceExportCsvUrl({ propertyId })}>{t(language, "pm.complianceCsv")}</a>
+              <a className="button button-secondary" href={preventiveMaintenanceExportExcelUrl({ propertyId })}>{t(language, "pm.overdueHistoryExcel")}</a>
             </div>
-            <p className="muted">PM exports now include a direct PDF report alongside CSV and Excel-compatible formats.</p>
+            <p className="muted">{t(language, "pm.exportsCopy")}</p>
           </article>
           <article className="pool-card">
-            <h2>Compliance Snapshot</h2>
+            <h2>{t(language, "pm.complianceSnapshot")}</h2>
             <div className="analytics-metrics">
-              <span><strong>{overviewQuery.data?.compliance.green ?? 0}</strong> Green</span>
-              <span><strong>{overviewQuery.data?.compliance.yellow ?? 0}</strong> Yellow</span>
-              <span><strong>{overviewQuery.data?.compliance.red ?? 0}</strong> Red</span>
+              <span><strong>{overviewQuery.data?.compliance.green ?? 0}</strong> {t(language, "pm.green")}</span>
+              <span><strong>{overviewQuery.data?.compliance.yellow ?? 0}</strong> {t(language, "pm.yellow")}</span>
+              <span><strong>{overviewQuery.data?.compliance.red ?? 0}</strong> {t(language, "pm.red")}</span>
             </div>
-            <p className="muted">This intentionally stays simple: completed work is green, due/upcoming work is yellow, and overdue/skipped work is red.</p>
+            <p className="muted">{t(language, "pm.complianceCopy")}</p>
           </article>
         </div>
       ) : null}

@@ -18,11 +18,14 @@ import {
   updateRefrigerantType,
   type Property,
   type RefrigerantCylinder,
+  type RefrigerantTransaction,
   type RefrigerantType,
   type RefrigerantTransactionInput,
+  type UserLanguage,
   type Unit,
   type UserRole,
 } from "../lib/api";
+import { t, tWithVars } from "../lib/i18n";
 import { UnitSearchSelect } from "./UnitSearchSelect";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { StatusState } from "./StatusState";
@@ -33,6 +36,7 @@ type Props = {
   properties: Property[];
   units: Unit[];
   userRole: UserRole;
+  language: UserLanguage;
 };
 
 type RefrigerantWorkflowDraft = {
@@ -59,31 +63,50 @@ const commonTankSizes = [
   { label: "125 lb", value: "125" },
 ];
 
+function categoryName(language: UserLanguage, category: RefrigerantCylinder["category"]) {
+  const labels: Record<RefrigerantCylinder["category"], string> = {
+    VIRGIN: t(language, "refrigerant.categoryVirgin"),
+    CLEAN_RECOVERY: t(language, "refrigerant.categoryCleanRecovery"),
+    DIRTY_RECOVERY: t(language, "refrigerant.categoryDirtyRecovery"),
+  };
+  return labels[category];
+}
+
+function transactionTypeName(language: UserLanguage, type: RefrigerantTransaction["transactionType"]) {
+  const labels: Record<RefrigerantTransaction["transactionType"], string> = {
+    VIRGIN_CHARGE: t(language, "refrigerant.transactionCharge"),
+    CLEAN_RECOVERY: t(language, "refrigerant.transactionCleanRecovery"),
+    DIRTY_RECOVERY: t(language, "refrigerant.transactionDirtyRecovery"),
+    FINAL_RECOVERY: t(language, "refrigerant.transactionFinalRecovery"),
+  };
+  return labels[type];
+}
+
 function numberValue(value: FormDataEntryValue | null) {
   const next = Number(value);
   return Number.isFinite(next) ? next : 0;
 }
 
-function dateLabel(value: string | null | undefined) {
-  if (!value) return "-";
+function dateLabel(value: string | null | undefined, language: UserLanguage) {
+  if (!value) return t(language, "refrigerant.none");
   return new Date(value).toLocaleString();
 }
 
-function CylinderStatusPill({ cylinder }: { cylinder: RefrigerantCylinder }) {
+function CylinderStatusPill({ cylinder, language }: { cylinder: RefrigerantCylinder; language: UserLanguage }) {
   const fill = cylinder.fillPercent ?? Math.round((cylinder.currentWeight / cylinder.tankSize) * 100);
   const warn = cylinder.category !== "VIRGIN" && fill >= 80;
   return <span className={`status-pill ${warn ? "risk-critical" : ""}`}>{cylinder.status.replace(/_/g, " ")}{cylinder.category !== "VIRGIN" ? ` / ${fill}%` : ""}</span>;
 }
 
-function TankSizeField() {
+function TankSizeField({ language }: { language: UserLanguage }) {
   const [sizeMode, setSizeMode] = useState(commonTankSizes[2]?.value ?? "30");
   const isCustom = sizeMode === "custom";
   return (
-    <label>Tank size
+    <label>{t(language, "refrigerant.tankSize")}
       <div className="split-field">
-        <select value={sizeMode} onChange={(event) => setSizeMode(event.target.value)} aria-label="Tank size preset">
+        <select value={sizeMode} onChange={(event) => setSizeMode(event.target.value)} aria-label={t(language, "refrigerant.tankSizePreset")}>
           {commonTankSizes.map((size) => <option key={size.value} value={size.value}>{size.label}</option>)}
-          <option value="custom">Custom</option>
+          <option value="custom">{t(language, "refrigerant.custom")}</option>
         </select>
         <input
           key={isCustom ? "custom" : sizeMode}
@@ -94,15 +117,15 @@ function TankSizeField() {
           required
           defaultValue={isCustom ? "" : sizeMode}
           readOnly={!isCustom}
-          placeholder={isCustom ? "Enter lb" : undefined}
-          aria-label="Tank size in pounds"
+          placeholder={isCustom ? t(language, "refrigerant.enterLb") : undefined}
+          aria-label={t(language, "refrigerant.tankSizeInPounds")}
         />
       </div>
     </label>
   );
 }
 
-export function RefrigerantPanel({ properties, units, userRole }: Props) {
+export function RefrigerantPanel({ properties, units, userRole, language }: Props) {
   const [tab, setTab] = useState<RefrigerantTab>("overview");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -129,6 +152,14 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
   }, [propertyFilter, units]);
   const workflowTransaction = historyQuery.data?.transactions[0] ?? overviewQuery.data?.recent[0] ?? null;
   const workflowPropertyId = propertyFilter || workflowTransaction?.propertyId || "";
+  const recentUnitTransactions = useMemo(() => {
+    const byUnit = new Map<string, RefrigerantTransaction>();
+    for (const entry of [...(historyQuery.data?.transactions ?? []), ...(overviewQuery.data?.recent ?? [])]) {
+      if (!entry.unitId || byUnit.has(entry.unitId)) continue;
+      byUnit.set(entry.unitId, entry);
+    }
+    return byUnit;
+  }, [historyQuery.data?.transactions, overviewQuery.data?.recent]);
 
   const invalidate = async () => {
     await Promise.all([
@@ -141,14 +172,14 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
   const runMutation = useMutation({
     mutationFn: async (task: () => Promise<unknown>) => task(),
     onSuccess: async () => {
-      setMessage("Refrigerant record saved.");
+      setMessage(t(language, "refrigerant.saved"));
       setError("");
       setFormResetVersion((current) => current + 1);
       await invalidate();
     },
     onError: (err) => {
       setMessage("");
-      setError(err instanceof Error ? err.message : "Refrigerant action failed.");
+      setError(err instanceof Error ? err.message : t(language, "refrigerant.actionFailed"));
     },
   });
 
@@ -216,29 +247,29 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
   };
 
   if (overviewQuery.isLoading || cylindersQuery.isLoading) {
-    return <StatusState title="Loading refrigerant logs" description="Preparing tanks, recovery warnings, and recent activity." />;
+    return <StatusState title={t(language, "refrigerant.loading")} description={t(language, "refrigerant.loadingCopy")} />;
   }
 
   if (overviewQuery.isError || cylindersQuery.isError) {
-    return <StatusState title="Refrigerant module failed to load" description="Refresh the workspace and try again." tone="error" />;
+    return <StatusState title={t(language, "refrigerant.failed")} description={t(language, "refrigerant.failedCopy")} tone="error" />;
   }
 
   return (
     <section className="refrigerant-panel" data-testid="refrigerant-panel">
       <header className="module-heading">
-        <span className="eyebrow">EPA 608 support</span>
-        <h1>Refrigerant</h1>
-        <p>Log refrigerant added or recovered, track tank balances, and review unit refrigerant history.</p>
+        <span className="eyebrow">{t(language, "refrigerant.eyebrow")}</span>
+        <h1>{t(language, "refrigerant.title")}</h1>
+        <p>{t(language, "refrigerant.copy")}</p>
       </header>
 
-      <nav className="subtab-row" aria-label="Refrigerant sections">
+      <nav className="subtab-row" aria-label={t(language, "refrigerant.sections")}>
         {[
-          ["overview", "Overview"],
-          ["virgin", "Virgin Tanks"],
-          ["clean", "Clean Recovery"],
-          ["dirty", "Dirty Recovery"],
-          ["history", "Unit History"],
-          ["exports", "Exports"],
+          ["overview", t(language, "refrigerant.tabOverview")],
+          ["virgin", t(language, "refrigerant.tabVirgin")],
+          ["clean", t(language, "refrigerant.tabClean")],
+          ["dirty", t(language, "refrigerant.tabDirty")],
+          ["history", t(language, "refrigerant.tabHistory")],
+          ["exports", t(language, "refrigerant.tabExports")],
         ].map(([key, label]) => (
           <button key={key} type="button" data-testid={`refrigerant-tab-${key}`} className={tab === key ? "active" : ""} onClick={() => setTab(key as RefrigerantTab)}>{label}</button>
         ))}
@@ -250,30 +281,34 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
       {tab === "overview" ? (
         <>
           <div className="metric-grid" data-testid="refrigerant-overview-metrics">
-            <div className="metric-card"><strong>{Object.values(overviewQuery.data?.summary.activeVirginByType ?? {}).reduce((sum, value) => sum + value, 0)}</strong><span>Active virgin tanks</span></div>
-            <div className="metric-card"><strong>{overviewQuery.data?.summary.recoveryNearCapacity ?? 0}</strong><span>Recovery tanks near capacity</span></div>
-            <div className="metric-card"><strong>{overviewQuery.data?.summary.repeatedAdditionFlags ?? 0}</strong><span>Repeated addition flags</span></div>
-            <div className="metric-card"><strong>{overviewQuery.data?.summary.complianceIssues ?? 0}</strong><span>Compliance issues</span></div>
+            <div className="metric-card"><strong>{Object.values(overviewQuery.data?.summary.activeVirginByType ?? {}).reduce((sum, value) => sum + value, 0)}</strong><span>{t(language, "refrigerant.metricActiveVirgin")}</span></div>
+            <div className="metric-card"><strong>{overviewQuery.data?.summary.recoveryNearCapacity ?? 0}</strong><span>{t(language, "refrigerant.metricRecoveryNearCapacity")}</span></div>
+            <div className="metric-card"><strong>{overviewQuery.data?.summary.repeatedAdditionFlags ?? 0}</strong><span>{t(language, "refrigerant.metricRepeatedFlags")}</span></div>
+            <div className="metric-card"><strong>{overviewQuery.data?.summary.complianceIssues ?? 0}</strong><span>{t(language, "refrigerant.metricComplianceIssues")}</span></div>
           </div>
           {canEdit ? (
             <div className="refrigerant-quick-grid">
               <QuickChargeForm
-                title="Quick Charge"
+                title={t(language, "refrigerant.quickCharge")}
                 properties={properties}
                 units={units}
                 tanks={activeVirginTanks}
+                recentUnitTransactions={recentUnitTransactions}
+                language={language}
                 onSubmit={submitCharge}
                 canEdit={canEdit}
                 loading={runMutation.isPending}
                 resetVersion={formResetVersion}
               />
               <QuickRecoveryForm
-                title="Quick Recovery"
+                title={t(language, "refrigerant.quickRecovery")}
                 properties={properties}
                 units={units}
                 tanks={cleanRecoveryTanks.filter((tank) => tank.status === "ACTIVE")}
                 types={activeTypes}
                 recoveryType="CLEAN"
+                recentUnitTransactions={recentUnitTransactions}
+                language={language}
                 onSubmit={(event) => submitRecovery(event, "CLEAN")}
                 canEdit={canEdit}
                 loading={runMutation.isPending}
@@ -282,36 +317,38 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
             </div>
           ) : null}
           <section className="refrigerant-card">
-            <h2>Compliance Issues</h2>
+            <h2>{t(language, "refrigerant.complianceIssues")}</h2>
             {(overviewQuery.data?.complianceIssues ?? []).length ? overviewQuery.data!.complianceIssues.map((issue) => (
               <div className="refrigerant-row" key={`${issue.type}-${issue.message}`}>
                 <strong>{issue.severity}</strong>
                 <span>{issue.message}</span>
               </div>
-            )) : <p className="muted">No refrigerant compliance warnings detected.</p>}
+            )) : <p className="muted">{t(language, "refrigerant.noComplianceWarnings")}</p>}
           </section>
           <section className="refrigerant-card">
-            <h2>Repeated Additions</h2>
+            <h2>{t(language, "refrigerant.repeatedAdditions")}</h2>
             {(overviewQuery.data?.leakFlags ?? []).length ? overviewQuery.data!.leakFlags.map((flag) => (
               <div className="refrigerant-row" key={flag.id}>
                 <strong>{flag.unitNumber}</strong>
                 <span>{flag.reason}</span>
-                {userRole === "ADMIN" || userRole === "MANAGER" ? <button type="button" className="button button-secondary" onClick={() => runMutation.mutate(() => dismissRefrigerantLeakFlag(flag.id, "Reviewed from Refrigerant overview."))}>Dismiss</button> : null}
+                {userRole === "ADMIN" || userRole === "MANAGER" ? <button type="button" className="button button-secondary" onClick={() => runMutation.mutate(() => dismissRefrigerantLeakFlag(flag.id, "Reviewed from Refrigerant overview."))}>{t(language, "refrigerant.dismiss")}</button> : null}
               </div>
-            )) : <p className="muted">No repeated-addition leak flags.</p>}
+            )) : <p className="muted">{t(language, "refrigerant.noLeakFlags")}</p>}
           </section>
           <RefrigerantTypesCard
+            language={language}
             canAdmin={canAdmin}
             types={types}
             onCreate={submitType}
             onToggle={(id, isActive) => runMutation.mutate(() => updateRefrigerantType(id, { isActive }))}
             loading={runMutation.isPending}
           />
-          <HistoryList transactions={overviewQuery.data?.recent ?? []} />
+          <HistoryList language={language} transactions={overviewQuery.data?.recent ?? []} />
         </>
       ) : tab === "virgin" ? (
         <TankWorkspace
-          title="Virgin Tanks"
+          title={t(language, "refrigerant.tabVirgin")}
+          language={language}
           canEdit={canEdit}
           canAdmin={canAdmin}
           category="VIRGIN"
@@ -325,7 +362,8 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
         />
       ) : tab === "clean" ? (
         <TankWorkspace
-          title="Clean Recovery"
+          title={t(language, "refrigerant.tabClean")}
+          language={language}
           canEdit={canEdit}
           canAdmin={canAdmin}
           category="CLEAN_RECOVERY"
@@ -341,7 +379,8 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
         />
       ) : tab === "dirty" ? (
         <TankWorkspace
-          title="Dirty Recovery"
+          title={t(language, "refrigerant.tabDirty")}
+          language={language}
           canEdit={canEdit}
           canAdmin={canAdmin}
           category="DIRTY_RECOVERY"
@@ -358,16 +397,16 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
       ) : tab === "history" ? (
         <>
           <div className="toolbar-card">
-            <label>Property
+            <label>{t(language, "refrigerant.property")}
               <select value={propertyFilter} onChange={(event) => setPropertyFilter(event.target.value)}>
-                <option value="">All accessible properties</option>
+                <option value="">{t(language, "refrigerant.allAccessibleProperties")}</option>
                 {properties.map((property) => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}
               </select>
             </label>
           </div>
           {workflowPropertyId ? (
             <PropertyWikiWorkflowPanel
-              title="Unit Refrigerant Context"
+              title={t(language, "refrigerant.unitContext")}
               module="REFRIGERANT"
               propertyId={workflowPropertyId}
               recordType={workflowTransaction?.id ? "REFRIGERANT_TRANSACTION" : undefined}
@@ -378,28 +417,28 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
               canEdit={canEdit}
             />
           ) : null}
-          <HistoryList transactions={historyQuery.data?.transactions ?? []} />
+          <HistoryList language={language} transactions={historyQuery.data?.transactions ?? []} />
         </>
       ) : (
         <section className="refrigerant-card">
-          <h2>Exports</h2>
-          <p className="muted">Refrigerant exports now include CSV, Excel-compatible download, printable HTML, and direct PDF output for each report shape.</p>
+          <h2>{t(language, "refrigerant.exports")}</h2>
+          <p className="muted">{t(language, "refrigerant.exportsCopy")}</p>
           <div className="export-grid">
             {[
-              ["usage", "Usage Report"],
-              ["recovery", "Recovery Report"],
-              ["cylinders", "Cylinder Status Report"],
-              ["compliance", "Compliance Report"],
-              ["unitHistory", "Unit History Report"],
-              ["fullAudit", "Full Audit Export"],
+              ["usage", t(language, "refrigerant.reportUsage")],
+              ["recovery", t(language, "refrigerant.reportRecovery")],
+              ["cylinders", t(language, "refrigerant.reportCylinders")],
+              ["compliance", t(language, "refrigerant.reportCompliance")],
+              ["unitHistory", t(language, "refrigerant.reportUnitHistory")],
+              ["fullAudit", t(language, "refrigerant.reportFullAudit")],
             ].map(([report, label]) => (
               <div key={report} className="refrigerant-export-row">
                 <strong>{label}</strong>
                 <div className="pool-entry-actions">
-                  <a className="button button-secondary" href={refrigerantExportCsvUrl(report as never)}>CSV</a>
-                  <a className="button button-secondary" href={refrigerantExportExcelUrl(report as never)}>Excel</a>
-                  <a className="button button-secondary" href={refrigerantPrintableHtmlReportUrl(report as never)} target="_blank" rel="noreferrer">Printable</a>
-                  <a className="button button-primary" href={refrigerantPrintableReportUrl(report as never)} target="_blank" rel="noreferrer">PDF</a>
+                  <a className="button button-secondary" href={refrigerantExportCsvUrl(report as never)}>{t(language, "nav.csv")}</a>
+                  <a className="button button-secondary" href={refrigerantExportExcelUrl(report as never)}>{t(language, "nav.excel")}</a>
+                  <a className="button button-secondary" href={refrigerantPrintableHtmlReportUrl(report as never)} target="_blank" rel="noreferrer">{t(language, "refrigerant.printable")}</a>
+                  <a className="button button-primary" href={refrigerantPrintableReportUrl(report as never)} target="_blank" rel="noreferrer">{t(language, "nav.pdf")}</a>
                 </div>
               </div>
             ))}
@@ -410,7 +449,8 @@ export function RefrigerantPanel({ properties, units, userRole }: Props) {
   );
 }
 
-function RefrigerantTypesCard({ canAdmin, types, onCreate, onToggle, loading }: {
+function RefrigerantTypesCard({ language, canAdmin, types, onCreate, onToggle, loading }: {
+  language: UserLanguage;
   canAdmin: boolean;
   types: RefrigerantType[];
   onCreate: (event: FormEvent<HTMLFormElement>) => void;
@@ -421,26 +461,26 @@ function RefrigerantTypesCard({ canAdmin, types, onCreate, onToggle, loading }: 
     <section className="refrigerant-card">
       <div className="section-title-row">
         <div>
-          <h2>Refrigerant Types</h2>
-          <p className="muted">Admin-managed list used by tanks, charge logs, recovery logs, and exports.</p>
+          <h2>{t(language, "refrigerant.typesTitle")}</h2>
+          <p className="muted">{t(language, "refrigerant.typesCopy")}</p>
         </div>
       </div>
       {canAdmin ? (
         <form className="compact-form inline-form" onSubmit={onCreate}>
-          <input name="name" placeholder="R454B, R32, R410A..." required />
-          <input name="notes" placeholder="Optional note" />
-          <button type="submit" className="button button-primary" disabled={loading}>Add type</button>
+          <input name="name" placeholder={language === "es" ? "R454B, R32 o R410A..." : "R454B, R32, R410A..."} required />
+          <input name="notes" placeholder={t(language, "refrigerant.optionalNote")} />
+          <button type="submit" className="button button-primary" disabled={loading}>{t(language, "refrigerant.addType")}</button>
         </form>
       ) : null}
       <div className="refrigerant-type-list">
         {types.map((type) => (
           <div className="refrigerant-row" key={type.id}>
             <strong>{type.name}</strong>
-            <span>{type.notes || "No notes"}</span>
-            <span className={`status-pill ${type.isActive ? "" : "muted-pill"}`}>{type.isActive ? "Active" : "Inactive"}</span>
+            <span>{type.notes || t(language, "refrigerant.noNotes")}</span>
+            <span className={`status-pill ${type.isActive ? "" : "muted-pill"}`}>{type.isActive ? t(language, "refrigerant.active") : t(language, "refrigerant.inactive")}</span>
             {canAdmin ? (
               <button type="button" className="button button-secondary" onClick={() => onToggle(type.id, !type.isActive)} disabled={loading}>
-                {type.isActive ? "Deactivate" : "Reactivate"}
+                {type.isActive ? t(language, "refrigerant.deactivate") : t(language, "refrigerant.reactivate")}
               </button>
             ) : null}
           </div>
@@ -451,6 +491,7 @@ function RefrigerantTypesCard({ canAdmin, types, onCreate, onToggle, loading }: 
 }
 
 function UnitSelect({
+  language,
   properties,
   units,
   selectedPropertyId,
@@ -458,6 +499,7 @@ function UnitSelect({
   onPropertyChange,
   onUnitChange,
 }: {
+  language: UserLanguage;
   properties: Property[];
   units: Unit[];
   selectedPropertyId: string;
@@ -468,7 +510,7 @@ function UnitSelect({
   const scopedUnits = selectedPropertyId ? units.filter((unit) => unit.propertyId === selectedPropertyId) : units;
   return (
     <>
-      <label>Property
+      <label>{t(language, "refrigerant.property")}
         <select
           name="propertyId"
           value={selectedPropertyId}
@@ -477,29 +519,31 @@ function UnitSelect({
             onUnitChange("");
           }}
         >
-          <option value="">No property / shop work</option>
+          <option value="">{t(language, "refrigerant.noPropertyShopWork")}</option>
           {properties.map((property) => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}
         </select>
       </label>
-      <label>Unit
+      <label>{t(language, "refrigerant.unit")}
         <UnitSearchSelect
           name="unitId"
           units={scopedUnits}
           value={selectedUnitId}
           onChange={onUnitChange}
-          emptyLabel="No unit selected"
-          placeholder="Search unit..."
+          emptyLabel={t(language, "refrigerant.noUnitSelected")}
+          placeholder={t(language, "refrigerant.searchUnit")}
         />
       </label>
     </>
   );
 }
 
-function QuickChargeForm({ title, properties, units, tanks, onSubmit, canEdit, loading, resetVersion }: {
+function QuickChargeForm({ title, properties, units, tanks, recentUnitTransactions, language, onSubmit, canEdit, loading, resetVersion }: {
   title: string;
   properties: Property[];
   units: Unit[];
   tanks: RefrigerantCylinder[];
+  recentUnitTransactions: Map<string, RefrigerantTransaction>;
+  language: UserLanguage;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   canEdit: boolean;
   loading: boolean;
@@ -517,6 +561,7 @@ function QuickChargeForm({ title, properties, units, tanks, onSubmit, canEdit, l
   }, [resetVersion]);
   const selectedUnit = units.find((unit) => unit.id === selectedUnitId) ?? null;
   const selectedTank = tanks.find((tank) => tank.id === selectedSourceCylinderId) ?? null;
+  const recentUnitTransaction = selectedUnitId ? recentUnitTransactions.get(selectedUnitId) ?? null : null;
   const workflowDraft: RefrigerantWorkflowDraft | null = (selectedPropertyId || selectedUnit?.propertyId)
     ? {
       propertyId: selectedPropertyId || selectedUnit?.propertyId || "",
@@ -531,6 +576,7 @@ function QuickChargeForm({ title, properties, units, tanks, onSubmit, canEdit, l
     <form className="refrigerant-card compact-form" onSubmit={onSubmit}>
       <h2>{title}</h2>
       <UnitSelect
+        language={language}
         properties={properties}
         units={units}
         selectedPropertyId={selectedPropertyId}
@@ -538,20 +584,31 @@ function QuickChargeForm({ title, properties, units, tanks, onSubmit, canEdit, l
         onPropertyChange={setSelectedPropertyId}
         onUnitChange={setSelectedUnitId}
       />
-      <label>Virgin tank
+      {recentUnitTransaction ? (
+        <div className="refrigerant-context-banner">
+          <strong>{t(language, "refrigerant.lastUnitContext")}</strong>
+          <span>{transactionTypeName(language, recentUnitTransaction.transactionType)} / {recentUnitTransaction.refrigerantType.name} / {dateLabel(recentUnitTransaction.occurredAt, language)}</span>
+          {recentUnitTransaction.sourceCylinder && tanks.some((tank) => tank.id === recentUnitTransaction.sourceCylinder?.id) ? (
+            <button type="button" className="button button-secondary" onClick={() => setSelectedSourceCylinderId(recentUnitTransaction.sourceCylinder?.id ?? "")}>
+              {t(language, "refrigerant.useLastUnitContext")}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      <label>{t(language, "refrigerant.virginTank")}
         <select name="sourceCylinderId" value={selectedSourceCylinderId} onChange={(event) => setSelectedSourceCylinderId(event.target.value)} required>
-          <option value="">Select active tank</option>
+          <option value="">{t(language, "refrigerant.selectActiveTank")}</option>
           {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name} / {tank.currentWeight} lb</option>)}
         </select>
       </label>
       <div className="form-grid-two">
-        <label>Start weight <input name="startWeight" type="number" step="0.01" required /></label>
-        <label>End weight <input name="endWeight" type="number" step="0.01" required /></label>
+        <label>{t(language, "refrigerant.startWeight")} <input name="startWeight" type="number" step="0.01" required /></label>
+        <label>{t(language, "refrigerant.endWeight")} <input name="endWeight" type="number" step="0.01" required /></label>
       </div>
-      <label>Notes <input name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Work order, leak context, system notes..." /></label>
+      <label>{t(language, "refrigerant.notes")} <input name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={t(language, "refrigerant.chargeNotesPlaceholder")} /></label>
       {workflowDraft?.propertyId ? (
         <PropertyWikiWorkflowPanel
-          title="Live Equipment, SOPs, and HVAC Notes"
+          title={t(language, "refrigerant.liveEquipmentContext")}
           module="REFRIGERANT"
           propertyId={workflowDraft.propertyId}
           unitNumber={workflowDraft.unitNumber || undefined}
@@ -561,18 +618,20 @@ function QuickChargeForm({ title, properties, units, tanks, onSubmit, canEdit, l
           canEdit={canEdit}
         />
       ) : null}
-      <button type="submit" className="button button-primary" disabled={loading || tanks.length === 0}>Log charge</button>
+      <button type="submit" className="button button-primary" disabled={loading || tanks.length === 0}>{t(language, "refrigerant.logCharge")}</button>
     </form>
   );
 }
 
-function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryType, onSubmit, canEdit, loading, resetVersion }: {
+function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryType, recentUnitTransactions, language, onSubmit, canEdit, loading, resetVersion }: {
   title: string;
   properties: Property[];
   units: Unit[];
   tanks: RefrigerantCylinder[];
   types: Array<{ id: string; name: string }>;
   recoveryType: "CLEAN" | "DIRTY";
+  recentUnitTransactions: Map<string, RefrigerantTransaction>;
+  language: UserLanguage;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   canEdit: boolean;
   loading: boolean;
@@ -593,6 +652,7 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
   const selectedUnit = units.find((unit) => unit.id === selectedUnitId) ?? null;
   const selectedType = types.find((type) => type.id === selectedRefrigerantTypeId) ?? null;
   const selectedTank = tanks.find((tank) => tank.id === selectedRecoveryCylinderId) ?? null;
+  const recentUnitTransaction = selectedUnitId ? recentUnitTransactions.get(selectedUnitId) ?? null : null;
   const workflowDraft: RefrigerantWorkflowDraft | null = (selectedPropertyId || selectedUnit?.propertyId)
     ? {
       propertyId: selectedPropertyId || selectedUnit?.propertyId || "",
@@ -607,6 +667,7 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
     <form className="refrigerant-card compact-form" onSubmit={onSubmit}>
       <h2>{title}</h2>
       <UnitSelect
+        language={language}
         properties={properties}
         units={units}
         selectedPropertyId={selectedPropertyId}
@@ -614,26 +675,44 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
         onPropertyChange={setSelectedPropertyId}
         onUnitChange={setSelectedUnitId}
       />
-      <label>Refrigerant type
+      {recentUnitTransaction ? (
+        <div className="refrigerant-context-banner">
+          <strong>{t(language, "refrigerant.lastUnitContext")}</strong>
+          <span>{transactionTypeName(language, recentUnitTransaction.transactionType)} / {recentUnitTransaction.refrigerantType.name} / {dateLabel(recentUnitTransaction.occurredAt, language)}</span>
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={() => {
+              setSelectedRefrigerantTypeId(recentUnitTransaction.refrigerantTypeId);
+              if (recentUnitTransaction.recoveryCylinder && tanks.some((tank) => tank.id === recentUnitTransaction.recoveryCylinder?.id)) {
+                setSelectedRecoveryCylinderId(recentUnitTransaction.recoveryCylinder.id);
+              }
+            }}
+          >
+            {t(language, "refrigerant.useLastUnitContext")}
+          </button>
+        </div>
+      ) : null}
+      <label>{t(language, "refrigerant.refrigerantType")}
         <select name="refrigerantTypeId" value={selectedRefrigerantTypeId} onChange={(event) => setSelectedRefrigerantTypeId(event.target.value)} required>
-          <option value="">Select type</option>
+          <option value="">{t(language, "refrigerant.selectType")}</option>
           {types.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
         </select>
       </label>
-      <label>{recoveryType === "DIRTY" ? "Dirty" : "Clean"} recovery tank
+      <label>{recoveryType === "DIRTY" ? t(language, "refrigerant.dirtyRecoveryTank") : t(language, "refrigerant.cleanRecoveryTank")}
         <select name="recoveryCylinderId" value={selectedRecoveryCylinderId} onChange={(event) => setSelectedRecoveryCylinderId(event.target.value)} required>
-          <option value="">Select recovery tank</option>
+          <option value="">{t(language, "refrigerant.selectRecoveryTank")}</option>
           {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name} / {tank.currentWeight} lb</option>)}
         </select>
       </label>
       <div className="form-grid-two">
-        <label>Start weight <input name="startWeight" type="number" step="0.01" required /></label>
-        <label>End weight <input name="endWeight" type="number" step="0.01" required /></label>
+        <label>{t(language, "refrigerant.startWeight")} <input name="startWeight" type="number" step="0.01" required /></label>
+        <label>{t(language, "refrigerant.endWeight")} <input name="endWeight" type="number" step="0.01" required /></label>
       </div>
-      <label>Notes <input name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Recovered from unit, reclaim note, disposition..." /></label>
+      <label>{t(language, "refrigerant.notes")} <input name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={t(language, "refrigerant.recoveryNotesPlaceholder")} /></label>
       {workflowDraft?.propertyId ? (
         <PropertyWikiWorkflowPanel
-          title="Live Equipment, SOPs, and HVAC Notes"
+          title={t(language, "refrigerant.liveEquipmentContext")}
           module="REFRIGERANT"
           propertyId={workflowDraft.propertyId}
           unitNumber={workflowDraft.unitNumber || undefined}
@@ -643,13 +722,14 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
           canEdit={canEdit}
         />
       ) : null}
-      <button type="submit" className="button button-primary" disabled={loading || tanks.length === 0}>Log recovery</button>
+      <button type="submit" className="button button-primary" disabled={loading || tanks.length === 0}>{t(language, "refrigerant.logRecovery")}</button>
     </form>
   );
 }
 
-function TankWorkspace({ title, canEdit, canAdmin, category, types, tanks, properties = [], units = [], recoveryTanks = [], onCreate, onUpdate, onRecovery, onFinalRecovery, loading, resetVersion = 0 }: {
+function TankWorkspace({ title, language, canEdit, canAdmin, category, types, tanks, properties = [], units = [], recoveryTanks = [], onCreate, onUpdate, onRecovery, onFinalRecovery, loading, resetVersion = 0 }: {
   title: string;
+  language: UserLanguage;
   canEdit: boolean;
   canAdmin: boolean;
   category: RefrigerantCylinder["category"];
@@ -669,49 +749,49 @@ function TankWorkspace({ title, canEdit, canAdmin, category, types, tanks, prope
     <>
       {canEdit ? (
         <form className="refrigerant-card compact-form" onSubmit={(event) => onCreate(event, category)}>
-          <h2>Add {categoryLabel[category]} Tank</h2>
+          <h2>{tWithVars(language, "refrigerant.addTankTitle", { category: categoryName(language, category) })}</h2>
           <div className="form-grid-four">
-            <label>Identifier <input name="identifier" required placeholder="Cylinder serial / shop label" /></label>
-            <label>Type
+            <label>{t(language, "refrigerant.identifier")} <input name="identifier" required placeholder={t(language, "refrigerant.identifierPlaceholder")} /></label>
+            <label>{t(language, "refrigerant.type")}
               <select name="refrigerantTypeId" required>
-                <option value="">Select type</option>
+                <option value="">{t(language, "refrigerant.selectType")}</option>
                 {types.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
               </select>
             </label>
-            <TankSizeField />
-            <label>Current weight <input name="currentWeight" type="number" step="0.01" required /></label>
+            <TankSizeField language={language} />
+            <label>{t(language, "refrigerant.currentWeight")} <input name="currentWeight" type="number" step="0.01" required /></label>
           </div>
-          <label>Notes <input name="notes" /></label>
-          {category === "VIRGIN" && canAdmin ? <label className="toggle-row"><input name="overrideActiveVirgin" type="checkbox" />Allow another active virgin tank for this type</label> : null}
-          <button type="submit" className="button button-primary" disabled={loading}>Add tank</button>
+          <label>{t(language, "refrigerant.notes")} <input name="notes" /></label>
+          {category === "VIRGIN" && canAdmin ? <label className="toggle-row"><input name="overrideActiveVirgin" type="checkbox" />{t(language, "refrigerant.allowAnotherActiveVirgin")}</label> : null}
+          <button type="submit" className="button button-primary" disabled={loading}>{t(language, "refrigerant.addTank")}</button>
         </form>
       ) : null}
 
       {onRecovery ? (
-        <QuickRecoveryForm title={`Log ${categoryLabel[category]} Recovery`} properties={properties} units={units} tanks={tanks.filter((tank) => tank.status === "ACTIVE")} types={types} recoveryType={category === "DIRTY_RECOVERY" ? "DIRTY" : "CLEAN"} onSubmit={onRecovery} canEdit={canEdit} loading={loading} resetVersion={resetVersion} />
+        <QuickRecoveryForm title={tWithVars(language, "refrigerant.logCategoryRecovery", { category: categoryName(language, category) })} properties={properties} units={units} tanks={tanks.filter((tank) => tank.status === "ACTIVE")} types={types} recoveryType={category === "DIRTY_RECOVERY" ? "DIRTY" : "CLEAN"} recentUnitTransactions={new Map()} language={language} onSubmit={onRecovery} canEdit={canEdit} loading={loading} resetVersion={resetVersion} />
       ) : null}
 
       {onFinalRecovery ? (
         <form className="refrigerant-card compact-form" onSubmit={onFinalRecovery}>
-          <h2>Final Recovery From Empty Virgin Tank</h2>
+          <h2>{t(language, "refrigerant.finalRecoveryTitle")}</h2>
           <div className="form-grid-four">
-            <label>Empty virgin tank
+            <label>{t(language, "refrigerant.emptyVirginTank")}
               <select name="sourceCylinderId" required>
-                <option value="">Select tank</option>
+                <option value="">{t(language, "refrigerant.selectTank")}</option>
                 {tanks.filter((tank) => tank.status !== "ARCHIVED").map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name}</option>)}
               </select>
             </label>
-            <label>Recovery tank
+            <label>{t(language, "refrigerant.recoveryTank")}
               <select name="recoveryCylinderId" required>
-                <option value="">Select recovery tank</option>
+                <option value="">{t(language, "refrigerant.selectRecoveryTank")}</option>
                 {recoveryTanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name}</option>)}
               </select>
             </label>
-            <label>Start weight <input name="startWeight" type="number" step="0.01" required /></label>
-            <label>End weight <input name="endWeight" type="number" step="0.01" required /></label>
+            <label>{t(language, "refrigerant.startWeight")} <input name="startWeight" type="number" step="0.01" required /></label>
+            <label>{t(language, "refrigerant.endWeight")} <input name="endWeight" type="number" step="0.01" required /></label>
           </div>
-          <label>Notes <input name="notes" /></label>
-          <button type="submit" className="button button-primary" disabled={loading}>Complete final recovery</button>
+          <label>{t(language, "refrigerant.notes")} <input name="notes" /></label>
+          <button type="submit" className="button button-primary" disabled={loading}>{t(language, "refrigerant.completeFinalRecovery")}</button>
         </form>
       ) : null}
 
@@ -723,32 +803,32 @@ function TankWorkspace({ title, canEdit, canAdmin, category, types, tanks, prope
               <strong>{tank.identifier}</strong>
               <span>{tank.refrigerantType.name} / {tank.currentWeight} lb of {tank.tankSize} lb</span>
             </div>
-            <CylinderStatusPill cylinder={tank} />
+            <CylinderStatusPill cylinder={tank} language={language} />
             {canEdit ? (
               <div className="button-cluster">
-                {tank.category === "VIRGIN" && tank.status === "ACTIVE" ? <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "EMPTY_PENDING_RECOVERY" })}>Mark empty</button> : null}
-                {tank.status !== "ARCHIVED" ? <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "ARCHIVED", dispositionNotes: tank.category === "VIRGIN" ? tank.dispositionNotes : "Archived from tank workspace." })}>Archive</button> : null}
-                {tank.status === "ARCHIVED" ? <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "ACTIVE" })}>Restore</button> : null}
+                {tank.category === "VIRGIN" && tank.status === "ACTIVE" ? <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "EMPTY_PENDING_RECOVERY" })}>{t(language, "refrigerant.markEmpty")}</button> : null}
+                {tank.status !== "ARCHIVED" ? <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "ARCHIVED", dispositionNotes: tank.category === "VIRGIN" ? tank.dispositionNotes : "Archived from tank workspace." })}>{t(language, "refrigerant.archive")}</button> : null}
+                {tank.status === "ARCHIVED" ? <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "ACTIVE" })}>{t(language, "refrigerant.restore")}</button> : null}
               </div>
             ) : null}
           </div>
-        )) : <p className="muted">No {title.toLowerCase()} configured yet.</p>}
+        )) : <p className="muted">{tWithVars(language, "refrigerant.noCategoryConfigured", { category: title.toLowerCase() })}</p>}
       </section>
     </>
   );
 }
 
-function HistoryList({ transactions }: { transactions: Array<{ id: string; occurredAt: string; transactionType: string; unitNumber: string | null; refrigerantType: { name: string }; amount: number; sourceCylinder: { identifier: string } | null; recoveryCylinder: { identifier: string } | null; createdByName: string | null; notes: string | null }> }) {
+function HistoryList({ language, transactions }: { language: UserLanguage; transactions: Array<{ id: string; occurredAt: string; transactionType: string; unitNumber: string | null; refrigerantType: { name: string }; amount: number; sourceCylinder: { identifier: string } | null; recoveryCylinder: { identifier: string } | null; createdByName: string | null; notes: string | null }> }) {
   return (
     <section className="refrigerant-card">
-      <h2>Recent Refrigerant Activity</h2>
+      <h2>{t(language, "refrigerant.historyTitle")}</h2>
       {transactions.length ? transactions.map((entry) => (
         <div className="refrigerant-history-row" key={entry.id}>
-          <strong>{entry.unitNumber ?? "No unit"} / {entry.refrigerantType.name}</strong>
-          <span>{entry.transactionType.replace(/_/g, " ")} / {entry.amount.toFixed(2)} lb / {dateLabel(entry.occurredAt)}</span>
-          <small>{entry.sourceCylinder?.identifier ?? entry.recoveryCylinder?.identifier ?? "No tank"} / {entry.createdByName ?? "Unknown user"}{entry.notes ? ` / ${entry.notes}` : ""}</small>
+          <strong>{entry.unitNumber ?? t(language, "refrigerant.noUnit")} / {entry.refrigerantType.name}</strong>
+          <span>{transactionTypeName(language, entry.transactionType as RefrigerantTransaction["transactionType"])} / {entry.amount.toFixed(2)} lb / {dateLabel(entry.occurredAt, language)}</span>
+          <small>{entry.sourceCylinder?.identifier ?? entry.recoveryCylinder?.identifier ?? t(language, "refrigerant.noTank")} / {entry.createdByName ?? t(language, "refrigerant.unknownUser")}{entry.notes ? ` / ${entry.notes}` : ""}</small>
         </div>
-      )) : <p className="muted">No refrigerant activity logged yet.</p>}
+      )) : <p className="muted">{t(language, "refrigerant.noActivity")}</p>}
     </section>
   );
 }

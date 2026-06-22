@@ -1,12 +1,17 @@
 import {
   ApiError,
+  attachChecklist,
   createLeaseComplianceIssue,
+  createItemComment,
   createPestIssue,
   createPoolLogEntry,
   createProjectRecord,
   completePreventiveMaintenanceTask,
+  deleteItemComment,
   patchMakeReadyItem,
   skipPreventiveMaintenanceTask,
+  updateChecklistItem,
+  updateItemComment,
   uploadItemAttachment,
   uploadLeaseComplianceIssuePhoto,
   uploadPestIssueAttachment,
@@ -63,6 +68,33 @@ type OfflineSyncJobPayload =
       files: QueuedBlob[];
     }
   | {
+      kind: "makeReadyCommentCreate";
+      itemId: string;
+      body: string;
+    }
+  | {
+      kind: "makeReadyCommentUpdate";
+      itemId: string;
+      commentId: string;
+      body: string;
+    }
+  | {
+      kind: "makeReadyCommentDelete";
+      itemId: string;
+      commentId: string;
+    }
+  | {
+      kind: "makeReadyChecklistAttach";
+      itemId: string;
+      templateId: string;
+    }
+  | {
+      kind: "makeReadyChecklistUpdate";
+      itemId?: string;
+      checklistItemId: string;
+      input: Parameters<typeof updateChecklistItem>[1];
+    }
+  | {
       kind: "projectCreate";
       input: Parameters<typeof createProjectRecord>[0];
       files: QueuedProjectAttachment[];
@@ -82,15 +114,18 @@ type OfflineSyncJobPayload =
   | {
       kind: "leaseUpload";
       issueId: string;
+      propertyId?: string;
       files: QueuedLeasePhoto[];
     }
   | {
       kind: "pestCreate";
       input: Parameters<typeof createPestIssue>[0];
+      files: QueuedPestAttachment[];
     }
   | {
       kind: "pestUpload";
       issueId: string;
+      propertyId?: string;
       files: QueuedPestAttachment[];
     }
   | {
@@ -100,6 +135,7 @@ type OfflineSyncJobPayload =
   | {
       kind: "poolUpload";
       entryId: string;
+      propertyId?: string;
       files: QueuedBlob[];
     }
   | {
@@ -115,6 +151,7 @@ type OfflineSyncJobPayload =
   | {
       kind: "pmUpload";
       taskId: string;
+      propertyId?: string;
       files: QueuedBlob[];
     };
 
@@ -125,6 +162,7 @@ export type OfflineSyncJob = {
   attemptCount: number;
   lastAttemptAt: string | null;
   lastError: string | null;
+  lastErrorStatus: number | null;
   payload: OfflineSyncJobPayload;
 };
 
@@ -135,6 +173,7 @@ export type OfflineSyncJobSummary = {
   attemptCount: number;
   lastAttemptAt: string | null;
   lastError: string | null;
+  lastErrorStatus: number | null;
   kind: OfflineSyncJobPayload["kind"];
   module: "make-ready" | "projects" | "lease-compliance" | "pest" | "pool" | "pm";
   title: string;
@@ -253,6 +292,16 @@ function jobTitle(payload: OfflineSyncJobPayload) {
       return `Item ${payload.itemId}`;
     case "makeReadyUpload":
       return `Item ${payload.itemId} attachments`;
+    case "makeReadyCommentCreate":
+      return `Item ${payload.itemId} comment`;
+    case "makeReadyCommentUpdate":
+      return `Item ${payload.itemId} comment update`;
+    case "makeReadyCommentDelete":
+      return `Item ${payload.itemId} comment remove`;
+    case "makeReadyChecklistAttach":
+      return `Item ${payload.itemId} checklist attach`;
+    case "makeReadyChecklistUpdate":
+      return payload.itemId ? `Item ${payload.itemId} checklist item ${payload.checklistItemId}` : `Checklist item ${payload.checklistItemId}`;
     case "projectCreate":
       return payload.input.title;
     case "projectUpload":
@@ -280,6 +329,11 @@ function jobModule(payload: OfflineSyncJobPayload): OfflineSyncJobSummary["modul
   switch (payload.kind) {
     case "makeReadyPatch":
     case "makeReadyUpload":
+    case "makeReadyCommentCreate":
+    case "makeReadyCommentUpdate":
+    case "makeReadyCommentDelete":
+    case "makeReadyChecklistAttach":
+    case "makeReadyChecklistUpdate":
       return "make-ready";
     case "projectCreate":
     case "projectUpload":
@@ -307,6 +361,7 @@ function jobFileCount(payload: OfflineSyncJobPayload) {
     case "projectUpload":
     case "leaseCreate":
     case "leaseUpload":
+    case "pestCreate":
     case "pestUpload":
     case "poolUpload":
     case "pmUpload":
@@ -324,6 +379,7 @@ function summarize(job: OfflineSyncJob): OfflineSyncJobSummary {
     attemptCount: job.attemptCount,
     lastAttemptAt: job.lastAttemptAt,
     lastError: job.lastError,
+    lastErrorStatus: job.lastErrorStatus,
     kind: job.payload.kind,
     module: jobModule(job.payload),
     title: jobTitle(job.payload),
@@ -340,6 +396,7 @@ function buildJob(payload: OfflineSyncJobPayload): OfflineSyncJob {
     attemptCount: 0,
     lastAttemptAt: null,
     lastError: null,
+    lastErrorStatus: null,
     payload,
   };
 }
@@ -355,6 +412,7 @@ async function updateFailedJob(job: OfflineSyncJob, error: unknown) {
     attemptCount: job.attemptCount + 1,
     lastAttemptAt: new Date().toISOString(),
     lastError: error instanceof Error ? error.message : String(error),
+    lastErrorStatus: error instanceof ApiError ? error.status : null,
   };
   await withStore("readwrite", (store) => writeJob(store, failed));
 }
@@ -368,6 +426,21 @@ async function syncJob(job: OfflineSyncJob) {
       for (const file of job.payload.files) {
         await uploadItemAttachment(job.payload.itemId, restoreFile(file));
       }
+      return;
+    case "makeReadyCommentCreate":
+      await createItemComment(job.payload.itemId, job.payload.body);
+      return;
+    case "makeReadyCommentUpdate":
+      await updateItemComment(job.payload.itemId, job.payload.commentId, job.payload.body);
+      return;
+    case "makeReadyCommentDelete":
+      await deleteItemComment(job.payload.itemId, job.payload.commentId);
+      return;
+    case "makeReadyChecklistAttach":
+      await attachChecklist(job.payload.itemId, job.payload.templateId);
+      return;
+    case "makeReadyChecklistUpdate":
+      await updateChecklistItem(job.payload.checklistItemId, job.payload.input);
       return;
     case "projectCreate": {
       const { record } = await createProjectRecord(job.payload.input);
@@ -399,9 +472,16 @@ async function syncJob(job: OfflineSyncJob) {
         });
       }
       return;
-    case "pestCreate":
-      await createPestIssue(job.payload.input);
+    case "pestCreate": {
+      const { issue } = await createPestIssue(job.payload.input);
+      for (const file of job.payload.files) {
+        await uploadPestIssueAttachment(issue.id, restoreFile(file), {
+          photoType: file.photoType ?? undefined,
+          caption: file.caption ?? undefined,
+        });
+      }
       return;
+    }
     case "pestUpload":
       for (const file of job.payload.files) {
         await uploadPestIssueAttachment(job.payload.issueId, restoreFile(file), {
@@ -446,6 +526,11 @@ export async function listOfflineSyncJobs() {
 
 export async function getOfflineSyncJobs() {
   return withStore("readonly", (store) => readAll(store));
+}
+
+export async function getOfflineSyncJob(id: string) {
+  const jobs = await withStore("readonly", (store) => readAll(store));
+  return jobs.find((job) => job.id === id) ?? null;
 }
 
 export async function getOfflineSyncPendingCount() {
@@ -499,6 +584,26 @@ export async function syncOfflineJobs() {
   return syncPromise;
 }
 
+export async function retryOfflineSyncJob(id: string) {
+  const job = await getOfflineSyncJob(id);
+  if (!job) {
+    return { synced: false, remaining: await getOfflineSyncPendingCount() };
+  }
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    return { synced: false, remaining: await getOfflineSyncPendingCount() };
+  }
+  try {
+    await syncJob(job);
+    await withStore("readwrite", (store) => deleteJob(store, job.id));
+    await announceQueueState();
+    return { synced: true, remaining: await getOfflineSyncPendingCount() };
+  } catch (error) {
+    await updateFailedJob(job, error);
+    await announceQueueState();
+    throw error;
+  }
+}
+
 export async function enqueueMakeReadyPatch(itemId: string, data: Record<string, unknown>) {
   return enqueue({ kind: "makeReadyPatch", itemId, data });
 }
@@ -509,6 +614,26 @@ export async function enqueueMakeReadyAttachmentUpload(itemId: string, files: Fi
     itemId,
     files: files.map((file) => buildBlob(file)),
   });
+}
+
+export async function enqueueMakeReadyCommentCreate(itemId: string, body: string) {
+  return enqueue({ kind: "makeReadyCommentCreate", itemId, body });
+}
+
+export async function enqueueMakeReadyCommentUpdate(itemId: string, commentId: string, body: string) {
+  return enqueue({ kind: "makeReadyCommentUpdate", itemId, commentId, body });
+}
+
+export async function enqueueMakeReadyCommentDelete(itemId: string, commentId: string) {
+  return enqueue({ kind: "makeReadyCommentDelete", itemId, commentId });
+}
+
+export async function enqueueMakeReadyChecklistAttach(itemId: string, templateId: string) {
+  return enqueue({ kind: "makeReadyChecklistAttach", itemId, templateId });
+}
+
+export async function enqueueMakeReadyChecklistUpdate(itemId: string, checklistItemId: string, input: Parameters<typeof updateChecklistItem>[1]) {
+  return enqueue({ kind: "makeReadyChecklistUpdate", itemId, checklistItemId, input });
 }
 
 export async function enqueueProjectCreate(input: {
@@ -559,10 +684,11 @@ export async function enqueueLeaseCreate(input: Parameters<typeof createLeaseCom
   });
 }
 
-export async function enqueueLeaseUpload(issueId: string, files: Array<{ file: File; photoCategory?: LeaseCompliancePhotoCategory; caption?: string | null }> = []) {
+export async function enqueueLeaseUpload(issueId: string, propertyId: string | undefined, files: Array<{ file: File; photoCategory?: LeaseCompliancePhotoCategory; caption?: string | null }> = []) {
   return enqueue({
     kind: "leaseUpload",
     issueId,
+    propertyId,
     files: files.map((entry) => ({
       ...buildBlob(entry.file),
       photoCategory: entry.photoCategory ?? null,
@@ -571,14 +697,23 @@ export async function enqueueLeaseUpload(issueId: string, files: Array<{ file: F
   });
 }
 
-export async function enqueuePestCreate(input: Parameters<typeof createPestIssue>[0]) {
-  return enqueue({ kind: "pestCreate", input });
+export async function enqueuePestCreate(input: Parameters<typeof createPestIssue>[0], files: Array<{ file: File; photoType?: PestPhotoType; caption?: string | null }> = []) {
+  return enqueue({
+    kind: "pestCreate",
+    input,
+    files: files.map((entry) => ({
+      ...buildBlob(entry.file),
+      photoType: entry.photoType ?? null,
+      caption: entry.caption ?? null,
+    })),
+  });
 }
 
-export async function enqueuePestUpload(issueId: string, files: Array<{ file: File; photoType?: PestPhotoType; caption?: string | null }> = []) {
+export async function enqueuePestUpload(issueId: string, propertyId: string | undefined, files: Array<{ file: File; photoType?: PestPhotoType; caption?: string | null }> = []) {
   return enqueue({
     kind: "pestUpload",
     issueId,
+    propertyId,
     files: files.map((entry) => ({
       ...buildBlob(entry.file),
       photoType: entry.photoType ?? null,
@@ -591,10 +726,11 @@ export async function enqueuePoolCreate(input: Parameters<typeof createPoolLogEn
   return enqueue({ kind: "poolCreate", input });
 }
 
-export async function enqueuePoolUpload(entryId: string, files: File[]) {
+export async function enqueuePoolUpload(entryId: string, propertyId: string | undefined, files: File[]) {
   return enqueue({
     kind: "poolUpload",
     entryId,
+    propertyId,
     files: files.map((file) => buildBlob(file)),
   });
 }
@@ -607,10 +743,11 @@ export async function enqueuePmSkip(taskId: string, input: Parameters<typeof ski
   return enqueue({ kind: "pmSkip", taskId, input });
 }
 
-export async function enqueuePmUpload(taskId: string, files: File[]) {
+export async function enqueuePmUpload(taskId: string, propertyId: string | undefined, files: File[]) {
   return enqueue({
     kind: "pmUpload",
     taskId,
+    propertyId,
     files: files.map((file) => buildBlob(file)),
   });
 }

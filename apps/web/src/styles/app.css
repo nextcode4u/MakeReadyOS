@@ -72,6 +72,85 @@
   .dashboard-grid, .calendar-layout-split .calendar-panels, .calendar-layout-grid .calendar-panels, .dashboard-frog-preview { grid-template-columns: 1fr; }
 }
 
+.issue-media-strip {
+  display: flex;
+  gap: .55rem;
+  overflow-x: auto;
+  padding-bottom: .2rem;
+  margin: 0 0 .75rem;
+}
+
+.issue-media-chip {
+  min-width: 7rem;
+  max-width: 8.5rem;
+  display: grid;
+  gap: .35rem;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.issue-media-chip img,
+.compact-issue-thumb {
+  width: 100%;
+  height: 5rem;
+  object-fit: cover;
+  border-radius: .55rem;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
+}
+
+.issue-media-chip.selected img { height: 4.5rem; }
+.issue-media-chip span { font-size: .72rem; color: var(--muted); line-height: 1.25; word-break: break-word; }
+.issue-media-file-badge,
+.issue-media-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 5rem;
+  min-width: 7rem;
+  padding: .65rem;
+  border: 1px dashed var(--border);
+  border-radius: .55rem;
+  background: var(--panel-strong);
+  color: var(--muted);
+  font-size: .75rem;
+}
+
+.selected-media-strip { margin-top: -.2rem; }
+
+.compact-issue-summary {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: .8rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  margin-bottom: .65rem;
+  text-align: left;
+}
+
+.compact-issue-summary-main {
+  display: grid;
+  gap: .3rem;
+  min-width: 0;
+}
+
+.compact-issue-summary-side {
+  display: grid;
+  gap: .45rem;
+  justify-items: end;
+  flex: 0 0 auto;
+}
+
+.compact-issue-meta { margin: 0; }
+
+.compact-issue-thumb {
+  width: 4.75rem;
+  height: 4.75rem;
+}
+
 /* Operational collaboration surfaces: compact in the drawer and touch-safe in the field. */
 .drawer-section-title {
   display: flex;
@@ -2441,6 +2520,81 @@ textarea {
 .connection-banner small {
   color: var(--text-soft);
   font-size: .78rem;
+}
+
+.offline-queue-review-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.offline-queue-review-card {
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem;
+}
+
+.offline-queue-review-card p {
+  margin: 0;
+}
+
+.offline-queue-detail-card {
+  border-style: dashed;
+}
+
+.offline-queue-change-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.offline-queue-change-row {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+:root[data-theme="light"] .offline-queue-change-row {
+  background: #fffdf8;
+  border-color: var(--light-line);
+  color: var(--light-body);
+}
+
+.offline-queue-merge-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.offline-queue-merge-row {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--panel-2);
+}
+
+.offline-queue-merge-row.is-conflict {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+}
+
+.offline-queue-merge-row strong {
+  color: var(--text);
+}
+
+.offline-queue-merge-row span {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+:root[data-theme="light"] .offline-queue-merge-row {
+  background: #fffdf8;
+  border-color: var(--light-line);
 }
 
 .onboarding-backdrop {
@@ -11003,6 +11157,50 @@ textarea {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
+.pm-quick-filter-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.pm-quick-filter-header strong {
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+.pm-quick-filter-header span {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+
+.pm-quick-filter-header .status-pill {
+  color: var(--text);
+}
+
+.pm-quick-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.pm-quick-filters button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-weight: 800;
+  padding: 0.45rem 0.8rem;
+}
+
+.pm-quick-filters button.active {
+  border-color: var(--accent);
+  background: rgba(42, 112, 220, 0.28);
+}
+
 @media (max-width: 920px) {
   .property-wiki-panel .module-heading,
   .pool-panel .module-heading {
@@ -11064,6 +11262,11 @@ textarea {
   .lease-repeat-card-media img,
   .lease-repeat-card-placeholder {
     height: 12rem;
+  }
+
+  .pm-quick-filters button {
+    flex: 1 1 calc(50% - 0.45rem);
+    text-align: center;
   }
 }
 
@@ -11152,6 +11355,28 @@ textarea {
 .refrigerant-card h2 {
   margin: 0 0 0.65rem;
   font-size: 1rem;
+}
+
+.refrigerant-context-banner {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--panel-2);
+}
+
+.refrigerant-context-banner strong {
+  font-size: 0.82rem;
+}
+
+.refrigerant-context-banner span {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+
+.refrigerant-context-banner .button {
+  justify-self: flex-start;
 }
 
 .compact-form {
@@ -11249,6 +11474,17 @@ textarea {
 :root[data-theme="light"] .metric-card {
   background: var(--light-panel);
   border-color: var(--light-line);
+}
+
+:root[data-theme="light"] .refrigerant-context-banner {
+  background: #fffdf8;
+  border-color: var(--light-line);
+}
+
+:root[data-theme="light"] .pm-quick-filters button {
+  background: #fffdf8;
+  border-color: var(--light-line);
+  color: var(--light-body);
 }
 
 :root[data-theme="light"] .subtab-row button {

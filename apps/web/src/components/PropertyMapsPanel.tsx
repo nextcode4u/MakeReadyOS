@@ -15,6 +15,7 @@ import type {
   PropertyWikiEntry,
   Unit,
   UnitMapLocation,
+  UserLanguage,
 } from "../lib/api";
 import {
   createPropertyMapPin,
@@ -38,6 +39,7 @@ import { displayUnitNumber } from "../lib/board";
 import { openLeaseQuickAdd } from "../lib/leaseNavigation";
 import { openPestQuickAdd } from "../lib/pestNavigation";
 import { openProjectCreate, openProjectRecord } from "../lib/projectNavigation";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { UnitSearchSelect } from "./UnitSearchSelect";
 
 type ColorSource = "riskLevel" | "vacancyStatus" | "boardSection" | "assignedTech" | "makeReadyStatus";
@@ -55,12 +57,14 @@ type Props = {
   boardSections: BoardSection[];
   selectedPropertyId: string;
   canManage: boolean;
+  language?: UserLanguage;
   loading?: boolean;
   error?: string | null;
   onPropertyChange: (propertyId: string) => void;
-  onCreateMap: (input: { propertyId: string; name: string; notes?: string | null; width?: number | null; height?: number | null }) => Promise<void>;
+  onCreateMap: (input: { propertyId: string; name: string; notes?: string | null; width?: number | null; height?: number | null }) => Promise<PropertyMap>;
   onArchiveMap: (id: string, restore?: boolean) => Promise<void>;
-  onUploadMap: (id: string, file: File) => Promise<void>;
+  onDeleteMap: (id: string) => Promise<void>;
+  onUploadMap: (id: string, file: File) => Promise<PropertyMap>;
   onSaveLocation: (input: {
     propertyId: string;
     mapId: string;
@@ -239,11 +243,13 @@ export function PropertyMapsPanel({
   boardSections,
   selectedPropertyId,
   canManage,
+  language = "en",
   loading = false,
   error = null,
   onPropertyChange,
   onCreateMap,
   onArchiveMap,
+  onDeleteMap,
   onUploadMap,
   onSaveLocation,
   onRemoveLocation,
@@ -253,7 +259,9 @@ export function PropertyMapsPanel({
   onOpenItem,
 }: Props) {
   const queryClient = useQueryClient();
+  const isSpanish = language === "es";
   const [localPropertyId, setLocalPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
+  const [showDeleteMapConfirm, setShowDeleteMapConfirm] = useState(false);
   const propertyId = selectedPropertyId || localPropertyId;
   const property = properties.find((entry) => entry.id === propertyId);
   const propertyMaps = maps.filter((map) => map.propertyId === propertyId);
@@ -492,8 +500,8 @@ export function PropertyMapsPanel({
       if (!markerMatchesSearch([unit.number, location.building, location.area, location.floor], search)) continue;
       results.push({
         id: `unit:${location.id}`,
-        title: `Unit ${unit.number}`,
-        subtitle: [location.building, location.area, location.floor].filter(Boolean).join(" / ") || "Unit marker",
+        title: isSpanish ? `Unidad ${unit.number}` : `Unit ${unit.number}`,
+        subtitle: [location.building, location.area, location.floor].filter(Boolean).join(" / ") || (isSpanish ? "Marcador de unidad" : "Unit marker"),
         onSelect: () => setSelectedMarker({ kind: "unit", location }),
       });
     }
@@ -502,7 +510,7 @@ export function PropertyMapsPanel({
       results.push({
         id: `area:${area.id}`,
         title: area.name,
-        subtitle: `${area.areaType} area`,
+        subtitle: isSpanish ? `Area de ${area.areaType.toLowerCase()}` : `${area.areaType} area`,
         onSelect: () => setSelectedMarker({ kind: "area", area }),
       });
     }
@@ -536,13 +544,13 @@ export function PropertyMapsPanel({
       const unitPests = pestIssues.filter((issue) => issue.unitId === location.unitId).slice(0, 4);
       const relatedWiki = wikiEntries.filter((entry) => (entry.building && entry.building === (unit.building ?? location.building)) || entry.floorPlan === unit.floorPlan).slice(0, 4);
       return {
-        title: `Unit ${unit.number}`,
-        type: "Unit",
-        description: [location.building ? `Building ${location.building}` : null, location.area, location.floor].filter(Boolean).join(" / "),
+        title: isSpanish ? `Unidad ${unit.number}` : `Unit ${unit.number}`,
+        type: isSpanish ? "Unidad" : "Unit",
+        description: [location.building ? (isSpanish ? `Edificio ${location.building}` : `Building ${location.building}`) : null, location.area, location.floor].filter(Boolean).join(" / "),
         related: [
-          item ? `Make Ready: ${item.makeReadyStatus ?? item.status}` : null,
-          unitPests[0] ? `Pest: ${unitPests[0].pestType} / ${unitPests[0].status}` : null,
-          relatedWiki[0] ? `Wiki: ${relatedWiki[0].title}` : null,
+          item ? `${isSpanish ? "Make Ready" : "Make Ready"}: ${item.makeReadyStatus ?? item.status}` : null,
+          unitPests[0] ? `${isSpanish ? "Plagas" : "Pest"}: ${unitPests[0].pestType} / ${unitPests[0].status}` : null,
+          relatedWiki[0] ? `${isSpanish ? "Wiki" : "Wiki"}: ${relatedWiki[0].title}` : null,
         ].filter(Boolean),
       };
     }
@@ -550,9 +558,11 @@ export function PropertyMapsPanel({
       return {
         title: selectedMarker.area.name,
         type: selectedMarker.area.areaType,
-        description: selectedMarker.area.notes || `${selectedMarker.area.expectedUnitCount ?? 0} expected units`,
+        description: selectedMarker.area.notes || (isSpanish ? `${selectedMarker.area.expectedUnitCount ?? 0} unidades esperadas` : `${selectedMarker.area.expectedUnitCount ?? 0} expected units`),
         related: [
-          `${propertyUnits.filter((unit) => (unit.building ?? unit.area ?? "").toLowerCase() === selectedMarker.area.name.toLowerCase()).length} units`,
+          isSpanish
+            ? `${propertyUnits.filter((unit) => (unit.building ?? unit.area ?? "").toLowerCase() === selectedMarker.area.name.toLowerCase()).length} unidades`
+            : `${propertyUnits.filter((unit) => (unit.building ?? unit.area ?? "").toLowerCase() === selectedMarker.area.name.toLowerCase()).length} units`,
         ],
       };
     }
@@ -564,9 +574,9 @@ export function PropertyMapsPanel({
         description: pin.description || [pin.building, pin.unitLabel, pin.area].filter(Boolean).join(" / "),
         related: [
           pin.linkedRecord ? `${pin.linkedRecord.title} / ${pin.linkedRecord.subtitle ?? pin.linkedRecord.targetType}` : null,
-          pin.isEmergency ? "Emergency pin" : null,
-          pin.attachments.length ? `${pin.attachments.length} attachment${pin.attachments.length === 1 ? "" : "s"}` : null,
-          pin.tags.length ? `Tags: ${pin.tags.join(", ")}` : null,
+          pin.isEmergency ? (isSpanish ? "Pin de emergencia" : "Emergency pin") : null,
+          pin.attachments.length ? (isSpanish ? `${pin.attachments.length} archivo${pin.attachments.length === 1 ? "" : "s"}` : `${pin.attachments.length} attachment${pin.attachments.length === 1 ? "" : "s"}`) : null,
+          pin.tags.length ? `${isSpanish ? "Etiquetas" : "Tags"}: ${pin.tags.join(", ")}` : null,
         ].filter(Boolean),
       };
     }
@@ -604,65 +614,82 @@ export function PropertyMapsPanel({
     <section className="panel property-map-panel" data-testid="property-maps-panel">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Property Maps</p>
-          <h2>Visual Property Operations</h2>
-          <p className="muted">Maps, units, areas, emergency utilities, and linked records in one operational view.</p>
+          <p className="eyebrow">{isSpanish ? "Mapas de propiedad" : "Property Maps"}</p>
+          <h2>{isSpanish ? "Operaciones visuales de la propiedad" : "Visual Property Operations"}</h2>
+          <p className="muted">{isSpanish ? "Mapas, unidades, areas, utilidades de emergencia y registros vinculados en una sola vista operativa." : "Maps, units, areas, emergency utilities, and linked records in one operational view."}</p>
         </div>
       </div>
-      {loading && <div className="state-card">Loading property maps...</div>}
+      {loading && <div className="state-card">{isSpanish ? "Cargando mapas de la propiedad..." : "Loading property maps..."}</div>}
       {error && <div className="state-card error">{error}</div>}
 
       <div className="toolbar compact-toolbar map-toolbar">
-        <label>Property
+        <label>{isSpanish ? "Propiedad" : "Property"}
           <select data-testid="property-maps-property-select" value={propertyId} onChange={(event) => updateProperty(event.target.value)}>
             {properties.map((entry) => <option key={entry.id} value={entry.id}>{entry.code} - {entry.name}</option>)}
           </select>
         </label>
-        <label>Map
+        <label>{isSpanish ? "Mapa" : "Map"}
           <select data-testid="property-maps-map-select" value={selectedMap?.id ?? ""} onChange={(event) => setSelectedMapId(event.target.value)}>
-            <option value="">No map selected</option>
+            <option value="">{isSpanish ? "Ningun mapa seleccionado" : "No map selected"}</option>
             {propertyMaps.map((map) => <option key={map.id} value={map.id}>{map.name}{map.isDefault ? " / default" : ""}</option>)}
           </select>
         </label>
-        <label>Search
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Building, unit, pin, project, issue..." />
+        <label>{isSpanish ? "Buscar" : "Search"}
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isSpanish ? "Edificio, unidad, pin, proyecto, problema..." : "Building, unit, pin, project, issue..."} />
         </label>
-        <label>Color by
+        <label>{isSpanish ? "Colorear por" : "Color by"}
           <select value={colorSource} onChange={(event) => setColorSource(event.target.value as ColorSource)}>
-            <option value="riskLevel">Risk Level</option>
-            <option value="vacancyStatus">Vacancy Status</option>
-            <option value="boardSection">Board Section</option>
-            <option value="assignedTech">Assigned Tech</option>
-            <option value="makeReadyStatus">Make Ready Status</option>
+            <option value="riskLevel">{isSpanish ? "Nivel de riesgo" : "Risk Level"}</option>
+            <option value="vacancyStatus">{isSpanish ? "Estado de vacancia" : "Vacancy Status"}</option>
+            <option value="boardSection">{isSpanish ? "Seccion del tablero" : "Board Section"}</option>
+            <option value="assignedTech">{isSpanish ? "Tecnico asignado" : "Assigned Tech"}</option>
+            <option value="makeReadyStatus">{isSpanish ? "Estado de make ready" : "Make Ready Status"}</option>
           </select>
         </label>
-        <label className="compact-toggle">Emergency mode
+        <label className="compact-toggle">{isSpanish ? "Modo de emergencia" : "Emergency mode"}
           <input type="checkbox" checked={emergencyOnly} onChange={(event) => setEmergencyOnly(event.target.checked)} />
         </label>
       </div>
 
       {canManage ? (
         <div className="operations-card map-management-card">
-          <h3>Map Setup</h3>
+          <h3>{isSpanish ? "Configuracion del mapa" : "Map Setup"}</h3>
           <div className="map-management-grid">
             <form className="inline-form" onSubmit={async (event) => {
               event.preventDefault();
               if (!propertyId || !draftName.trim()) return;
-              await onCreateMap({ propertyId, name: draftName.trim() });
+              const createdMap = await onCreateMap({ propertyId, name: draftName.trim() });
+              setSelectedMapId(createdMap.id);
+              setSelectedMarker(null);
               setDraftName("");
             }}>
-              <input data-testid="property-maps-create-name" value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder="New map name" />
-              <button data-testid="property-maps-create-submit" className="button button-primary" disabled={!draftName.trim()}>Create Map</button>
+              <input data-testid="property-maps-create-name" value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder={isSpanish ? "Nombre del nuevo mapa" : "New map name"} />
+              <button data-testid="property-maps-create-submit" className="button button-primary" disabled={!draftName.trim()}>{isSpanish ? "Crear mapa" : "Create Map"}</button>
             </form>
             {selectedMap ? (
               <div className="map-file-actions">
                 <input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void onUploadMap(selectedMap.id, file);
+                  const file = event.currentTarget.files?.[0];
+                  if (!file) return;
+                  void onUploadMap(selectedMap.id, file).then((updatedMap) => {
+                    setSelectedMapId(updatedMap.id);
+                  }).finally(() => {
+                    event.currentTarget.value = "";
+                  });
                 }} />
                 <button className="button button-secondary" type="button" onClick={() => void onArchiveMap(selectedMap.id, !selectedMap.isArchived)}>
-                  {selectedMap.isArchived ? "Restore Map" : "Archive Map"}
+                  {selectedMap.isArchived ? (isSpanish ? "Restaurar mapa" : "Restore Map") : (isSpanish ? "Archivar mapa" : "Archive Map")}
                 </button>
+                {selectedMap.isArchived ? (
+                  <button
+                    className="button button-danger"
+                    data-testid="property-maps-delete-map"
+                    type="button"
+                    onClick={() => setShowDeleteMapConfirm(true)}
+                  >
+                    {isSpanish ? "Eliminar mapa" : "Delete Map"}
+                  </button>
+                ) : null}
                 <a className="button button-secondary" href={propertyMapExportCsvUrl(selectedMap.id)} target="_blank" rel="noreferrer">CSV</a>
                 <a className="button button-secondary" href={propertyMapExportXlsUrl(selectedMap.id)} target="_blank" rel="noreferrer">Excel</a>
                 <a className="button button-secondary" href={propertyMapPrintableReportUrl(selectedMap.id)} target="_blank" rel="noreferrer">PDF</a>
@@ -676,23 +703,23 @@ export function PropertyMapsPanel({
         <div className="operations-card map-editor-card">
           <div className="map-card-header">
             <div>
-              <h3>{selectedMap?.name ?? "No map configured"}</h3>
-              <p className="muted">{selectedMap ? `${selectedMap.mapType} / ${visibleUnitMarkers.length} unit markers / ${visiblePins.length} custom pins / ${visibleProjects.length} project pins` : "Select a property map to begin"}</p>
+              <h3>{selectedMap?.name ?? (isSpanish ? "No hay mapa configurado" : "No map configured")}</h3>
+              <p className="muted">{selectedMap ? `${selectedMap.mapType} / ${visibleUnitMarkers.length} ${isSpanish ? "marcadores de unidad" : "unit markers"} / ${visiblePins.length} ${isSpanish ? "pins personalizados" : "custom pins"} / ${visibleProjects.length} ${isSpanish ? "pins de proyecto" : "project pins"}` : (isSpanish ? "Selecciona un mapa de la propiedad para comenzar" : "Select a property map to begin")}</p>
             </div>
             <div className="map-legend">
               <button type="button" className="button button-secondary" onClick={() => setZoom((current) => Math.max(0.7, Number((current - 0.1).toFixed(1))))}>-</button>
               <span>{Math.round(zoom * 100)}%</span>
               <button type="button" className="button button-secondary" onClick={() => setZoom((current) => Math.min(2, Number((current + 0.1).toFixed(1))))}>+</button>
-              <button type="button" className="button button-secondary" onClick={() => setZoom(1)}>Reset</button>
+              <button type="button" className="button button-secondary" onClick={() => setZoom(1)}>{isSpanish ? "Restablecer" : "Reset"}</button>
             </div>
           </div>
           <div className="map-layer-row">
             {[
-              ["units", "Units"],
-              ["areas", "Areas"],
+              ["units", isSpanish ? "Unidades" : "Units"],
+              ["areas", isSpanish ? "Areas" : "Areas"],
               ["pins", "Pins"],
-              ["projects", "Projects"],
-              ["recommendations", "Recommendations"],
+              ["projects", isSpanish ? "Proyectos" : "Projects"],
+              ["recommendations", isSpanish ? "Recomendaciones" : "Recommendations"],
             ].map(([key, label]) => (
               <label key={key} className="compact-toggle">
                 <input type="checkbox" checked={layerToggles[key]} onChange={(event) => setLayerToggles((current) => ({ ...current, [key]: event.target.checked }))} />
@@ -708,8 +735,8 @@ export function PropertyMapsPanel({
             >
               {selectedMap && imagePreview ? <img src={propertyMapFileUrl(selectedMap.id)} alt={`${selectedMap.name} map`} /> : (
                 <div className="map-placeholder">
-                  <strong>{selectedMap ? "Map preview unavailable" : "Create or select a map"}</strong>
-                  <span>{selectedMap?.mimeType === "application/pdf" ? "PDF maps stay usable for pin placement and export." : "Upload a PNG, JPG, WebP, or PDF map."}</span>
+                  <strong>{selectedMap ? (isSpanish ? "Vista previa del mapa no disponible" : "Map preview unavailable") : (isSpanish ? "Crea o selecciona un mapa" : "Create or select a map")}</strong>
+                  <span>{selectedMap?.mimeType === "application/pdf" ? (isSpanish ? "Los mapas PDF siguen funcionando para colocar pins y exportar." : "PDF maps stay usable for pin placement and export.") : (isSpanish ? "Sube un mapa PNG, JPG, WebP o PDF." : "Upload a PNG, JPG, WebP, or PDF map.")}</span>
                 </div>
               )}
               {visibleAreaMarkers.map((area) => (
@@ -797,38 +824,38 @@ export function PropertyMapsPanel({
               ))}
             </div>
           </div>
-          {selectedMap?.mimeType === "application/pdf" ? <a className="button button-secondary" href={propertyMapFileUrl(selectedMap.id)} target="_blank" rel="noreferrer">Open PDF Map</a> : null}
+          {selectedMap?.mimeType === "application/pdf" ? <a className="button button-secondary" href={propertyMapFileUrl(selectedMap.id)} target="_blank" rel="noreferrer">{isSpanish ? "Abrir mapa PDF" : "Open PDF Map"}</a> : null}
         </div>
 
         <div className="operations-card unit-directory-card">
-          <h3>Map Controls</h3>
+          <h3>{isSpanish ? "Controles del mapa" : "Map Controls"}</h3>
           <div className="map-building-summary">
             <button type="button" className={!selectedBuilding ? "selected" : ""} onClick={() => setSelectedBuilding("")}>
-              All buildings <strong>{propertyUnits.length}</strong>
+              {isSpanish ? "Todos los edificios" : "All buildings"} <strong>{propertyUnits.length}</strong>
             </button>
             {buildingSummaries.map((summary) => (
               <button key={summary.key} type="button" className={selectedBuilding === summary.key ? "selected" : ""} onClick={() => setSelectedBuilding(summary.key)}>
                 {summary.label}
-                <strong>{summary.mapped}/{summary.units.length} mapped</strong>
+                <strong>{summary.mapped}/{summary.units.length} {isSpanish ? "mapeadas" : "mapped"}</strong>
               </button>
             ))}
           </div>
 
           <div className="map-mode-stack">
-            <label>Placement mode
+            <label>{isSpanish ? "Modo de colocacion" : "Placement mode"}
               <select data-testid="property-maps-placement-mode" value={placementMode} onChange={(event) => setPlacementMode(event.target.value as PlacementMode)}>
-                <option value="none">Browse only</option>
-                <option value="unit">Place unit</option>
-                <option value="area">Place building / area</option>
-                <option value="pin">Add shared pin</option>
-                {selectedMarker?.kind === "pin" ? <option value="move-pin">Move selected pin</option> : null}
+                <option value="none">{isSpanish ? "Solo explorar" : "Browse only"}</option>
+                <option value="unit">{isSpanish ? "Colocar unidad" : "Place unit"}</option>
+                <option value="area">{isSpanish ? "Colocar edificio / area" : "Place building / area"}</option>
+                <option value="pin">{isSpanish ? "Agregar pin compartido" : "Add shared pin"}</option>
+                {selectedMarker?.kind === "pin" ? <option value="move-pin">{isSpanish ? "Mover pin seleccionado" : "Move selected pin"}</option> : null}
               </select>
             </label>
           </div>
 
           {placementMode === "unit" ? (
             <div className="stacked-form">
-              <label>Unit to place</label>
+              <label>{isSpanish ? "Unidad a colocar" : "Unit to place"}</label>
               <UnitSearchSelect
                 units={buildingFilteredUnits}
                 value={selectedUnitId}
@@ -838,56 +865,56 @@ export function PropertyMapsPanel({
                   const unit = propertyUnits.find((entry) => entry.id === value);
                   setLocationMeta({ building: existing?.building ?? unit?.building ?? "", area: existing?.area ?? unit?.area ?? "", floor: existing?.floor ?? unit?.floor ?? "" });
                 }}
-                placeholder="Search unit..."
+                placeholder={isSpanish ? "Buscar unidad..." : "Search unit..."}
               />
               <div className="three-column-form">
-                <input value={locationMeta.building} onChange={(event) => setLocationMeta((current) => ({ ...current, building: event.target.value }))} placeholder="Building" />
-                <input value={locationMeta.area} onChange={(event) => setLocationMeta((current) => ({ ...current, area: event.target.value }))} placeholder="Area" />
-                <input value={locationMeta.floor} onChange={(event) => setLocationMeta((current) => ({ ...current, floor: event.target.value }))} placeholder="Floor" />
+                <input value={locationMeta.building} onChange={(event) => setLocationMeta((current) => ({ ...current, building: event.target.value }))} placeholder={isSpanish ? "Edificio" : "Building"} />
+                <input value={locationMeta.area} onChange={(event) => setLocationMeta((current) => ({ ...current, area: event.target.value }))} placeholder={isSpanish ? "Area" : "Area"} />
+                <input value={locationMeta.floor} onChange={(event) => setLocationMeta((current) => ({ ...current, floor: event.target.value }))} placeholder={isSpanish ? "Piso" : "Floor"} />
               </div>
-              <p className="muted">Select a unit, then click the map to place it.</p>
+              <p className="muted">{isSpanish ? "Selecciona una unidad y luego toca el mapa para colocarla." : "Select a unit, then click the map to place it."}</p>
             </div>
           ) : null}
 
           {placementMode === "area" ? (
             <div className="map-area-editor">
               <div className="map-area-form">
-                <input value={areaDraft.name} onChange={(event) => setAreaDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Building or area name" />
+                <input value={areaDraft.name} onChange={(event) => setAreaDraft((current) => ({ ...current, name: event.target.value }))} placeholder={isSpanish ? "Nombre del edificio o area" : "Building or area name"} />
                 <select value={areaDraft.areaType} onChange={(event) => setAreaDraft((current) => ({ ...current, areaType: event.target.value }))}>
-                  <option value="BUILDING">Building</option>
-                  <option value="AREA">Area</option>
-                  <option value="FLOOR">Floor</option>
-                  <option value="ZONE">Zone</option>
+                  <option value="BUILDING">{isSpanish ? "Edificio" : "Building"}</option>
+                  <option value="AREA">{isSpanish ? "Area" : "Area"}</option>
+                  <option value="FLOOR">{isSpanish ? "Piso" : "Floor"}</option>
+                  <option value="ZONE">{isSpanish ? "Zona" : "Zone"}</option>
                 </select>
-                <input type="number" min="0" value={areaDraft.expectedUnitCount} onChange={(event) => setAreaDraft((current) => ({ ...current, expectedUnitCount: event.target.value }))} placeholder="Expected units" />
-                <input type="color" value={areaDraft.color} onChange={(event) => setAreaDraft((current) => ({ ...current, color: event.target.value }))} aria-label="Area marker color" />
+                <input type="number" min="0" value={areaDraft.expectedUnitCount} onChange={(event) => setAreaDraft((current) => ({ ...current, expectedUnitCount: event.target.value }))} placeholder={isSpanish ? "Unidades esperadas" : "Expected units"} />
+                <input type="color" value={areaDraft.color} onChange={(event) => setAreaDraft((current) => ({ ...current, color: event.target.value }))} aria-label={isSpanish ? "Color del marcador de area" : "Area marker color"} />
               </div>
-              <p className="muted">Click the map to place the building or area marker.</p>
+              <p className="muted">{isSpanish ? "Toca el mapa para colocar el marcador del edificio o area." : "Click the map to place the building or area marker."}</p>
             </div>
           ) : null}
 
           {placementMode === "pin" ? (
             <div className="map-pin-editor">
               <div className="map-pin-form">
-                <input value={pinDraft.title} onChange={(event) => setPinDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Pin title" />
+                <input value={pinDraft.title} onChange={(event) => setPinDraft((current) => ({ ...current, title: event.target.value }))} placeholder={isSpanish ? "Titulo del pin" : "Pin title"} />
                 <select value={pinDraft.pinType} onChange={(event) => setPinDraft((current) => ({ ...current, pinType: event.target.value }))}>
                   {pinTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                 </select>
-                <input value={pinDraft.building} onChange={(event) => setPinDraft((current) => ({ ...current, building: event.target.value }))} placeholder="Building" />
-                <input value={pinDraft.unitLabel} onChange={(event) => setPinDraft((current) => ({ ...current, unitLabel: event.target.value }))} placeholder="Unit" />
-                <input value={pinDraft.area} onChange={(event) => setPinDraft((current) => ({ ...current, area: event.target.value }))} placeholder="Area" />
-                <textarea value={pinDraft.description} onChange={(event) => setPinDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Description" />
+                <input value={pinDraft.building} onChange={(event) => setPinDraft((current) => ({ ...current, building: event.target.value }))} placeholder={isSpanish ? "Edificio" : "Building"} />
+                <input value={pinDraft.unitLabel} onChange={(event) => setPinDraft((current) => ({ ...current, unitLabel: event.target.value }))} placeholder={isSpanish ? "Unidad" : "Unit"} />
+                <input value={pinDraft.area} onChange={(event) => setPinDraft((current) => ({ ...current, area: event.target.value }))} placeholder={isSpanish ? "Area" : "Area"} />
+                <textarea value={pinDraft.description} onChange={(event) => setPinDraft((current) => ({ ...current, description: event.target.value }))} placeholder={isSpanish ? "Descripcion" : "Description"} />
                 <select value={pinDraft.linkedRecordType} onChange={(event) => setPinDraft((current) => ({ ...current, linkedRecordType: event.target.value, linkedRecordId: "" }))}>
-                  <option value="">No linked record</option>
-                  <option value="PROJECT_RECORD">Project / Recommendation</option>
-                  <option value="PEST_ISSUE">Pest Control</option>
-                  <option value="LEASE_COMPLIANCE_ISSUE">Lease Compliance</option>
-                  <option value="PM_TASK">PM Task</option>
-                  <option value="WIKI_ENTRY">Wiki Entry</option>
+                  <option value="">{isSpanish ? "Sin registro vinculado" : "No linked record"}</option>
+                  <option value="PROJECT_RECORD">{isSpanish ? "Proyecto / Recomendacion" : "Project / Recommendation"}</option>
+                  <option value="PEST_ISSUE">{isSpanish ? "Control de plagas" : "Pest Control"}</option>
+                  <option value="LEASE_COMPLIANCE_ISSUE">{isSpanish ? "Cumplimiento de contrato" : "Lease Compliance"}</option>
+                  <option value="PM_TASK">{isSpanish ? "Tarea de MP" : "PM Task"}</option>
+                  <option value="WIKI_ENTRY">{isSpanish ? "Entrada wiki" : "Wiki Entry"}</option>
                 </select>
                 {pinDraft.linkedRecordType ? (
                   <select value={pinDraft.linkedRecordId} onChange={(event) => setPinDraft((current) => ({ ...current, linkedRecordId: event.target.value }))}>
-                    <option value="">Choose linked record</option>
+                    <option value="">{isSpanish ? "Selecciona un registro vinculado" : "Choose linked record"}</option>
                     {pinDraft.linkedRecordType === "PROJECT_RECORD" ? linkedRecordOptions.PROJECT_RECORD.map((record) => <option key={record.id} value={record.id}>{record.title}</option>) : null}
                     {pinDraft.linkedRecordType === "PEST_ISSUE" ? linkedRecordOptions.PEST_ISSUE.map((issue) => <option key={issue.id} value={issue.id}>{issue.unit?.number ?? issue.area ?? issue.pestType} / {issue.pestType}</option>) : null}
                     {pinDraft.linkedRecordType === "LEASE_COMPLIANCE_ISSUE" ? linkedRecordOptions.LEASE_COMPLIANCE_ISSUE.map((issue: LeaseComplianceIssue) => <option key={issue.id} value={issue.id}>{issue.unit?.number ?? issue.area ?? issue.issueTypeName} / {issue.issueTypeName}</option>) : null}
@@ -895,18 +922,18 @@ export function PropertyMapsPanel({
                     {pinDraft.linkedRecordType === "WIKI_ENTRY" ? linkedRecordOptions.WIKI_ENTRY.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>) : null}
                   </select>
                 ) : null}
-                <input value={pinDraft.tags} onChange={(event) => setPinDraft((current) => ({ ...current, tags: event.target.value }))} placeholder="tag1, tag2" />
-                <label className="compact-toggle">Emergency pin
+                <input value={pinDraft.tags} onChange={(event) => setPinDraft((current) => ({ ...current, tags: event.target.value }))} placeholder={isSpanish ? "etiqueta1, etiqueta2" : "tag1, tag2"} />
+                <label className="compact-toggle">{isSpanish ? "Pin de emergencia" : "Emergency pin"}
                   <input type="checkbox" checked={pinDraft.isEmergency} onChange={(event) => setPinDraft((current) => ({ ...current, isEmergency: event.target.checked }))} />
                 </label>
               </div>
-              <p className="muted">Click the map to place the shared pin.</p>
+              <p className="muted">{isSpanish ? "Toca el mapa para colocar el pin compartido." : "Click the map to place the shared pin."}</p>
             </div>
           ) : null}
 
           {search.trim() ? (
             <div className="map-search-results">
-              {mergedSearchResults.length === 0 ? <p className="muted">No map matches for this search.</p> : mergedSearchResults.map((result) => (
+              {mergedSearchResults.length === 0 ? <p className="muted">{isSpanish ? "No hay resultados en el mapa para esta busqueda." : "No map matches for this search."}</p> : mergedSearchResults.map((result) => (
                 <button key={result.id} type="button" className="map-search-result" onClick={result.onSelect}>
                   <strong>{result.title}</strong>
                   <span>{result.subtitle}</span>
@@ -923,25 +950,25 @@ export function PropertyMapsPanel({
                 <article key={unit.id} className="unit-directory-row">
                   <button type="button" onClick={() => item && onOpenItem(item.id)} disabled={!item}>
                     <strong>{displayUnitNumber(property?.code ?? "", unit.number)}</strong>
-                    <small>{unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan ?? "No floor plan"} / {location ? `${location.building ? `Bldg ${location.building}` : ""} ${location.area ?? "Mapped"}` : "Unmapped"}</small>
+                    <small>{unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan ?? (isSpanish ? "Sin plano" : "No floor plan")} / {location ? `${location.building ? `Bldg ${location.building}` : ""} ${location.area ?? (isSpanish ? "Mapeado" : "Mapped")}` : (isSpanish ? "Sin mapear" : "Unmapped")}</small>
                   </button>
-                  {location && canManage ? <button className="button button-secondary" type="button" onClick={() => void onRemoveLocation(location.id)}>Remove</button> : null}
+                  {location && canManage ? <button className="button button-secondary" type="button" onClick={() => void onRemoveLocation(location.id)}>{isSpanish ? "Quitar" : "Remove"}</button> : null}
                 </article>
               );
             })}
-            {!buildingFilteredUnits.length ? <p className="muted">No units match the selected building filter.</p> : null}
+            {!buildingFilteredUnits.length ? <p className="muted">{isSpanish ? "No hay unidades que coincidan con el filtro de edificio seleccionado." : "No units match the selected building filter."}</p> : null}
           </div>
         </div>
 
         <div className="operations-card map-detail-card">
-          <h3>Selected Record</h3>
+          <h3>{isSpanish ? "Registro seleccionado" : "Selected Record"}</h3>
           {selectedMarkerDetails ? (
             <div className="map-detail-stack">
               <div>
                 <strong>{selectedMarkerDetails.title}</strong>
                 <p className="muted">{selectedMarkerDetails.type}</p>
               </div>
-              <p>{selectedMarkerDetails.description || "No additional description."}</p>
+              <p>{selectedMarkerDetails.description || (isSpanish ? "Sin descripcion adicional." : "No additional description.")}</p>
             <div className="map-detail-list">
               {selectedMarkerDetails.related.map((entry) => <span key={entry}>{entry}</span>)}
             </div>
@@ -970,7 +997,7 @@ export function PropertyMapsPanel({
                           });
                         }}
                       >
-                        Create Recommendation
+                        {isSpanish ? "Crear recomendacion" : "Create Recommendation"}
                       </button>
                       <button
                         className="button button-secondary"
@@ -988,7 +1015,7 @@ export function PropertyMapsPanel({
                           });
                         }}
                       >
-                        Create Pest Request
+                        {isSpanish ? "Crear solicitud de plagas" : "Create Pest Request"}
                       </button>
                       <button
                         className="button button-secondary"
@@ -1015,7 +1042,7 @@ export function PropertyMapsPanel({
                           });
                         }}
                       >
-                        Create Lease Issue
+                        {isSpanish ? "Crear problema de contrato" : "Create Lease Issue"}
                       </button>
                     </>
                   ) : null}
@@ -1038,7 +1065,7 @@ export function PropertyMapsPanel({
                           tags: ["property-map", selectedMarker.area.areaType.toLowerCase()],
                         })}
                       >
-                        Create Recommendation
+                        {isSpanish ? "Crear recomendacion" : "Create Recommendation"}
                       </button>
                       <button
                         className="button button-secondary"
@@ -1051,7 +1078,7 @@ export function PropertyMapsPanel({
                           description: selectedMarker.area.notes || `${selectedMarker.area.areaType} map area follow-up.`,
                         })}
                       >
-                        Create Pest Request
+                        {isSpanish ? "Crear solicitud de plagas" : "Create Pest Request"}
                       </button>
                       <button
                         className="button button-secondary"
@@ -1073,7 +1100,7 @@ export function PropertyMapsPanel({
                           },
                         })}
                       >
-                        Create Lease Issue
+                        {isSpanish ? "Crear problema de contrato" : "Create Lease Issue"}
                       </button>
                     </>
                   ) : null}
@@ -1097,7 +1124,7 @@ export function PropertyMapsPanel({
                           tags: ["property-map", selectedMarker.pin.pinType.toLowerCase().replace(/\s+/g, "-")],
                         })}
                       >
-                        Create Recommendation
+                        {isSpanish ? "Crear recomendacion" : "Create Recommendation"}
                       </button>
                       <button
                         className="button button-secondary"
@@ -1110,7 +1137,7 @@ export function PropertyMapsPanel({
                           description: [selectedMarker.pin.title, selectedMarker.pin.description, selectedMarker.pin.unitLabel ? `Unit ${selectedMarker.pin.unitLabel}` : null].filter(Boolean).join("\n\n"),
                         })}
                       >
-                        Create Pest Request
+                        {isSpanish ? "Crear solicitud de plagas" : "Create Pest Request"}
                       </button>
                       <button
                         className="button button-secondary"
@@ -1132,7 +1159,7 @@ export function PropertyMapsPanel({
                           },
                         })}
                       >
-                        Create Lease Issue
+                        {isSpanish ? "Crear problema de contrato" : "Create Lease Issue"}
                       </button>
                     </>
                   ) : null}
@@ -1142,24 +1169,24 @@ export function PropertyMapsPanel({
                       type="button"
                       onClick={() => openProjectRecord({ id: selectedMarker.record.id, propertyId })}
                     >
-                      Open Project Record
+                      {isSpanish ? "Abrir registro del proyecto" : "Open Project Record"}
                     </button>
                   ) : null}
                 </div>
               ) : null}
               {selectedMarker?.kind === "pin" && canManage ? (
                 <div className="pool-entry-actions">
-                  <button className="button button-secondary" type="button" onClick={() => setPlacementMode("move-pin")}>Move Pin</button>
-                  <button className="button button-secondary" type="button" onClick={() => void pinRemoveMutation.mutateAsync(selectedMarker.pin.id)}>Archive Pin</button>
+                  <button className="button button-secondary" type="button" onClick={() => setPlacementMode("move-pin")}>{isSpanish ? "Mover pin" : "Move Pin"}</button>
+                  <button className="button button-secondary" type="button" onClick={() => void pinRemoveMutation.mutateAsync(selectedMarker.pin.id)}>{isSpanish ? "Archivar pin" : "Archive Pin"}</button>
                 </div>
               ) : null}
               {selectedMarker?.kind === "pin" ? (
                 <div className="pool-card" style={{ padding: 12 }}>
                   <div className="drawer-section-title">
-                    <h3>Pin Files</h3>
+                    <h3>{isSpanish ? "Archivos del pin" : "Pin Files"}</h3>
                     {canManage ? (
                       <label className="button button-secondary pool-upload-button">
-                        Upload Photo/PDF
+                        {isSpanish ? "Subir foto/PDF" : "Upload Photo/PDF"}
                         <input
                           type="file"
                           hidden
@@ -1178,44 +1205,64 @@ export function PropertyMapsPanel({
                       {selectedMarker.pin.attachments.map((attachment) => (
                         <span key={attachment.id} style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
                           <a href={propertyMapPinAttachmentDownloadUrl(attachment.id)} target="_blank" rel="noreferrer">
-                            {attachment.originalName}
+                          {attachment.originalName}
                           </a>
                           {attachment.caption ? <em className="muted">{attachment.caption}</em> : null}
-                          {canManage ? <button className="link-button" type="button" onClick={() => void pinAttachmentDeleteMutation.mutateAsync(attachment.id)}>Remove</button> : null}
+                          {canManage ? <button className="link-button" type="button" onClick={() => void pinAttachmentDeleteMutation.mutateAsync(attachment.id)}>{isSpanish ? "Quitar" : "Remove"}</button> : null}
                         </span>
                       ))}
                     </div>
-                  ) : <p className="muted">No files attached to this pin yet.</p>}
+                  ) : <p className="muted">{isSpanish ? "Todavia no hay archivos adjuntos en este pin." : "No files attached to this pin yet."}</p>}
                 </div>
               ) : null}
               {selectedMarker?.kind === "area" && canManage ? (
                 <div className="pool-entry-actions">
-                  <button className="button button-secondary" type="button" onClick={() => void onRemoveArea(selectedMarker.area.id)}>Archive Area</button>
+                  <button className="button button-secondary" type="button" onClick={() => void onRemoveArea(selectedMarker.area.id)}>{isSpanish ? "Archivar area" : "Archive Area"}</button>
                 </div>
               ) : null}
             </div>
-          ) : <p className="muted">Select a unit, area, shared pin, or project marker to inspect it.</p>}
+          ) : <p className="muted">{isSpanish ? "Selecciona una unidad, area, pin compartido o marcador de proyecto para revisarlo." : "Select a unit, area, shared pin, or project marker to inspect it."}</p>}
 
           <div className="map-summary-grid">
             <article>
               <strong>{customPins.length}</strong>
-              <span>Shared pins</span>
+              <span>{isSpanish ? "Pins compartidos" : "Shared pins"}</span>
             </article>
             <article>
               <strong>{projectRecords.length}</strong>
-              <span>Project pins</span>
+              <span>{isSpanish ? "Pins de proyecto" : "Project pins"}</span>
             </article>
             <article>
               <strong>{mapLocations.length}</strong>
-              <span>Mapped units</span>
+              <span>{isSpanish ? "Unidades mapeadas" : "Mapped units"}</span>
             </article>
             <article>
               <strong>{unmappedUnits.length}</strong>
-              <span>Unmapped units</span>
+              <span>{isSpanish ? "Unidades sin mapear" : "Unmapped units"}</span>
             </article>
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={showDeleteMapConfirm && Boolean(selectedMap?.isArchived)}
+        title={isSpanish ? "Eliminar mapa de propiedad" : "Delete property map"}
+        description={
+          isSpanish
+            ? `Eliminar ${selectedMap?.name ?? "este mapa"} permanentemente? Esto borra el archivo del mapa, los marcadores de unidad, las areas y los pins compartidos de este mapa. Los proyectos y problemas de cumplimiento conservaran su registro, pero sin mapa vinculado.`
+            : `Delete ${selectedMap?.name ?? "this map"} permanently? This removes the map file, unit markers, areas, and shared pins for this map. Projects and lease-compliance issues stay intact, but without a linked map.`
+        }
+        confirmLabel={isSpanish ? "Eliminar mapa" : "Delete map"}
+        language={language}
+        tone="danger"
+        onClose={() => setShowDeleteMapConfirm(false)}
+        onConfirm={async () => {
+          if (!selectedMap?.isArchived) return;
+          await onDeleteMap(selectedMap.id);
+          setShowDeleteMapConfirm(false);
+          setSelectedMapId("");
+          setSelectedMarker(null);
+        }}
+      />
     </section>
   );
 }

@@ -24,15 +24,18 @@ import {
   type PropertyWikiSection,
   type PropertyWikiTargetType,
   type PropertyWikiVendor,
+  type UserLanguage,
   type UserRole,
 } from "../lib/api";
 import type { OpenWikiRecordRequest } from "../lib/wikiNavigation";
+import { t, tWithVars } from "../lib/i18n";
 import { StatusState } from "./StatusState";
 
 type Props = {
   properties: Property[];
   selectedPropertyId?: string;
   userRole: UserRole;
+  language?: UserLanguage;
   openRecordRequest?: (OpenWikiRecordRequest & { nonce: number }) | null;
 };
 
@@ -298,8 +301,8 @@ function canFavoriteRecord(section: string, targetType: PropertyWikiTargetType) 
   return ["UTILITIES", "EQUIPMENT_REGISTRY", "SOP_LIBRARY", "KNOWN_ISSUES", "CUSTOM_PAGES"].includes(section);
 }
 
-function DetailLinks({ record, onOpen }: { record: PropertyWikiRecordSummary[]; onOpen: (targetType: PropertyWikiTargetType, id: string) => void }) {
-  if (!record.length) return <p className="muted">No related content.</p>;
+function DetailLinks({ record, onOpen, language }: { record: PropertyWikiRecordSummary[]; onOpen: (targetType: PropertyWikiTargetType, id: string) => void; language: UserLanguage }) {
+  if (!record.length) return <p className="muted">{t(language, "wiki.noRelatedContent")}</p>;
   return (
     <div className="property-wiki-related-list">
       {record.map((item) => (
@@ -312,8 +315,9 @@ function DetailLinks({ record, onOpen }: { record: PropertyWikiRecordSummary[]; 
   );
 }
 
-export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, openRecordRequest }: Props) {
+export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, language = "en", openRecordRequest }: Props) {
   const access = roleAccess(userRole);
+  const isSpanish = language === "es";
   const queryClient = useQueryClient();
   const [propertyId, setPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const [activeTab, setActiveTab] = useState<WikiTab>("overview");
@@ -622,39 +626,39 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
       <div>
         <strong>{summary.title}</strong>
         <span>{sectionLabel(summary.section)}{summary.building ? ` / ${summary.building}` : ""}{summary.property?.code ? ` / ${summary.property.code}` : ""}</span>
-        <p>{summary.snippet || "No preview available."}</p>
+        <p>{summary.snippet || t(language, "wiki.noPreviewAvailable")}</p>
         {renderTags(summary.tags)}
       </div>
       <div className="pool-entry-actions">
-        {canFavoriteRecord(summary.section, summary.targetType) ? <button type="button" className="button button-secondary" onClick={() => toggleFavorite(summary.targetType, summary.id)}>{summary.isFavorite ? "Unfavorite" : "Favorite"}</button> : null}
-        <button type="button" className="button button-secondary" onClick={() => openRecord(summary.targetType, summary.id)}>View</button>
+        {canFavoriteRecord(summary.section, summary.targetType) ? <button type="button" className="button button-secondary" onClick={() => toggleFavorite(summary.targetType, summary.id)}>{summary.isFavorite ? t(language, "wiki.unfavorite") : t(language, "wiki.favorite")}</button> : null}
+        <button type="button" className="button button-secondary" onClick={() => openRecord(summary.targetType, summary.id)}>{t(language, "wiki.view")}</button>
       </div>
     </article>
   );
 
   if (!access.view) {
-    return <StatusState title="Property Wiki unavailable" description="This role does not have access to the Property Wiki workspace." tone="error" />;
+    return <StatusState title={t(language, "wiki.unavailableTitle")} description={t(language, "wiki.unavailableCopy")} tone="error" />;
   }
 
   if (!properties.length) {
-    return <StatusState title="No properties available" description="Assign at least one property before using Property Wiki." />;
+    return <StatusState title={t(language, "wiki.noPropertiesTitle")} description={t(language, "wiki.noPropertiesCopy")} />;
   }
 
   return (
     <section className="property-wiki-panel module-panel" data-testid="property-wiki-panel">
       <div className="module-heading">
         <div>
-          <p className="eyebrow">Property Wiki</p>
-          <h1>Property Wiki</h1>
-          <p>Fast operational property knowledge for utilities, equipment, known issues, contacts, SOPs, vendors, emergency references, documents, and photos.</p>
+          <p className="eyebrow">{t(language, "wiki.title")}</p>
+          <h1>{t(language, "wiki.title")}</h1>
+          <p>{t(language, "wiki.copy")}</p>
         </div>
         <div className="module-actions">
-          <select value={propertyId} onChange={(event) => setPropertyId(event.target.value)}>
+          <select value={propertyId} onChange={(event) => setPropertyId(event.target.value)} aria-label={t(language, "wiki.property")}>
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
           </select>
           <input
             data-testid="property-wiki-search-input"
-            placeholder="Search records, buildings, tags, docs..."
+            placeholder={t(language, "wiki.searchPlaceholder")}
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             onKeyDown={(event) => {
@@ -664,29 +668,29 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
               }
             }}
           />
-          <button data-testid="property-wiki-search-submit" type="button" className="button button-secondary" onClick={() => setActiveTab("search")}>Search</button>
-          <button data-testid="property-wiki-emergency-mode" type="button" className="button button-primary" onClick={() => setActiveTab("emergencyMode")}>Emergency Mode</button>
+          <button data-testid="property-wiki-search-submit" type="button" className="button button-secondary" onClick={() => setActiveTab("search")}>{t(language, "nav.search")}</button>
+          <button data-testid="property-wiki-emergency-mode" type="button" className="button button-primary" onClick={() => setActiveTab("emergencyMode")}>{t(language, "wiki.emergencyMode")}</button>
         </div>
       </div>
 
       <div className="module-tabs">
         {([
-          ["overview", "Overview"],
-          ["utilities", "Utilities"],
-          ["access", "Access"],
-          ["pools", "Pools"],
-          ["equipment", "Equipment"],
-          ["standards", "Standards"],
-          ["contacts", "Contacts"],
+          ["overview", t(language, "dashboard.overview")],
+          ["utilities", t(language, "wiki.utilities")],
+          ["access", t(language, "wiki.access")],
+          ["pools", t(language, "wiki.pools")],
+          ["equipment", t(language, "wiki.equipment")],
+          ["standards", t(language, "wiki.standards")],
+          ["contacts", t(language, "wiki.contacts")],
           ["sops", "SOPs"],
-          ["issues", "Known Issues"],
-          ["vendors", "Vendors"],
-          ["documents", "Documents"],
-          ["photos", "Photos"],
-          ["emergency", "Procedures"],
-          ["emergencyMode", "Emergency Mode"],
-          ["pages", "Pages"],
-          ["search", "Search"],
+          ["issues", t(language, "wiki.knownIssues")],
+          ["vendors", t(language, "nav.vendors")],
+          ["documents", t(language, "wiki.documents")],
+          ["photos", t(language, "wiki.photos")],
+          ["emergency", t(language, "wiki.procedures")],
+          ["emergencyMode", t(language, "wiki.emergencyMode")],
+          ["pages", t(language, "wiki.pages")],
+          ["search", t(language, "nav.search")],
         ] as Array<[WikiTab, string]>).map(([tab, label]) => (
           <button key={tab} type="button" className={activeTab === tab ? "active" : undefined} onClick={() => setActiveTab(tab)}>
             {label}
@@ -702,49 +706,49 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
               <p>{sectionLabel(detailQuery.data.record.section)}{detailQuery.data.record.building ? ` / ${detailQuery.data.record.building}` : ""}</p>
             </div>
             <div className="pool-entry-actions">
-              {canFavoriteRecord(detailQuery.data.record.section, detailQuery.data.record.targetType) ? <button type="button" className="button button-secondary" onClick={() => toggleFavorite(detailQuery.data.record!.targetType, detailQuery.data.record!.id)}>{detailQuery.data.record.isFavorite ? "Unfavorite" : "Favorite"}</button> : null}
-              <button type="button" className="button button-secondary" onClick={() => setSelectedRecord(null)}>Close</button>
+              {canFavoriteRecord(detailQuery.data.record.section, detailQuery.data.record.targetType) ? <button type="button" className="button button-secondary" onClick={() => toggleFavorite(detailQuery.data.record!.targetType, detailQuery.data.record!.id)}>{detailQuery.data.record.isFavorite ? t(language, "wiki.unfavorite") : t(language, "wiki.favorite")}</button> : null}
+              <button type="button" className="button button-secondary" onClick={() => setSelectedRecord(null)}>{t(language, "wiki.close")}</button>
             </div>
           </div>
           <div className="property-wiki-grid">
             <div className="pool-card property-wiki-summary">
-              <h2>Details</h2>
+              <h2>{t(language, "wiki.details")}</h2>
               {detailQuery.data.entry ? <>
-                {detailQuery.data.entry.building ? <p><strong>Building:</strong> {detailQuery.data.entry.building}</p> : null}
+                {detailQuery.data.entry.building ? <p><strong>{t(language, "wiki.buildingLabel")}</strong> {detailQuery.data.entry.building}</p> : null}
                 {detailQuery.data.entry.notes ? <p>{detailQuery.data.entry.notes}</p> : null}
                 {detailQuery.data.entry.content ? <p>{detailQuery.data.entry.content}</p> : null}
-                {detailQuery.data.entry.issueStatus ? <p><strong>Status:</strong> {detailQuery.data.entry.issueStatus}</p> : null}
+                {detailQuery.data.entry.issueStatus ? <p><strong>{t(language, "wiki.statusLabel")}</strong> {detailQuery.data.entry.issueStatus}</p> : null}
                 {renderTags(detailQuery.data.entry.tags)}
               </> : null}
               {detailQuery.data.vendor ? <>
-                <p>{detailQuery.data.vendor.notes || "No vendor notes yet."}</p>
-                <p>{detailQuery.data.vendor.phone || detailQuery.data.vendor.email || detailQuery.data.vendor.emergencyPhone || "No contact details yet."}</p>
+                <p>{detailQuery.data.vendor.notes || t(language, "wiki.noVendorNotesYet")}</p>
+                <p>{detailQuery.data.vendor.phone || detailQuery.data.vendor.email || detailQuery.data.vendor.emergencyPhone || t(language, "wiki.noContactDetailsYet")}</p>
               </> : null}
               {detailQuery.data.asset ? <>
-                {detailQuery.data.asset.building ? <p><strong>Building:</strong> {detailQuery.data.asset.building}</p> : null}
+                {detailQuery.data.asset.building ? <p><strong>{t(language, "wiki.buildingLabel")}</strong> {detailQuery.data.asset.building}</p> : null}
                 <p>{detailQuery.data.asset.description || detailQuery.data.asset.originalName}</p>
-                <a className="button button-secondary" href={propertyWikiAssetDownloadUrl(detailQuery.data.asset.id)} target="_blank" rel="noreferrer">Open File</a>
+                <a className="button button-secondary" href={propertyWikiAssetDownloadUrl(detailQuery.data.asset.id)} target="_blank" rel="noreferrer">{t(language, "wiki.openFile")}</a>
               </> : null}
             </div>
             <div className="pool-card property-wiki-summary">
-              <h2>Related SOPs</h2>
-              <DetailLinks record={detailQuery.data.related.sops} onOpen={openRecord} />
-              <h2>Related Equipment</h2>
-              <DetailLinks record={detailQuery.data.related.equipment} onOpen={openRecord} />
-              <h2>Related Known Issues</h2>
-              <DetailLinks record={detailQuery.data.related.knownIssues} onOpen={openRecord} />
+              <h2>{t(language, "wiki.relatedSops")}</h2>
+              <DetailLinks record={detailQuery.data.related.sops} onOpen={openRecord} language={language} />
+              <h2>{t(language, "wiki.relatedEquipment")}</h2>
+              <DetailLinks record={detailQuery.data.related.equipment} onOpen={openRecord} language={language} />
+              <h2>{t(language, "wiki.relatedKnownIssues")}</h2>
+              <DetailLinks record={detailQuery.data.related.knownIssues} onOpen={openRecord} language={language} />
             </div>
             <div className="pool-card property-wiki-summary">
-              <h2>Related Vendors</h2>
-              <DetailLinks record={detailQuery.data.related.vendors} onOpen={openRecord} />
-              <h2>Related Photos</h2>
-              <DetailLinks record={detailQuery.data.related.photos} onOpen={openRecord} />
-              <h2>Related Documents</h2>
-              <DetailLinks record={detailQuery.data.related.documents} onOpen={openRecord} />
+              <h2>{t(language, "wiki.relatedVendors")}</h2>
+              <DetailLinks record={detailQuery.data.related.vendors} onOpen={openRecord} language={language} />
+              <h2>{t(language, "wiki.relatedPhotos")}</h2>
+              <DetailLinks record={detailQuery.data.related.photos} onOpen={openRecord} language={language} />
+              <h2>{t(language, "wiki.relatedDocuments")}</h2>
+              <DetailLinks record={detailQuery.data.related.documents} onOpen={openRecord} language={language} />
             </div>
             <div className="pool-card property-wiki-summary">
-              <h2>Recent Changes</h2>
-              {detailQuery.data.history.length === 0 ? <p className="muted">No recent changes.</p> : detailQuery.data.history.map((item) => (
+              <h2>{t(language, "wiki.recentChanges")}</h2>
+              {detailQuery.data.history.length === 0 ? <p className="muted">{t(language, "wiki.noRecentChanges")}</p> : detailQuery.data.history.map((item) => (
                 <article key={item.id} className="pool-history-row">
                   <div>
                     <strong>{item.user}</strong>
@@ -759,9 +763,9 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
       ) : null}
 
       {overviewQuery.isLoading ? (
-        <StatusState title="Loading Property Wiki" description="Fetching property-specific wiki content and recent updates." />
+        <StatusState title={t(language, "wiki.loadingTitle")} description={t(language, "wiki.loadingCopy")} />
       ) : overviewQuery.isError ? (
-        <StatusState title="Property Wiki failed to load" description="Refresh the workspace and try again." tone="error" />
+        <StatusState title={t(language, "wiki.failedTitle")} description={t(language, "wiki.failedCopy")} tone="error" />
       ) : (
         <>
           {activeTab === "overview" ? (
@@ -784,10 +788,10 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
                   });
                 }}
               >
-                <h2>Property Overview</h2>
+                <h2>{t(language, "wiki.propertyOverview")}</h2>
                 <input
                   className="property-wiki-large-search"
-                  placeholder="Search this property wiki..."
+                  placeholder={t(language, "wiki.searchThisProperty")}
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   onKeyDown={(event) => {
@@ -798,54 +802,54 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
                   }}
                 />
                 <div className="form-grid">
-                  <label>Address<input value={profileDraft.address} onChange={(event) => setProfileDraft((current) => ({ ...current, address: event.target.value }))} /></label>
-                  <label>Unit count<input type="number" value={profileDraft.unitCount} onChange={(event) => setProfileDraft((current) => ({ ...current, unitCount: event.target.value }))} /></label>
-                  <label>Building count<input type="number" value={profileDraft.buildingCount} onChange={(event) => setProfileDraft((current) => ({ ...current, buildingCount: event.target.value }))} /></label>
-                  <label>Office phone<input value={profileDraft.officePhone} onChange={(event) => setProfileDraft((current) => ({ ...current, officePhone: event.target.value }))} /></label>
-                  <label>After-hours phone<input value={profileDraft.afterHoursPhone} onChange={(event) => setProfileDraft((current) => ({ ...current, afterHoursPhone: event.target.value }))} /></label>
-                  <label>Property manager<input value={profileDraft.propertyManager} onChange={(event) => setProfileDraft((current) => ({ ...current, propertyManager: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.address")}<input value={profileDraft.address} onChange={(event) => setProfileDraft((current) => ({ ...current, address: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.unitCount")}<input type="number" value={profileDraft.unitCount} onChange={(event) => setProfileDraft((current) => ({ ...current, unitCount: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.buildingCount")}<input type="number" value={profileDraft.buildingCount} onChange={(event) => setProfileDraft((current) => ({ ...current, buildingCount: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.officePhone")}<input value={profileDraft.officePhone} onChange={(event) => setProfileDraft((current) => ({ ...current, officePhone: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.afterHoursPhone")}<input value={profileDraft.afterHoursPhone} onChange={(event) => setProfileDraft((current) => ({ ...current, afterHoursPhone: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.propertyManager")}<input value={profileDraft.propertyManager} onChange={(event) => setProfileDraft((current) => ({ ...current, propertyManager: event.target.value }))} /></label>
                 </div>
-                <label>General notes<textarea rows={4} value={profileDraft.generalNotes} onChange={(event) => setProfileDraft((current) => ({ ...current, generalNotes: event.target.value }))} /></label>
-                {access.edit ? <button type="submit" className="button button-primary">Save Overview</button> : null}
+                <label>{t(language, "wiki.generalNotes")}<textarea rows={4} value={profileDraft.generalNotes} onChange={(event) => setProfileDraft((current) => ({ ...current, generalNotes: event.target.value }))} /></label>
+                {access.edit ? <button type="submit" className="button button-primary">{t(language, "wiki.saveOverview")}</button> : null}
               </form>
 
               <div className="pool-card property-wiki-summary">
-                <h2>Favorites</h2>
-                {(overviewQuery.data?.favorites ?? []).length === 0 ? <p className="muted">No favorites yet.</p> : (overviewQuery.data?.favorites ?? []).map((item) => renderSummaryRow(item, true))}
-                <h2>Recently Viewed</h2>
-                {(overviewQuery.data?.recentlyViewed ?? []).length === 0 ? <p className="muted">No recent views yet.</p> : (overviewQuery.data?.recentlyViewed ?? []).map((item) => (
+                <h2>{t(language, "wiki.favorites")}</h2>
+                {(overviewQuery.data?.favorites ?? []).length === 0 ? <p className="muted">{t(language, "wiki.noFavoritesYet")}</p> : (overviewQuery.data?.favorites ?? []).map((item) => renderSummaryRow(item, true))}
+                <h2>{t(language, "wiki.recentlyViewed")}</h2>
+                {(overviewQuery.data?.recentlyViewed ?? []).length === 0 ? <p className="muted">{t(language, "wiki.noRecentViewsYet")}</p> : (overviewQuery.data?.recentlyViewed ?? []).map((item) => (
                   <article key={`${item.targetType}-${item.id}`} className="property-wiki-record compact">
                     <div>
                       <strong>{item.title}</strong>
                       <span>{sectionLabel(item.section)}{item.building ? ` / ${item.building}` : ""}</span>
-                      <small>Viewed {formatDate(item.viewedAt)}</small>
+                      <small>{t(language, "wiki.viewed")} {formatDate(item.viewedAt)}</small>
                     </div>
                     <div className="pool-entry-actions">
-                      <button type="button" className="button button-secondary" onClick={() => openRecord(item.targetType, item.id)}>Open</button>
+                      <button type="button" className="button button-secondary" onClick={() => openRecord(item.targetType, item.id)}>{t(language, "wiki.open")}</button>
                     </div>
                   </article>
                 ))}
               </div>
 
               <div className="pool-card property-wiki-summary">
-                <h2>Pinned Knowledge</h2>
-                {(overviewQuery.data?.pinnedCriticalInformation ?? []).length === 0 ? <p className="muted">No pinned items yet.</p> : (overviewQuery.data?.pinnedCriticalInformation ?? []).map((entry) => (
+                <h2>{t(language, "wiki.pinnedKnowledge")}</h2>
+                {(overviewQuery.data?.pinnedCriticalInformation ?? []).length === 0 ? <p className="muted">{t(language, "wiki.noPinnedItemsYet")}</p> : (overviewQuery.data?.pinnedCriticalInformation ?? []).map((entry) => (
                   <article key={entry.id} className="pool-history-row">
                     <div>
                       <strong>{entry.title}</strong>
                       <span>{sectionLabel(entry.section)}{entry.building ? ` / ${entry.building}` : ""}</span>
                     </div>
                     <div className="pool-entry-actions">
-                      <button type="button" className="button button-secondary" onClick={() => openRecord("ENTRY", entry.id)}>Open</button>
+                      <button type="button" className="button button-secondary" onClick={() => openRecord("ENTRY", entry.id)}>{t(language, "wiki.open")}</button>
                     </div>
                   </article>
                 ))}
-                <h2>Emergency Contacts</h2>
-                {(overviewQuery.data?.emergencyContacts ?? []).length === 0 ? <p className="muted">No emergency contacts yet.</p> : (overviewQuery.data?.emergencyContacts ?? []).map((entry) => (
+                <h2>{t(language, "wiki.emergencyContacts")}</h2>
+                {(overviewQuery.data?.emergencyContacts ?? []).length === 0 ? <p className="muted">{t(language, "wiki.noEmergencyContactsYet")}</p> : (overviewQuery.data?.emergencyContacts ?? []).map((entry) => (
                   <article key={entry.id} className="property-wiki-contact-card emergency">
                     <div>
                       <strong>{entry.title}</strong>
-                      <span>{entry.contactType || "Contact"}{entry.contactTitle ? ` / ${entry.contactTitle}` : ""}</span>
+                      <span>{entry.contactType || t(language, "wiki.contactFallback")}{entry.contactTitle ? ` / ${entry.contactTitle}` : ""}</span>
                     </div>
                     <div className="property-wiki-contact-actions">
                       {entry.phone ? <a href={`tel:${entry.phone}`}>{entry.phone}</a> : null}
@@ -856,7 +860,7 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
               </div>
 
               <div className="pool-card property-wiki-summary">
-                <h2>Recently Updated</h2>
+                <h2>{t(language, "wiki.recentlyUpdated")}</h2>
                 {(overviewQuery.data?.recentlyUpdated ?? []).slice(0, 8).map((entry) => (
                   <article key={entry.id} className="pool-history-row">
                     <div>
@@ -864,20 +868,20 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
                       <span>{sectionLabel(entry.section)}{entry.building ? ` / ${entry.building}` : ""}</span>
                     </div>
                     <div className="pool-entry-actions">
-                      <button type="button" className="button button-secondary" onClick={() => openRecord("ENTRY", entry.id)}>Open</button>
+                      <button type="button" className="button button-secondary" onClick={() => openRecord("ENTRY", entry.id)}>{t(language, "wiki.open")}</button>
                     </div>
                   </article>
                 ))}
-                <h2>Quick Add</h2>
+                <h2>{t(language, "wiki.quickAdd")}</h2>
                 <div className="property-wiki-quick-actions">
-                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("utilities")}>Add Utility</button>
-                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("equipment")}>Add Equipment</button>
-                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("vendors")}>Add Vendor</button>
-                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("contacts")}>Add Contact</button>
-                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("sops")}>Add SOP</button>
-                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("issues")}>Add Issue</button>
-                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("documents", "DOCUMENT")}>Upload Document</button>
-                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("photos", "PHOTO")}>Upload Photo</button>
+                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("utilities")}>{t(language, "wiki.addUtility")}</button>
+                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("equipment")}>{t(language, "wiki.addEquipment")}</button>
+                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("vendors")}>{t(language, "wiki.addVendor")}</button>
+                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("contacts")}>{t(language, "wiki.addContact")}</button>
+                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("sops")}>{t(language, "wiki.addSop")}</button>
+                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("issues")}>{t(language, "wiki.addIssue")}</button>
+                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("documents", "DOCUMENT")}>{t(language, "wiki.uploadDocument")}</button>
+                  <button type="button" className="button button-secondary" onClick={() => openQuickAdd("photos", "PHOTO")}>{t(language, "wiki.uploadPhoto")}</button>
                 </div>
               </div>
             </div>
@@ -885,7 +889,7 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
 
           {activeTab === "emergencyMode" ? (
             <div className="property-wiki-emergency-mode">
-              {(overviewQuery.data?.emergencyMode ?? []).length === 0 ? <StatusState title="No emergency records configured" description="Managers and admins can mark records for emergency mode from the Wiki forms and uploads." /> : (overviewQuery.data?.emergencyMode ?? []).map((item) => (
+              {(overviewQuery.data?.emergencyMode ?? []).length === 0 ? <StatusState title={t(language, "wiki.noEmergencyRecordsTitle")} description={t(language, "wiki.noEmergencyRecordsCopy")} /> : (overviewQuery.data?.emergencyMode ?? []).map((item) => (
                 <button key={`${item.targetType}-${item.id}`} type="button" className="property-wiki-emergency-tile" onClick={() => openRecord(item.targetType, item.id)}>
                   <strong>{item.title}</strong>
                   <span>{sectionLabel(item.section)}{item.building ? ` / ${item.building}` : ""}</span>
@@ -901,39 +905,39 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
                 event.preventDefault();
                 void saveEntryMutation.mutate(entryDraft);
               }}>
-                <h2>{editingEntryId ? "Edit Record" : `Add ${sectionLabel(section)}`}</h2>
+                <h2>{editingEntryId ? t(language, "wiki.editRecord") : `${t(language, "wiki.add")} ${sectionLabel(section)}`}</h2>
                 <div className="form-grid">
-                  <label>{section === "PROPERTY_CONTACTS" ? "Name" : "Title"}<input required value={entryDraft.title} onChange={(event) => setEntryDraft((current) => ({ ...current, title: event.target.value }))} /></label>
-                  {section !== "KNOWN_ISSUES" ? <label>Category
+                  <label>{section === "PROPERTY_CONTACTS" ? t(language, "admin.name") : t(language, "wiki.titleField")}<input required value={entryDraft.title} onChange={(event) => setEntryDraft((current) => ({ ...current, title: event.target.value }))} /></label>
+                  {section !== "KNOWN_ISSUES" ? <label>{t(language, "wiki.category")}
                     {currentCategories.length ? (
                       <select value={entryDraft.category} onChange={(event) => setEntryDraft((current) => ({ ...current, category: event.target.value }))}>
-                        <option value="">Select category</option>
+                        <option value="">{t(language, "wiki.selectCategory")}</option>
                         {currentCategories.map((category) => <option key={category} value={category}>{category}</option>)}
                       </select>
                     ) : <input value={entryDraft.category} onChange={(event) => setEntryDraft((current) => ({ ...current, category: event.target.value }))} />}
                   </label> : null}
-                  {["UTILITIES", "EQUIPMENT_REGISTRY", "SOP_LIBRARY", "CUSTOM_PAGES", "KNOWN_ISSUES"].includes(section) ? <label>Building<input value={entryDraft.building} onChange={(event) => setEntryDraft((current) => ({ ...current, building: event.target.value }))} /></label> : null}
-                  {["UTILITIES", "ACCESS_CONTROL", "EQUIPMENT_REGISTRY", "POOLS"].includes(section) ? <label>Location<input value={entryDraft.locationDescription} onChange={(event) => setEntryDraft((current) => ({ ...current, locationDescription: event.target.value }))} /></label> : null}
-                  {section === "EQUIPMENT_REGISTRY" ? <label>Manufacturer<input value={entryDraft.manufacturer} onChange={(event) => setEntryDraft((current) => ({ ...current, manufacturer: event.target.value }))} /></label> : null}
-                  {section === "EQUIPMENT_REGISTRY" ? <label>Model<input value={entryDraft.equipmentModel} onChange={(event) => setEntryDraft((current) => ({ ...current, equipmentModel: event.target.value }))} /></label> : null}
-                  {section === "EQUIPMENT_REGISTRY" ? <label>Serial number<input value={entryDraft.serialNumber} onChange={(event) => setEntryDraft((current) => ({ ...current, serialNumber: event.target.value }))} /></label> : null}
-                  {section === "EQUIPMENT_REGISTRY" ? <label>Install date<input type="date" value={entryDraft.installDate} onChange={(event) => setEntryDraft((current) => ({ ...current, installDate: event.target.value }))} /></label> : null}
-                  {section === "EQUIPMENT_REGISTRY" ? <label>Warranty expires<input type="date" value={entryDraft.warrantyExpiresAt} onChange={(event) => setEntryDraft((current) => ({ ...current, warrantyExpiresAt: event.target.value }))} /></label> : null}
-                  {section === "UNIT_STANDARDS" ? <label>Floor plan<input value={entryDraft.floorPlan} onChange={(event) => setEntryDraft((current) => ({ ...current, floorPlan: event.target.value }))} /></label> : null}
-                  {section === "UNIT_STANDARDS" ? <label>Unit type<input value={entryDraft.unitType} onChange={(event) => setEntryDraft((current) => ({ ...current, unitType: event.target.value }))} /></label> : null}
-                  {section === "UNIT_STANDARDS" ? <label>Filter sizes<input value={entryDraft.filterSizes} onChange={(event) => setEntryDraft((current) => ({ ...current, filterSizes: event.target.value }))} /></label> : null}
-                  {section === "UNIT_STANDARDS" ? <label>Blind sizes<input value={entryDraft.blindSizes} onChange={(event) => setEntryDraft((current) => ({ ...current, blindSizes: event.target.value }))} /></label> : null}
-                  {section === "PROPERTY_CONTACTS" ? <label>Contact type
+                  {["UTILITIES", "EQUIPMENT_REGISTRY", "SOP_LIBRARY", "CUSTOM_PAGES", "KNOWN_ISSUES"].includes(section) ? <label>{t(language, "wiki.building")}<input value={entryDraft.building} onChange={(event) => setEntryDraft((current) => ({ ...current, building: event.target.value }))} /></label> : null}
+                  {["UTILITIES", "ACCESS_CONTROL", "EQUIPMENT_REGISTRY", "POOLS"].includes(section) ? <label>{t(language, "wiki.location")}<input value={entryDraft.locationDescription} onChange={(event) => setEntryDraft((current) => ({ ...current, locationDescription: event.target.value }))} /></label> : null}
+                  {section === "EQUIPMENT_REGISTRY" ? <label>{t(language, "wiki.manufacturer")}<input value={entryDraft.manufacturer} onChange={(event) => setEntryDraft((current) => ({ ...current, manufacturer: event.target.value }))} /></label> : null}
+                  {section === "EQUIPMENT_REGISTRY" ? <label>{t(language, "wiki.model")}<input value={entryDraft.equipmentModel} onChange={(event) => setEntryDraft((current) => ({ ...current, equipmentModel: event.target.value }))} /></label> : null}
+                  {section === "EQUIPMENT_REGISTRY" ? <label>{t(language, "wiki.serialNumber")}<input value={entryDraft.serialNumber} onChange={(event) => setEntryDraft((current) => ({ ...current, serialNumber: event.target.value }))} /></label> : null}
+                  {section === "EQUIPMENT_REGISTRY" ? <label>{t(language, "wiki.installDate")}<input type="date" value={entryDraft.installDate} onChange={(event) => setEntryDraft((current) => ({ ...current, installDate: event.target.value }))} /></label> : null}
+                  {section === "EQUIPMENT_REGISTRY" ? <label>{t(language, "wiki.warrantyExpires")}<input type="date" value={entryDraft.warrantyExpiresAt} onChange={(event) => setEntryDraft((current) => ({ ...current, warrantyExpiresAt: event.target.value }))} /></label> : null}
+                  {section === "UNIT_STANDARDS" ? <label>{t(language, "wiki.floorPlan")}<input value={entryDraft.floorPlan} onChange={(event) => setEntryDraft((current) => ({ ...current, floorPlan: event.target.value }))} /></label> : null}
+                  {section === "UNIT_STANDARDS" ? <label>{t(language, "wiki.unitType")}<input value={entryDraft.unitType} onChange={(event) => setEntryDraft((current) => ({ ...current, unitType: event.target.value }))} /></label> : null}
+                  {section === "UNIT_STANDARDS" ? <label>{t(language, "wiki.filterSizes")}<input value={entryDraft.filterSizes} onChange={(event) => setEntryDraft((current) => ({ ...current, filterSizes: event.target.value }))} /></label> : null}
+                  {section === "UNIT_STANDARDS" ? <label>{t(language, "wiki.blindSizes")}<input value={entryDraft.blindSizes} onChange={(event) => setEntryDraft((current) => ({ ...current, blindSizes: event.target.value }))} /></label> : null}
+                  {section === "PROPERTY_CONTACTS" ? <label>{t(language, "wiki.contactType")}
                     <select value={entryDraft.contactType} onChange={(event) => setEntryDraft((current) => ({ ...current, contactType: event.target.value }))}>
-                      <option value="">Select type</option>
+                      <option value="">{t(language, "wiki.selectType")}</option>
                       {(overviewQuery.data?.categories.propertyContacts ?? []).map((type) => <option key={type} value={type}>{type}</option>)}
                     </select>
                   </label> : null}
-                  {section === "PROPERTY_CONTACTS" ? <label>Title<input value={entryDraft.contactTitle} onChange={(event) => setEntryDraft((current) => ({ ...current, contactTitle: event.target.value }))} /></label> : null}
-                  {section === "PROPERTY_CONTACTS" ? <label>Phone<input value={entryDraft.phone} onChange={(event) => setEntryDraft((current) => ({ ...current, phone: event.target.value }))} /></label> : null}
+                  {section === "PROPERTY_CONTACTS" ? <label>{t(language, "wiki.titleField")}<input value={entryDraft.contactTitle} onChange={(event) => setEntryDraft((current) => ({ ...current, contactTitle: event.target.value }))} /></label> : null}
+                  {section === "PROPERTY_CONTACTS" ? <label>{t(language, "wiki.phone")}<input value={entryDraft.phone} onChange={(event) => setEntryDraft((current) => ({ ...current, phone: event.target.value }))} /></label> : null}
                   {section === "PROPERTY_CONTACTS" ? <label>Email<input value={entryDraft.email} onChange={(event) => setEntryDraft((current) => ({ ...current, email: event.target.value }))} /></label> : null}
-                  {section === "EMERGENCY_PROCEDURES" ? <label>Situation<input value={entryDraft.situation} onChange={(event) => setEntryDraft((current) => ({ ...current, situation: event.target.value }))} /></label> : null}
-                  {section === "KNOWN_ISSUES" ? <label>Status
+                  {section === "EMERGENCY_PROCEDURES" ? <label>{t(language, "wiki.situation")}<input value={entryDraft.situation} onChange={(event) => setEntryDraft((current) => ({ ...current, situation: event.target.value }))} /></label> : null}
+                  {section === "KNOWN_ISSUES" ? <label>{t(language, "admin.status")}
                     <select value={entryDraft.issueStatus} onChange={(event) => setEntryDraft((current) => ({ ...current, issueStatus: event.target.value as EntryDraft["issueStatus"] }))}>
                       {(overviewQuery.data?.categories.knownIssueStatuses ?? []).map((status) => <option key={status} value={status}>{status}</option>)}
                     </select>
@@ -941,76 +945,76 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
                 </div>
 
                 {section === "UNIT_STANDARDS" ? <>
-                  <label>HVAC notes<textarea rows={3} value={entryDraft.hvacNotes} onChange={(event) => setEntryDraft((current) => ({ ...current, hvacNotes: event.target.value }))} /></label>
-                  <label>Water heater notes<textarea rows={3} value={entryDraft.waterHeaterNotes} onChange={(event) => setEntryDraft((current) => ({ ...current, waterHeaterNotes: event.target.value }))} /></label>
-                  <label>Appliance notes<textarea rows={3} value={entryDraft.applianceNotes} onChange={(event) => setEntryDraft((current) => ({ ...current, applianceNotes: event.target.value }))} /></label>
-                  <label>Paint standards<textarea rows={3} value={entryDraft.paintStandards} onChange={(event) => setEntryDraft((current) => ({ ...current, paintStandards: event.target.value }))} /></label>
-                  <label>Countertop notes<textarea rows={3} value={entryDraft.countertopNotes} onChange={(event) => setEntryDraft((current) => ({ ...current, countertopNotes: event.target.value }))} /></label>
-                  <label>Cabinet notes<textarea rows={3} value={entryDraft.cabinetNotes} onChange={(event) => setEntryDraft((current) => ({ ...current, cabinetNotes: event.target.value }))} /></label>
-                  <label>Flooring notes<textarea rows={3} value={entryDraft.flooringNotes} onChange={(event) => setEntryDraft((current) => ({ ...current, flooringNotes: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.hvacNotes")}<textarea rows={3} value={entryDraft.hvacNotes} onChange={(event) => setEntryDraft((current) => ({ ...current, hvacNotes: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.waterHeaterNotes")}<textarea rows={3} value={entryDraft.waterHeaterNotes} onChange={(event) => setEntryDraft((current) => ({ ...current, waterHeaterNotes: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.applianceNotes")}<textarea rows={3} value={entryDraft.applianceNotes} onChange={(event) => setEntryDraft((current) => ({ ...current, applianceNotes: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.paintStandards")}<textarea rows={3} value={entryDraft.paintStandards} onChange={(event) => setEntryDraft((current) => ({ ...current, paintStandards: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.countertopNotes")}<textarea rows={3} value={entryDraft.countertopNotes} onChange={(event) => setEntryDraft((current) => ({ ...current, countertopNotes: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.cabinetNotes")}<textarea rows={3} value={entryDraft.cabinetNotes} onChange={(event) => setEntryDraft((current) => ({ ...current, cabinetNotes: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.flooringNotes")}<textarea rows={3} value={entryDraft.flooringNotes} onChange={(event) => setEntryDraft((current) => ({ ...current, flooringNotes: event.target.value }))} /></label>
                 </> : null}
 
                 {section === "SOP_LIBRARY" ? <>
-                  <label>Related contacts
+                  <label>{t(language, "wiki.relatedContacts")}
                     <select multiple value={entryDraft.relatedEntryIds.filter((id) => contactOptions.some((entry) => entry.id === id))} onChange={(event) => setEntryDraft((current) => ({ ...current, relatedEntryIds: [...new Set([...current.relatedEntryIds.filter((id) => !contactOptions.some((entry) => entry.id === id)), ...selectedValues(event)])] }))}>
                       {contactOptions.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>)}
                     </select>
                   </label>
-                  <label>Related equipment
+                  <label>{t(language, "wiki.relatedEquipment")}
                     <select multiple value={entryDraft.relatedEntryIds.filter((id) => equipmentOptions.some((entry) => entry.id === id))} onChange={(event) => setEntryDraft((current) => ({ ...current, relatedEntryIds: [...new Set([...current.relatedEntryIds.filter((id) => !equipmentOptions.some((entry) => entry.id === id)), ...selectedValues(event)])] }))}>
                       {equipmentOptions.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>)}
                     </select>
                   </label>
-                  <label>Related vendors
+                  <label>{t(language, "wiki.relatedVendors")}
                     <select multiple value={entryDraft.relatedVendorIds} onChange={(event) => setEntryDraft((current) => ({ ...current, relatedVendorIds: selectedValues(event) }))}>
                       {wikiVendors.filter((vendor) => vendor.isActive).map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.companyName}</option>)}
                     </select>
                   </label>
-                  <label>Steps<textarea rows={8} value={entryDraft.content} onChange={(event) => setEntryDraft((current) => ({ ...current, content: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.steps")}<textarea rows={8} value={entryDraft.content} onChange={(event) => setEntryDraft((current) => ({ ...current, content: event.target.value }))} /></label>
                 </> : null}
 
                 {section === "KNOWN_ISSUES" ? <>
-                  <label>Issue description<textarea rows={4} value={entryDraft.notes} onChange={(event) => setEntryDraft((current) => ({ ...current, notes: event.target.value }))} /></label>
-                  <label>Recommended action<textarea rows={4} value={entryDraft.content} onChange={(event) => setEntryDraft((current) => ({ ...current, content: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.issueDescription")}<textarea rows={4} value={entryDraft.notes} onChange={(event) => setEntryDraft((current) => ({ ...current, notes: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.recommendedAction")}<textarea rows={4} value={entryDraft.content} onChange={(event) => setEntryDraft((current) => ({ ...current, content: event.target.value }))} /></label>
                 </> : null}
 
-                {section === "EMERGENCY_PROCEDURES" ? <label>Steps<textarea rows={7} value={entryDraft.content} onChange={(event) => setEntryDraft((current) => ({ ...current, content: event.target.value }))} /></label> : null}
-                {section === "CUSTOM_PAGES" ? <label>Content<textarea rows={8} value={entryDraft.content} onChange={(event) => setEntryDraft((current) => ({ ...current, content: event.target.value }))} /></label> : null}
-                {section !== "SOP_LIBRARY" && section !== "EMERGENCY_PROCEDURES" && section !== "CUSTOM_PAGES" && section !== "KNOWN_ISSUES" ? <label>Notes<textarea rows={4} value={entryDraft.notes} onChange={(event) => setEntryDraft((current) => ({ ...current, notes: event.target.value }))} /></label> : null}
-                <label>Tags<input value={entryDraft.tags} onChange={(event) => setEntryDraft((current) => ({ ...current, tags: event.target.value }))} /></label>
-                {section === "PROPERTY_CONTACTS" ? <label className="checkbox-row"><input type="checkbox" checked={entryDraft.isEmergencyContact} onChange={(event) => setEntryDraft((current) => ({ ...current, isEmergencyContact: event.target.checked }))} /> Emergency contact</label> : null}
-                {access.canPin ? <label className="checkbox-row"><input type="checkbox" checked={entryDraft.isPinned} onChange={(event) => setEntryDraft((current) => ({ ...current, isPinned: event.target.checked }))} /> Pin to overview</label> : null}
-                {access.canEmergency && ["UTILITIES", "EQUIPMENT_REGISTRY", "SOP_LIBRARY", "KNOWN_ISSUES"].includes(section) ? <label className="checkbox-row"><input type="checkbox" checked={entryDraft.isEmergency} onChange={(event) => setEntryDraft((current) => ({ ...current, isEmergency: event.target.checked }))} /> Include in emergency mode</label> : null}
-                {editingEntryId ? <label className="checkbox-row"><input type="checkbox" checked={entryDraft.isActive} onChange={(event) => setEntryDraft((current) => ({ ...current, isActive: event.target.checked }))} /> Active record</label> : null}
+                {section === "EMERGENCY_PROCEDURES" ? <label>{t(language, "wiki.steps")}<textarea rows={7} value={entryDraft.content} onChange={(event) => setEntryDraft((current) => ({ ...current, content: event.target.value }))} /></label> : null}
+                {section === "CUSTOM_PAGES" ? <label>{t(language, "wiki.content")}<textarea rows={8} value={entryDraft.content} onChange={(event) => setEntryDraft((current) => ({ ...current, content: event.target.value }))} /></label> : null}
+                {section !== "SOP_LIBRARY" && section !== "EMERGENCY_PROCEDURES" && section !== "CUSTOM_PAGES" && section !== "KNOWN_ISSUES" ? <label>{t(language, "wiki.notes")}<textarea rows={4} value={entryDraft.notes} onChange={(event) => setEntryDraft((current) => ({ ...current, notes: event.target.value }))} /></label> : null}
+                <label>{t(language, "wiki.tags")}<input value={entryDraft.tags} onChange={(event) => setEntryDraft((current) => ({ ...current, tags: event.target.value }))} /></label>
+                {section === "PROPERTY_CONTACTS" ? <label className="checkbox-row"><input type="checkbox" checked={entryDraft.isEmergencyContact} onChange={(event) => setEntryDraft((current) => ({ ...current, isEmergencyContact: event.target.checked }))} /> {t(language, "wiki.emergencyContact")}</label> : null}
+                {access.canPin ? <label className="checkbox-row"><input type="checkbox" checked={entryDraft.isPinned} onChange={(event) => setEntryDraft((current) => ({ ...current, isPinned: event.target.checked }))} /> {t(language, "wiki.pinToOverview")}</label> : null}
+                {access.canEmergency && ["UTILITIES", "EQUIPMENT_REGISTRY", "SOP_LIBRARY", "KNOWN_ISSUES"].includes(section) ? <label className="checkbox-row"><input type="checkbox" checked={entryDraft.isEmergency} onChange={(event) => setEntryDraft((current) => ({ ...current, isEmergency: event.target.checked }))} /> {t(language, "wiki.includeEmergencyMode")}</label> : null}
+                {editingEntryId ? <label className="checkbox-row"><input type="checkbox" checked={entryDraft.isActive} onChange={(event) => setEntryDraft((current) => ({ ...current, isActive: event.target.checked }))} /> {t(language, "wiki.activeRecord")}</label> : null}
                 <div className="row-actions">
-                  {access.edit ? <button type="submit" className="button button-primary">{editingEntryId ? "Save Changes" : "Create Record"}</button> : null}
+                  {access.edit ? <button type="submit" className="button button-primary">{editingEntryId ? t(language, "wiki.saveChanges") : t(language, "wiki.createRecord")}</button> : null}
                   {editingEntryId ? <button type="button" className="button button-secondary" onClick={() => {
                     setEditingEntryId(null);
                     setEntryDraft(emptyEntryDraft(section));
-                  }}>Cancel</button> : null}
+                  }}>{t(language, "common.cancel")}</button> : null}
                 </div>
               </form>
 
               <div className="pool-card">
                 <div className="property-wiki-list-header">
                   <h2>{sectionLabel(section)}</h2>
-                  <input placeholder={`Filter ${sectionLabel(section).toLowerCase()}...`} value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value)} />
+                  <input placeholder={tWithVars(language, "wiki.filterSection", { section: sectionLabel(section).toLowerCase() })} value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value)} />
                 </div>
-                {entriesQuery.isLoading ? <p className="muted">Loading records...</p> : activeEntries.length === 0 ? <p className="muted">No records in this section yet.</p> : activeEntries.map((entry) => (
+                {entriesQuery.isLoading ? <p className="muted">{t(language, "wiki.loadingRecords")}</p> : activeEntries.length === 0 ? <p className="muted">{t(language, "wiki.noRecordsInSectionYet")}</p> : activeEntries.map((entry) => (
                   <article key={entry.id} className={`property-wiki-record${entry.isEmergency ? " emergency" : ""}`}>
                     <div>
                       <strong>{entry.title}</strong>
-                      <span>{entry.category || entry.contactType || sectionLabel(entry.section)}{entry.building ? ` / ${entry.building}` : ""}{entry.locationDescription ? ` / ${entry.locationDescription}` : ""}{!entry.isActive ? " / Archived" : ""}</span>
-                      {entry.issueStatus ? <small>Status: {entry.issueStatus}</small> : null}
+                      <span>{entry.category || entry.contactType || sectionLabel(entry.section)}{entry.building ? ` / ${entry.building}` : ""}{entry.locationDescription ? ` / ${entry.locationDescription}` : ""}{!entry.isActive ? ` / ${t(language, "wiki.archived")}` : ""}</span>
+                      {entry.issueStatus ? <small>{t(language, "admin.status")}: {entry.issueStatus}</small> : null}
                       {entry.manufacturer || entry.equipmentModel ? <small>{[entry.manufacturer, entry.equipmentModel].filter(Boolean).join(" / ")}</small> : null}
-                      <p>{recordSummary(entry) || "No summary yet."}</p>
+                      <p>{recordSummary(entry) || t(language, "wiki.noSummaryYet")}</p>
                       {renderTags(entry.tags)}
                     </div>
                     <div className="pool-entry-actions">
-                      {section === "UNIT_STANDARDS" && access.edit ? <button type="button" className="button button-secondary" onClick={() => duplicateStandard(entry)}>Copy</button> : null}
-                      {canFavoriteRecord(entry.section, "ENTRY") ? <button type="button" className="button button-secondary" onClick={() => toggleFavorite("ENTRY", entry.id)}>Favorite</button> : null}
-                      <button type="button" className="button button-secondary" onClick={() => openRecord("ENTRY", entry.id)}>View</button>
-                      {access.edit ? <button type="button" className="button button-secondary" onClick={() => loadEntryForEdit(entry)}>Edit</button> : null}
+                      {section === "UNIT_STANDARDS" && access.edit ? <button type="button" className="button button-secondary" onClick={() => duplicateStandard(entry)}>{t(language, "wiki.duplicate")}</button> : null}
+                      {canFavoriteRecord(entry.section, "ENTRY") ? <button type="button" className="button button-secondary" onClick={() => toggleFavorite("ENTRY", entry.id)}>{t(language, "wiki.favorite")}</button> : null}
+                      <button type="button" className="button button-secondary" onClick={() => openRecord("ENTRY", entry.id)}>{t(language, "wiki.view")}</button>
+                      {access.edit ? <button type="button" className="button button-secondary" onClick={() => loadEntryForEdit(entry)}>{t(language, "drawer.edit")}</button> : null}
                     </div>
                   </article>
                 ))}
@@ -1024,37 +1028,37 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
                 event.preventDefault();
                 void saveVendorMutation.mutate(vendorDraft);
               }}>
-                <h2>{editingVendorId ? "Edit Vendor" : "Add Vendor"}</h2>
+                <h2>{editingVendorId ? t(language, "wiki.editVendor") : t(language, "wiki.addVendor")}</h2>
                 <div className="form-grid">
-                  <label>Vendor type
+                  <label>{t(language, "wiki.vendorType")}
                     <select value={vendorDraft.vendorType} onChange={(event) => setVendorDraft((current) => ({ ...current, vendorType: event.target.value }))}>
                       {(overviewQuery.data?.categories.vendorTypes ?? []).map((type) => <option key={type} value={type}>{type}</option>)}
                     </select>
                   </label>
-                  <label>Company<input required value={vendorDraft.companyName} onChange={(event) => setVendorDraft((current) => ({ ...current, companyName: event.target.value }))} /></label>
-                  <label>Contact<input value={vendorDraft.contactName} onChange={(event) => setVendorDraft((current) => ({ ...current, contactName: event.target.value }))} /></label>
-                  <label>Phone<input value={vendorDraft.phone} onChange={(event) => setVendorDraft((current) => ({ ...current, phone: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.company")}<input required value={vendorDraft.companyName} onChange={(event) => setVendorDraft((current) => ({ ...current, companyName: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.contact")}<input value={vendorDraft.contactName} onChange={(event) => setVendorDraft((current) => ({ ...current, contactName: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.phone")}<input value={vendorDraft.phone} onChange={(event) => setVendorDraft((current) => ({ ...current, phone: event.target.value }))} /></label>
                   <label>Email<input value={vendorDraft.email} onChange={(event) => setVendorDraft((current) => ({ ...current, email: event.target.value }))} /></label>
-                  <label>Emergency phone<input value={vendorDraft.emergencyPhone} onChange={(event) => setVendorDraft((current) => ({ ...current, emergencyPhone: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.emergencyPhone")}<input value={vendorDraft.emergencyPhone} onChange={(event) => setVendorDraft((current) => ({ ...current, emergencyPhone: event.target.value }))} /></label>
                 </div>
-                <label>Notes<textarea rows={4} value={vendorDraft.notes} onChange={(event) => setVendorDraft((current) => ({ ...current, notes: event.target.value }))} /></label>
-                <label className="checkbox-row"><input type="checkbox" checked={vendorDraft.isActive} onChange={(event) => setVendorDraft((current) => ({ ...current, isActive: event.target.checked }))} /> Active vendor</label>
+                <label>{t(language, "wiki.notes")}<textarea rows={4} value={vendorDraft.notes} onChange={(event) => setVendorDraft((current) => ({ ...current, notes: event.target.value }))} /></label>
+                <label className="checkbox-row"><input type="checkbox" checked={vendorDraft.isActive} onChange={(event) => setVendorDraft((current) => ({ ...current, isActive: event.target.checked }))} /> {t(language, "wiki.activeVendor")}</label>
                 <div className="row-actions">
-                  {access.edit ? <button type="submit" className="button button-primary">{editingVendorId ? "Save Vendor" : "Create Vendor"}</button> : null}
+                  {access.edit ? <button type="submit" className="button button-primary">{editingVendorId ? t(language, "wiki.saveVendor") : t(language, "wiki.createVendor")}</button> : null}
                 </div>
               </form>
               <div className="pool-card">
-                <h2>Vendor Directory</h2>
+                <h2>{t(language, "wiki.vendorDirectory")}</h2>
                 {wikiVendors.map((vendor) => (
                   <article key={vendor.id} className="property-wiki-record">
                     <div>
                       <strong>{vendor.companyName}</strong>
-                      <span>{vendor.vendorType}{vendor.contactName ? ` / ${vendor.contactName}` : ""}{!vendor.isActive ? " / Inactive" : ""}</span>
-                      <p>{vendor.notes || vendor.phone || vendor.email || vendor.emergencyPhone || "No details yet."}</p>
+                      <span>{vendor.vendorType}{vendor.contactName ? ` / ${vendor.contactName}` : ""}{!vendor.isActive ? ` / ${t(language, "wiki.inactive")}` : ""}</span>
+                      <p>{vendor.notes || vendor.phone || vendor.email || vendor.emergencyPhone || t(language, "wiki.noDetailsYet")}</p>
                     </div>
                     <div className="pool-entry-actions">
-                      <button type="button" className="button button-secondary" onClick={() => toggleFavorite("VENDOR", vendor.id)}>Favorite</button>
-                      <button type="button" className="button button-secondary" onClick={() => openRecord("VENDOR", vendor.id)}>View</button>
+                      <button type="button" className="button button-secondary" onClick={() => toggleFavorite("VENDOR", vendor.id)}>{t(language, "wiki.favorite")}</button>
+                      <button type="button" className="button button-secondary" onClick={() => openRecord("VENDOR", vendor.id)}>{t(language, "wiki.view")}</button>
                     </div>
                   </article>
                 ))}
@@ -1065,27 +1069,27 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
           {(activeTab === "documents" || activeTab === "photos") ? (
             <div className="property-wiki-grid">
               <form className="pool-card pool-form" onSubmit={(event) => event.preventDefault()}>
-                <h2>Upload {activeTab === "photos" ? "Photo" : "Document"}</h2>
+                <h2>{activeTab === "photos" ? t(language, "wiki.uploadPhoto") : t(language, "wiki.uploadDocument")}</h2>
                 <div className="form-grid">
-                  <label>Title<input required value={assetDraft.title} onChange={(event) => setAssetDraft((current) => ({ ...current, title: event.target.value }))} /></label>
-                  <label>Category
+                  <label>{t(language, "wiki.titleField")}<input required value={assetDraft.title} onChange={(event) => setAssetDraft((current) => ({ ...current, title: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.category")}
                     <select value={assetDraft.category} onChange={(event) => setAssetDraft((current) => ({ ...current, category: event.target.value }))}>
-                      <option value="">Select category</option>
+                      <option value="">{t(language, "wiki.selectCategory")}</option>
                       {currentCategories.map((category) => <option key={category} value={category}>{category}</option>)}
                     </select>
                   </label>
-                  <label>Building<input value={assetDraft.building} onChange={(event) => setAssetDraft((current) => ({ ...current, building: event.target.value }))} /></label>
-                  <label>Related entry
+                  <label>{t(language, "wiki.building")}<input value={assetDraft.building} onChange={(event) => setAssetDraft((current) => ({ ...current, building: event.target.value }))} /></label>
+                  <label>{t(language, "wiki.relatedEntry")}
                     <select value={assetDraft.entryId} onChange={(event) => setAssetDraft((current) => ({ ...current, entryId: event.target.value }))}>
-                      <option value="">None</option>
+                      <option value="">{t(language, "wiki.none")}</option>
                       {allEntries.filter((entry) => entry.isActive).map((entry) => <option key={entry.id} value={entry.id}>{sectionLabel(entry.section)} - {entry.title}</option>)}
                     </select>
                   </label>
                 </div>
-                <label>Description<textarea rows={4} value={assetDraft.description} onChange={(event) => setAssetDraft((current) => ({ ...current, description: event.target.value }))} /></label>
-                <label>Tags<input value={assetDraft.tags} onChange={(event) => setAssetDraft((current) => ({ ...current, tags: event.target.value }))} /></label>
-                {access.canEmergency ? <label className="checkbox-row"><input type="checkbox" checked={assetDraft.isEmergency} onChange={(event) => setAssetDraft((current) => ({ ...current, isEmergency: event.target.checked }))} /> Include in emergency mode</label> : null}
-                <label>File
+                <label>{t(language, "wiki.description")}<textarea rows={4} value={assetDraft.description} onChange={(event) => setAssetDraft((current) => ({ ...current, description: event.target.value }))} /></label>
+                <label>{t(language, "wiki.tags")}<input value={assetDraft.tags} onChange={(event) => setAssetDraft((current) => ({ ...current, tags: event.target.value }))} /></label>
+                {access.canEmergency ? <label className="checkbox-row"><input type="checkbox" checked={assetDraft.isEmergency} onChange={(event) => setAssetDraft((current) => ({ ...current, isEmergency: event.target.checked }))} /> {t(language, "wiki.includeEmergencyMode")}</label> : null}
+                <label>{t(language, "wiki.file")}
                   <input type="file" onChange={(event) => {
                     const file = event.target.files?.[0];
                     if (!file || !assetDraft.title.trim()) return;
@@ -1107,20 +1111,20 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
                 </label>
               </form>
               <div className="pool-card">
-                <h2>{activeTab === "photos" ? "Photo Library" : "Document Library"}</h2>
+                <h2>{activeTab === "photos" ? t(language, "wiki.photoLibrary") : t(language, "wiki.documentLibrary")}</h2>
                 {wikiAssets.map((asset) => (
                   <article key={asset.id} className={`property-wiki-record${asset.isEmergency ? " emergency" : ""}`}>
                     <div>
                       <strong>{asset.title}</strong>
-                      <span>{asset.category || (asset.kind === "PHOTO" ? "Photo" : "Document")}{asset.building ? ` / ${asset.building}` : ""}</span>
+                      <span>{asset.category || (asset.kind === "PHOTO" ? t(language, "wiki.photo") : t(language, "wiki.document"))}{asset.building ? ` / ${asset.building}` : ""}</span>
                       <p>{asset.description || asset.originalName}</p>
                       {renderTags(asset.tags)}
                     </div>
                     <div className="pool-entry-actions">
-                      <button type="button" className="button button-secondary" onClick={() => toggleFavorite("ASSET", asset.id)}>Favorite</button>
-                      <button type="button" className="button button-secondary" onClick={() => openRecord("ASSET", asset.id)}>View</button>
-                      <a className="button button-secondary" href={propertyWikiAssetDownloadUrl(asset.id)} target="_blank" rel="noreferrer">Open</a>
-                      {access.edit ? <button type="button" className="button button-secondary" onClick={() => void deleteAssetMutation.mutate(asset.id)}>Delete</button> : null}
+                      <button type="button" className="button button-secondary" onClick={() => toggleFavorite("ASSET", asset.id)}>{t(language, "wiki.favorite")}</button>
+                      <button type="button" className="button button-secondary" onClick={() => openRecord("ASSET", asset.id)}>{t(language, "wiki.view")}</button>
+                      <a className="button button-secondary" href={propertyWikiAssetDownloadUrl(asset.id)} target="_blank" rel="noreferrer">{t(language, "wiki.open")}</a>
+                      {access.edit ? <button type="button" className="button button-secondary" onClick={() => void deleteAssetMutation.mutate(asset.id)}>{t(language, "wiki.delete")}</button> : null}
                     </div>
                   </article>
                 ))}
@@ -1130,8 +1134,8 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, op
 
           {activeTab === "search" ? (
             <div className="pool-card property-wiki-search-results">
-              <h2>Search Results</h2>
-              {!searchQuery.trim() ? <p className="muted">Enter a search term to look across Wiki records, buildings, notes, tags, contacts, vendors, documents, and photos.</p> : (searchQueryResult.data?.results ?? []).map((result) => renderSummaryRow({
+              <h2>{t(language, "wiki.searchResults")}</h2>
+              {!searchQuery.trim() ? <p className="muted">{t(language, "wiki.searchHelp")}</p> : (searchQueryResult.data?.results ?? []).map((result) => renderSummaryRow({
                 targetType: result.targetType,
                 id: result.id,
                 propertyId: result.propertyId,

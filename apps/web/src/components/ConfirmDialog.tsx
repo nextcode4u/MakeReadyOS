@@ -1,3 +1,5 @@
+import type { UserLanguage } from "../lib/api";
+import { t } from "../lib/i18n";
 import { Modal } from "./Modal";
 
 type Props = {
@@ -5,6 +7,7 @@ type Props = {
   title: string;
   description: string;
   confirmLabel: string;
+  language?: UserLanguage;
   tone?: "default" | "danger";
   busy?: boolean;
   onConfirm: () => Promise<void> | void;
@@ -16,6 +19,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel,
+  language = "en",
   tone = "default",
   busy,
   onConfirm,
@@ -34,7 +38,7 @@ export function ConfirmDialog({
       actions={(
         <>
           <button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>
-            Cancel
+            {t(language, "common.cancel")}
           </button>
           <button
             type="button"
@@ -45,7 +49,7 @@ export function ConfirmDialog({
             }}
             disabled={busy}
           >
-            {busy ? "Working…" : confirmLabel}
+            {busy ? t(language, "common.working") : confirmLabel}
           </button>
         </>
       )}

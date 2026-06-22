@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { BoardColumnDefinition, BoardSection, CustomField, FloorPlan, LabelDefinition, Property, ScheduleTrack } from "../lib/api";
+import type { BoardColumnDefinition, BoardSection, CustomField, FloorPlan, LabelDefinition, Property, ScheduleTrack, UserLanguage } from "../lib/api";
 import { LabelPill } from "./LabelPill";
 import { StatusState } from "./StatusState";
 
@@ -20,6 +20,7 @@ const optionSets = [
 ] as const;
 
 type Props = {
+  language: UserLanguage;
   properties: Property[];
   boardSections: BoardSection[];
   options: LabelDefinition[];
@@ -44,6 +45,7 @@ type Props = {
 };
 
 export function BoardConfigurationPanel({
+  language,
   properties,
   boardSections,
   options,
@@ -66,6 +68,7 @@ export function BoardConfigurationPanel({
   onArchiveScheduleTrack,
   onReorderScheduleTracks,
 }: Props) {
+  const isSpanish = language === "es";
   const [sectionPropertyId, setSectionPropertyId] = useState(properties[0]?.id ?? "");
   const [selectedSectionId, setSelectedSectionId] = useState("");
   const [sectionLabelDraft, setSectionLabelDraft] = useState("");
@@ -284,17 +287,17 @@ export function BoardConfigurationPanel({
     <section className="operations-grid config-grid" data-testid="board-configuration-panel">
       <article className="operations-card" data-testid="board-section-management">
         <div className="admin-section-head">
-          <h3>Board Sections / Tables</h3>
-          <span className="subtitle">Workflow sections managed separately from labels</span>
+          <h3>{isSpanish ? "Secciones / tablas del tablero" : "Board Sections / Tables"}</h3>
+          <span className="subtitle">{isSpanish ? "Las secciones del flujo se administran por separado de las etiquetas" : "Workflow sections managed separately from labels"}</span>
         </div>
-        <label className="config-field">Property
+        <label className="config-field">{isSpanish ? "Propiedad" : "Property"}
           <select data-testid="board-section-property" value={sectionPropertyId} onChange={(event) => { setSectionPropertyId(event.target.value); setSelectedSectionId(""); }}>
             {properties.filter((property) => property.isActive).map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
           </select>
         </label>
         <div className="record-list">
           {propertySections.length === 0 ? (
-            <StatusState title="No board sections found" description="Select another property or finish property setup first." tone="subtle" />
+            <StatusState title={isSpanish ? "No se encontraron secciones del tablero" : "No board sections found"} description={isSpanish ? "Seleccione otra propiedad o termine primero la configuración de la propiedad." : "Select another property or finish property setup first."} tone="subtle" />
           ) : propertySections.map((section) => (
             <button
               key={section.id}
@@ -310,19 +313,19 @@ export function BoardConfigurationPanel({
         </div>
         {selectedSection ? (
           <div className="editor-block">
-            <label>Display name
+            <label>{isSpanish ? "Nombre visible" : "Display name"}
               <input data-testid="board-section-edit-label" value={sectionLabelDraft} onChange={(event) => setSectionLabelDraft(event.target.value)} />
             </label>
-            <label>Internal key<input value={selectedSection.key} readOnly /></label>
-            <label>Section type<input value={selectedSection.sectionType.replace(/_/g, " ")} readOnly /></label>
-            <p className="helper-copy span-full">Rename the operator-facing section name here. Filters, automations, APIs, and import logic continue to use the stable internal key and section type.</p>
+            <label>{isSpanish ? "Clave interna" : "Internal key"}<input value={selectedSection.key} readOnly /></label>
+            <label>{isSpanish ? "Tipo de sección" : "Section type"}<input value={selectedSection.sectionType.replace(/_/g, " ")} readOnly /></label>
+            <p className="helper-copy span-full">{isSpanish ? "Cambie aquí el nombre visible para operadores. Los filtros, automatizaciones, APIs y lógica de importación siguen usando la clave interna y el tipo de sección estables." : "Rename the operator-facing section name here. Filters, automations, APIs, and import logic continue to use the stable internal key and section type."}</p>
             <button
               data-testid="board-section-save"
               className="button button-primary span-full"
               disabled={!sectionLabelDraft.trim() || sectionLabelDraft.trim() === selectedSection.displayName}
               onClick={() => void onUpdateBoardSection(selectedSection.id, sectionLabelDraft.trim())}
             >
-              Save Section Name
+              {isSpanish ? "Guardar nombre de sección" : "Save Section Name"}
             </button>
           </div>
         ) : null}
@@ -330,10 +333,10 @@ export function BoardConfigurationPanel({
 
       <article className="operations-card" data-testid="option-management">
         <div className="admin-section-head">
-          <h3>Board Labels</h3>
-          <span className="subtitle">Status colors and choices</span>
+          <h3>{isSpanish ? "Etiquetas del tablero" : "Board Labels"}</h3>
+          <span className="subtitle">{isSpanish ? "Colores de estado y opciones" : "Status colors and choices"}</span>
         </div>
-        <label className="config-field">Option set
+        <label className="config-field">{isSpanish ? "Conjunto de opciones" : "Option set"}
           <select data-testid="option-set-select" value={fieldKey} onChange={(event) => { setFieldKey(event.target.value); setSelectedOptionId(""); }}>
             {optionSets.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
@@ -342,9 +345,9 @@ export function BoardConfigurationPanel({
           event.preventDefault();
           void onCreateOption({ fieldKey, ...newOption }).then(() => setNewOption((current) => ({ ...current, value: "" })));
         }}>
-          <input data-testid="option-create-value" value={newOption.value} placeholder="New label" onChange={(event) => setNewOption((current) => ({ ...current, value: event.target.value }))} required />
-          <input data-testid="option-create-color" type="color" value={newOption.color} onChange={(event) => setNewOption((current) => ({ ...current, color: event.target.value }))} aria-label="Option background color" />
-          <button data-testid="option-create-submit" className="button button-primary" disabled={loading}>Add</button>
+          <input data-testid="option-create-value" value={newOption.value} placeholder={isSpanish ? "Nueva etiqueta" : "New label"} onChange={(event) => setNewOption((current) => ({ ...current, value: event.target.value }))} required />
+          <input data-testid="option-create-color" type="color" value={newOption.color} onChange={(event) => setNewOption((current) => ({ ...current, color: event.target.value }))} aria-label={isSpanish ? "Color de fondo de la opción" : "Option background color"} />
+          <button data-testid="option-create-submit" className="button button-primary" disabled={loading}>{isSpanish ? "Agregar" : "Add"}</button>
         </form>
         <div className="option-list">
           {fieldOptions.map((option, index) => (
@@ -352,19 +355,19 @@ export function BoardConfigurationPanel({
               <button data-testid={`option-row-${option.value.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="option-pick" onClick={() => setSelectedOptionId(option.id)}>
                 <LabelPill value={option.value} label={option} muted={option.isArchived} />
               </button>
-              <button className="icon-button" aria-label="Move up" disabled={index === 0} onClick={() => void moveOption(option.id, -1)}>↑</button>
-              <button className="icon-button" aria-label="Move down" disabled={index === fieldOptions.length - 1} onClick={() => void moveOption(option.id, 1)}>↓</button>
+              <button className="icon-button" aria-label={isSpanish ? "Mover hacia arriba" : "Move up"} disabled={index === 0} onClick={() => void moveOption(option.id, -1)}>↑</button>
+              <button className="icon-button" aria-label={isSpanish ? "Mover hacia abajo" : "Move down"} disabled={index === fieldOptions.length - 1} onClick={() => void moveOption(option.id, 1)}>↓</button>
             </div>
           ))}
         </div>
         {selectedOption ? (
           <div className="editor-block option-editor">
-            <label>Label<input data-testid="option-edit-value" value={optionDraft.value} onChange={(event) => setOptionDraft((current) => ({ ...current, value: event.target.value }))} /></label>
-            <label>Color<input data-testid="option-edit-color" type="color" value={optionDraft.color} onChange={(event) => setOptionDraft((current) => ({ ...current, color: event.target.value }))} /></label>
+            <label>{isSpanish ? "Etiqueta" : "Label"}<input data-testid="option-edit-value" value={optionDraft.value} onChange={(event) => setOptionDraft((current) => ({ ...current, value: event.target.value }))} /></label>
+            <label>{isSpanish ? "Color" : "Color"}<input data-testid="option-edit-color" type="color" value={optionDraft.color} onChange={(event) => setOptionDraft((current) => ({ ...current, color: event.target.value }))} /></label>
             <div className="admin-actions span-full">
-              <button data-testid="option-save" className="button button-primary" onClick={() => void onUpdateOption(selectedOption.id, optionDraft)}>Save</button>
+              <button data-testid="option-save" className="button button-primary" onClick={() => void onUpdateOption(selectedOption.id, optionDraft)}>{isSpanish ? "Guardar" : "Save"}</button>
               <button data-testid={selectedOption.isArchived ? "option-restore" : "option-archive"} className="button button-secondary" onClick={() => void onArchiveOption(selectedOption.id, Boolean(selectedOption.isArchived))}>
-                {selectedOption.isArchived ? "Restore" : "Archive"}
+                {selectedOption.isArchived ? (isSpanish ? "Restaurar" : "Restore") : (isSpanish ? "Archivar" : "Archive")}
               </button>
             </div>
           </div>
@@ -373,10 +376,10 @@ export function BoardConfigurationPanel({
 
       <article className="operations-card" data-testid="floor-plan-management">
         <div className="admin-section-head">
-          <h3>Floor Plans</h3>
-          <span className="subtitle">Configured per property</span>
+          <h3>{isSpanish ? "Planos de unidad" : "Floor Plans"}</h3>
+          <span className="subtitle">{isSpanish ? "Configurados por propiedad" : "Configured per property"}</span>
         </div>
-        <label className="config-field">Property
+        <label className="config-field">{isSpanish ? "Propiedad" : "Property"}
           <select data-testid="floor-plan-property" value={propertyId} onChange={(event) => { setPropertyId(event.target.value); setSelectedPlanId(""); }}>
             {properties.filter((property) => property.isActive).map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
           </select>
@@ -393,33 +396,33 @@ export function BoardConfigurationPanel({
             description: newPlan.description || null,
           }).then(() => setNewPlan({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" }));
         }}>
-          <input data-testid="floor-plan-create-code" placeholder="Code (B1, C2)" value={newPlan.code} onChange={(event) => setNewPlan((current) => ({ ...current, code: event.target.value }))} required />
-          <input data-testid="floor-plan-create-name" placeholder="Friendly name (Arlington)" value={newPlan.name} onChange={(event) => setNewPlan((current) => ({ ...current, name: event.target.value }))} />
-          <input data-testid="floor-plan-create-beds" type="number" min="0" placeholder="Beds" value={newPlan.bedrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bedrooms: event.target.value }))} />
-          <input data-testid="floor-plan-create-baths" type="number" step="0.5" min="0" placeholder="Baths" value={newPlan.bathrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bathrooms: event.target.value }))} />
-          <input data-testid="floor-plan-create-sqft" type="number" min="1" placeholder="Sq ft" value={newPlan.squareFeet} onChange={(event) => setNewPlan((current) => ({ ...current, squareFeet: event.target.value }))} />
-          <input data-testid="floor-plan-create-description" className="span-full" placeholder="Description (optional)" value={newPlan.description} onChange={(event) => setNewPlan((current) => ({ ...current, description: event.target.value }))} />
-          <button data-testid="floor-plan-create-submit" className="button button-primary span-full" disabled={loading || !propertyId}>Add Floor Plan</button>
+          <input data-testid="floor-plan-create-code" placeholder={isSpanish ? "Código (B1, C2)" : "Code (B1, C2)"} value={newPlan.code} onChange={(event) => setNewPlan((current) => ({ ...current, code: event.target.value }))} required />
+          <input data-testid="floor-plan-create-name" placeholder={isSpanish ? "Nombre amigable (Arlington)" : "Friendly name (Arlington)"} value={newPlan.name} onChange={(event) => setNewPlan((current) => ({ ...current, name: event.target.value }))} />
+          <input data-testid="floor-plan-create-beds" type="number" min="0" placeholder={isSpanish ? "Recámaras" : "Beds"} value={newPlan.bedrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bedrooms: event.target.value }))} />
+          <input data-testid="floor-plan-create-baths" type="number" step="0.5" min="0" placeholder={isSpanish ? "Baños" : "Baths"} value={newPlan.bathrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bathrooms: event.target.value }))} />
+          <input data-testid="floor-plan-create-sqft" type="number" min="1" placeholder={isSpanish ? "Pies²" : "Sq ft"} value={newPlan.squareFeet} onChange={(event) => setNewPlan((current) => ({ ...current, squareFeet: event.target.value }))} />
+          <input data-testid="floor-plan-create-description" className="span-full" placeholder={isSpanish ? "Descripción (opcional)" : "Description (optional)"} value={newPlan.description} onChange={(event) => setNewPlan((current) => ({ ...current, description: event.target.value }))} />
+          <button data-testid="floor-plan-create-submit" className="button button-primary span-full" disabled={loading || !propertyId}>{isSpanish ? "Agregar plano" : "Add Floor Plan"}</button>
         </form>
         <div className="record-list">
-          {propertyPlans.length === 0 ? <StatusState title="No configured floor plans" description="Legacy text remains valid until a unit is mapped." tone="subtle" /> : propertyPlans.map((plan) => (
+          {propertyPlans.length === 0 ? <StatusState title={isSpanish ? "No hay planos configurados" : "No configured floor plans"} description={isSpanish ? "El texto heredado sigue siendo válido hasta que se asigne una unidad." : "Legacy text remains valid until a unit is mapped."} tone="subtle" /> : propertyPlans.map((plan) => (
             <button key={plan.id} type="button" data-testid={`floor-plan-row-${plan.code.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className={selectedPlanId === plan.id ? "record-row selected" : "record-row"} onClick={() => setSelectedPlanId(plan.id)}>
-              <span><strong>{plan.code}</strong>{plan.name !== plan.code ? ` ${plan.name}` : ""}{plan.squareFeet ? ` ${plan.squareFeet} sq ft` : " No square footage"}</span>
-              <span className={plan.isActive ? "status-chip active" : "status-chip inactive"}>{plan.isActive ? "Active" : "Archived"}</span>
+              <span><strong>{plan.code}</strong>{plan.name !== plan.code ? ` ${plan.name}` : ""}{plan.squareFeet ? ` ${plan.squareFeet} ${isSpanish ? "pies²" : "sq ft"}` : isSpanish ? " Sin metraje" : " No square footage"}</span>
+              <span className={plan.isActive ? "status-chip active" : "status-chip inactive"}>{plan.isActive ? (isSpanish ? "Activo" : "Active") : (isSpanish ? "Archivado" : "Archived")}</span>
             </button>
           ))}
         </div>
         {selectedPlan ? (
           <div className="editor-block">
-            <label>Code<input data-testid="floor-plan-edit-code" value={planDraft.code} onChange={(event) => setPlanDraft((current) => ({ ...current, code: event.target.value }))} /></label>
-            <label>Name<input data-testid="floor-plan-edit-name" value={planDraft.name} onChange={(event) => setPlanDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-            <label>Beds<input type="number" value={planDraft.bedrooms} onChange={(event) => setPlanDraft((current) => ({ ...current, bedrooms: event.target.value }))} /></label>
-            <label>Baths<input type="number" step="0.5" value={planDraft.bathrooms} onChange={(event) => setPlanDraft((current) => ({ ...current, bathrooms: event.target.value }))} /></label>
-            <label>Sq ft<input type="number" value={planDraft.squareFeet} onChange={(event) => setPlanDraft((current) => ({ ...current, squareFeet: event.target.value }))} /></label>
-            <label className="span-full">Description<input data-testid="floor-plan-edit-description" value={planDraft.description} onChange={(event) => setPlanDraft((current) => ({ ...current, description: event.target.value }))} /></label>
+            <label>{isSpanish ? "Código" : "Code"}<input data-testid="floor-plan-edit-code" value={planDraft.code} onChange={(event) => setPlanDraft((current) => ({ ...current, code: event.target.value }))} /></label>
+            <label>{isSpanish ? "Nombre" : "Name"}<input data-testid="floor-plan-edit-name" value={planDraft.name} onChange={(event) => setPlanDraft((current) => ({ ...current, name: event.target.value }))} /></label>
+            <label>{isSpanish ? "Recámaras" : "Beds"}<input type="number" value={planDraft.bedrooms} onChange={(event) => setPlanDraft((current) => ({ ...current, bedrooms: event.target.value }))} /></label>
+            <label>{isSpanish ? "Baños" : "Baths"}<input type="number" step="0.5" value={planDraft.bathrooms} onChange={(event) => setPlanDraft((current) => ({ ...current, bathrooms: event.target.value }))} /></label>
+            <label>{isSpanish ? "Pies²" : "Sq ft"}<input type="number" value={planDraft.squareFeet} onChange={(event) => setPlanDraft((current) => ({ ...current, squareFeet: event.target.value }))} /></label>
+            <label className="span-full">{isSpanish ? "Descripción" : "Description"}<input data-testid="floor-plan-edit-description" value={planDraft.description} onChange={(event) => setPlanDraft((current) => ({ ...current, description: event.target.value }))} /></label>
             <div className="admin-actions span-full">
-              <button data-testid="floor-plan-save" className="button button-primary" onClick={() => void onUpdateFloorPlan(selectedPlan.id, { code: planDraft.code.trim(), name: planDraft.name.trim() || planDraft.code.trim(), bedrooms: numberOrNull(planDraft.bedrooms), bathrooms: numberOrNull(planDraft.bathrooms), squareFeet: numberOrNull(planDraft.squareFeet), description: planDraft.description || null })}>Save</button>
-              <button data-testid={selectedPlan.isActive ? "floor-plan-archive" : "floor-plan-restore"} className="button button-secondary" onClick={() => void onArchiveFloorPlan(selectedPlan.id, selectedPlan.isActive)}>{selectedPlan.isActive ? "Archive" : "Restore"}</button>
+              <button data-testid="floor-plan-save" className="button button-primary" onClick={() => void onUpdateFloorPlan(selectedPlan.id, { code: planDraft.code.trim(), name: planDraft.name.trim() || planDraft.code.trim(), bedrooms: numberOrNull(planDraft.bedrooms), bathrooms: numberOrNull(planDraft.bathrooms), squareFeet: numberOrNull(planDraft.squareFeet), description: planDraft.description || null })}>{isSpanish ? "Guardar" : "Save"}</button>
+              <button data-testid={selectedPlan.isActive ? "floor-plan-archive" : "floor-plan-restore"} className="button button-secondary" onClick={() => void onArchiveFloorPlan(selectedPlan.id, selectedPlan.isActive)}>{selectedPlan.isActive ? (isSpanish ? "Archivar" : "Archive") : (isSpanish ? "Restaurar" : "Restore")}</button>
             </div>
           </div>
         ) : null}
@@ -427,25 +430,25 @@ export function BoardConfigurationPanel({
 
       <article className="operations-card" data-testid="column-label-management">
         <div className="admin-section-head">
-          <h3>Column Labels</h3>
-          <span className="subtitle">Display names only; keys remain stable</span>
+          <h3>{isSpanish ? "Etiquetas de columnas" : "Column Labels"}</h3>
+          <span className="subtitle">{isSpanish ? "Solo nombres visibles; las claves permanecen estables" : "Display names only; keys remain stable"}</span>
         </div>
-        <label className="config-field">Built-in field
+        <label className="config-field">{isSpanish ? "Campo integrado" : "Built-in field"}
           <select data-testid="column-config-key" value={selectedColumnKey} onChange={(event) => setSelectedColumnKey(event.target.value)}>
             {columns.map((column) => <option key={column.fieldKey} value={column.fieldKey}>{column.fieldKey}</option>)}
           </select>
         </label>
-        <label className="config-field">Display name
+        <label className="config-field">{isSpanish ? "Nombre visible" : "Display name"}
           <input data-testid="column-config-label" value={columnLabel} onChange={(event) => setColumnLabel(event.target.value)} />
         </label>
-        <button data-testid="column-config-save" className="button button-primary" disabled={!columnLabel.trim()} onClick={() => void onUpdateColumn(selectedColumnKey, columnLabel.trim())}>Save Display Name</button>
-        <p className="helper-copy">Saved views, imports, and automations continue to bind by the unchanged internal field key.</p>
+        <button data-testid="column-config-save" className="button button-primary" disabled={!columnLabel.trim()} onClick={() => void onUpdateColumn(selectedColumnKey, columnLabel.trim())}>{isSpanish ? "Guardar nombre visible" : "Save Display Name"}</button>
+        <p className="helper-copy">{isSpanish ? "Las vistas guardadas, importaciones y automatizaciones siguen vinculándose por la clave interna sin cambios." : "Saved views, imports, and automations continue to bind by the unchanged internal field key."}</p>
       </article>
 
       <article className="operations-card" data-testid="schedule-track-management">
         <div className="admin-section-head">
-          <h3>Schedule Tracks</h3>
-          <span className="subtitle">Calendar fields and color basis</span>
+          <h3>{isSpanish ? "Carriles de calendario" : "Schedule Tracks"}</h3>
+          <span className="subtitle">{isSpanish ? "Campos de calendario y base de color" : "Calendar fields and color basis"}</span>
         </div>
         <div className="schedule-track-presets" data-testid="schedule-track-presets">
           {schedulePresets.map((preset) => {
@@ -453,7 +456,7 @@ export function BoardConfigurationPanel({
             const colorSourceExists = !preset.colorSourceField || scheduleColorSources.some((source) => source.key === preset.colorSourceField);
             const alreadyConfigured = configuredSources.has(preset.sourceField);
             const disabled = loading || !sourceExists || !colorSourceExists || alreadyConfigured;
-            const note = alreadyConfigured ? "Already configured" : !sourceExists ? "Date field missing" : !colorSourceExists ? "Color field missing" : "Create preset";
+            const note = alreadyConfigured ? (isSpanish ? "Ya configurado" : "Already configured") : !sourceExists ? (isSpanish ? "Falta el campo de fecha" : "Date field missing") : !colorSourceExists ? (isSpanish ? "Falta el campo de color" : "Color field missing") : (isSpanish ? "Crear preajuste" : "Create preset");
 
             return (
               <button
@@ -481,20 +484,20 @@ export function BoardConfigurationPanel({
             const source = scheduleSources.find((candidate) => candidate.key === event.target.value);
             setNewTrack((current) => ({ ...current, sourceField: event.target.value, displayName: source?.label ?? current.displayName }));
           }} required>
-            <option value="">Date field</option>
+            <option value="">{isSpanish ? "Campo de fecha" : "Date field"}</option>
             {scheduleSources.filter((source) => !configuredSources.has(source.key)).map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}
           </select>
-          <input data-testid="schedule-track-create-name" placeholder="Track name" value={newTrack.displayName} onChange={(event) => setNewTrack((current) => ({ ...current, displayName: event.target.value }))} required />
+          <input data-testid="schedule-track-create-name" placeholder={isSpanish ? "Nombre del carril" : "Track name"} value={newTrack.displayName} onChange={(event) => setNewTrack((current) => ({ ...current, displayName: event.target.value }))} required />
           <select data-testid="schedule-track-create-basis" value={newTrack.colorBasis} onChange={(event) => setNewTrack((current) => ({ ...current, colorBasis: event.target.value as ScheduleTrack["colorBasis"] }))}>
-            <option value="STATUS">Status color</option>
-            <option value="SCOPE">Scope color</option>
-            <option value="FIELD">Selected field color</option>
-            <option value="FIXED">Fixed color</option>
-            <option value="NEUTRAL">Neutral</option>
+            <option value="STATUS">{isSpanish ? "Color por estado" : "Status color"}</option>
+            <option value="SCOPE">{isSpanish ? "Color por alcance" : "Scope color"}</option>
+            <option value="FIELD">{isSpanish ? "Color del campo seleccionado" : "Selected field color"}</option>
+            <option value="FIXED">{isSpanish ? "Color fijo" : "Fixed color"}</option>
+            <option value="NEUTRAL">{isSpanish ? "Neutro" : "Neutral"}</option>
           </select>
-          {newTrack.colorBasis === "FIELD" ? <select data-testid="schedule-track-create-color-source" value={newTrack.colorSourceField ?? ""} onChange={(event) => setNewTrack((current) => ({ ...current, colorSourceField: event.target.value || null }))} required><option value="">Color field</option>{scheduleColorSources.map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}</select> : null}
+          {newTrack.colorBasis === "FIELD" ? <select data-testid="schedule-track-create-color-source" value={newTrack.colorSourceField ?? ""} onChange={(event) => setNewTrack((current) => ({ ...current, colorSourceField: event.target.value || null }))} required><option value="">{isSpanish ? "Campo de color" : "Color field"}</option>{scheduleColorSources.map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}</select> : null}
           {newTrack.colorBasis === "FIXED" ? <input data-testid="schedule-track-create-color" type="color" value={newTrack.fixedColor} onChange={(event) => setNewTrack((current) => ({ ...current, fixedColor: event.target.value }))} /> : null}
-          <button data-testid="schedule-track-create-submit" className="button button-primary" disabled={!newTrack.sourceField || !newTrack.displayName.trim()}>Add Track</button>
+          <button data-testid="schedule-track-create-submit" className="button button-primary" disabled={!newTrack.sourceField || !newTrack.displayName.trim()}>{isSpanish ? "Agregar carril" : "Add Track"}</button>
         </form>
         <div className="option-list">
           {scheduleTracks.map((track, index) => (
@@ -502,20 +505,20 @@ export function BoardConfigurationPanel({
               <button data-testid={`schedule-track-row-${track.sourceField.replace(/[^a-zA-Z0-9]+/g, "-")}`} className="option-pick" onClick={() => setSelectedTrackId(track.id)}>
                 <strong>{track.displayName}</strong><small>{track.sourceField} / {track.colorBasis}{track.isArchived ? " / Archived" : track.isEnabled ? "" : " / Disabled"}</small>
               </button>
-              <button className="icon-button" aria-label="Move track up" disabled={index === 0} onClick={() => void moveTrack(track.id, -1)}>↑</button>
-              <button className="icon-button" aria-label="Move track down" disabled={index === scheduleTracks.length - 1} onClick={() => void moveTrack(track.id, 1)}>↓</button>
+              <button className="icon-button" aria-label={isSpanish ? "Mover carril hacia arriba" : "Move track up"} disabled={index === 0} onClick={() => void moveTrack(track.id, -1)}>↑</button>
+              <button className="icon-button" aria-label={isSpanish ? "Mover carril hacia abajo" : "Move track down"} disabled={index === scheduleTracks.length - 1} onClick={() => void moveTrack(track.id, 1)}>↓</button>
             </div>
           ))}
         </div>
         {selectedTrack ? (
           <div className="editor-block">
-            <label>Date source<select data-testid="schedule-track-edit-source" value={trackDraft.sourceField} onChange={(event) => setTrackDraft((current) => ({ ...current, sourceField: event.target.value }))}>{scheduleSources.filter((source) => source.key === selectedTrack.sourceField || !configuredSources.has(source.key)).map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}</select></label>
-            <label>Name<input data-testid="schedule-track-edit-name" value={trackDraft.displayName} onChange={(event) => setTrackDraft((current) => ({ ...current, displayName: event.target.value }))} /></label>
-            <label>Colors<select data-testid="schedule-track-edit-basis" value={trackDraft.colorBasis} onChange={(event) => setTrackDraft((current) => ({ ...current, colorBasis: event.target.value as ScheduleTrack["colorBasis"] }))}><option value="STATUS">Status color</option><option value="SCOPE">Scope color</option><option value="FIELD">Selected field color</option><option value="FIXED">Fixed color</option><option value="NEUTRAL">Neutral</option></select></label>
-            {trackDraft.colorBasis === "FIELD" ? <label>Color field<select data-testid="schedule-track-edit-color-source" value={trackDraft.colorSourceField ?? ""} onChange={(event) => setTrackDraft((current) => ({ ...current, colorSourceField: event.target.value || null }))}>{scheduleColorSources.map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}</select></label> : null}
-            {trackDraft.colorBasis === "FIXED" ? <label>Fixed color<input data-testid="schedule-track-edit-color" type="color" value={trackDraft.fixedColor} onChange={(event) => setTrackDraft((current) => ({ ...current, fixedColor: event.target.value }))} /></label> : null}
-            <label>Grouping<select data-testid="schedule-track-edit-grouping" value={trackDraft.groupingMode} onChange={(event) => setTrackDraft((current) => ({ ...current, groupingMode: event.target.value as ScheduleTrack["groupingMode"] }))}><option value="NONE">No grouping</option><option value="PROPERTY">Property</option><option value="BOARD_GROUP">Board section</option></select></label>
-            <label className="span-full">Visible sections
+            <label>{isSpanish ? "Fuente de fecha" : "Date source"}<select data-testid="schedule-track-edit-source" value={trackDraft.sourceField} onChange={(event) => setTrackDraft((current) => ({ ...current, sourceField: event.target.value }))}>{scheduleSources.filter((source) => source.key === selectedTrack.sourceField || !configuredSources.has(source.key)).map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}</select></label>
+            <label>{isSpanish ? "Nombre" : "Name"}<input data-testid="schedule-track-edit-name" value={trackDraft.displayName} onChange={(event) => setTrackDraft((current) => ({ ...current, displayName: event.target.value }))} /></label>
+            <label>{isSpanish ? "Colores" : "Colors"}<select data-testid="schedule-track-edit-basis" value={trackDraft.colorBasis} onChange={(event) => setTrackDraft((current) => ({ ...current, colorBasis: event.target.value as ScheduleTrack["colorBasis"] }))}><option value="STATUS">{isSpanish ? "Color por estado" : "Status color"}</option><option value="SCOPE">{isSpanish ? "Color por alcance" : "Scope color"}</option><option value="FIELD">{isSpanish ? "Color del campo seleccionado" : "Selected field color"}</option><option value="FIXED">{isSpanish ? "Color fijo" : "Fixed color"}</option><option value="NEUTRAL">{isSpanish ? "Neutro" : "Neutral"}</option></select></label>
+            {trackDraft.colorBasis === "FIELD" ? <label>{isSpanish ? "Campo de color" : "Color field"}<select data-testid="schedule-track-edit-color-source" value={trackDraft.colorSourceField ?? ""} onChange={(event) => setTrackDraft((current) => ({ ...current, colorSourceField: event.target.value || null }))}>{scheduleColorSources.map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}</select></label> : null}
+            {trackDraft.colorBasis === "FIXED" ? <label>{isSpanish ? "Color fijo" : "Fixed color"}<input data-testid="schedule-track-edit-color" type="color" value={trackDraft.fixedColor} onChange={(event) => setTrackDraft((current) => ({ ...current, fixedColor: event.target.value }))} /></label> : null}
+            <label>{isSpanish ? "Agrupación" : "Grouping"}<select data-testid="schedule-track-edit-grouping" value={trackDraft.groupingMode} onChange={(event) => setTrackDraft((current) => ({ ...current, groupingMode: event.target.value as ScheduleTrack["groupingMode"] }))}><option value="NONE">{isSpanish ? "Sin agrupación" : "No grouping"}</option><option value="PROPERTY">{isSpanish ? "Propiedad" : "Property"}</option><option value="BOARD_GROUP">{isSpanish ? "Sección del tablero" : "Board section"}</option></select></label>
+            <label className="span-full">{isSpanish ? "Secciones visibles" : "Visible sections"}
               <select
                 multiple
                 data-testid="schedule-track-edit-visible-groups"
@@ -532,11 +535,11 @@ export function BoardConfigurationPanel({
                 ))}
               </select>
             </label>
-            <label className="toggle-row"><input data-testid="schedule-track-edit-overdue" type="checkbox" checked={trackDraft.overdueEnabled} onChange={(event) => setTrackDraft((current) => ({ ...current, overdueEnabled: event.target.checked }))} /> Flag overdue</label>
-            <label className="toggle-row"><input data-testid="schedule-track-edit-soon" type="checkbox" checked={trackDraft.moveInSoonEnabled} onChange={(event) => setTrackDraft((current) => ({ ...current, moveInSoonEnabled: event.target.checked }))} /> Flag move-in soon</label>
-            <label className="toggle-row"><input data-testid="schedule-track-edit-enabled" type="checkbox" checked={trackDraft.isEnabled} onChange={(event) => setTrackDraft((current) => ({ ...current, isEnabled: event.target.checked }))} /> Enabled</label>
-            <button data-testid="schedule-track-save" className="button button-primary span-full" onClick={() => void onUpdateScheduleTrack(selectedTrack.id, { ...trackDraft, colorSourceField: trackDraft.colorBasis === "FIELD" ? trackDraft.colorSourceField : null, fixedColor: trackDraft.colorBasis === "FIXED" ? trackDraft.fixedColor : null })}>Save Track</button>
-            <button data-testid={selectedTrack.isArchived ? "schedule-track-restore" : "schedule-track-archive"} className="button button-secondary span-full" onClick={() => void onArchiveScheduleTrack(selectedTrack.id, selectedTrack.isArchived)}>{selectedTrack.isArchived ? "Restore Track" : "Archive Track"}</button>
+            <label className="toggle-row"><input data-testid="schedule-track-edit-overdue" type="checkbox" checked={trackDraft.overdueEnabled} onChange={(event) => setTrackDraft((current) => ({ ...current, overdueEnabled: event.target.checked }))} /> {isSpanish ? "Marcar vencidos" : "Flag overdue"}</label>
+            <label className="toggle-row"><input data-testid="schedule-track-edit-soon" type="checkbox" checked={trackDraft.moveInSoonEnabled} onChange={(event) => setTrackDraft((current) => ({ ...current, moveInSoonEnabled: event.target.checked }))} /> {isSpanish ? "Marcar próximo move-in" : "Flag move-in soon"}</label>
+            <label className="toggle-row"><input data-testid="schedule-track-edit-enabled" type="checkbox" checked={trackDraft.isEnabled} onChange={(event) => setTrackDraft((current) => ({ ...current, isEnabled: event.target.checked }))} /> {isSpanish ? "Habilitado" : "Enabled"}</label>
+            <button data-testid="schedule-track-save" className="button button-primary span-full" onClick={() => void onUpdateScheduleTrack(selectedTrack.id, { ...trackDraft, colorSourceField: trackDraft.colorBasis === "FIELD" ? trackDraft.colorSourceField : null, fixedColor: trackDraft.colorBasis === "FIXED" ? trackDraft.fixedColor : null })}>{isSpanish ? "Guardar carril" : "Save Track"}</button>
+            <button data-testid={selectedTrack.isArchived ? "schedule-track-restore" : "schedule-track-archive"} className="button button-secondary span-full" onClick={() => void onArchiveScheduleTrack(selectedTrack.id, selectedTrack.isArchived)}>{selectedTrack.isArchived ? (isSpanish ? "Restaurar carril" : "Restore Track") : (isSpanish ? "Archivar carril" : "Archive Track")}</button>
           </div>
         ) : null}
       </article>
