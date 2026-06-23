@@ -485,6 +485,32 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
     return { issueType };
   });
 
+  app.delete("/lease-compliance/issue-types/:id", async (request, reply) => {
+    if (!requireLeaseComplianceAccess(request, reply, "admin")) return;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.leaseComplianceIssueType.findUnique({ where: { id } });
+    if (!existing) throw Object.assign(new Error("Lease Compliance issue type not found"), { statusCode: 404 });
+    await assertPropertyAccess(request, existing.propertyId);
+    if (existing.isActive) {
+      return reply.code(400).send({ message: "Archive or deactivate the issue type before deleting it permanently" });
+    }
+    const linkedIssueCount = await prisma.leaseComplianceIssue.count({ where: { issueTypeId: id } });
+    if (linkedIssueCount > 0) {
+      return reply.code(409).send({ message: "Cannot permanently delete an issue type that is still linked to lease compliance issues" });
+    }
+    await prisma.leaseComplianceIssueType.delete({ where: { id } });
+    await writeAuditLog({
+      request,
+      actorUserId: request.currentUser!.id,
+      propertyId: existing.propertyId,
+      entityType: "LEASE_COMPLIANCE_ISSUE_TYPE",
+      entityId: existing.id,
+      action: "LEASE_COMPLIANCE_ISSUE_TYPE_DELETED",
+      message: `Deleted Lease Compliance issue type ${existing.name}`,
+    });
+    return { ok: true };
+  });
+
   app.get("/lease-compliance/issues", async (request, reply) => {
     if (!requireLeaseComplianceAccess(request, reply, "view")) return;
     const query = leaseComplianceIssueQuerySchema.parse(request.query);

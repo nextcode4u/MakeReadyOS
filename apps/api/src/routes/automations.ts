@@ -600,12 +600,39 @@ export async function automationRoutes(app: FastifyInstance) {
     const user = request.currentUser!;
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const existing = await prisma.automationRule.findUnique({ where: { id } });
+    if (!existing) {
+      reply.code(404);
+      return { message: "Automation rule not found" };
+    }
+    if (!(await canChangePropertyRule(request, reply, existing.propertyId))) return;
+    if (!existing.isArchived) {
+      reply.code(400);
+      return { message: "Archive the automation rule before deleting it permanently" };
+    }
+    await prisma.automationRule.delete({ where: { id } });
+    await writeAuditLog({
+      request,
+      actorUserId: user.id,
+      propertyId: existing.propertyId,
+      entityType: "AUTOMATION_RULE",
+      entityId: existing.id,
+      action: "AUTOMATION_RULE_DELETED",
+      message: `Deleted automation rule ${existing.name}`,
+    });
+    return { ok: true };
+  });
+
+  app.post("/automations/:id/archive", async (request, reply) => {
+    if (!(await ensureManager(request, reply))) return;
+    const user = request.currentUser!;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.automationRule.findUnique({ where: { id }, include: ruleInclude });
     if (!existing || existing.isArchived) {
       reply.code(404);
       return { message: "Automation rule not found" };
     }
     if (!(await canChangePropertyRule(request, reply, existing.propertyId))) return;
-    const archived = await prisma.automationRule.update({ where: { id }, data: { enabled: false, isArchived: true } });
+    const archived = await prisma.automationRule.update({ where: { id }, data: { enabled: false, isArchived: true }, include: ruleInclude });
     await writeAuditLog({
       request,
       actorUserId: user.id,
@@ -615,7 +642,30 @@ export async function automationRoutes(app: FastifyInstance) {
       action: "AUTOMATION_RULE_ARCHIVED",
       message: `Archived automation rule ${archived.name}`,
     });
-    return { ok: true };
+    return { rule: serializeRule(archived) };
+  });
+
+  app.post("/automations/:id/restore", async (request, reply) => {
+    if (!(await ensureManager(request, reply))) return;
+    const user = request.currentUser!;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.automationRule.findUnique({ where: { id }, include: ruleInclude });
+    if (!existing || !existing.isArchived) {
+      reply.code(404);
+      return { message: "Archived automation rule not found" };
+    }
+    if (!(await canChangePropertyRule(request, reply, existing.propertyId))) return;
+    const restored = await prisma.automationRule.update({ where: { id }, data: { isArchived: false }, include: ruleInclude });
+    await writeAuditLog({
+      request,
+      actorUserId: user.id,
+      propertyId: restored.propertyId,
+      entityType: "AUTOMATION_RULE",
+      entityId: restored.id,
+      action: "AUTOMATION_RULE_RESTORED",
+      message: `Restored automation rule ${restored.name}`,
+    });
+    return { rule: serializeRule(restored) };
   });
 
   app.get("/automations/runs", async (request, reply) => {

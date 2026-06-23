@@ -6,6 +6,7 @@ import {
   closePestIssue,
   createPestIssue,
   createPestVendor,
+  deletePestVendor,
   deletePestIssueAttachment,
   dismissPestRecurringFlag,
   getPestIssues,
@@ -386,6 +387,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
     description: "",
   });
   const canEdit = ["ADMIN", "MANAGER", "TECH", "LEASING"].includes(userRole);
+  const canAdmin = userRole === "ADMIN";
   const canView = ["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "VIEWER"].includes(userRole);
 
   useEffect(() => {
@@ -485,6 +487,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
   const dismissRecurringMutation = useMutation({ mutationFn: ({ id, notes }: { id: string; notes: string }) => dismissPestRecurringFlag(id, notes), onSuccess: invalidate });
   const vendorCreateMutation = useMutation({ mutationFn: createPestVendor, onSuccess: invalidate });
   const vendorUpdateMutation = useMutation({ mutationFn: ({ id, input }: { id: string; input: Partial<Parameters<typeof createPestVendor>[0]> }) => updatePestVendor(id, input), onSuccess: invalidate });
+  const vendorDeleteMutation = useMutation({ mutationFn: deletePestVendor, onSuccess: invalidate });
   const uploadMutation = useMutation({
     mutationFn: async ({ issueId, file }: { issueId: string; file: File }) => {
       try {
@@ -1119,6 +1122,24 @@ export function PestControlPanel({ properties, units, users, userRole, language,
                       {canEdit ? (
                         <div className="pool-entry-actions">
                           <button className="button button-secondary" type="button" onClick={() => vendorUpdateMutation.mutate({ id: vendor.id, input: { isActive: true } })}>{t(language, "pest.activate")}</button>
+                          {canAdmin ? (
+                            <button
+                              className="button button-danger"
+                              type="button"
+                              disabled={vendorDeleteMutation.isPending}
+                              onClick={() => {
+                                const confirmed = window.confirm(
+                                  language === "es"
+                                    ? `Eliminar permanentemente ${vendor.vendorName}? Solo funciona cuando el proveedor inactivo ya no está vinculado a casos de plagas.`
+                                    : `Permanently delete ${vendor.vendorName}? This only works when the inactive vendor is no longer linked to any pest issues.`,
+                                );
+                                if (!confirmed) return;
+                                vendorDeleteMutation.mutate(vendor.id);
+                              }}
+                            >
+                              {language === "es" ? "Eliminar permanente" : "Delete Permanently"}
+                            </button>
+                          ) : null}
                         </div>
                       ) : null}
                     </article>

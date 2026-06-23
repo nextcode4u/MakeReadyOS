@@ -31,6 +31,8 @@ import {
   propertyMapFileUrl,
   propertyMapPrintableReportUrl,
   removePropertyMapPin,
+  restorePropertyMapPin,
+  deletePropertyMapPin,
   deletePropertyMapPinAttachment,
   updatePropertyMapPin,
   uploadPropertyMapPinAttachment,
@@ -96,6 +98,8 @@ type Props = {
     floor?: string | null;
   }) => Promise<void>;
   onRemoveLocation: (id: string) => Promise<void>;
+  onRestoreLocation: (id: string) => Promise<void>;
+  onDeleteLocation: (id: string) => Promise<void>;
   onCreateArea: (input: {
     propertyId: string;
     mapId: string;
@@ -118,6 +122,8 @@ type Props = {
     isArchived: boolean;
   }>) => Promise<void>;
   onRemoveArea: (id: string) => Promise<void>;
+  onRestoreArea: (id: string) => Promise<void>;
+  onDeleteArea: (id: string) => Promise<void>;
   onOpenItem: (itemId: string) => void;
 };
 
@@ -126,6 +132,10 @@ type SelectedMarker =
   | { kind: "area"; area: PropertyMapArea }
   | { kind: "pin"; pin: PropertyMapPin }
   | { kind: "project"; record: ProjectRecord };
+type DeleteArchivedTarget =
+  | { kind: "pin"; id: string; name: string }
+  | { kind: "area"; id: string; name: string }
+  | { kind: "location"; id: string; name: string };
 
 const riskColors: Record<string, string> = {
   NONE: "#8a93a6",
@@ -299,15 +309,20 @@ export function PropertyMapsPanel({
   onUploadMap,
   onSaveLocation,
   onRemoveLocation,
+  onRestoreLocation,
+  onDeleteLocation,
   onCreateArea,
   onUpdateArea,
   onRemoveArea,
+  onRestoreArea,
+  onDeleteArea,
   onOpenItem,
 }: Props) {
   const queryClient = useQueryClient();
   const isSpanish = language === "es";
   const [localPropertyId, setLocalPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const [showDeleteMapConfirm, setShowDeleteMapConfirm] = useState(false);
+  const [deleteArchivedTarget, setDeleteArchivedTarget] = useState<DeleteArchivedTarget | null>(null);
   const propertyId = selectedPropertyId || localPropertyId;
   const property = properties.find((entry) => entry.id === propertyId);
   const propertyMaps = maps.filter((map) => map.propertyId === propertyId);
@@ -402,13 +417,15 @@ export function PropertyMapsPanel({
   }, [items, propertyId]);
 
   const mapLocations = locations.filter((location) => location.mapId === selectedMap?.id && !location.isArchived);
+  const archivedMapLocations = locations.filter((location) => location.mapId === selectedMap?.id && location.isArchived);
   const mapAreas = areas.filter((area) => area.mapId === selectedMap?.id && !area.isArchived);
+  const archivedMapAreas = areas.filter((area) => area.mapId === selectedMap?.id && area.isArchived);
   const locationByUnit = useMemo(() => new Map(mapLocations.map((location) => [location.unitId, location])), [mapLocations]);
   const unmappedUnits = propertyUnits.filter((unit) => !locationByUnit.has(unit.id));
 
   const pinsQuery = useQuery({
     queryKey: ["property-map-pins", propertyId, selectedMap?.id],
-    queryFn: () => getPropertyMapPins({ propertyId, mapId: selectedMap?.id ?? undefined }),
+    queryFn: () => getPropertyMapPins({ propertyId, mapId: selectedMap?.id ?? undefined, includeArchived: true }),
     enabled: Boolean(propertyId && selectedMap?.id),
   });
   const projectPinsQuery = useQuery({
@@ -456,6 +473,19 @@ export function PropertyMapsPanel({
       setSelectedMarker(null);
     },
   });
+  const pinRestoreMutation = useMutation({
+    mutationFn: restorePropertyMapPin,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["property-map-pins"] });
+    },
+  });
+  const pinDeleteMutation = useMutation({
+    mutationFn: deletePropertyMapPin,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["property-map-pins"] });
+      setSelectedMarker(null);
+    },
+  });
   const pinAttachmentUploadMutation = useMutation({
     mutationFn: ({ pinId, file }: { pinId: string; file: File }) => uploadPropertyMapPinAttachment(pinId, file),
     onSuccess: async () => {
@@ -474,7 +504,9 @@ export function PropertyMapsPanel({
   const leaseIssues = leaseQuery.data?.issues ?? [];
   const pmTasks = pmQuery.data?.tasks ?? [];
   const projectRecords = (projectPinsQuery.data?.records ?? []).filter((record) => record.propertyMapId === selectedMap?.id && record.pinX !== null && record.pinY !== null);
-  const customPins = pinsQuery.data?.pins ?? [];
+  const allCustomPins = pinsQuery.data?.pins ?? [];
+  const customPins = allCustomPins.filter((pin) => !pin.isArchived);
+  const archivedCustomPins = allCustomPins.filter((pin) => pin.isArchived);
 
   const buildingSummaries = useMemo(() => {
     const summaries = new Map<string, { key: string; label: string; units: Unit[]; mapped: number; unmapped: number; x: number | null; y: number | null }>();
@@ -1975,6 +2007,56 @@ export function PropertyMapsPanel({
               <span>{isSpanish ? "Unidades sin mapear" : "Unmapped units"}</span>
             </article>
           </div>
+          {archivedCustomPins.length || archivedMapAreas.length || archivedMapLocations.length ? (
+            <div className="pool-archived-list" style={{ marginTop: 16 }}>
+              <h3>{isSpanish ? "Archivados en este mapa" : "Archived On This Map"}</h3>
+              {archivedCustomPins.length ? (
+                <div className="pool-card" style={{ padding: 12 }}>
+                  <strong>{isSpanish ? "Pins archivados" : "Archived Pins"}</strong>
+                  <div className="pool-attachment-list">
+                    {archivedCustomPins.map((pin) => (
+                      <span key={`archived-pin-${pin.id}`} style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <strong>{pin.title}</strong>
+                        <span className="muted">{pin.pinType}{pin.building ? ` / ${pin.building}` : ""}</span>
+                        {canManage ? <button className="button button-secondary" type="button" onClick={() => void pinRestoreMutation.mutateAsync(pin.id)}>{isSpanish ? "Restaurar" : "Restore"}</button> : null}
+                        {canManage ? <button className="button button-danger" type="button" onClick={() => setDeleteArchivedTarget({ kind: "pin", id: pin.id, name: pin.title })}>{isSpanish ? "Eliminar" : "Delete"}</button> : null}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {archivedMapAreas.length ? (
+                <div className="pool-card" style={{ padding: 12 }}>
+                  <strong>{isSpanish ? "Áreas archivadas" : "Archived Areas"}</strong>
+                  <div className="pool-attachment-list">
+                    {archivedMapAreas.map((area) => (
+                      <span key={`archived-area-${area.id}`} style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <strong>{area.name}</strong>
+                        <span className="muted">{area.areaType}</span>
+                        {canManage ? <button className="button button-secondary" type="button" onClick={() => void onRestoreArea(area.id)}>{isSpanish ? "Restaurar" : "Restore"}</button> : null}
+                        {canManage ? <button className="button button-danger" type="button" onClick={() => setDeleteArchivedTarget({ kind: "area", id: area.id, name: area.name })}>{isSpanish ? "Eliminar" : "Delete"}</button> : null}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {archivedMapLocations.length ? (
+                <div className="pool-card" style={{ padding: 12 }}>
+                  <strong>{isSpanish ? "Ubicaciones archivadas" : "Archived Unit Placements"}</strong>
+                  <div className="pool-attachment-list">
+                    {archivedMapLocations.map((location) => (
+                      <span key={`archived-location-${location.id}`} style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <strong>{displayUnitNumber(location.unit.property.code, location.unit.number)}</strong>
+                        <span className="muted">{[location.building, location.area, location.floor].filter(Boolean).join(" / ") || (isSpanish ? "Sin detalle" : "No detail")}</span>
+                        {canManage ? <button className="button button-secondary" type="button" onClick={() => void onRestoreLocation(location.id)}>{isSpanish ? "Restaurar" : "Restore"}</button> : null}
+                        {canManage ? <button className="button button-danger" type="button" onClick={() => setDeleteArchivedTarget({ kind: "location", id: location.id, name: displayUnitNumber(location.unit.property.code, location.unit.number) })}>{isSpanish ? "Eliminar" : "Delete"}</button> : null}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
       <ConfirmDialog
@@ -1995,6 +2077,28 @@ export function PropertyMapsPanel({
           setShowDeleteMapConfirm(false);
           setSelectedMapId("");
           setSelectedMarker(null);
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(deleteArchivedTarget)}
+        title={isSpanish ? "Eliminar elemento archivado del mapa" : "Delete archived map item"}
+        description={isSpanish
+          ? `Eliminar permanentemente ${deleteArchivedTarget?.name ?? "este elemento"}? Esta acción no se puede deshacer.`
+          : `Permanently delete ${deleteArchivedTarget?.name ?? "this item"}? This action cannot be undone.`}
+        confirmLabel={isSpanish ? "Eliminar" : "Delete"}
+        language={language}
+        tone="danger"
+        onClose={() => setDeleteArchivedTarget(null)}
+        onConfirm={async () => {
+          if (!deleteArchivedTarget) return;
+          if (deleteArchivedTarget.kind === "pin") {
+            await pinDeleteMutation.mutateAsync(deleteArchivedTarget.id);
+          } else if (deleteArchivedTarget.kind === "area") {
+            await onDeleteArea(deleteArchivedTarget.id);
+          } else {
+            await onDeleteLocation(deleteArchivedTarget.id);
+          }
+          setDeleteArchivedTarget(null);
         }}
       />
     </section>

@@ -1165,6 +1165,29 @@
   flex-wrap: wrap;
   gap: .55rem;
 }
+.assigned-work-groups {
+  display: grid;
+  gap: .85rem;
+}
+.assigned-work-group {
+  display: grid;
+  gap: .65rem;
+}
+.assigned-work-group-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: .55rem;
+  align-items: end;
+}
+.assigned-work-group-header h3,
+.assigned-work-group-header p {
+  margin: 0;
+}
+.assigned-work-group-header p {
+  color: var(--text-muted);
+  font-size: .76rem;
+}
 .my-work-quick-status {
   display: grid;
   min-width: min(100%, 12rem);
@@ -10938,12 +10961,30 @@ textarea {
 }
 
 .projects-detail-form {
+  display: grid;
   gap: 0.6rem;
+  width: 100%;
+}
+
+.projects-detail-form label {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.projects-detail-form input,
+.projects-detail-form select,
+.projects-detail-form textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .projects-detail-compact-grid {
+  display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   gap: 0.55rem 0.75rem;
+  align-items: start;
 }
 
 .projects-detail-list {
@@ -10967,6 +11008,10 @@ textarea {
 .projects-detail-list-copy {
   display: grid;
   gap: 0.18rem;
+}
+
+.projects-detail-card .pool-entry-actions {
+  min-width: 0;
 }
 
 .projects-detail-history-item strong {
@@ -11003,13 +11048,16 @@ textarea {
   overflow: hidden;
   background: var(--panel-2);
   display: grid;
+  place-items: center;
 }
 
 .projects-capture-preview img {
   width: 100%;
   height: 170px;
   object-fit: contain;
+  object-position: center center;
   display: block;
+  margin: 0 auto;
   background: color-mix(in srgb, var(--panel) 82%, black);
 }
 
@@ -11295,6 +11343,16 @@ textarea {
   overflow: hidden;
   background: var(--panel-2);
   display: grid;
+  align-items: stretch;
+}
+
+.projects-photo-preview-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
 }
 
 .projects-photo-card img,
@@ -11302,7 +11360,9 @@ textarea {
   width: 100%;
   height: 160px;
   object-fit: contain;
+  object-position: center center;
   display: block;
+  margin: 0 auto;
   background: color-mix(in srgb, var(--panel) 82%, black);
 }
 
@@ -11317,6 +11377,9 @@ textarea {
   display: grid;
   gap: 0.25rem;
   padding: 0.7rem;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .projects-photo-meta span,
@@ -11329,11 +11392,19 @@ textarea {
   display: grid;
   gap: 0.45rem;
   margin-top: 0.35rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .projects-attachment-editor input,
 .projects-attachment-editor select {
   min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.projects-attachment-editor .pool-entry-actions {
+  flex-wrap: wrap;
 }
 
 @media (max-width: 1100px) {
@@ -11861,8 +11932,7 @@ textarea {
 .lease-issue-grid {
   display: grid;
   gap: 0.8rem;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 36rem));
-  justify-content: start;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
 }
 
@@ -11871,7 +11941,7 @@ textarea {
   gap: 0.8rem;
   align-content: start;
   width: 100%;
-  max-width: 36rem;
+  max-width: none;
 }
 
 .lease-issue-summary {
@@ -11959,14 +12029,17 @@ textarea {
 
 .lease-issue-toolbar {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.5rem;
   padding: 0.55rem 0;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
+  align-items: start;
 }
 
 .lease-issue-toolbar-actions {
   align-items: flex-start;
+  justify-content: flex-end;
 }
 
 .lease-issue-details-body {
@@ -11977,7 +12050,7 @@ textarea {
 
 .issue-detail-shell {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1.45fr) minmax(18rem, 24rem);
   gap: 0.65rem;
   align-items: start;
 }
@@ -11994,7 +12067,15 @@ textarea {
 .lease-issue-note-grid {
   display: grid;
   gap: 0.5rem;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  align-items: start;
+}
+
+.lease-issue-edit-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lease-issue-note-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .lease-issue-edit-grid label,
@@ -12020,6 +12101,9 @@ textarea {
 
 .lease-issue-card .activity-feed {
   gap: 0.45rem;
+  max-height: 11.5rem;
+  overflow: auto;
+  padding-right: 0.15rem;
 }
 
 .lease-issue-card .activity-entry {
@@ -12033,6 +12117,10 @@ textarea {
 .lease-issue-card .property-wiki-workflow,
 .pest-issue-card .property-wiki-workflow {
   margin-top: 0;
+}
+
+.lease-issue-card .property-wiki-workflow .wiki-workflow-related-grid {
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
 }
 
 .pool-reading-stack {
@@ -12394,6 +12482,18 @@ textarea {
   .pm-quick-filters button {
     flex: 1 1 calc(50% - 0.45rem);
     text-align: center;
+  }
+}
+
+@media (max-width: 1080px) {
+  .lease-issue-toolbar,
+  .issue-detail-shell,
+  .lease-issue-note-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lease-issue-toolbar-actions {
+    justify-content: flex-start;
   }
 }
 

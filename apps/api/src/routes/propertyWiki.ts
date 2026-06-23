@@ -480,6 +480,7 @@ export const assetMetadataSchema = z.object({
   description: z.string().nullable().optional(),
   tags: z.union([z.array(z.string()), z.string()]).optional(),
   isEmergency: z.boolean().optional(),
+  isActive: z.boolean().optional(),
   entryId: z.string().nullable().optional(),
   vendorId: z.string().nullable().optional(),
 });
@@ -1439,6 +1440,7 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
       kind: z.enum(wikiAssetKinds).optional(),
       entryId: z.string().optional(),
       vendorId: z.string().optional(),
+      includeInactive: z.coerce.boolean().optional(),
       q: z.string().optional(),
     }).parse(request.query);
     if (query.propertyId) await assertPropertyAccess(request, query.propertyId);
@@ -1449,6 +1451,7 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
         kind: query.kind,
         entryId: query.entryId,
         vendorId: query.vendorId,
+        ...(query.includeInactive ? {} : { isActive: true }),
       },
       include: {
         property: true,
@@ -1518,6 +1521,7 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
         building: fields.building,
         description: fields.description,
         isEmergency: fields.isEmergency ?? false,
+        isActive: true,
         tags: normalizeTags(fields.tags),
         storedName,
         originalName: safeName,
@@ -1566,11 +1570,24 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
         building: input.building,
         description: input.description,
         ...(input.isEmergency !== undefined ? { isEmergency: input.isEmergency } : {}),
+        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
         ...(input.tags !== undefined ? { tags: normalizeTags(input.tags) } : {}),
       },
       include: { property: true, entry: true, vendor: true },
     });
-    await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: existing.propertyId, entityType: "PROPERTY_WIKI_ASSET", entityId: existing.id, action: "PROPERTY_WIKI_ASSET_UPDATED", message: `Updated wiki asset ${asset.title}` });
+    await writeAuditLog({
+      request,
+      actorUserId: request.currentUser!.id,
+      propertyId: existing.propertyId,
+      entityType: "PROPERTY_WIKI_ASSET",
+      entityId: existing.id,
+      action: "PROPERTY_WIKI_ASSET_UPDATED",
+      message: input.isActive === false
+        ? `Archived wiki asset ${asset.title}`
+        : input.isActive === true && !existing.isActive
+          ? `Restored wiki asset ${asset.title}`
+          : `Updated wiki asset ${asset.title}`,
+    });
     await queueWebhookEvent({
       eventType: "wiki.asset.updated",
       propertyId: asset.propertyId,
@@ -1584,6 +1601,7 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
         entryId: asset.entryId,
         vendorId: asset.vendorId,
         isEmergency: asset.isEmergency,
+        isActive: asset.isActive,
         originalName: asset.originalName,
       },
     });
@@ -1608,6 +1626,7 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
     const asset = await prisma.propertyWikiAsset.findUnique({ where: { id } });
     if (!asset) throw Object.assign(new Error("Property wiki asset not found"), { statusCode: 404 });
     await assertPropertyAccess(request, asset.propertyId);
+    if (asset.isActive) throw Object.assign(new Error("Archive the wiki asset before deleting it permanently"), { statusCode: 400 });
     await prisma.propertyWikiAsset.delete({ where: { id } });
     await removeStoredUpload(asset.storedName);
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: asset.propertyId, entityType: "PROPERTY_WIKI_ASSET", entityId: asset.id, action: "PROPERTY_WIKI_ASSET_DELETED", message: `Deleted wiki asset ${asset.title}` });

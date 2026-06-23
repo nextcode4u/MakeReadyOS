@@ -56,6 +56,8 @@ import {
   trashCustomField,
   permanentlyDeleteCustomField,
   archiveAutomation,
+  restoreAutomation,
+  deleteAutomation,
   archiveVendor,
   archivePropertyMap,
   archivePropertyTemplate,
@@ -75,6 +77,7 @@ import {
   getCurrentUser,
   getCustomFields,
   getDashboard,
+  getAssignedWork,
   getItemCollaboration,
   getLeaseComplianceIssues,
   getMakeReadyItem,
@@ -128,6 +131,9 @@ import {
   SavedView,
   AutomationPreviewResponse,
   isApiError,
+  startWorkSession,
+  endWorkSession,
+  type AssignedWorkEntry,
   updateAdminUser,
   updateAdminUserPropertyAccess,
   updateCurrentUserPreferences,
@@ -160,9 +166,13 @@ import {
   uploadPropertyMap,
   saveUnitMapLocation,
   removeUnitMapLocation,
+  restoreUnitMapLocation,
+  deleteUnitMapLocation,
   createPropertyMapArea,
   updatePropertyMapArea,
   removePropertyMapArea,
+  restorePropertyMapArea,
+  deletePropertyMapArea,
   createWorkAssignmentBlock,
   updateWorkAssignmentBlock,
   applyPropertyTemplate,
@@ -192,6 +202,7 @@ const FrogPondPanel = lazy(() => import("./components/FrogPondPanel").then((modu
 const ItemDrawer = lazy(() => import("./components/ItemDrawer").then((module) => ({ default: module.ItemDrawer })));
 const KanbanBoard = lazy(() => import("./components/KanbanBoard").then((module) => ({ default: module.KanbanBoard })));
 const MyWorkPanel = lazy(() => import("./components/MyWorkPanel").then((module) => ({ default: module.MyWorkPanel })));
+const AssignedWorkPanel = lazy(() => import("./components/AssignedWorkPanel").then((module) => ({ default: module.AssignedWorkPanel })));
 const OperationsPanel = lazy(() => import("./components/OperationsPanel").then((module) => ({ default: module.OperationsPanel })));
 const PlanningPanel = lazy(() => import("./components/PlanningPanel").then((module) => ({ default: module.PlanningPanel })));
 const PreventiveMaintenancePanel = lazy(() => import("./components/PreventiveMaintenancePanel").then((module) => ({ default: module.PreventiveMaintenancePanel })));
@@ -204,7 +215,7 @@ const ProjectsPanel = lazy(() => import("./components/ProjectsPanel").then((modu
 const RefrigerantPanel = lazy(() => import("./components/RefrigerantPanel").then((module) => ({ default: module.RefrigerantPanel })));
 const VendorsPanel = lazy(() => import("./components/VendorsPanel").then((module) => ({ default: module.VendorsPanel })));
 
-type AppView = "dashboard" | "mywork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "fields" | "automations" | "activity" | "admin";
+type AppView = "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "fields" | "automations" | "activity" | "admin";
 type KanbanGroupKey = string;
 type NavigationHistoryState = { view?: AppView; selectedItemId?: string | null };
 type DashboardDrilldownContext = {
@@ -619,6 +630,7 @@ function App() {
   const [structuredFilters, setStructuredFilters] = useState<StructuredFilters>(defaultStructuredFilters);
   const [dashboardDrilldownContext, setDashboardDrilldownContext] = useState<DashboardDrilldownContext | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<string[] | null>(null);
+  const [previousBoardColumns, setPreviousBoardColumns] = useState<string[] | null>(null);
   const [customFieldToAdd, setCustomFieldToAdd] = useState("");
   const [tableFiltersOpen, setTableFiltersOpen] = useState(() => !isTouchMobileViewport());
   const [loginError, setLoginError] = useState("");
@@ -697,6 +709,30 @@ function App() {
   const setAppView = (view: AppView) => setActiveView(view);
   const openItemDrawer = (id: string) => setSelectedItemId(id);
   const closeItemDrawer = () => setSelectedItemId(null);
+  const openAssignedWorkEntry = (entry: AssignedWorkEntry) => {
+    switch (entry.sourceType) {
+      case "MAKE_READY_ITEM":
+        setActiveView("table");
+        openItemDrawer(entry.sourceId);
+        break;
+      case "PROJECT_RECORD":
+        setProjectRecordRequest({ id: entry.sourceId, propertyId: entry.property.id, nonce: Date.now() });
+        setActiveView("projects");
+        break;
+      case "PEST_ISSUE":
+        setPestWorkspaceRequest({ propertyId: entry.property.id, tab: "active", search: entry.title, nonce: Date.now() });
+        setActiveView("pest");
+        break;
+      case "LEASE_COMPLIANCE_ISSUE":
+        setLeaseWorkspaceRequest({ propertyId: entry.property.id, tab: "active", search: entry.title, nonce: Date.now() });
+        setActiveView("lease");
+        break;
+      case "PREVENTIVE_MAINTENANCE_TASK":
+        setPropertyId(entry.property.id);
+        setActiveView("pm");
+        break;
+    }
+  };
   const getToastLanguage = () => meQuery.data?.user.language ?? "en";
   const language = getToastLanguage();
   const isToastSpanish = () => getToastLanguage() === "es";
@@ -1485,6 +1521,11 @@ function App() {
     queryFn: () => getMyWork(myWorkUserId || undefined),
     enabled: meQuery.isSuccess && activeView === "mywork",
   });
+  const assignedWorkQuery = useQuery({
+    queryKey: ["assigned-work", propertyId, myWorkUserId],
+    queryFn: () => getAssignedWork({ propertyId: propertyId || undefined, userId: myWorkUserId || undefined }),
+    enabled: meQuery.isSuccess && activeView === "assignedwork",
+  });
 
   const planningQuery = useQuery({
     queryKey: ["planning", propertyId],
@@ -1544,13 +1585,13 @@ function App() {
 
   const unitMapLocationsQuery = useQuery({
     queryKey: ["unit-map-locations", propertyId],
-    queryFn: () => getUnitMapLocations({ propertyId: propertyId || undefined, includeArchived: false }),
+    queryFn: () => getUnitMapLocations({ propertyId: propertyId || undefined, includeArchived: true }),
     enabled: meQuery.isSuccess && ["maps", "dashboard"].includes(activeView),
   });
 
   const propertyMapAreasQuery = useQuery({
     queryKey: ["property-map-areas", propertyId],
-    queryFn: () => getPropertyMapAreas({ propertyId: propertyId || undefined, includeArchived: false }),
+    queryFn: () => getPropertyMapAreas({ propertyId: propertyId || undefined, includeArchived: true }),
     enabled: meQuery.isSuccess && ["maps", "dashboard"].includes(activeView),
   });
 
@@ -1600,7 +1641,7 @@ function App() {
 
   const automationsQuery = useQuery({
     queryKey: ["automations"],
-    queryFn: () => getAutomations(false),
+    queryFn: () => getAutomations(true),
     enabled: meQuery.isSuccess
       && (meQuery.data?.user.role === "ADMIN" || meQuery.data?.user.role === "MANAGER")
       && activeView === "automations",
@@ -1734,6 +1775,30 @@ function App() {
     },
     onError: (error) => {
       pushToast(t(meQuery.data?.user.language ?? "en", "updates.markReadyFailed"), error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "updates.markReadyFailedCopy"), "error");
+    },
+  });
+
+  const startWorkSessionMutation = useMutation({
+    mutationFn: startWorkSession,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["my-work"] });
+      await queryClient.invalidateQueries({ queryKey: ["assigned-work"] });
+      pushToast("Work started", "Active work session started.", "success");
+    },
+    onError: (error) => {
+      pushToast("Work start failed", error instanceof Error ? error.message : "Unable to start work session.", "error");
+    },
+  });
+
+  const endWorkSessionMutation = useMutation({
+    mutationFn: ({ id, note }: { id: string; note?: string | null }) => endWorkSession(id, { note }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["my-work"] });
+      await queryClient.invalidateQueries({ queryKey: ["assigned-work"] });
+      pushToast("Work ended", "Active work session ended.", "success");
+    },
+    onError: (error) => {
+      pushToast("Work end failed", error instanceof Error ? error.message : "Unable to end work session.", "error");
     },
   });
 
@@ -2249,6 +2314,22 @@ function App() {
     },
     onError: (error) => pushToast(t("ops.markerRemoveFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
+  const unitMapLocationRestoreMutation = useMutation({
+    mutationFn: restoreUnitMapLocation,
+    onSuccess: async () => {
+      await refreshMaps();
+      pushToast(t("common.restored", language), t("ops.unitMarkerRestoredCopy", language), "success");
+    },
+    onError: (error) => pushToast(t("ops.markerRestoreFailed", language), error instanceof Error ? error.message : undefined, "error"),
+  });
+  const unitMapLocationDeleteMutation = useMutation({
+    mutationFn: deleteUnitMapLocation,
+    onSuccess: async () => {
+      await refreshMaps();
+      pushToast(t("common.deleted", language), t("ops.unitMarkerDeletedCopy", language), "info");
+    },
+    onError: (error) => pushToast(t("ops.markerDeleteFailed", language), error instanceof Error ? error.message : undefined, "error"),
+  });
   const propertyMapAreaCreateMutation = useMutation({
     mutationFn: createPropertyMapArea,
     onSuccess: async () => {
@@ -2272,6 +2353,22 @@ function App() {
       pushToast(t("ops.mapAreaArchived", language), t("ops.mapAreaArchivedCopy", language), "info");
     },
     onError: (error) => pushToast(t("ops.areaArchiveFailed", language), error instanceof Error ? error.message : undefined, "error"),
+  });
+  const propertyMapAreaRestoreMutation = useMutation({
+    mutationFn: restorePropertyMapArea,
+    onSuccess: async () => {
+      await refreshMaps();
+      pushToast(t("common.restored", language), t("ops.mapAreaRestoredCopy", language), "success");
+    },
+    onError: (error) => pushToast(t("ops.areaRestoreFailed", language), error instanceof Error ? error.message : undefined, "error"),
+  });
+  const propertyMapAreaDeleteMutation = useMutation({
+    mutationFn: deletePropertyMapArea,
+    onSuccess: async () => {
+      await refreshMaps();
+      pushToast(t("common.deleted", language), t("ops.mapAreaDeletedCopy", language), "info");
+    },
+    onError: (error) => pushToast(t("ops.areaDeleteFailed", language), error instanceof Error ? error.message : undefined, "error"),
   });
 
   const refreshFields = async (message: string) => {
@@ -2574,14 +2671,40 @@ function App() {
 
   const archiveAutomationMutation = useMutation({
     mutationFn: archiveAutomation,
-    onSuccess: async () => {
+    onSuccess: async (data) => {
       setAutomationRuleId(undefined);
-      await refreshAutomations("Archived automation rule");
-      pushToast(t("ops.automationArchived", language), t("ops.automationArchivedCopy", language), "info");
+      await refreshAutomations(`Archived automation ${data.rule.name}`);
+      pushToast(t("ops.automationArchived", language), tWithVars("ops.automationArchivedCopy", language, { name: data.rule.name }), "info");
     },
     onError: (error) => {
       setAutomationError(error instanceof Error ? error.message : "Archive automation failed");
       pushToast(t("ops.automationArchiveFailed", language), error instanceof Error ? error.message : t("ops.automationArchiveFailed", language), "error");
+    },
+  });
+
+  const restoreAutomationMutation = useMutation({
+    mutationFn: restoreAutomation,
+    onSuccess: async (data) => {
+      setAutomationRuleId(data.rule.id);
+      await refreshAutomations(`Restored automation ${data.rule.name}`);
+      pushToast(t("ops.automationRestored", language), tWithVars("ops.automationRestoredCopy", language, { name: data.rule.name }), "success");
+    },
+    onError: (error) => {
+      setAutomationError(error instanceof Error ? error.message : "Restore automation failed");
+      pushToast(t("ops.automationRestoreFailed", language), error instanceof Error ? error.message : t("ops.automationRestoreFailed", language), "error");
+    },
+  });
+
+  const deleteAutomationMutation = useMutation({
+    mutationFn: deleteAutomation,
+    onSuccess: async () => {
+      setAutomationRuleId(undefined);
+      await refreshAutomations("Deleted automation rule");
+      pushToast(t("ops.automationDeleted", language), t("ops.automationDeletedCopy", language), "info");
+    },
+    onError: (error) => {
+      setAutomationError(error instanceof Error ? error.message : "Delete automation failed");
+      pushToast(t("ops.automationDeleteFailed", language), error instanceof Error ? error.message : t("ops.automationDeleteFailed", language), "error");
     },
   });
 
@@ -2989,10 +3112,32 @@ function App() {
   const scheduleFieldOptions = useMemo(() => configuredScheduleTracks(metaQuery.data?.scheduleTracks ?? [], metaQuery.data?.customFields ?? []), [metaQuery.data?.customFields, metaQuery.data?.scheduleTracks]);
   const activeScheduleTrack = scheduleFieldOptions.find((track) => track.id === activeCalendarField || track.sourceField === activeCalendarField) ?? scheduleFieldOptions[0];
   const currentUser = forceLoggedOut ? undefined : meQuery.data?.user;
+  const basicBoardColumns = useMemo(
+    () => normalizeVisibleColumns(
+      tableColumnPresets.find((preset) => preset.key === "basic")?.columns ?? ["unitNumber"],
+      metaQuery.data?.customFields ?? [],
+      metaQuery.data?.columns ?? [],
+    ) ?? ["unitNumber"],
+    [metaQuery.data?.columns, metaQuery.data?.customFields],
+  );
+  const defaultBoardColumns = useMemo(
+    () => tableColumnOptions.map((column) => column.key),
+    [tableColumnOptions],
+  );
+  const visibleBoardColumns = visibleColumns ?? tableColumnOptions.map((column) => column.key);
+  const basicBoardModeActive = useMemo(() => {
+    if (visibleBoardColumns.length !== basicBoardColumns.length) return false;
+    return visibleBoardColumns.every((column, index) => column === basicBoardColumns[index]);
+  }, [basicBoardColumns, visibleBoardColumns]);
   const applyBasicBoardMode = () => {
-    const basicPreset = tableColumnPresets.find((preset) => preset.key === "basic");
     setActiveView("table");
-    setVisibleColumns(normalizeVisibleColumns(basicPreset?.columns ?? ["unitNumber"], metaQuery.data?.customFields ?? [], metaQuery.data?.columns ?? []));
+    if (basicBoardModeActive) {
+      setVisibleColumns(previousBoardColumns ?? defaultBoardColumns);
+      setPreviousBoardColumns(null);
+      return;
+    }
+    setPreviousBoardColumns(visibleBoardColumns);
+    setVisibleColumns(basicBoardColumns);
   };
   const commandPaletteWorkspaceGroups = useMemo<CommandPaletteWorkspaceGroup[]>(() => {
     if (!currentUser) {
@@ -3008,6 +3153,7 @@ function App() {
           { id: "kanban", label: t(currentUser.language, "nav.kanban"), description: t(currentUser.language, "command.kanbanCopy"), view: "kanban" as const },
           { id: "calendar", label: t(currentUser.language, "nav.schedule"), description: t(currentUser.language, "command.scheduleCopy"), view: "calendar" as const },
           { id: "mywork", label: t(currentUser.language, "nav.myWork"), description: t(currentUser.language, "command.myWorkCopy"), view: "mywork" as const },
+          ...(currentUser.role !== "VIEWER" ? [{ id: "assignedwork", label: t(currentUser.language, "nav.assignedWork"), description: t(currentUser.language, "command.assignedWorkCopy"), view: "assignedwork" as const }] : []),
           { id: "planning", label: t(currentUser.language, "nav.planning"), description: t(currentUser.language, "command.planningCopy"), view: "planning" as const },
         ] as CommandPaletteWorkspaceGroup["actions"],
       },
@@ -3437,6 +3583,7 @@ function App() {
           setOnboardingOpen(true);
         }}
         onApplyBasicMode={applyBasicBoardMode}
+        basicModeActive={basicBoardModeActive}
         onOpenShortcutHelp={() => setShortcutHelpOpen(true)}
         onLogout={async () => {
           await logoutMutation.mutateAsync();
@@ -3617,6 +3764,9 @@ function App() {
               onOpenPond={() => setActiveView("pond")}
               layout={dashboardLayout}
               onLayoutChange={setDashboardLayout}
+              assignedWork={assignedWorkQuery.data}
+              showAssignedWork={currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "LEASING"}
+              onOpenAssignedWork={() => setActiveView("assignedwork")}
             />
           ) : activeView === "mywork" ? (
             <MyWorkPanel
@@ -3632,6 +3782,29 @@ function App() {
               onRetry={() => void myWorkQuery.refetch()}
               onQuickStatusChange={async (id, value) => {
                 await patchMutation.mutateAsync({ id, data: { makeReadyStatus: value } });
+              }}
+              onStartWork={async (entry) => {
+                await startWorkSessionMutation.mutateAsync({ sourceType: entry.sourceType, sourceId: entry.sourceId });
+              }}
+              onEndWork={async (id) => {
+                await endWorkSessionMutation.mutateAsync({ id });
+              }}
+            />
+          ) : activeView === "assignedwork" ? (
+            <AssignedWorkPanel
+              data={assignedWorkQuery.data}
+              loading={assignedWorkQuery.isLoading}
+              error={assignedWorkQuery.isError}
+              currentUser={currentUser}
+              selectedUserId={myWorkUserId}
+              onUserChange={setMyWorkUserId}
+              onOpenEntry={openAssignedWorkEntry}
+              onRetry={() => void assignedWorkQuery.refetch()}
+              onStartWork={async (entry) => {
+                await startWorkSessionMutation.mutateAsync({ sourceType: entry.sourceType, sourceId: entry.sourceId });
+              }}
+              onEndWork={async (id) => {
+                await endWorkSessionMutation.mutateAsync({ id });
               }}
             />
           ) : activeView === "planning" ? (
@@ -3748,9 +3921,13 @@ function App() {
               onUploadMap={async (id, file) => (await propertyMapUploadMutation.mutateAsync({ id, file })).map}
               onSaveLocation={async (input) => { await unitMapLocationSaveMutation.mutateAsync(input); }}
               onRemoveLocation={async (id) => { await unitMapLocationRemoveMutation.mutateAsync(id); }}
+              onRestoreLocation={async (id) => { await unitMapLocationRestoreMutation.mutateAsync(id); }}
+              onDeleteLocation={async (id) => { await unitMapLocationDeleteMutation.mutateAsync(id); }}
               onCreateArea={async (input) => { await propertyMapAreaCreateMutation.mutateAsync(input); }}
               onUpdateArea={async (id, input) => { await propertyMapAreaUpdateMutation.mutateAsync({ id, data: input }); }}
               onRemoveArea={async (id) => { await propertyMapAreaRemoveMutation.mutateAsync(id); }}
+              onRestoreArea={async (id) => { await propertyMapAreaRestoreMutation.mutateAsync(id); }}
+              onDeleteArea={async (id) => { await propertyMapAreaDeleteMutation.mutateAsync(id); }}
               onOpenItem={openItemDrawer}
             />
           ) : activeView === "pond" ? (
@@ -3918,7 +4095,7 @@ function App() {
                 templatePreview={templatePreview}
                 runs={automationRunsQuery.data?.runs ?? []}
                 preview={automationPreview}
-                loading={createAutomationMutation.isPending || installAutomationTemplateMutation.isPending || previewOperationalLibraryMutation.isPending || installOperationalLibraryMutation.isPending || previewPropertyTemplateMutation.isPending || createPropertyTemplateMutation.isPending || applyPropertyTemplateMutation.isPending || archivePropertyTemplateMutation.isPending || restorePropertyTemplateMutation.isPending || deletePropertyTemplateMutation.isPending || updateAutomationMutation.isPending || toggleAutomationMutation.isPending || archiveAutomationMutation.isPending || previewAutomationMutation.isPending || runAutomationMutation.isPending}
+                loading={createAutomationMutation.isPending || installAutomationTemplateMutation.isPending || previewOperationalLibraryMutation.isPending || installOperationalLibraryMutation.isPending || previewPropertyTemplateMutation.isPending || createPropertyTemplateMutation.isPending || applyPropertyTemplateMutation.isPending || archivePropertyTemplateMutation.isPending || restorePropertyTemplateMutation.isPending || deletePropertyTemplateMutation.isPending || updateAutomationMutation.isPending || toggleAutomationMutation.isPending || archiveAutomationMutation.isPending || restoreAutomationMutation.isPending || deleteAutomationMutation.isPending || previewAutomationMutation.isPending || runAutomationMutation.isPending}
                 previewLoading={previewAutomationMutation.isPending}
                 message={automationMessage}
                 error={automationError}
@@ -3960,6 +4137,12 @@ function App() {
                 }}
                 onArchive={async (id) => {
                   await archiveAutomationMutation.mutateAsync(id);
+                }}
+                onRestore={async (id) => {
+                  await restoreAutomationMutation.mutateAsync(id);
+                }}
+                onDelete={async (id) => {
+                  await deleteAutomationMutation.mutateAsync(id);
                 }}
                 onPreviewStored={async (id) => {
                   await previewAutomationMutation.mutateAsync({ ruleId: id });

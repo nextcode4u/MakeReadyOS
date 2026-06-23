@@ -13,6 +13,7 @@ import {
   savePropertyWikiProfile,
   searchPropertyWiki,
   togglePropertyWikiFavorite,
+  updatePropertyWikiAsset,
   updatePropertyWikiEntry,
   updatePropertyWikiVendor,
   uploadPropertyWikiAsset,
@@ -415,13 +416,13 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
 
   const documentsQuery = useQuery({
     queryKey: ["property-wiki", "assets", propertyId, "DOCUMENT"],
-    queryFn: () => getPropertyWikiAssets({ propertyId, kind: "DOCUMENT" }),
+    queryFn: () => getPropertyWikiAssets({ propertyId, kind: "DOCUMENT", includeInactive: true }),
     enabled: Boolean(propertyId),
   });
 
   const photosQuery = useQuery({
     queryKey: ["property-wiki", "assets", propertyId, "PHOTO"],
-    queryFn: () => getPropertyWikiAssets({ propertyId, kind: "PHOTO" }),
+    queryFn: () => getPropertyWikiAssets({ propertyId, kind: "PHOTO", includeInactive: true }),
     enabled: Boolean(propertyId),
   });
 
@@ -465,6 +466,8 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
   const wikiVendors = vendorsQuery.data?.vendors ?? [];
   const activeEntries = useMemo(() => (entriesQuery.data?.entries ?? []).filter((entry) => entry.isActive), [entriesQuery.data?.entries]);
   const wikiAssets = activeTab === "photos" ? (photosQuery.data?.assets ?? []) : (documentsQuery.data?.assets ?? []);
+  const activeWikiAssets = useMemo(() => wikiAssets.filter((asset) => asset.isActive), [wikiAssets]);
+  const archivedWikiAssets = useMemo(() => wikiAssets.filter((asset) => !asset.isActive), [wikiAssets]);
   const normalizedSectionFilter = sectionFilter.trim().toLowerCase();
   const archivedEntries = useMemo(() => {
     if (!section) return [];
@@ -696,6 +699,18 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
     void updatePropertyWikiVendor(vendor.id, {
       propertyId,
       ...mapVendorToDraft(vendor),
+      isActive,
+    }).then(() => propertyWikiInvalidate());
+  };
+
+  const setAssetActiveState = (asset: PropertyWikiAsset, isActive: boolean) => {
+    void updatePropertyWikiAsset(asset.id, {
+      title: asset.title,
+      category: asset.category,
+      building: asset.building,
+      description: asset.description,
+      tags: asset.tags,
+      isEmergency: asset.isEmergency,
       isActive,
     }).then(() => propertyWikiInvalidate());
   };
@@ -1272,7 +1287,7 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
               </form>
               <div className="pool-card">
                 <h2>{activeTab === "photos" ? t(language, "wiki.photoLibrary") : t(language, "wiki.documentLibrary")}</h2>
-                {wikiAssets.map((asset) => (
+                {activeWikiAssets.map((asset) => (
                   <article key={asset.id} className={`property-wiki-record${asset.isEmergency ? " emergency" : ""}`}>
                     <div>
                       <strong>{asset.title}</strong>
@@ -1284,10 +1299,29 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
                       <button type="button" className="button button-secondary" onClick={() => toggleFavorite("ASSET", asset.id)}>{t(language, "wiki.favorite")}</button>
                       <button type="button" className="button button-secondary" onClick={() => openRecord("ASSET", asset.id)}>{t(language, "wiki.view")}</button>
                       <a className="button button-secondary" href={propertyWikiAssetDownloadUrl(asset.id)} target="_blank" rel="noreferrer">{t(language, "wiki.open")}</a>
-                      {access.edit ? <button type="button" className="button button-secondary" onClick={() => void deleteAssetMutation.mutate(asset.id)}>{t(language, "wiki.delete")}</button> : null}
+                      {access.edit ? <button type="button" className="button button-secondary" onClick={() => setAssetActiveState(asset, false)}>{t(language, "common.archive")}</button> : null}
                     </div>
                   </article>
                 ))}
+                {archivedWikiAssets.length > 0 ? (
+                  <div className="pool-archived-list">
+                    <h3>{t(language, "wiki.archived")}</h3>
+                    {archivedWikiAssets.map((asset) => (
+                      <article key={`archived-${asset.id}`} className="property-wiki-record compact">
+                        <div>
+                          <strong>{asset.title}</strong>
+                          <span>{asset.category || (asset.kind === "PHOTO" ? t(language, "wiki.photo") : t(language, "wiki.document"))}{asset.building ? ` / ${asset.building}` : ""}{` / ${t(language, "wiki.archived")}`}</span>
+                          <p>{asset.description || asset.originalName}</p>
+                          {renderTags(asset.tags)}
+                        </div>
+                        <div className="pool-entry-actions">
+                          {access.edit ? <button type="button" className="button button-secondary" onClick={() => setAssetActiveState(asset, true)}>{t(language, "common.restore")}</button> : null}
+                          {access.edit ? <button type="button" className="button button-danger" onClick={() => void deleteAssetMutation.mutate(asset.id)}>{t(language, "wiki.delete")}</button> : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}

@@ -15,8 +15,8 @@ type Props = {
   search: string;
   onPropertyChange: (value: string) => void;
   onSearchChange: (value: string) => void;
-  activeView: "dashboard" | "mywork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "fields" | "automations" | "activity" | "admin";
-  onViewChange: (value: "dashboard" | "mywork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "fields" | "automations" | "activity" | "admin") => void;
+  activeView: "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "fields" | "automations" | "activity" | "admin";
+  onViewChange: (value: "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "fields" | "automations" | "activity" | "admin") => void;
   showAdmin: boolean;
   showFieldManager: boolean;
   showAutomations: boolean;
@@ -42,6 +42,7 @@ type Props = {
   onOpenCommandPalette: () => void;
   onOpenOnboarding: () => void;
   onApplyBasicMode: () => void;
+  basicModeActive: boolean;
   onOpenShortcutHelp: () => void;
   onLogout: () => Promise<void>;
 };
@@ -80,6 +81,7 @@ export function FilterBar({
   onOpenCommandPalette,
   onOpenOnboarding,
   onApplyBasicMode,
+  basicModeActive,
   onOpenShortcutHelp,
   onLogout,
 }: Props) {
@@ -135,6 +137,7 @@ export function FilterBar({
       case "kanban": return t(language, "nav.kanban");
       case "calendar": return t(language, "nav.schedule");
       case "mywork": return t(language, "nav.myWork");
+      case "assignedwork": return t(language, "nav.assignedWork");
       case "planning": return t(language, "nav.planning");
       case "dashboard": return t(language, "nav.dashboard");
       case "activity": return t(language, "nav.activity");
@@ -189,6 +192,11 @@ export function FilterBar({
       <button data-testid="tab-my-work" className={activeView === "mywork" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("mywork") : onViewChange("mywork"))} role="tab" aria-selected={activeView === "mywork"}>
         {t(language, "nav.myWork")}
       </button>
+      {currentUser.role !== "VIEWER" ? (
+        <button data-testid="tab-assigned-work" className={activeView === "assignedwork" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("assignedwork") : onViewChange("assignedwork"))} role="tab" aria-selected={activeView === "assignedwork"}>
+          {t(language, "nav.assignedWork")}
+        </button>
+      ) : null}
       <button data-testid="tab-planning" className={activeView === "planning" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("planning") : onViewChange("planning"))} role="tab" aria-selected={activeView === "planning"}>
         {t(language, "nav.planning")}
       </button>
@@ -299,7 +307,7 @@ export function FilterBar({
             ) : null}
             {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
               <button type="button" className="button button-secondary" data-testid="basic-board-mode" onClick={onApplyBasicMode}>
-                {language === "es" ? "Modo basico" : "Basic board"}
+                {basicModeActive ? (language === "es" ? "Restaurar tablero" : "Restore board") : (language === "es" ? "Modo basico" : "Basic board")}
               </button>
             ) : null}
             <button type="button" className="button button-secondary" data-testid="shortcut-help-open" onClick={onOpenShortcutHelp}>
@@ -429,7 +437,7 @@ export function FilterBar({
         ) : null}
         {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
           <button type="button" className="button button-secondary" data-testid="basic-board-mode" onClick={onApplyBasicMode}>
-            {language === "es" ? "Modo basico" : "Basic board"}
+            {basicModeActive ? (language === "es" ? "Restaurar tablero" : "Restore board") : (language === "es" ? "Modo basico" : "Basic board")}
           </button>
         ) : null}
         <button type="button" className="button button-secondary" data-testid="shortcut-help-open" onClick={onOpenShortcutHelp}>

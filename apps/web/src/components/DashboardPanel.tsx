@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { type UserLanguage, getPropertyWikiOverview, type AnalyticsSummaryResponse, type DashboardResponse } from "../lib/api";
+import { type AssignedWorkResponse, type UserLanguage, getPropertyWikiOverview, type AnalyticsSummaryResponse, type DashboardResponse } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
 import { formatDateTime } from "../lib/dateTime";
 import { t, tWithVars } from "../lib/i18n";
@@ -19,6 +19,9 @@ type Props = {
   onLayoutChange: (layout: "overview" | "focus") => void;
   propertyId?: string;
   language: UserLanguage;
+  assignedWork?: AssignedWorkResponse;
+  showAssignedWork: boolean;
+  onOpenAssignedWork: () => void;
 };
 
 function kpiLabels(isSpanish: boolean): Record<string, string> {
@@ -107,6 +110,14 @@ function Donut({ title, data, type, onDrillDown }: { title: string; data: Record
       </div>
     </section>
   );
+}
+
+function sessionDurationLabel(startedAt: string) {
+  const minutes = Math.max(1, Math.round((Date.now() - new Date(startedAt).getTime()) / 60000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
 }
 
 function RatioStrip({ data, language }: { data: DashboardResponse; language: UserLanguage }) {
@@ -267,13 +278,14 @@ function DashboardMapsWidget({ data, propertyId, language }: { data?: DashboardR
   );
 }
 
-export function DashboardPanel({ data, analytics, loading, analyticsLoading, error, onOpenItem, onDrillDown, onOpenPond, layout, onLayoutChange, propertyId, language }: Props) {
+export function DashboardPanel({ data, analytics, loading, analyticsLoading, error, onOpenItem, onDrillDown, onOpenPond, layout, onLayoutChange, propertyId, language, assignedWork, showAssignedWork, onOpenAssignedWork }: Props) {
   const isSpanish = language === "es";
   const labels = kpiLabels(isSpanish);
   if (loading) return <StatusState title={t(language, "dashboard.loading")} description={t(language, "dashboard.loadingCopy")} />;
   if (error || !data) return <StatusState title={t(language, "dashboard.unavailable")} description={t(language, "dashboard.unavailableCopy")} tone="error" />;
   const needsAttention = data.needsAttention ?? [];
   const recentStatusChanges = data.recentStatusChanges ?? [];
+  const activeSessions = assignedWork?.activeSessions ?? [];
   return (
     <section className={`dashboard-shell dashboard-layout-${layout}`} data-testid="dashboard-panel">
       <header className="panel-heading">
@@ -302,6 +314,35 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
         <Breakdown title={isSpanish ? "Carga asignada" : "Assigned Workload"} data={data.techWorkload} type="tech" onDrillDown={onDrillDown} />
         <Breakdown title={isSpanish ? "Comparacion por propiedad" : "Property Comparison"} data={data.propertyComparison} type="property" onDrillDown={onDrillDown} />
         {Object.keys(data.downUnitsByArea ?? {}).length ? <Breakdown title={isSpanish ? "Unidades fuera de servicio por area" : "Down Units By Area"} data={data.downUnitsByArea} type="property" onDrillDown={onDrillDown} /> : null}
+        {showAssignedWork ? (
+          <section className="dashboard-chart dashboard-assigned-work-card" data-testid="dashboard-assigned-work-card">
+            <div className="drawer-section-title">
+              <h3>{isSpanish ? "Trabajo asignado" : "Assigned Work"}</h3>
+              <button type="button" className="button button-secondary" onClick={onOpenAssignedWork}>
+                {isSpanish ? "Abrir" : "Open"}
+              </button>
+            </div>
+            <div className="analytics-metrics">
+              <span><strong>{assignedWork?.summary.totalAssignments ?? 0}</strong> {isSpanish ? "asignaciones" : "assignments"}</span>
+              <span><strong>{assignedWork?.summary.activeSessions ?? 0}</strong> {isSpanish ? "trabajando ahora" : "working now"}</span>
+              <span><strong>{assignedWork?.summary.overdueAssignments ?? 0}</strong> {isSpanish ? "atrasadas" : "overdue"}</span>
+              <span><strong>{assignedWork?.summary.assignedUsers ?? 0}</strong> {isSpanish ? "usuarios" : "users"}</span>
+            </div>
+            {activeSessions.length ? (
+              <div className="attention-list compact">
+                {activeSessions.slice(0, 4).map((session) => (
+                  <button type="button" key={session.id} onClick={onOpenAssignedWork}>
+                    <strong>{session.user.fullName}</strong>
+                    <em className="risk-level-badge low">{sessionDurationLabel(session.startedAt)}</em>
+                    <span>{session.title} / {session.property.code}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="muted">{isSpanish ? "Nadie tiene una sesión activa ahora mismo." : "No one has an active work session right now."}</p>
+            )}
+          </section>
+        ) : null}
         <AnalyticsPanel data={analytics} loading={analyticsLoading} language={language} />
         <DashboardMapsWidget data={data.propertyMaps} propertyId={propertyId} language={language} />
         <DashboardWikiWidget propertyId={propertyId} language={language} />

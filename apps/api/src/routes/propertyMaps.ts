@@ -47,7 +47,10 @@ export const unitMapLocationInputSchema = z.object({
   area: z.string().trim().max(80).nullable().optional(),
   floor: z.string().trim().max(40).nullable().optional(),
 });
-export const unitMapLocationPatchSchema = unitMapLocationInputSchema.partial().refine((value) => Object.keys(value).length > 0, { message: "Provide location fields to update" });
+export const unitMapLocationPatchSchema = unitMapLocationInputSchema.partial().extend({
+  isActive: z.boolean().optional(),
+  isArchived: z.boolean().optional(),
+}).refine((value) => Object.keys(value).length > 0, { message: "Provide location fields to update" });
 export const propertyMapAreaInputSchema = z.object({
   propertyId: z.string(),
   mapId: z.string(),
@@ -457,12 +460,13 @@ export async function propertyMapRoutes(app: FastifyInstance) {
     return { pin: { ...pin, linkedRecord: await buildLinkedRecordSummary(pin) } };
   });
 
-  app.delete("/property-map-pins/:id", async (request, reply) => {
+  app.post("/property-map-pins/:id/archive", async (request, reply) => {
     if (!canEdit(request.currentUser!.role)) return reply.code(403).send({ message: "Property Maps edit access required" });
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const existing = await prisma.propertyMapPin.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ message: "Map pin not found" });
     if (!(await requirePropertyAccess(request, reply, existing.propertyId))) return;
+    if (existing.isArchived) return reply.code(400).send({ message: "Map pin is already archived" });
     const pin = await prisma.propertyMapPin.update({
       where: { id },
       data: { isArchived: true, isActive: false, updatedById: request.currentUser!.id },
@@ -488,6 +492,35 @@ export async function propertyMapRoutes(app: FastifyInstance) {
       },
     });
     return { pin: { ...pin, linkedRecord: await buildLinkedRecordSummary(pin) } };
+  });
+
+  app.post("/property-map-pins/:id/restore", async (request, reply) => {
+    if (!canEdit(request.currentUser!.role)) return reply.code(403).send({ message: "Property Maps edit access required" });
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.propertyMapPin.findUnique({ where: { id } });
+    if (!existing) return reply.code(404).send({ message: "Map pin not found" });
+    if (!(await requirePropertyAccess(request, reply, existing.propertyId))) return;
+    if (!existing.isArchived) return reply.code(400).send({ message: "Map pin is already active" });
+    const pin = await prisma.propertyMapPin.update({
+      where: { id },
+      data: { isArchived: false, isActive: true, updatedById: request.currentUser!.id },
+      include: propertyMapPinInclude(),
+    });
+    await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: pin.propertyId, entityType: "PROPERTY_MAP_PIN", entityId: pin.id, action: "PROPERTY_MAP_PIN_RESTORED", message: `Restored map pin ${pin.title}` });
+    return { pin: { ...pin, linkedRecord: await buildLinkedRecordSummary(pin) } };
+  });
+
+  app.delete("/property-map-pins/:id", async (request, reply) => {
+    if (!canEdit(request.currentUser!.role)) return reply.code(403).send({ message: "Property Maps edit access required" });
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.propertyMapPin.findUnique({ where: { id }, include: { attachments: true } });
+    if (!existing) return reply.code(404).send({ message: "Map pin not found" });
+    if (!(await requirePropertyAccess(request, reply, existing.propertyId))) return;
+    if (!existing.isArchived) return reply.code(400).send({ message: "Archive the map pin before deleting it permanently" });
+    await prisma.propertyMapPin.delete({ where: { id } });
+    await Promise.all(existing.attachments.map((attachment) => removeStoredUpload(attachment.storedName)));
+    await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: existing.propertyId, entityType: "PROPERTY_MAP_PIN", entityId: existing.id, action: "PROPERTY_MAP_PIN_DELETED", message: `Deleted map pin ${existing.title}` });
+    return { ok: true };
   });
 
   app.post("/property-map-pins/:id/attachments", async (request, reply) => {
@@ -730,15 +763,40 @@ export async function propertyMapRoutes(app: FastifyInstance) {
     return { area };
   });
 
+  app.post("/property-map-areas/:id/archive", async (request, reply) => {
+    if (!canEdit(request.currentUser!.role)) return reply.code(403).send({ message: "Property Maps edit access required" });
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.propertyMapArea.findUnique({ where: { id } });
+    if (!existing) return reply.code(404).send({ message: "Map area not found" });
+    if (!(await requirePropertyAccess(request, reply, existing.propertyId))) return;
+    if (existing.isArchived) return reply.code(400).send({ message: "Map area is already archived" });
+    const area = await prisma.propertyMapArea.update({ where: { id }, data: { isArchived: true, isActive: false }, include: { property: true, map: true } });
+    await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: area.propertyId, entityType: "PROPERTY_MAP_AREA", entityId: area.id, action: "PROPERTY_MAP_AREA_ARCHIVED", message: `Archived map area ${area.name}` });
+    return { area };
+  });
+
+  app.post("/property-map-areas/:id/restore", async (request, reply) => {
+    if (!canEdit(request.currentUser!.role)) return reply.code(403).send({ message: "Property Maps edit access required" });
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.propertyMapArea.findUnique({ where: { id } });
+    if (!existing) return reply.code(404).send({ message: "Map area not found" });
+    if (!(await requirePropertyAccess(request, reply, existing.propertyId))) return;
+    if (!existing.isArchived) return reply.code(400).send({ message: "Map area is already active" });
+    const area = await prisma.propertyMapArea.update({ where: { id }, data: { isArchived: false, isActive: true }, include: { property: true, map: true } });
+    await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: area.propertyId, entityType: "PROPERTY_MAP_AREA", entityId: area.id, action: "PROPERTY_MAP_AREA_RESTORED", message: `Restored map area ${area.name}` });
+    return { area };
+  });
+
   app.delete("/property-map-areas/:id", async (request, reply) => {
     if (!canEdit(request.currentUser!.role)) return reply.code(403).send({ message: "Property Maps edit access required" });
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const existing = await prisma.propertyMapArea.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ message: "Map area not found" });
     if (!(await requirePropertyAccess(request, reply, existing.propertyId))) return;
-    const area = await prisma.propertyMapArea.update({ where: { id }, data: { isArchived: true, isActive: false }, include: { property: true, map: true } });
-    await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: area.propertyId, entityType: "PROPERTY_MAP_AREA", entityId: area.id, action: "PROPERTY_MAP_AREA_ARCHIVED", message: `Archived map area ${area.name}` });
-    return { area };
+    if (!existing.isArchived) return reply.code(400).send({ message: "Archive the map area before deleting it permanently" });
+    await prisma.propertyMapArea.delete({ where: { id } });
+    await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: existing.propertyId, entityType: "PROPERTY_MAP_AREA", entityId: existing.id, action: "PROPERTY_MAP_AREA_DELETED", message: `Deleted map area ${existing.name}` });
+    return { ok: true };
   });
 
   app.put("/unit-map-locations", async (request, reply) => {
@@ -773,14 +831,39 @@ export async function propertyMapRoutes(app: FastifyInstance) {
     return { location };
   });
 
+  app.post("/unit-map-locations/:id/archive", async (request, reply) => {
+    if (!canEdit(request.currentUser!.role)) return reply.code(403).send({ message: "Property Maps edit access required" });
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.unitMapLocation.findUnique({ where: { id }, include: { unit: true } });
+    if (!existing) return reply.code(404).send({ message: "Unit map location not found" });
+    if (!(await requirePropertyAccess(request, reply, existing.propertyId))) return;
+    if (existing.isArchived) return reply.code(400).send({ message: "Unit map location is already archived" });
+    const location = await prisma.unitMapLocation.update({ where: { id }, data: { isArchived: true, isActive: false }, include: { unit: { include: { property: true, floorPlanRecord: true } }, property: true, map: true } });
+    await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: location.propertyId, entityType: "UNIT_MAP_LOCATION", entityId: location.id, action: "UNIT_MAP_LOCATION_REMOVED", message: `Removed map location for ${existing.unit.number}` });
+    return { location };
+  });
+
+  app.post("/unit-map-locations/:id/restore", async (request, reply) => {
+    if (!canEdit(request.currentUser!.role)) return reply.code(403).send({ message: "Property Maps edit access required" });
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.unitMapLocation.findUnique({ where: { id }, include: { unit: true } });
+    if (!existing) return reply.code(404).send({ message: "Unit map location not found" });
+    if (!(await requirePropertyAccess(request, reply, existing.propertyId))) return;
+    if (!existing.isArchived) return reply.code(400).send({ message: "Unit map location is already active" });
+    const location = await prisma.unitMapLocation.update({ where: { id }, data: { isArchived: false, isActive: true }, include: { unit: { include: { property: true, floorPlanRecord: true } }, property: true, map: true } });
+    await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: location.propertyId, entityType: "UNIT_MAP_LOCATION", entityId: location.id, action: "UNIT_MAP_LOCATION_RESTORED", message: `Restored map location for ${existing.unit.number}` });
+    return { location };
+  });
+
   app.delete("/unit-map-locations/:id", async (request, reply) => {
     if (!canEdit(request.currentUser!.role)) return reply.code(403).send({ message: "Property Maps edit access required" });
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const existing = await prisma.unitMapLocation.findUnique({ where: { id }, include: { unit: true } });
     if (!existing) return reply.code(404).send({ message: "Unit map location not found" });
     if (!(await requirePropertyAccess(request, reply, existing.propertyId))) return;
-    const location = await prisma.unitMapLocation.update({ where: { id }, data: { isArchived: true, isActive: false }, include: { unit: { include: { property: true, floorPlanRecord: true } }, property: true, map: true } });
-    await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: location.propertyId, entityType: "UNIT_MAP_LOCATION", entityId: location.id, action: "UNIT_MAP_LOCATION_REMOVED", message: `Removed map location for ${existing.unit.number}` });
-    return { location };
+    if (!existing.isArchived) return reply.code(400).send({ message: "Archive the unit map location before deleting it permanently" });
+    await prisma.unitMapLocation.delete({ where: { id } });
+    await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: existing.propertyId, entityType: "UNIT_MAP_LOCATION", entityId: existing.id, action: "UNIT_MAP_LOCATION_DELETED", message: `Deleted map location for ${existing.unit.number}` });
+    return { ok: true };
   });
 }

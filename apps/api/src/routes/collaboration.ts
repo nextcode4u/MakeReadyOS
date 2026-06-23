@@ -97,6 +97,25 @@ export const checklistTemplateInputSchema = z.object({
     tradeCategory: z.string().trim().max(80).nullable().optional(),
   })).min(1).max(100),
 });
+const workSessionSourceTypeSchema = z.enum([
+  "MAKE_READY_ITEM",
+  "PROJECT_RECORD",
+  "PEST_ISSUE",
+  "LEASE_COMPLIANCE_ISSUE",
+  "PREVENTIVE_MAINTENANCE_TASK",
+]);
+const workSessionStartSchema = z.object({
+  sourceType: workSessionSourceTypeSchema,
+  sourceId: z.string().trim().min(1),
+  note: z.string().trim().max(1000).nullable().optional(),
+});
+const workSessionEndSchema = z.object({
+  note: z.string().trim().max(1000).nullable().optional(),
+});
+const assignedWorkQuerySchema = z.object({
+  propertyId: z.string().trim().min(1).optional(),
+  userId: z.string().trim().min(1).optional(),
+});
 
 async function getScopedItem(request: FastifyRequest, reply: FastifyReply, id: string) {
   const item = await prisma.makeReadyItem.findUnique({
@@ -138,6 +157,10 @@ function uniqueZipPath(path: string, used: Set<string>) {
   const next = `${base}-${index}${extension}`;
   used.add(next);
   return next;
+}
+
+function durationMinutesBetween(startedAt: Date, endedAt: Date) {
+  return Math.max(1, Math.round((endedAt.getTime() - startedAt.getTime()) / 60000));
 }
 
 function annotationEstimate(annotation: { chargeEstimatedCents?: number | null; chargeQuantity?: number | null }) {
@@ -1222,6 +1245,283 @@ export async function collaborationRoutes(app: FastifyInstance) {
     return { checklistItem };
   });
 
+  const workSessionInclude = {
+    user: { select: { id: true, fullName: true, role: true } },
+    property: { select: { id: true, name: true, code: true } },
+    makeReadyItem: { select: { id: true, unitNumber: true, boardGroup: true, assignedTech: true, makeReadyStatus: true, moveInDate: true } },
+    projectRecord: { select: { id: true, title: true, status: true, recordType: true, assignedUserId: true, assignedUserName: true, dueDate: true } },
+    pestIssue: { select: { id: true, pestType: true, status: true, priority: true, unit: { select: { number: true } }, area: true, assignedUserId: true, followUpDate: true, treatmentDate: true } },
+    leaseComplianceIssue: { select: { id: true, issueTypeName: true, status: true, noticeStage: true, priority: true, unit: { select: { number: true } }, area: true, building: true, assignedUserId: true } },
+    preventiveMaintenanceTask: { select: { id: true, taskName: true, category: true, status: true, priority: true, assignedUserId: true, dueDate: true } },
+  } satisfies Prisma.WorkSessionInclude;
+
+  const serializeWorkSession = (session: Prisma.WorkSessionGetPayload<{ include: typeof workSessionInclude }>) => {
+    let sourceId = "";
+    let title = "";
+    let subtitle = "";
+    let assignmentStatus = "";
+    if (session.makeReadyItem) {
+      sourceId = session.makeReadyItem.id;
+      title = `${session.property.code} ${session.makeReadyItem.unitNumber}`;
+      subtitle = `Make Ready / ${session.makeReadyItem.boardGroup.replace(/_/g, " ")}`;
+      assignmentStatus = session.makeReadyItem.makeReadyStatus ?? "";
+    } else if (session.projectRecord) {
+      sourceId = session.projectRecord.id;
+      title = session.projectRecord.title;
+      subtitle = `Projects / ${session.projectRecord.recordType}`;
+      assignmentStatus = session.projectRecord.status;
+    } else if (session.pestIssue) {
+      sourceId = session.pestIssue.id;
+      title = session.pestIssue.unit?.number ?? session.pestIssue.area ?? session.pestIssue.pestType;
+      subtitle = `Pest Control / ${session.pestIssue.pestType}`;
+      assignmentStatus = session.pestIssue.status;
+    } else if (session.leaseComplianceIssue) {
+      sourceId = session.leaseComplianceIssue.id;
+      title = session.leaseComplianceIssue.unit?.number ?? session.leaseComplianceIssue.area ?? session.leaseComplianceIssue.building ?? session.leaseComplianceIssue.issueTypeName;
+      subtitle = `Lease Compliance / ${session.leaseComplianceIssue.issueTypeName}`;
+      assignmentStatus = session.leaseComplianceIssue.status;
+    } else if (session.preventiveMaintenanceTask) {
+      sourceId = session.preventiveMaintenanceTask.id;
+      title = session.preventiveMaintenanceTask.taskName;
+      subtitle = `Preventive Maintenance / ${session.preventiveMaintenanceTask.category}`;
+      assignmentStatus = session.preventiveMaintenanceTask.status;
+    }
+    return {
+      id: session.id,
+      propertyId: session.propertyId,
+      property: session.property,
+      userId: session.userId,
+      user: session.user,
+      sourceType: session.sourceType,
+      sourceId,
+      status: session.status,
+      startedAt: session.startedAt,
+      endedAt: session.endedAt,
+      durationMinutes: session.durationMinutes,
+      startNote: session.startNote,
+      endNote: session.endNote,
+      title,
+      subtitle,
+      assignmentStatus,
+    };
+  };
+
+  async function endActiveWorkSession(sessionId: string, actorUserId: string, note?: string | null) {
+    const active = await prisma.workSession.findUnique({ where: { id: sessionId } });
+    if (!active || active.status !== "IN_PROGRESS" || active.endedAt) return null;
+    const endedAt = new Date();
+    return prisma.workSession.update({
+      where: { id: sessionId },
+      data: {
+        status: "COMPLETED",
+        endedAt,
+        endedById: actorUserId,
+        durationMinutes: durationMinutesBetween(active.startedAt, endedAt),
+        endNote: note ?? active.endNote ?? null,
+      },
+      include: workSessionInclude,
+    });
+  }
+
+  async function resolveWorkSessionSource(request: FastifyRequest, reply: FastifyReply, sourceType: z.infer<typeof workSessionSourceTypeSchema>, sourceId: string) {
+    const user = request.currentUser!;
+    const scopedProperties = allowedPropertyIds(user);
+    const isManagerRole = user.role === UserRole.ADMIN || user.role === UserRole.MANAGER;
+    const deny = () => {
+      reply.code(403).send({ message: "Assignment access required" });
+      return null;
+    };
+    if (sourceType === "MAKE_READY_ITEM") {
+      const item = await prisma.makeReadyItem.findUnique({ where: { id: sourceId }, include: { property: true, workAssignmentBlocks: { where: { status: { in: ["PLANNED", "IN_PROGRESS"] } } } } });
+      if (!item) return reply.code(404).send({ message: "Make-ready item not found" });
+      if (scopedProperties && !scopedProperties.includes(item.propertyId)) return reply.code(403).send({ message: "Property access required" });
+      if (!isManagerRole && item.assignedTech !== user.fullName && !item.workAssignmentBlocks.some((block) => block.assignedUserId === user.id)) return deny();
+      return { propertyId: item.propertyId, entityId: item.id, message: `Started work on ${item.unitNumber}`, data: { makeReadyItemId: item.id } };
+    }
+    if (sourceType === "PROJECT_RECORD") {
+      const record = await prisma.projectRecord.findUnique({ where: { id: sourceId }, include: { property: true, tasks: { select: { assignedUserId: true, status: true } } } });
+      if (!record) return reply.code(404).send({ message: "Project record not found" });
+      if (scopedProperties && !scopedProperties.includes(record.propertyId)) return reply.code(403).send({ message: "Property access required" });
+      if (!isManagerRole && record.assignedUserId !== user.id && !record.tasks.some((task) => task.assignedUserId === user.id && task.status !== "Completed" && task.status !== "Skipped")) return deny();
+      return { propertyId: record.propertyId, entityId: record.id, message: `Started work on project ${record.title}`, data: { projectRecordId: record.id } };
+    }
+    if (sourceType === "PEST_ISSUE") {
+      const issue = await prisma.pestIssue.findUnique({ where: { id: sourceId }, include: { property: true } });
+      if (!issue) return reply.code(404).send({ message: "Pest issue not found" });
+      if (scopedProperties && !scopedProperties.includes(issue.propertyId)) return reply.code(403).send({ message: "Property access required" });
+      if (!isManagerRole && issue.assignedUserId !== user.id) return deny();
+      return { propertyId: issue.propertyId, entityId: issue.id, message: `Started pest work on ${issue.area ?? issue.pestType}`, data: { pestIssueId: issue.id } };
+    }
+    if (sourceType === "LEASE_COMPLIANCE_ISSUE") {
+      const issue = await prisma.leaseComplianceIssue.findUnique({ where: { id: sourceId }, include: { property: true } });
+      if (!issue) return reply.code(404).send({ message: "Lease compliance issue not found" });
+      if (scopedProperties && !scopedProperties.includes(issue.propertyId)) return reply.code(403).send({ message: "Property access required" });
+      if (!isManagerRole && issue.assignedUserId !== user.id) return deny();
+      return { propertyId: issue.propertyId, entityId: issue.id, message: `Started lease compliance work on ${issue.issueTypeName}`, data: { leaseComplianceIssueId: issue.id } };
+    }
+    const task = await prisma.preventiveMaintenanceTask.findUnique({ where: { id: sourceId }, include: { property: true } });
+    if (!task) return reply.code(404).send({ message: "Preventive maintenance task not found" });
+    if (scopedProperties && !scopedProperties.includes(task.propertyId)) return reply.code(403).send({ message: "Property access required" });
+    if (!isManagerRole && task.assignedUserId !== user.id) return deny();
+    return { propertyId: task.propertyId, entityId: task.id, message: `Started PM task ${task.taskName}`, data: { preventiveMaintenanceTaskId: task.id } };
+  }
+
+  app.get("/assigned-work", async (request, reply) => {
+    const user = request.currentUser!;
+    if (user.role === UserRole.VIEWER) {
+      return reply.code(403).send({ message: "Assigned work access required" });
+    }
+    const query = assignedWorkQuerySchema.parse(request.query);
+    if (query.userId && query.userId !== user.id && !(user.role === UserRole.ADMIN || user.role === UserRole.MANAGER || user.role === UserRole.LEASING)) {
+      return reply.code(403).send({ message: "Only managers, leasing, or admin can review another user's assigned work" });
+    }
+    const scopedProperties = allowedPropertyIds(user);
+    if (query.propertyId && scopedProperties && !scopedProperties.includes(query.propertyId)) {
+      return reply.code(403).send({ message: "Property access denied" });
+    }
+    const propertyWhere = query.propertyId ? { propertyId: query.propertyId } : scopedProperties ? { propertyId: { in: scopedProperties } } : {};
+    const activeUsers = await prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, fullName: true, role: true },
+      orderBy: [{ role: "asc" }, { fullName: "asc" }],
+    });
+    const usersByName = new Map(activeUsers.map((entry) => [entry.fullName, entry]));
+    const activeSessionsRaw = await prisma.workSession.findMany({
+      where: { status: "IN_PROGRESS", ...(query.userId ? { userId: query.userId } : {}), ...propertyWhere },
+      include: workSessionInclude,
+      orderBy: [{ startedAt: "asc" }],
+    });
+    const activeSessions = activeSessionsRaw.map(serializeWorkSession);
+    const activeSessionByKey = new Map(activeSessions.map((session) => [`${session.sourceType}:${session.sourceId}:${session.userId}`, session] as const));
+    const entries: Array<Record<string, unknown>> = [];
+    const addEntry = (entry: {
+      userId: string | null;
+      assignedUserName: string;
+      role: string | null;
+      sourceType: string;
+      sourceId: string;
+      property: { id: string; code: string; name: string };
+      title: string;
+      subtitle: string;
+      status: string;
+      priority?: string | null;
+      dueDate?: Date | null;
+      scheduledDate?: Date | null;
+      overdue?: boolean;
+    }) => {
+      if (query.userId && entry.userId !== query.userId) return;
+      entries.push({ ...entry, activeSession: entry.userId ? activeSessionByKey.get(`${entry.sourceType}:${entry.sourceId}:${entry.userId}`) ?? null : null });
+    };
+
+    const makeReadyItems = await prisma.makeReadyItem.findMany({
+      where: { isArchived: false, ...propertyWhere, OR: [{ assignedTech: { not: null } }, { workAssignmentBlocks: { some: { status: { in: ["PLANNED", "IN_PROGRESS"] } } } }] },
+      include: { property: { select: { id: true, code: true, name: true } }, workAssignmentBlocks: { where: { status: { in: ["PLANNED", "IN_PROGRESS"] } }, include: { assignedUser: { select: { id: true, fullName: true, role: true } } }, orderBy: { plannedDate: "asc" } } },
+      orderBy: [{ overdue: "desc" }, { moveInDate: "asc" }, { updatedAt: "desc" }],
+    });
+    for (const item of makeReadyItems) {
+      if (item.workAssignmentBlocks.length) {
+        for (const block of item.workAssignmentBlocks) {
+          addEntry({ userId: block.assignedUser.id, assignedUserName: block.assignedUser.fullName, role: block.assignedUser.role, sourceType: "MAKE_READY_ITEM", sourceId: item.id, property: item.property, title: `${item.property.code} ${item.unitNumber}`, subtitle: `Make Ready / ${item.boardGroup.replace(/_/g, " ")} / ${block.category}`, status: item.makeReadyStatus ?? "Unstarted", scheduledDate: block.plannedDate, dueDate: item.moveInDate, overdue: item.overdue });
+        }
+      } else if (item.assignedTech?.trim()) {
+        const mapped = usersByName.get(item.assignedTech.trim()) ?? null;
+        addEntry({ userId: mapped?.id ?? null, assignedUserName: item.assignedTech.trim(), role: mapped?.role ?? null, sourceType: "MAKE_READY_ITEM", sourceId: item.id, property: item.property, title: `${item.property.code} ${item.unitNumber}`, subtitle: `Make Ready / ${item.boardGroup.replace(/_/g, " ")}`, status: item.makeReadyStatus ?? "Unstarted", dueDate: item.moveInDate, overdue: item.overdue });
+      }
+    }
+
+    const projectRecords = await prisma.projectRecord.findMany({
+      where: { isArchived: false, ...propertyWhere, assignedUserName: { not: null }, status: { notIn: ["Completed", "Cancelled", "Archived", "Denied"] } },
+      include: { property: { select: { id: true, code: true, name: true } } },
+      orderBy: [{ dueDate: "asc" }, { scheduledDate: "asc" }, { updatedAt: "desc" }],
+    });
+    for (const record of projectRecords) {
+      addEntry({ userId: record.assignedUserId ?? null, assignedUserName: record.assignedUserName ?? "Unassigned", role: activeUsers.find((entry) => entry.id === record.assignedUserId)?.role ?? null, sourceType: "PROJECT_RECORD", sourceId: record.id, property: record.property, title: record.title, subtitle: `Projects / ${record.recordType}${record.categoryName ? ` / ${record.categoryName}` : ""}`, status: record.status, priority: record.priority, dueDate: record.dueDate, scheduledDate: record.scheduledDate, overdue: Boolean(record.dueDate && record.dueDate < new Date()) });
+    }
+
+    const pmTasks = await prisma.preventiveMaintenanceTask.findMany({
+      where: { ...propertyWhere, assignedUserId: { not: null }, status: { notIn: ["COMPLETED", "CANCELLED", "ARCHIVED"] } },
+      include: { property: { select: { id: true, code: true, name: true } } },
+      orderBy: [{ dueDate: "asc" }, { updatedAt: "desc" }],
+    });
+    for (const task of pmTasks) {
+      addEntry({ userId: task.assignedUserId ?? null, assignedUserName: task.assignedUserName ?? "Unassigned", role: activeUsers.find((entry) => entry.id === task.assignedUserId)?.role ?? null, sourceType: "PREVENTIVE_MAINTENANCE_TASK", sourceId: task.id, property: task.property, title: task.taskName, subtitle: `Preventive Maintenance / ${task.category}`, status: task.status, priority: task.priority, dueDate: task.dueDate, overdue: task.dueDate < new Date() });
+    }
+
+    const pestItems = await prisma.pestIssue.findMany({
+      where: { isArchived: false, ...propertyWhere, assignedUserId: { not: null }, status: { notIn: ["Closed", "Cancelled", "Archived"] } },
+      include: { property: { select: { id: true, code: true, name: true } }, unit: { select: { number: true } }, assignedUser: { select: { id: true, fullName: true, role: true } } },
+      orderBy: [{ followUpDate: "asc" }, { requestDate: "desc" }],
+    });
+    for (const issue of pestItems) {
+      addEntry({ userId: issue.assignedUserId ?? null, assignedUserName: issue.assignedUser?.fullName ?? "Unassigned", role: issue.assignedUser?.role ?? null, sourceType: "PEST_ISSUE", sourceId: issue.id, property: issue.property, title: issue.unit?.number ?? issue.area ?? issue.pestType, subtitle: `Pest Control / ${issue.pestType}`, status: issue.status, priority: issue.priority, dueDate: issue.followUpDate, scheduledDate: issue.treatmentDate, overdue: Boolean(issue.followUpDate && issue.followUpDate < new Date() && issue.status === "Needs Follow Up") });
+    }
+
+    const leaseItems = await prisma.leaseComplianceIssue.findMany({
+      where: { isArchived: false, ...propertyWhere, assignedUserId: { not: null }, status: { notIn: ["Resolved", "Archived"] } },
+      include: { property: { select: { id: true, code: true, name: true } }, unit: { select: { number: true } }, assignedUser: { select: { id: true, fullName: true, role: true } } },
+      orderBy: [{ updatedAt: "desc" }],
+    });
+    for (const issue of leaseItems) {
+      addEntry({ userId: issue.assignedUserId ?? null, assignedUserName: issue.assignedUser?.fullName ?? issue.assignedUserName ?? "Unassigned", role: issue.assignedUser?.role ?? null, sourceType: "LEASE_COMPLIANCE_ISSUE", sourceId: issue.id, property: issue.property, title: issue.unit?.number ?? issue.area ?? issue.building ?? issue.issueTypeName, subtitle: `Lease Compliance / ${issue.issueTypeName}`, status: issue.status, priority: issue.priority, overdue: issue.status === "Violation Needed" || (issue.noticeStage === "3rd Notice" && !issue.violationNeededDate) });
+    }
+
+    return {
+      summary: {
+        totalAssignments: entries.length,
+        activeSessions: activeSessions.length,
+        overdueAssignments: entries.filter((entry) => Boolean(entry.overdue)).length,
+        assignedUsers: new Set(entries.map((entry) => String(entry.userId ?? entry.assignedUserName))).size,
+      },
+      activeSessions,
+      entries,
+      staff: activeUsers,
+    };
+  });
+
+  app.post("/work-sessions/start", async (request, reply) => {
+    const user = request.currentUser!;
+    const input = workSessionStartSchema.parse(request.body);
+    const source = await resolveWorkSessionSource(request, reply, input.sourceType, input.sourceId);
+    if (!source) return reply;
+    const existing = await prisma.workSession.findFirst({ where: { userId: user.id, status: "IN_PROGRESS" }, orderBy: { startedAt: "desc" }, include: workSessionInclude });
+    if (existing && existing.sourceType === input.sourceType && serializeWorkSession(existing).sourceId === input.sourceId) {
+      return serializeWorkSession(existing);
+    }
+    if (existing) {
+      await endActiveWorkSession(existing.id, user.id, existing.endNote ?? "Auto-ended when starting another assignment.");
+    }
+    const created = await prisma.workSession.create({
+      data: {
+        propertyId: source.propertyId,
+        userId: user.id,
+        sourceType: input.sourceType,
+        startNote: input.note ?? null,
+        startedById: user.id,
+        ...source.data,
+      },
+      include: workSessionInclude,
+    });
+    await writeAuditLog({ request, actorUserId: user.id, propertyId: source.propertyId, entityType: "WORK_SESSION", entityId: created.id, action: "WORK_SESSION_STARTED", message: source.message });
+    return serializeWorkSession(created);
+  });
+
+  app.post("/work-sessions/:id/end", async (request, reply) => {
+    const user = request.currentUser!;
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
+    const input = workSessionEndSchema.parse(request.body ?? {});
+    const session = await prisma.workSession.findUnique({ where: { id }, include: workSessionInclude });
+    if (!session) return reply.code(404).send({ message: "Work session not found" });
+    const scopedProperties = allowedPropertyIds(user);
+    if (scopedProperties && !scopedProperties.includes(session.propertyId)) return reply.code(403).send({ message: "Property access required" });
+    if (session.userId !== user.id && !(user.role === UserRole.ADMIN || user.role === UserRole.MANAGER)) {
+      return reply.code(403).send({ message: "Only managers or the assigned user can end this session" });
+    }
+    const ended = await endActiveWorkSession(session.id, user.id, input.note ?? null);
+    if (!ended) return serializeWorkSession(session);
+    await writeAuditLog({ request, actorUserId: user.id, propertyId: session.propertyId, entityType: "WORK_SESSION", entityId: session.id, action: "WORK_SESSION_ENDED", message: `Ended work session for ${ended.user.fullName}` });
+    return serializeWorkSession(ended);
+  });
+
   app.get("/my-work", async (request, reply) => {
     const user = request.currentUser!;
     const { userId } = z.object({ userId: z.string().optional() }).parse(request.query);
@@ -1306,6 +1606,27 @@ export async function collaborationRoutes(app: FastifyInstance) {
       },
       orderBy: [{ createdAt: "desc" }, { updatedAt: "desc" }],
     });
+    const pmTasks = await prisma.preventiveMaintenanceTask.findMany({
+      where: {
+        ...(scopedProperties ? { propertyId: { in: scopedProperties } } : {}),
+        assignedUserId: target.id,
+        status: { notIn: ["COMPLETED", "CANCELLED", "ARCHIVED"] },
+      },
+      include: {
+        property: true,
+      },
+      orderBy: [{ dueDate: "asc" }, { updatedAt: "desc" }],
+    });
+    const activeSessionsRaw = await prisma.workSession.findMany({
+      where: {
+        userId: target.id,
+        status: "IN_PROGRESS",
+        ...(scopedProperties ? { propertyId: { in: scopedProperties } } : {}),
+      },
+      include: workSessionInclude,
+      orderBy: [{ startedAt: "asc" }],
+    });
+    const activeSessions = activeSessionsRaw.map(serializeWorkSession);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const soonCutoff = new Date(today);
@@ -1313,21 +1634,25 @@ export async function collaborationRoutes(app: FastifyInstance) {
     return {
       target: { id: target.id, fullName: target.fullName },
       stats: {
-        total: items.length + projectItems.length + pestItems.length + leaseComplianceItems.length,
+        total: items.length + projectItems.length + pestItems.length + leaseComplianceItems.length + pmTasks.length,
         overdue: items.filter((entry) => entry.overdue).length
           + projectItems.filter((entry) => entry.dueDate && entry.dueDate < today && !["Completed", "Cancelled", "Archived", "Denied"].includes(entry.status)).length
           + pestItems.filter((entry) => entry.followUpDate && entry.followUpDate < today && entry.status === "Needs Follow Up").length
-          + leaseComplianceItems.filter((entry) => ["Violation Needed"].includes(entry.status) || (entry.notice3Date && !entry.violationNeededDate)).length,
+          + leaseComplianceItems.filter((entry) => ["Violation Needed"].includes(entry.status) || (entry.notice3Date && !entry.violationNeededDate)).length
+          + pmTasks.filter((entry) => entry.dueDate < today).length,
         dueSoon: items.filter((entry) => entry.moveInSoon).length
           + projectItems.filter((entry) => ((entry.scheduledDate && entry.scheduledDate >= today && entry.scheduledDate <= soonCutoff) || (entry.dueDate && entry.dueDate >= today && entry.dueDate <= soonCutoff))).length
           + pestItems.filter((entry) => ((entry.followUpDate && entry.followUpDate >= today && entry.followUpDate <= soonCutoff) || (entry.treatmentDate && entry.treatmentDate >= today && entry.treatmentDate <= soonCutoff))).length
-          + leaseComplianceItems.filter((entry) => entry.noticeStage !== "None" || entry.recurringConcern).length,
+          + leaseComplianceItems.filter((entry) => entry.noticeStage !== "None" || entry.recurringConcern).length
+          + pmTasks.filter((entry) => entry.dueDate >= today && entry.dueDate <= soonCutoff).length,
         openChecklistTasks: items.flatMap((entry) => entry.checklistInstances.flatMap((instance) => instance.items)).filter((entry) => !entry.completed).length,
       },
       items,
       projectItems,
       pestItems,
       leaseComplianceItems,
+      pmTasks,
+      activeSessions,
     };
   });
 }

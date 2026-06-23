@@ -99,6 +99,7 @@ model Property {
   notificationPreferences   NotificationPreference[]
   apiTokenScopes            ApiTokenPropertyScope[]
   webhookScopes             WebhookPropertyScope[]
+  workSessions              WorkSession[]
 }
 
 model Unit {
@@ -210,6 +211,7 @@ model MakeReadyItem {
   checklistInstances   ChecklistInstance[]
   vendorAssignments    VendorAssignment[]
   workAssignmentBlocks WorkAssignmentBlock[]
+  workSessions         WorkSession[]
   pestIssues           PestIssue[]
 
   @@index([propertyId, boardGroup])
@@ -237,6 +239,7 @@ model User {
   createdAt                    DateTime                              @default(now())
   updatedAt                    DateTime                              @updatedAt
   sessions                     Session[]
+  workSessions                 WorkSession[]
   propertyAccess               UserPropertyAccess[]
   auditLogs                    AuditLog[]
   savedViews                   SavedView[]
@@ -513,6 +516,43 @@ model WorkAssignmentBlock {
   @@index([status, plannedDate])
 }
 
+model WorkSession {
+  id                       String                      @id @default(cuid())
+  propertyId               String
+  property                 Property                    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  userId                   String
+  user                     User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceType               String
+  status                   String                      @default("IN_PROGRESS")
+  startedAt                DateTime                    @default(now())
+  endedAt                  DateTime?
+  durationMinutes          Int?
+  startNote                String?
+  endNote                  String?
+  startedById              String?
+  endedById                String?
+  makeReadyItemId          String?
+  makeReadyItem            MakeReadyItem?              @relation(fields: [makeReadyItemId], references: [id], onDelete: Cascade)
+  leaseComplianceIssueId   String?
+  leaseComplianceIssue     LeaseComplianceIssue?       @relation(fields: [leaseComplianceIssueId], references: [id], onDelete: Cascade)
+  projectRecordId          String?
+  projectRecord            ProjectRecord?              @relation(fields: [projectRecordId], references: [id], onDelete: Cascade)
+  preventiveMaintenanceTaskId String?
+  preventiveMaintenanceTask PreventiveMaintenanceTask? @relation(fields: [preventiveMaintenanceTaskId], references: [id], onDelete: Cascade)
+  pestIssueId              String?
+  pestIssue                PestIssue?                  @relation(fields: [pestIssueId], references: [id], onDelete: Cascade)
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
+
+  @@index([userId, status, startedAt])
+  @@index([propertyId, status, startedAt])
+  @@index([makeReadyItemId, status])
+  @@index([leaseComplianceIssueId, status])
+  @@index([projectRecordId, status])
+  @@index([preventiveMaintenanceTaskId, status])
+  @@index([pestIssueId, status])
+}
+
 model PropertyMap {
   id             String            @id @default(cuid())
   propertyId     String
@@ -635,6 +675,7 @@ model LeaseComplianceIssue {
   photos                LeaseComplianceIssuePhoto[]
   noticeActions         LeaseComplianceNoticeAction[]
   persistenceChecks     LeaseCompliancePersistenceCheck[]
+  workSessions          WorkSession[]
 
   @@index([propertyId, isArchived, status, createdAt])
   @@index([propertyId, unitId, createdAt])
@@ -850,6 +891,7 @@ model ProjectRecord {
   comments            ProjectComment[]
   tasks               ProjectTask[]
   wikiReferences      ProjectWikiReference[]
+  workSessions        WorkSession[]
 
   @@index([propertyId, recordType, status])
   @@index([propertyId, isArchived, updatedAt])
@@ -1802,6 +1844,7 @@ model PropertyWikiAsset {
   description  String?
   tags         String[]            @default([])
   isEmergency  Boolean             @default(false)
+  isActive     Boolean             @default(true)
   storedName   String              @unique
   originalName String
   mimeType     String
@@ -1924,6 +1967,7 @@ model PreventiveMaintenanceTask {
   updatedAt         DateTime                              @updatedAt
   completedBy       User?                                 @relation("PreventiveMaintenanceTaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
   attachments       PreventiveMaintenanceTaskAttachment[]
+  workSessions      WorkSession[]
 
   @@index([propertyId, dueDate, status])
   @@index([templateId, dueDate])
@@ -2001,6 +2045,7 @@ model PestIssue {
   updatedAt                 DateTime              @updatedAt
   notes                     PestIssueNote[]
   attachments               PestIssueAttachment[]
+  workSessions              WorkSession[]
 
   @@index([propertyId, isArchived, status, requestDate])
   @@index([propertyId, unitId, requestDate])

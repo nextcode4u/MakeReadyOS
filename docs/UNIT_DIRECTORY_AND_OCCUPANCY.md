@@ -182,11 +182,12 @@ Recommended rules:
 - Use `UNKNOWN` for unclear occupancy only when the source explicitly has an unknown state; otherwise leave the status blank and update it later.
 - Save as `.csv` or copy the table directly into the paste box.
 
-The in-app directory importer now also ships quick presets for four common starting shapes:
+The in-app directory importer now also ships quick presets for five common starting shapes:
 
 - `Full`: separate unit, building, area, floor, plan, square-footage, occupancy, and budgeted columns
 - `Building + unit`: combined `buildingUnit` style exports such as `1-101`
 - `Yardi-style`: common exports with `Unit #`, `Building`, `Floor`, `Unit Type`, `Bedrooms`, `Bathrooms`, `Sq Ft`, `Status`, and `Occupancy Eligible`
+- `MRI-style`: common exports with `Unit Code`, `Building`, `Plan Code`, `Status`, and `Occupancy Eligible`
 - `Minimal`: sparse unit + plan + square-footage style extracts
 
 ## Converting An Availability Report To CSV
@@ -209,12 +210,15 @@ Use availability import in two different ways:
 
 Large recurring imports no longer collapse changed-unit review into a partial summary. The browser preview keeps the full changed-unit list and the full blocked-conflict list visible in unit order, and both lists can be copied out in one action for reconciliation with RealPage, Yardi, or supervisor handoff. That same preview path now auto-detects comma, semicolon, or tab separators so spreadsheet exports do not need manual delimiter cleanup first.
 
-The in-app availability importer now also ships quick presets for four common starting shapes:
+The in-app availability importer now also ships quick presets for five common starting shapes:
 
 - `Full`: MakeReadyOS-native availability CSV with all major fields present
 - `RealPage-style`: combined `bldgUnit`, `MoveOut`, `Days Vacant`, `Make Ready`, `Scheduled Move-In`, `Preleased Name`, and `Report Date` columns
 - `Yardi-style`: common exports with `Unit #`, `Unit Type`, `Avail Status`, `Vacate`, `Days Vacant`, `Ready Dt`, `Future Resident`, `Apply Date`, and `As Of Date`
+- `MRI-style`: common exports with `Unit Code`, `Plan Code`, `Status`, `Notice Date`, `Ready Date`, `Future Resident`, and `Snapshot Date`
 - `Compact`: small operational exports with only unit, status, move-out, days vacant, and report date
+
+The browser-side parser also recognizes a few more low-risk aliases in this same family now, including `unitcode`, `plancode`, `statusdescription`, `noticegivendate`, `movereadydate`, `unitreadydate`, `snapshotdate`, `rundate`, and `residentname`.
 
 If using an AI assistant or another conversion tool, give it instructions like:
 

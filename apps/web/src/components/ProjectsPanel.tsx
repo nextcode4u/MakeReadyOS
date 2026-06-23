@@ -6,6 +6,7 @@ import {
   createProjectComment,
   createProjectRecord,
   createProjectTask,
+  deleteProjectCategory,
   getProjectCategories,
   getProjectMapRecords,
   getProjectRecord,
@@ -51,6 +52,7 @@ import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
 import type { OpenProjectCreateRequest, OpenProjectRecordRequest } from "../lib/projectNavigation";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { isTouchMobileViewport } from "../lib/responsive";
+import { Modal } from "./Modal";
 
 type Props = {
   properties: Property[];
@@ -247,6 +249,7 @@ function ProjectDetail({
   const [task, setTask] = useState(taskDraft);
   const [attachmentType, setAttachmentType] = useState<ProjectAttachmentType>("GENERAL");
   const [attachmentCaption, setAttachmentCaption] = useState("");
+  const [previewAttachmentId, setPreviewAttachmentId] = useState<string | null>(null);
   const [bidDraft, setBidDraft] = useState({
     companyName: record.companyName ?? "",
     contactName: record.contactName ?? "",
@@ -278,8 +281,10 @@ function ProjectDetail({
     ...type,
     items: record.attachments.filter((attachment) => attachment.attachmentType === type.value),
   })).filter((group) => group.items.length > 0);
+  const previewAttachment = record.attachments.find((attachment) => attachment.id === previewAttachmentId) ?? null;
   return (
-    <section className="pool-card projects-detail-shell">
+    <>
+      <section className="pool-card projects-detail-shell">
       <div className="projects-detail-section">
         <div className="drawer-section-title">
           <h3>{record.title}</h3>
@@ -407,7 +412,16 @@ function ProjectDetail({
                 <div className="projects-photo-grid">
                   {group.items.map((attachment) => (
                     <article key={attachment.id} className="projects-photo-card">
-                      {isImageAttachment(attachment.mimeType) ? <img loading="lazy" decoding="async" src={projectAttachmentDownloadUrl(attachment.id)} alt={attachment.caption ?? attachment.originalName} /> : <div className="projects-photo-file">FILE</div>}
+                      {isImageAttachment(attachment.mimeType) ? (
+                        <button
+                          className="projects-photo-preview-button"
+                          type="button"
+                          onClick={() => setPreviewAttachmentId(attachment.id)}
+                          aria-label={isSpanish ? "Vista previa de la foto del proyecto" : "Preview project photo"}
+                        >
+                          <img loading="lazy" decoding="async" src={projectAttachmentDownloadUrl(attachment.id)} alt={attachment.caption ?? attachment.originalName} />
+                        </button>
+                      ) : <div className="projects-photo-file">FILE</div>}
                       <div className="projects-photo-meta">
                         <strong>{attachment.caption ?? attachment.originalName}</strong>
                         <span>{group.label}</span>
@@ -551,7 +565,34 @@ function ProjectDetail({
           </section>
         </div>
       </div>
-    </section>
+      </section>
+      <Modal
+        open={Boolean(previewAttachment)}
+        title={previewAttachment?.caption ?? previewAttachment?.originalName ?? (isSpanish ? "Vista previa de adjunto" : "Attachment Preview")}
+        onClose={() => setPreviewAttachmentId(null)}
+        testId="attachment-preview-modal"
+        actions={previewAttachment ? (
+          <a className="button button-primary" href={projectAttachmentDownloadUrl(previewAttachment.id)} target="_blank" rel="noreferrer">
+            {isSpanish ? "Abrir archivo" : "Open file"}
+          </a>
+        ) : null}
+      >
+        {previewAttachment ? (
+          <div className="attachment-lightbox">
+            {isImageAttachment(previewAttachment.mimeType) ? (
+              <img src={projectAttachmentDownloadUrl(previewAttachment.id)} alt={previewAttachment.caption ?? previewAttachment.originalName} />
+            ) : (
+              <div className="attachment-lightbox-file">{previewAttachment.originalName}</div>
+            )}
+            <div className="attachment-lightbox-meta">
+              <strong>{previewAttachment.caption ?? previewAttachment.originalName}</strong>
+              <span>{attachmentTypes.find((entry) => entry.value === previewAttachment.attachmentType)?.label ?? previewAttachment.attachmentType}</span>
+              <span>{previewAttachment.uploaderName ?? (isSpanish ? "Desconocido" : "Unknown")} / {formatDate(previewAttachment.createdAt)}</span>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+    </>
   );
 }
 
@@ -797,6 +838,10 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   });
   const categoryUpdateMutation = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: { name?: string; color?: string | null; isActive?: boolean; sortOrder?: number; propertyId?: string | null } }) => updateProjectCategory(id, patch),
+    onSuccess: invalidate,
+  });
+  const categoryDeleteMutation = useMutation({
+    mutationFn: deleteProjectCategory,
     onSuccess: invalidate,
   });
   const uploadMutation = useMutation({
@@ -1537,6 +1582,22 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                           }}>{isSpanish ? "Renombrar" : "Rename"}</button>
                           <button className="button button-secondary" type="button" onClick={() => void categoryUpdateMutation.mutateAsync({ id: category.id, patch: { isActive: true } })}>
                             {isSpanish ? "Activar" : "Activate"}
+                          </button>
+                          <button
+                            className="button button-danger"
+                            type="button"
+                            disabled={categoryDeleteMutation.isPending}
+                            onClick={() => {
+                              const confirmed = window.confirm(
+                                isSpanish
+                                  ? `Eliminar permanentemente ${category.name}? Solo funciona cuando la categoría inactiva ya no está vinculada a proyectos o recomendaciones.`
+                                  : `Permanently delete ${category.name}? This only works when the inactive category is no longer linked to any projects or recommendations.`,
+                              );
+                              if (!confirmed) return;
+                              void categoryDeleteMutation.mutateAsync(category.id).catch(() => {});
+                            }}
+                          >
+                            {isSpanish ? "Eliminar permanente" : "Delete Permanently"}
                           </button>
                         </div>
                       </div>

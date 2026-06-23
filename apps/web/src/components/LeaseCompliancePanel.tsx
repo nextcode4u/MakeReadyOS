@@ -6,6 +6,7 @@ import {
   createPropertyMapPin,
   createLeaseComplianceIssue,
   createLeaseComplianceIssueType,
+  deleteLeaseComplianceIssueType,
   deleteLeaseComplianceIssuePhoto,
   dismissLeaseComplianceRecurringFlag,
   getLeaseComplianceIssueTypes,
@@ -557,6 +558,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
   const deletePhotoMutation = useMutation({ mutationFn: deleteLeaseComplianceIssuePhoto, onSuccess: invalidate });
   const createIssueTypeMutation = useMutation({ mutationFn: createLeaseComplianceIssueType, onSuccess: invalidate });
   const updateIssueTypeMutation = useMutation({ mutationFn: ({ id, input }: { id: string; input: Partial<Parameters<typeof createLeaseComplianceIssueType>[0]> }) => updateLeaseComplianceIssueType(id, input), onSuccess: invalidate });
+  const deleteIssueTypeMutation = useMutation({ mutationFn: deleteLeaseComplianceIssueType, onSuccess: invalidate });
   const updateSettingsMutation = useMutation({ mutationFn: updateLeaseComplianceSettings, onSuccess: invalidate });
 
   const issueTypes = issueTypesQuery.data?.issueTypes ?? overviewQuery.data?.issueTypes ?? [];
@@ -1334,6 +1336,22 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
                         {permissions.admin ? (
                           <div className="pool-entry-actions">
                             <button className="button button-secondary" type="button" onClick={() => updateIssueTypeMutation.mutate({ id: entry.id, input: { isActive: true } })}>{t(language, "lease.restore")}</button>
+                            <button
+                              className="button button-danger"
+                              type="button"
+                              disabled={deleteIssueTypeMutation.isPending}
+                              onClick={() => {
+                                const confirmed = window.confirm(
+                                  language === "es"
+                                    ? `Eliminar permanentemente ${entry.name}? Solo funciona cuando el tipo inactivo ya no está vinculado a reportes.`
+                                    : `Permanently delete ${entry.name}? This only works when the inactive type is no longer linked to any issues.`,
+                                );
+                                if (!confirmed) return;
+                                deleteIssueTypeMutation.mutate(entry.id);
+                              }}
+                            >
+                              {language === "es" ? "Eliminar permanente" : "Delete Permanently"}
+                            </button>
                           </div>
                         ) : null}
                       </div>

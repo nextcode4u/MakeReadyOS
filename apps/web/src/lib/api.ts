@@ -866,6 +866,7 @@ export type PropertyWikiAsset = {
   description: string | null;
   tags: string[];
   isEmergency: boolean;
+  isActive: boolean;
   storedName: string;
   originalName: string;
   mimeType: string;
@@ -1262,6 +1263,63 @@ export type MyWorkResponse = {
   projectItems?: ProjectRecord[];
   pestItems?: PestIssue[];
   leaseComplianceItems?: LeaseComplianceIssue[];
+  pmTasks?: PreventiveMaintenanceTask[];
+  activeSessions?: WorkSessionSummary[];
+};
+
+export type WorkSessionSourceType =
+  | "MAKE_READY_ITEM"
+  | "PROJECT_RECORD"
+  | "PEST_ISSUE"
+  | "LEASE_COMPLIANCE_ISSUE"
+  | "PREVENTIVE_MAINTENANCE_TASK";
+
+export type WorkSessionSummary = {
+  id: string;
+  propertyId: string;
+  property: Property;
+  userId: string;
+  user: { id: string; fullName: string; role: UserRole };
+  sourceType: WorkSessionSourceType;
+  sourceId: string;
+  status: "IN_PROGRESS" | "COMPLETED";
+  startedAt: string;
+  endedAt: string | null;
+  durationMinutes: number | null;
+  startNote: string | null;
+  endNote: string | null;
+  title: string;
+  subtitle: string;
+  assignmentStatus: string;
+};
+
+export type AssignedWorkEntry = {
+  userId: string | null;
+  assignedUserName: string;
+  role: UserRole | null;
+  sourceType: WorkSessionSourceType;
+  sourceId: string;
+  property: Property;
+  title: string;
+  subtitle: string;
+  status: string;
+  priority?: string | null;
+  dueDate?: string | null;
+  scheduledDate?: string | null;
+  overdue?: boolean;
+  activeSession: WorkSessionSummary | null;
+};
+
+export type AssignedWorkResponse = {
+  summary: {
+    totalAssignments: number;
+    activeSessions: number;
+    overdueAssignments: number;
+    assignedUsers: number;
+  };
+  activeSessions: WorkSessionSummary[];
+  entries: AssignedWorkEntry[];
+  staff: Array<{ id: string; fullName: string; role: UserRole }>;
 };
 
 export type LeaseComplianceStatus = "Open" | "Resident Notified" | "Notice Sent" | "Violation Needed" | "Resolved" | "Archived";
@@ -2549,6 +2607,21 @@ export function getMyWork(userId?: string) {
   return request<MyWorkResponse>(`/my-work${params}`);
 }
 
+export function getAssignedWork(filters: { propertyId?: string; userId?: string } = {}) {
+  const params = new URLSearchParams();
+  if (filters.propertyId) params.set("propertyId", filters.propertyId);
+  if (filters.userId) params.set("userId", filters.userId);
+  return request<AssignedWorkResponse>(`/assigned-work${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function startWorkSession(input: { sourceType: WorkSessionSourceType; sourceId: string; note?: string | null }) {
+  return request<WorkSessionSummary>("/work-sessions/start", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function endWorkSession(id: string, input: { note?: string | null } = {}) {
+  return request<WorkSessionSummary>(`/work-sessions/${id}/end`, { method: "POST", body: JSON.stringify(input) });
+}
+
 export function getLeaseComplianceOverview(propertyId?: string) {
   const params = new URLSearchParams();
   if (propertyId) params.set("propertyId", propertyId);
@@ -2581,6 +2654,10 @@ export function createLeaseComplianceIssueType(input: {
 
 export function updateLeaseComplianceIssueType(id: string, input: Partial<Parameters<typeof createLeaseComplianceIssueType>[0]>) {
   return request<{ issueType: LeaseComplianceIssueType }>(`/lease-compliance/issue-types/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function deleteLeaseComplianceIssueType(id: string) {
+  return request<{ ok: true }>(`/lease-compliance/issue-types/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export function getLeaseComplianceIssues(filters: {
@@ -2797,6 +2874,10 @@ export function updatePestVendor(id: string, input: Partial<Parameters<typeof cr
   return request<{ vendor: PestVendor }>(`/pest/vendors/${id}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
+export function deletePestVendor(id: string) {
+  return request<{ ok: true }>(`/pest/vendors/${id}`, { method: "DELETE" });
+}
+
 export async function uploadPestIssueAttachment(issueId: string, file: File, options?: { photoType?: PestPhotoType; caption?: string }) {
   const form = new FormData();
   form.append("file", file);
@@ -2878,6 +2959,10 @@ export function updateProjectCategory(id: string, input: {
   sortOrder?: number;
 }) {
   return request<{ category: ProjectCategory }>(`/projects/categories/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function deleteProjectCategory(id: string) {
+  return request<{ ok: true }>(`/projects/categories/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export function getProjectRecords(filters: {
@@ -3356,6 +3441,18 @@ export function toggleAutomation(id: string, enabled: boolean) {
 }
 
 export function archiveAutomation(id: string) {
+  return request<{ rule: AutomationRule }>(`/automations/${id}/archive`, {
+    method: "POST",
+  });
+}
+
+export function restoreAutomation(id: string) {
+  return request<{ rule: AutomationRule }>(`/automations/${id}/restore`, {
+    method: "POST",
+  });
+}
+
+export function deleteAutomation(id: string) {
   return request<{ ok: true }>(`/automations/${id}`, {
     method: "DELETE",
   });
@@ -4462,7 +4559,7 @@ export function updatePropertyWikiVendor(id: string, input: Partial<Parameters<t
   return request<{ vendor: PropertyWikiVendor }>(`/property-wiki/vendors/${id}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
-export function getPropertyWikiAssets(filters: { propertyId?: string; kind?: PropertyWikiAssetKind; entryId?: string; vendorId?: string; q?: string } = {}) {
+export function getPropertyWikiAssets(filters: { propertyId?: string; kind?: PropertyWikiAssetKind; entryId?: string; vendorId?: string; q?: string; includeInactive?: boolean } = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
@@ -4498,7 +4595,7 @@ export function uploadPropertyWikiAsset(input: {
   return request<{ asset: PropertyWikiAsset }>("/property-wiki/assets/upload", { method: "POST", body: data });
 }
 
-export function updatePropertyWikiAsset(id: string, input: { title?: string; category?: string | null; building?: string | null; description?: string | null; tags?: string[] | string; isEmergency?: boolean }) {
+export function updatePropertyWikiAsset(id: string, input: { title?: string; category?: string | null; building?: string | null; description?: string | null; tags?: string[] | string; isEmergency?: boolean; isActive?: boolean }) {
   return request<{ asset: PropertyWikiAsset }>(`/property-wiki/assets/${id}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
@@ -4688,7 +4785,15 @@ export function updatePropertyMapPin(id: string, input: Partial<Omit<Parameters<
 }
 
 export function removePropertyMapPin(id: string) {
-  return request<{ pin: PropertyMapPin }>(`/property-map-pins/${encodeURIComponent(id)}`, { method: "DELETE" });
+  return request<{ pin: PropertyMapPin }>(`/property-map-pins/${encodeURIComponent(id)}/archive`, { method: "POST" });
+}
+
+export function restorePropertyMapPin(id: string) {
+  return request<{ pin: PropertyMapPin }>(`/property-map-pins/${encodeURIComponent(id)}/restore`, { method: "POST" });
+}
+
+export function deletePropertyMapPin(id: string) {
+  return request<{ ok: true }>(`/property-map-pins/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export function uploadPropertyMapPinAttachment(pinId: string, file: File, caption?: string) {
@@ -4755,7 +4860,15 @@ export function updatePropertyMapArea(id: string, input: Partial<Omit<Parameters
 }
 
 export function removePropertyMapArea(id: string) {
-  return request<{ area: PropertyMapArea }>(`/property-map-areas/${id}`, { method: "DELETE" });
+  return request<{ area: PropertyMapArea }>(`/property-map-areas/${id}/archive`, { method: "POST" });
+}
+
+export function restorePropertyMapArea(id: string) {
+  return request<{ area: PropertyMapArea }>(`/property-map-areas/${id}/restore`, { method: "POST" });
+}
+
+export function deletePropertyMapArea(id: string) {
+  return request<{ ok: true }>(`/property-map-areas/${id}`, { method: "DELETE" });
 }
 
 export function saveUnitMapLocation(input: {
@@ -4778,7 +4891,15 @@ export function updateUnitMapLocation(id: string, input: Partial<Parameters<type
 }
 
 export function removeUnitMapLocation(id: string) {
-  return request<{ location: UnitMapLocation }>(`/unit-map-locations/${id}`, { method: "DELETE" });
+  return request<{ location: UnitMapLocation }>(`/unit-map-locations/${id}/archive`, { method: "POST" });
+}
+
+export function restoreUnitMapLocation(id: string) {
+  return request<{ location: UnitMapLocation }>(`/unit-map-locations/${id}/restore`, { method: "POST" });
+}
+
+export function deleteUnitMapLocation(id: string) {
+  return request<{ ok: true }>(`/unit-map-locations/${id}`, { method: "DELETE" });
 }
 
 export function getIntegrations() {

@@ -6,6 +6,7 @@ export type CommandPaletteView =
   | "dashboard"
   | "table"
   | "mywork"
+  | "assignedwork"
   | "planning"
   | "activity"
   | "kanban"
@@ -135,8 +136,8 @@ export function CommandPalette({ open, language, items, properties, views, staff
                   <small>{isSpanish ? "Reabrir la lista de inicio inicial." : "Reopen the first-run onboarding checklist."}</small>
                 </button>
                 <button data-testid="command-palette-action-basic-board" onClick={() => { onApplyBasicMode(); onClose(); }}>
-                  <strong>{isSpanish ? "Modo basico del tablero" : "Basic board mode"}</strong>
-                  <small>{isSpanish ? "Reducir el tablero a las columnas operativas esenciales." : "Reduce the board to the essential operational columns."}</small>
+                  <strong>{isSpanish ? "Alternar modo basico del tablero" : "Toggle basic board mode"}</strong>
+                  <small>{isSpanish ? "Cambiar entre columnas esenciales y su diseño anterior." : "Switch between the essential columns and your previous board layout."}</small>
                 </button>
                 <button data-testid="command-palette-action-shortcuts" onClick={() => { onOpenShortcutHelp(); onClose(); }}>
                   <strong>{isSpanish ? "Atajos de teclado" : "Keyboard shortcuts"}</strong>

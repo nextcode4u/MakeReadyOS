@@ -617,7 +617,6 @@ export async function projectRoutes(app: FastifyInstance) {
     const categories = await prisma.projectCategory.findMany({
       where: {
         OR: [{ propertyId: null }, { propertyId: scoped.where }],
-        isActive: true,
       },
       orderBy: [{ propertyId: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
     });
@@ -638,6 +637,30 @@ export async function projectRoutes(app: FastifyInstance) {
     const input = projectCategorySchema.partial().parse(request.body);
     const category = await prisma.projectCategory.update({ where: { id }, data: input });
     return { category };
+  });
+
+  app.delete("/projects/categories/:id", async (request, reply) => {
+    if (!requireProjectsAccess(request, reply, "admin")) return;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const category = await prisma.projectCategory.findUnique({
+      where: { id },
+      select: { id: true, name: true, propertyId: true, isActive: true },
+    });
+    if (!category) {
+      return reply.code(404).send({ message: "Project category not found" });
+    }
+    if (category.propertyId) {
+      await assertPropertyAccess(request, category.propertyId);
+    }
+    if (category.isActive) {
+      return reply.code(400).send({ message: "Archive or deactivate the category before deleting it permanently" });
+    }
+    const linkedRecordCount = await prisma.projectRecord.count({ where: { categoryId: category.id } });
+    if (linkedRecordCount > 0) {
+      return reply.code(409).send({ message: "Cannot permanently delete a category that is still linked to project records" });
+    }
+    await prisma.projectCategory.delete({ where: { id: category.id } });
+    return { ok: true };
   });
 
   app.get("/projects/records", async (request, reply) => {

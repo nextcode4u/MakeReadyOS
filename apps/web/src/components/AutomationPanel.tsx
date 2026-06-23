@@ -75,6 +75,8 @@ type Props = {
   onUpdate: (id: string, input: ReturnType<typeof draftPayload>) => Promise<void>;
   onToggle: (id: string, enabled: boolean) => Promise<void>;
   onArchive: (id: string) => Promise<void>;
+  onRestore: (id: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
   onPreviewStored: (id: string) => Promise<void>;
   onPreviewDraft: (input: ReturnType<typeof draftPayload>) => Promise<void>;
   onRunNow: (id: string) => Promise<void>;
@@ -834,11 +836,14 @@ const defaultTemplateInclude: PropertyTemplateInclude = {
   planningDefaults: false,
 };
 
-export function AutomationPanel({ role, language = "en", properties, customFields, rules, templates, libraryPacks, propertyTemplates, libraryPreview, templatePreview, runs, preview, loading, previewLoading, message, error, onCreate, onInstallTemplate, onPreviewLibraryPack, onInstallLibraryPack, onPreviewPropertyTemplate, onCreatePropertyTemplate, onApplyPropertyTemplate, onArchivePropertyTemplate, onRestorePropertyTemplate, onDeletePropertyTemplate, onUpdate, onToggle, onArchive, onPreviewStored, onPreviewDraft, onRunNow, onSelectRule }: Props) {
+export function AutomationPanel({ role, language = "en", properties, customFields, rules, templates, libraryPacks, propertyTemplates, libraryPreview, templatePreview, runs, preview, loading, previewLoading, message, error, onCreate, onInstallTemplate, onPreviewLibraryPack, onInstallLibraryPack, onPreviewPropertyTemplate, onCreatePropertyTemplate, onApplyPropertyTemplate, onArchivePropertyTemplate, onRestorePropertyTemplate, onDeletePropertyTemplate, onUpdate, onToggle, onArchive, onRestore, onDelete, onPreviewStored, onPreviewDraft, onRunNow, onSelectRule }: Props) {
   const isSpanish = language === "es";
-  const [selectedId, setSelectedId] = useState(() => rules[0]?.id ?? "");
+  const activeRules = useMemo(() => rules.filter((rule) => !rule.isArchived), [rules]);
+  const archivedRules = useMemo(() => rules.filter((rule) => rule.isArchived), [rules]);
+  const [selectedId, setSelectedId] = useState(() => activeRules[0]?.id ?? "");
   const [creating, setCreating] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<AutomationRule | null>(null);
+  const [deleteRuleTarget, setDeleteRuleTarget] = useState<AutomationRule | null>(null);
   const [deleteTemplateTarget, setDeleteTemplateTarget] = useState<PropertyTemplate | null>(null);
   const [draft, setDraft] = useState<Draft>(() => emptyDraft(role, properties));
   const [templateCategory, setTemplateCategory] = useState("All");
@@ -853,7 +858,7 @@ export function AutomationPanel({ role, language = "en", properties, customField
   const [applyTarget, setApplyTarget] = useState({ templateId: "", propertyId: properties[0]?.id ?? "", newName: "", newCode: "", createNew: false, enableAutomations: false });
   const [validationCopyMessage, setValidationCopyMessage] = useState("");
   const [showLibraryInstallConfirm, setShowLibraryInstallConfirm] = useState(false);
-  const selected = rules.find((rule) => rule.id === selectedId) ?? rules[0] ?? null;
+  const selected = activeRules.find((rule) => rule.id === selectedId) ?? activeRules[0] ?? null;
   const canEditSelected = role === "ADMIN" || Boolean(selected?.propertyId);
   const incompleteCondition = draft.conditions.some((condition) => !noValueOperators.includes(condition.operator) && !condition.value.trim());
   const categories = ["All", ...Array.from(new Set(templates.map((template) => template.category)))];
@@ -906,6 +911,16 @@ export function AutomationPanel({ role, language = "en", properties, customField
     [activeLibraryPreview, isSpanish],
   );
   const needsFreshLibraryPreview = Boolean(activeLibraryInput && !activeLibraryPreview);
+
+  useEffect(() => {
+    if (!activeRules.length) {
+      setSelectedId("");
+      return;
+    }
+    if (!selectedId || !activeRules.some((rule) => rule.id === selectedId)) {
+      setSelectedId(activeRules[0]?.id ?? "");
+    }
+  }, [activeRules, selectedId]);
 
   useEffect(() => {
     if (creating) return;
@@ -1525,11 +1540,11 @@ export function AutomationPanel({ role, language = "en", properties, customField
           }}>{isSpanish ? "Nueva regla" : "New Rule"}</button>
         </header>
         <p className="subtitle">{isSpanish ? "Las reglas solo usan condiciones y acciones validadas. JavaScript nunca se ejecuta." : "Rules use validated conditions and actions only. JavaScript is never executed."}</p>
-        {rules.length === 0 ? (
+        {activeRules.length === 0 ? (
           <StatusState title={isSpanish ? "No hay reglas de automatizacion" : "No automation rules"} description={isSpanish ? "Crea una regla estructurada para un flujo de make-ready." : "Create a structured rule for a make-ready workflow."} tone="subtle" />
         ) : (
           <div className="automation-items">
-            {rules.map((rule) => (
+            {activeRules.map((rule) => (
               <div className={selected?.id === rule.id && !creating ? "automation-item active" : "automation-item"} key={rule.id}>
                 <button type="button" data-testid={`automation-item-${rule.id}`} onClick={() => chooseRule(rule)}>
                   <strong>{rule.name}</strong>
@@ -1549,6 +1564,35 @@ export function AutomationPanel({ role, language = "en", properties, customField
             ))}
           </div>
         )}
+        {archivedRules.length > 0 ? (
+          <div className="automation-archived-group" data-testid="automation-archived-rules">
+            <div className="admin-section-head">
+              <div>
+                <h3>{isSpanish ? "Reglas archivadas" : "Archived rules"}</h3>
+                <p className="subtitle">
+                  {isSpanish
+                    ? "Las reglas archivadas no se ejecutan. Restaurar las devuelve a la lista activa; Eliminar las borra permanentemente."
+                    : "Archived rules do not run. Restore returns them to the active list; Delete removes them permanently."}
+                </p>
+              </div>
+              <span className="status-chip inactive">{archivedRules.length}</span>
+            </div>
+            <div className="automation-items">
+              {archivedRules.map((rule) => (
+                <article className="automation-template" key={`archived-rule-${rule.id}`} data-testid={`automation-archived-${rule.id}`}>
+                  <div>
+                    <strong>{rule.name}</strong>
+                    <p>{triggerLabel(rule.triggerType, isSpanish)} · {rule.property?.code ?? (isSpanish ? "Global" : "Global")}</p>
+                  </div>
+                  <div className="pool-entry-actions">
+                    <button className="button button-secondary" type="button" disabled={loading} onClick={() => void onRestore(rule.id)}>{isSpanish ? "Restaurar" : "Restore"}</button>
+                    <button className="button button-danger" type="button" disabled={loading} onClick={() => setDeleteRuleTarget(rule)}>{isSpanish ? "Eliminar" : "Delete"}</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section id="automation-editor-section" className="automation-editor">
@@ -1975,6 +2019,23 @@ export function AutomationPanel({ role, language = "en", properties, customField
           if (!deleteTemplateTarget) return;
           await onDeletePropertyTemplate(deleteTemplateTarget.id);
           setDeleteTemplateTarget(null);
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(deleteRuleTarget)}
+        language={isSpanish ? "es" : "en"}
+        title={isSpanish ? "Eliminar regla archivada" : "Delete archived rule"}
+        description={isSpanish
+          ? `Eliminar permanentemente ${deleteRuleTarget?.name ?? "esta regla"}? Solo las reglas ya archivadas pueden borrarse y esta accion no se puede deshacer.`
+          : `Permanently delete ${deleteRuleTarget?.name ?? "this rule"}? Only archived rules can be deleted and this action cannot be undone.`}
+        confirmLabel={isSpanish ? "Eliminar regla" : "Delete Rule"}
+        tone="danger"
+        busy={loading}
+        onClose={() => setDeleteRuleTarget(null)}
+        onConfirm={async () => {
+          if (!deleteRuleTarget) return;
+          await onDelete(deleteRuleTarget.id);
+          setDeleteRuleTarget(null);
         }}
       />
     </div>

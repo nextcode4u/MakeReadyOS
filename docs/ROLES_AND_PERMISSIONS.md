@@ -5,10 +5,10 @@ MakeReadyOS roles are operational roles, not just UI labels.
 ## Roles
 
 - `ADMIN`: full system access, users, properties, fields, options, automations, library packs, backups, activity, and all board data.
-- `MANAGER`: property-scoped management for assigned properties, board setup, fields/options, automations, library packs, activity, and operational board edits.
-- `TECH`: assigned maintenance execution, work-status fields, comments/photos, checklist completion, My Work, and dashboard visibility.
-- `LEASING`: scoped operational read access plus leasing-facing updates such as applicant, NTV/vacated/move-in dates, vacancy status, and comments.
-- `CLEANER`: scoped cleaning execution, cleaning/make-ready completion fields, comments/photos, checklist completion, and My Work.
+- `MANAGER`: property-scoped management for assigned properties, board setup, fields/options, automations, library packs, activity, operational board edits, Assigned Work visibility, and cross-user work-session oversight.
+- `TECH`: assigned maintenance execution, work-status fields, comments/photos, checklist completion, My Work, Assigned Work session start/end for their own assignments, and dashboard visibility.
+- `LEASING`: scoped operational read access plus leasing-facing updates such as applicant, NTV/vacated/move-in dates, vacancy status, comments, Assigned Work visibility, and cross-module progress review for leasing handoff.
+- `CLEANER`: scoped cleaning execution, cleaning/make-ready completion fields, comments/photos, checklist completion, My Work, Assigned Work session start/end for their own assignments, and dashboard visibility.
 - `VIEWER`: read-only scoped access.
 
 ## Implementation Notes
@@ -24,6 +24,8 @@ The current field-edit boundary is intentionally practical:
 - `VIEWER` cannot mutate board fields.
 
 Property scoping still applies to every non-admin role through `UserPropertyAccess`.
+
+Assigned Work follows the same property scope rules. `ADMIN`, scoped `MANAGER`, and scoped `LEASING` users can review who is assigned across Make Ready, Projects, Pest Control, Lease Compliance, and Preventive Maintenance. Assigned operators can start and end their own active work sessions; `ADMIN` and scoped `MANAGER` users can also end an in-progress session when supervision or reassignment requires it.
 
 Each user also has a language preference. The current supported interface languages are English (`en`) and Spanish (`es`). Administrators can set a user's language in User Management, and signed-in users can switch their own language from the top toolbar. The API stores this preference on the user record; role and property permissions do not change by language.
 

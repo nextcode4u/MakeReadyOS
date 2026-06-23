@@ -223,6 +223,7 @@ const availabilityImportSamples = {
   standard: "unit,floorPlan,sqft,availabilityStatus,vacancyStatus,moveOutDate,vacatedDate,daysVacant,makeReadyDate,moveInDate,applicant,reportDate,dateApplied,building,area,floor\n081,B1,1186,Vacant Not Leased Not Ready,VACANT NOT LEASED NOT READY,,2026-05-04,19,2026-05-05,,,2026-06-07,,,,\n103,B1,1186,Vacant Not Leased Ready,VACANT NOT LEASED READY,,2026-04-30,24,2026-05-08,,,2026-06-07,,,,\n180,C1,1344,NTV Not Leased,NTV NOT LEASED,2026-05-30,,0,2026-06-02,2026-06-05,,2026-06-07,,,,\n190,C1,1344,Vacant Leased Not Ready,VACANT LEASED NOT READY,,2026-05-28,2,2026-06-01,2026-06-05,Future Applicant,2026-06-07,,,,",
   realpage: "bldgUnit,plan,sqft,availabilityStatus,MoveOut,Days Vacant,Make Ready,Scheduled Move-In,Preleased Name,Date Applied,Report Date\n12-081,B1,1186,Vacant Not Leased Not Ready,05/04/2026,19,05/05/2026,,,06/07/2026\n12-103,B1,1186,Vacant Not Leased Ready,04/30/2026,24,05/08/2026,,,06/07/2026\n14-180,C1,1344,NTV Not Leased,05/30/2026,0,06/02/2026,06/05/2026,,06/07/2026\n14-190,C1,1344,Vacant Leased Not Ready,05/28/2026,2,06/01/2026,06/05/2026,Future Applicant,05/27/2026,06/07/2026",
   yardi: "Unit #,Unit Type,Sq Ft,Avail Status,Vacate,Days Vacant,Ready Dt,Future Resident,Apply Date,As Of Date\n081,B1,1186,Vacant Not Leased Not Ready,05/04/2026,19,05/05/2026,,05/01/2026,06/07/2026\n103,B1,1186,Vacant Not Leased Ready,04/30/2026,24,05/08/2026,,04/28/2026,06/07/2026\n180,C1,1344,NTV Not Leased,05/30/2026,0,06/02/2026,,05/29/2026,06/07/2026\n190,C1,1344,Vacant Leased Not Ready,05/28/2026,2,06/01/2026,Future Applicant,05/27/2026,06/07/2026",
+  mri: "Unit Code,Plan Code,Sq Ft,Status,Notice Date,Ready Date,Future Resident,Apply Date,Snapshot Date,Building\n081,B1,1186,Vacant Not Leased Not Ready,05/04/2026,05/05/2026,,05/01/2026,06/07/2026,12\n103,B1,1186,Vacant Not Leased Ready,04/30/2026,05/08/2026,,04/28/2026,06/07/2026,12\n180,C1,1344,NTV Not Leased,05/30/2026,06/02/2026,,05/29/2026,06/07/2026,14\n190,C1,1344,Vacant Leased Not Ready,05/28/2026,06/01/2026,Future Applicant,05/27/2026,06/07/2026,14",
   compact: "unit,availabilityStatus,MoveOut,Days Vacant,Report Date\n081,Vacant Not Leased Not Ready,05/04/2026,19,06/07/2026\n103,Vacant Not Leased Ready,04/30/2026,24,06/07/2026\n180,NTV Not Leased,05/30/2026,0,06/07/2026",
 } as const;
 
@@ -230,6 +231,7 @@ const unitDirectoryImportSamples = {
   standard: "unit,building,area,floor,floorPlan,beds,baths,sqft,occupancyStatus,budgeted\n101,1,North,1,A1,1,1,720,OCCUPIED,yes\n102,1,North,1,A1,1,1,720,NTV LEASED,yes",
   combined: "buildingUnit,floorPlan,beds,baths,sqft,occupancyStatus,budgeted\n1-101,A1,1,1,720,OCCUPIED,yes\n1-102,A1,1,1,720,NTV LEASED,yes\n2-260,B2,2,2,1040,VACANT NOT LEASED READY,yes",
   yardi: "Unit #,Building,Floor,Unit Type,Bedrooms,Bathrooms,Sq Ft,Status,Occupancy Eligible\n101,1,1,A1,1,1,720,Occupied,Yes\n102,1,1,A1,1,1,720,NTV Leased,Yes\n260,2,2,B2,2,2,1040,Vacant Not Leased Ready,Yes\nOffice,,,Office,0,0,0,Occupied,No",
+  mri: "Unit Code,Building,Floor,Plan Code,Bedrooms,Bathrooms,Sq Ft,Status,Occupancy Eligible\n101,1,1,A1,1,1,720,Occupied,Yes\n102,1,1,A1,1,1,720,NTV Leased,Yes\n260,2,2,B2,2,2,1040,Vacant Not Leased Ready,Yes\nOffice,,,Office,0,0,0,Occupied,No",
   sparse: "unit,floorPlan,sqft,occupancyStatus\n101,A1,720,OCCUPIED\n102,A1,720,NTV LEASED\n260,B2,1040,VACANT NOT LEASED READY",
 } as const;
 
@@ -936,7 +938,7 @@ export function OperationsPanel({
     const parsedRows = dataRows.map((row) => {
       const cells = splitDelimitedLine(row, delimiter);
       const combinedUnit = valueAt(cells, ["bldgunit", "bldgapt", "bldgunitnumber", "buildingunit", "buildingandunit", "bldgunitno"]);
-      const explicitNumber = valueAt(cells, ["unit", "unitid", "number", "unitnumber", "unitno", "unitnum", "unit#", "apartment", "apt", "aptno", "aptnumber", "apartmentnumber"]);
+      const explicitNumber = valueAt(cells, ["unit", "unitid", "unitcode", "number", "unitnumber", "unitno", "unitnum", "unit#", "apartment", "apt", "aptno", "aptnumber", "apartmentnumber"]);
       const splitUnit = !explicitNumber && combinedUnit ? splitCombinedBuildingUnit(combinedUnit) : { building: "", unit: explicitNumber };
       const number = explicitNumber || splitUnit.unit;
       if (!number) throw new Error(language === "es" ? "Cada fila importada necesita un número de unidad." : "Every imported row needs a unit number.");
@@ -944,11 +946,11 @@ export function OperationsPanel({
       const beds = parseNumberCell(valueAt(cells, ["beds", "bed", "bedrooms"]));
       const baths = parseNumberCell(valueAt(cells, ["baths", "bath", "bathrooms"]));
       const imported: UnitImportInput = { number };
-      const floorPlan = valueAt(cells, ["floorplan", "floorplancode", "plan", "unittype", "unittypename", "unitplan"]);
+      const floorPlan = valueAt(cells, ["floorplan", "floorplancode", "plancode", "plan", "planname", "unittype", "unittypename", "unitplan"]);
       const building = valueAt(cells, ["building", "buildingnumber", "bldg", "bldgno", "buildingname", "bldg#"]) || splitUnit.building;
       const area = valueAt(cells, ["area", "phase", "zone", "section", "propertyarea"]);
       const floor = valueAt(cells, ["floor", "level"]);
-      const occupancy = valueAt(cells, ["occupancystatus", "availabilitystatus", "availability", "occupancy", "status", "unitstatus", "currentstatus", "availstatus"]);
+      const occupancy = valueAt(cells, ["occupancystatus", "availabilitystatus", "availability", "occupancy", "status", "statusdescription", "unitstatus", "currentstatus", "availstatus"]);
       const budgeted = valueAt(cells, ["budgeted", "isbudgeted", "includeinoccupancy", "occupancyeligible", "budget", "includedinoccupancy"]);
       if (floorPlan) imported.floorPlan = floorPlan;
       if (building) imported.building = building;
@@ -989,13 +991,13 @@ export function OperationsPanel({
     const parsedRows = dataRows.map((row) => {
       const cells = splitDelimitedLine(row, delimiter);
       const combinedUnit = valueAt(cells, ["bldgunit", "bldgapt", "bldgunitnumber", "buildingunit", "buildingandunit", "bldgunitno"]);
-      const explicitNumber = valueAt(cells, ["unit", "unitid", "number", "unitnumber", "unitno", "unitnum", "apartment", "apt", "aptno", "aptnumber", "apartmentnumber"]);
+      const explicitNumber = valueAt(cells, ["unit", "unitid", "unitcode", "number", "unitnumber", "unitno", "unitnum", "apartment", "apt", "aptno", "aptnumber", "apartmentnumber"]);
       const splitUnit = !explicitNumber && combinedUnit ? splitCombinedBuildingUnit(combinedUnit) : { building: "", unit: explicitNumber };
       const number = explicitNumber || splitUnit.unit;
       if (!number) throw new Error(language === "es" ? "Cada fila de disponibilidad necesita un número de unidad." : "Every availability row needs a unit number.");
       const imported: AvailabilityImportInput = { number };
-      const floorPlan = valueAt(cells, ["floorplan", "floorplancode", "plan", "unittype", "unittypename", "floorplantype", "unitplan"]);
-      const availabilityStatus = valueAt(cells, ["availabilitystatus", "availability", "availabilitysection", "reportsection", "section", "status", "unitstatus", "currentstatus", "unitavailability", "availstatus", "unitavailabilitystatus", "unitavailstatus", "rentalstatus"]);
+      const floorPlan = valueAt(cells, ["floorplan", "floorplancode", "plancode", "plan", "planname", "unittype", "unittypename", "floorplantype", "unitplan"]);
+      const availabilityStatus = valueAt(cells, ["availabilitystatus", "availability", "availabilitysection", "reportsection", "section", "status", "statusdescription", "unitstatus", "currentstatus", "unitavailability", "availstatus", "unitavailabilitystatus", "unitavailstatus", "rentalstatus"]);
       const vacancyStatus = valueAt(cells, ["vacancystatus", "operationalstatus", "occupancystatus", "occupancy"]);
       const sqft = parseNumberCell(valueAt(cells, ["sqft", "squarefeet", "squarefootage", "rentablesqft", "unitsqft"]));
       const beds = parseNumberCell(valueAt(cells, ["beds", "bed", "bedrooms"]));
@@ -1003,14 +1005,14 @@ export function OperationsPanel({
       const building = valueAt(cells, ["building", "buildingnumber", "bldg", "bldgno", "buildingname"]) || splitUnit.building;
       const area = valueAt(cells, ["area", "phase", "zone", "section", "propertyarea"]);
       const floor = valueAt(cells, ["floor", "level"]);
-      const rawMoveOutDate = normalizeImportedDate(valueAt(cells, ["moveoutdate", "moveout", "expectedmoveout", "ntvdate", "noticedate", "expectedvacate", "expectedvacatedate", "vacate", "vacateon", "vacatedt", "moveoutdt"]));
+      const rawMoveOutDate = normalizeImportedDate(valueAt(cells, ["moveoutdate", "moveout", "expectedmoveout", "ntvdate", "noticedate", "noticedt", "noticegivendate", "expectedvacate", "expectedvacatedate", "vacate", "vacateon", "vacatedt", "moveoutdt"]));
       const rawVacatedDate = normalizeImportedDate(valueAt(cells, ["vacateddate", "vacated", "possessiondate", "actualvacate", "actualmoveout", "vacateddt", "actualmoveoutdate"]));
       const daysVacant = parseNumberCell(valueAt(cells, ["daysvacant", "vacantdays", "dayvacant", "daysempty", "daysvac", "daysvacantready"]));
-      const makeReadyDate = normalizeImportedDate(valueAt(cells, ["makereadydate", "makeready", "readydate", "readydt", "marketready", "marketreadydate", "marketreadydt", "scheduledmakeready", "scheduledmakereadydate", "scheduledreadydate", "makereadydt"]));
+      const makeReadyDate = normalizeImportedDate(valueAt(cells, ["makereadydate", "makeready", "movereadydate", "unitreadydate", "readydate", "readydt", "marketready", "marketreadydate", "marketreadydt", "scheduledmakeready", "scheduledmakereadydate", "scheduledreadydate", "makereadydt"]));
       const moveInDate = normalizeImportedDate(valueAt(cells, ["moveindate", "movein", "scheduledmovein", "scheduledmoveindate", "scheduledmoveindate", "scheduledmi", "schedmovein", "schedmi", "moveindt"]));
-      const reportDate = normalizeImportedDate(valueAt(cells, ["reportdate", "reportgenerated", "reportgenerateddate", "generatedat", "generateddate", "asof", "asofdate", "reportasof", "availabilitydate", "reportdt", "asofdt", "printdate", "asofdtm"]));
+      const reportDate = normalizeImportedDate(valueAt(cells, ["reportdate", "reportgenerated", "reportgenerateddate", "generatedat", "generateddate", "rundate", "snapshotdate", "asof", "asofdate", "reportasof", "availabilitydate", "reportdt", "asofdt", "printdate", "asofdtm"]));
       const dateApplied = normalizeImportedDate(valueAt(cells, ["dateapplied", "applieddate", "applicationdate", "appdate", "applieddt", "applydate"]));
-      const applicant = valueAt(cells, ["applicant", "applicantname", "futureapplicant", "futureapplicantname", "futureresident", "futureresidentname", "preleased", "prelease", "preleasedname", "preleasedapplicant", "preleasedapplicantname", "preleasename", "leasedto", "leasename", "futuretenant", "futuretenantname", "prospect", "prospectname", "scheduledresident", "scheduledresidentname", "scheduledapplicant", "scheduledapplicantname", "resident", "name"]);
+      const applicant = valueAt(cells, ["applicant", "applicantname", "futureapplicant", "futureapplicantname", "futureresident", "futureresidentname", "preleased", "prelease", "preleasedname", "preleasedapplicant", "preleasedapplicantname", "preleasename", "leasedto", "leasename", "futuretenant", "futuretenantname", "prospect", "prospectname", "scheduledresident", "scheduledresidentname", "scheduledapplicant", "scheduledapplicantname", "residentname", "resident", "name"]);
       const notes = valueAt(cells, ["notes", "note", "comments", "comment", "memo", "remark", "remarks"]);
       const normalizedStatus = vacancyStatus ? normalizeOccupancy(vacancyStatus) : normalizeOccupancy(availabilityStatus);
       const useMoveOutAsVacated = normalizedStatus.includes("VACANT") && !normalizedStatus.includes("NTV");
@@ -1570,6 +1572,7 @@ export function OperationsPanel({
               <button type="button" className="button button-secondary" onClick={() => setAvailabilityImportText(availabilityImportSamples.standard)}>{isSpanish ? "Completo" : "Full"}</button>
               <button type="button" className="button button-secondary" onClick={() => setAvailabilityImportText(availabilityImportSamples.realpage)}>{isSpanish ? "Estilo RealPage" : "RealPage-style"}</button>
               <button type="button" className="button button-secondary" onClick={() => setAvailabilityImportText(availabilityImportSamples.yardi)}>{isSpanish ? "Estilo Yardi" : "Yardi-style"}</button>
+              <button type="button" className="button button-secondary" onClick={() => setAvailabilityImportText(availabilityImportSamples.mri)}>{isSpanish ? "Estilo MRI" : "MRI-style"}</button>
               <button type="button" className="button button-secondary" onClick={() => setAvailabilityImportText(availabilityImportSamples.compact)}>{isSpanish ? "Compacto" : "Compact"}</button>
             </div>
             {showAvailabilityImportHelp ? (
@@ -1577,7 +1580,7 @@ export function OperationsPanel({
                 <div className="admin-section-head">
                   <div>
                     <strong>{isSpanish ? "Asistente de conversión con IA" : "AI conversion helper"}</strong>
-                    <p className="helper-copy">{isSpanish ? "Use esto con una exportación PDF/hoja de cálculo de disponibilidad para conservar estados, fechas, nombres de solicitantes y la fecha del reporte. Si el origen se parece a RealPage, pruebe primero el preset Estilo RealPage. Si viene de Yardi o usa columnas como Unit #, Avail Status o Ready Dt, pruebe Estilo Yardi." : "Use this with an availability PDF/spreadsheet export to preserve statuses, dates, applicant names, and the report date. If the source looks like RealPage, try the RealPage-style preset first. If it comes from Yardi or uses columns like Unit #, Avail Status, or Ready Dt, try Yardi-style."}</p>
+                    <p className="helper-copy">{isSpanish ? "Use esto con una exportación PDF/hoja de cálculo de disponibilidad para conservar estados, fechas, nombres de solicitantes y la fecha del reporte. Si el origen se parece a RealPage, pruebe primero el preset Estilo RealPage. Si viene de Yardi o usa columnas como Unit #, Avail Status o Ready Dt, pruebe Estilo Yardi. Si usa encabezados como Unit Code, Plan Code, Notice Date o Snapshot Date, pruebe Estilo MRI." : "Use this with an availability PDF/spreadsheet export to preserve statuses, dates, applicant names, and the report date. If the source looks like RealPage, try the RealPage-style preset first. If it comes from Yardi or uses columns like Unit #, Avail Status, or Ready Dt, try Yardi-style. If it uses headers like Unit Code, Plan Code, Notice Date, or Snapshot Date, try MRI-style."}</p>
                   </div>
                   <button
                     type="button"
@@ -1732,6 +1735,7 @@ export function OperationsPanel({
               <button type="button" className="button button-secondary" onClick={() => setUnitImportText(unitDirectoryImportSamples.standard)}>{isSpanish ? "Completo" : "Full"}</button>
               <button type="button" className="button button-secondary" onClick={() => setUnitImportText(unitDirectoryImportSamples.combined)}>{isSpanish ? "Edificio + unidad" : "Building + unit"}</button>
               <button type="button" className="button button-secondary" onClick={() => setUnitImportText(unitDirectoryImportSamples.yardi)}>{isSpanish ? "Estilo Yardi" : "Yardi-style"}</button>
+              <button type="button" className="button button-secondary" onClick={() => setUnitImportText(unitDirectoryImportSamples.mri)}>{isSpanish ? "Estilo MRI" : "MRI-style"}</button>
               <button type="button" className="button button-secondary" onClick={() => setUnitImportText(unitDirectoryImportSamples.sparse)}>{isSpanish ? "Mínimo" : "Minimal"}</button>
             </div>
             {showImportHelp ? (
@@ -1739,7 +1743,7 @@ export function OperationsPanel({
                 <div className="admin-section-head">
                   <div>
                     <strong>{isSpanish ? "Asistente de conversión con IA" : "AI conversion helper"}</strong>
-                    <p className="helper-copy">{isSpanish ? "Use esto con una exportación de hoja de cálculo/PDF cuando necesite un CSV listo para MakeReadyOS. Si el origen mezcla edificio y unidad en una sola columna, pruebe primero el preset Edificio + unidad. Si viene de Yardi o usa columnas como Unit #, Unit Type u Occupancy Eligible, pruebe Estilo Yardi." : "Use this with a spreadsheet/PDF export when you need a MakeReadyOS-ready CSV. If the source combines building and unit in one column, try the Building + unit preset first. If it comes from Yardi or uses columns like Unit #, Unit Type, or Occupancy Eligible, try Yardi-style."}</p>
+                    <p className="helper-copy">{isSpanish ? "Use esto con una exportación de hoja de cálculo/PDF cuando necesite un CSV listo para MakeReadyOS. Si el origen mezcla edificio y unidad en una sola columna, pruebe primero el preset Edificio + unidad. Si viene de Yardi o usa columnas como Unit #, Unit Type u Occupancy Eligible, pruebe Estilo Yardi. Si usa encabezados como Unit Code, Plan Code o Status Description, pruebe Estilo MRI." : "Use this with a spreadsheet/PDF export when you need a MakeReadyOS-ready CSV. If the source combines building and unit in one column, try the Building + unit preset first. If it comes from Yardi or uses columns like Unit #, Unit Type, or Occupancy Eligible, try Yardi-style. If it uses headers like Unit Code, Plan Code, or Status Description, try MRI-style."}</p>
                   </div>
                   <button
                     type="button"

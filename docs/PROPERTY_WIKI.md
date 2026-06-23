@@ -254,6 +254,14 @@ No manual “technician selected by” field is required for wiki records.
 
 Property Wiki documents and photos use the same routed local upload storage system as the rest of MakeReadyOS.
 
+Wiki assets now follow the same safer lifecycle pattern used elsewhere in MakeReadyOS:
+
+- active documents/photos stay in the normal library view
+- archived assets move into a restore bucket inside the same tab
+- permanent delete is blocked until the asset is archived first
+
+This keeps old SOP PDFs, equipment photos, and emergency reference files recoverable during normal cleanup instead of making delete feel like the only lifecycle state.
+
 - Files are stored in the configured upload root.
 - Property-specific subdirectory routing is respected.
 - The current implementation accepts common image formats, PDFs, office docs, plain text, and markdown/plain-text notes.

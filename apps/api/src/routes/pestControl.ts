@@ -903,6 +903,32 @@ export async function pestControlRoutes(app: FastifyInstance) {
     return { vendor };
   });
 
+  app.delete("/pest/vendors/:id", async (request, reply) => {
+    if (!requirePestAccess(request, reply, "admin")) return;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.pestVendor.findUnique({ where: { id } });
+    if (!existing) throw Object.assign(new Error("Pest vendor not found"), { statusCode: 404 });
+    await assertPropertyAccess(request, existing.propertyId);
+    if (existing.isActive) {
+      return reply.code(400).send({ message: "Archive or deactivate the vendor before deleting it permanently" });
+    }
+    const linkedIssueCount = await prisma.pestIssue.count({ where: { vendorId: id } });
+    if (linkedIssueCount > 0) {
+      return reply.code(409).send({ message: "Cannot permanently delete a vendor that is still linked to pest issues" });
+    }
+    await prisma.pestVendor.delete({ where: { id } });
+    await writeAuditLog({
+      request,
+      actorUserId: request.currentUser!.id,
+      propertyId: existing.propertyId,
+      entityType: "PEST_VENDOR",
+      entityId: existing.id,
+      action: "PEST_VENDOR_DELETED",
+      message: `Deleted pest vendor ${existing.vendorName}`,
+    });
+    return { ok: true };
+  });
+
   app.get("/pest/export.csv", async (request, reply) => {
     if (!requirePestAccess(request, reply, "view")) return;
     const query = pestIssueQuerySchema.parse(request.query);
