@@ -281,7 +281,53 @@ function ProjectDetail({
     ...type,
     items: record.attachments.filter((attachment) => attachment.attachmentType === type.value),
   })).filter((group) => group.items.length > 0);
+  const previewableAttachments = useMemo(
+    () => record.attachments.filter((attachment) => isImageAttachment(attachment.mimeType)),
+    [record.attachments],
+  );
+  const projectStatusOptions = record.recordType === "Recommendation"
+    ? ["Open", "Needs Bid", "Got Bid", "Approved", "Denied", "Converted To Project", "Archived"]
+    : ["Planning", "Approved", "Scheduled", "In Progress", "Waiting", "Completed", "Cancelled", "Archived"];
+  const quickWorkflowActions: Array<{ label: string; patch: Partial<ProjectRecord> }> = record.recordType === "Recommendation"
+    ? [
+        { label: isSpanish ? "Abierta" : "Open", patch: { status: "Open" } },
+        { label: isSpanish ? "Necesita cotización" : "Needs Bid", patch: { status: "Needs Bid", bidStatus: "Requested" } },
+        { label: isSpanish ? "Cotización recibida" : "Got Bid", patch: { status: "Got Bid", bidStatus: "Received" } },
+        { label: isSpanish ? "Aprobada" : "Approved", patch: { status: "Approved", bidStatus: "Approved" } },
+        { label: isSpanish ? "Denegada" : "Denied", patch: { status: "Denied", bidStatus: "Denied" } },
+      ]
+    : [
+        { label: isSpanish ? "Planificación" : "Planning", patch: { status: "Planning" } },
+        { label: isSpanish ? "Programado" : "Scheduled", patch: { status: "Scheduled" } },
+        { label: isSpanish ? "En progreso" : "In Progress", patch: { status: "In Progress" } },
+        { label: isSpanish ? "En espera" : "Waiting", patch: { status: "Waiting" } },
+        { label: isSpanish ? "Completado" : "Completed", patch: { status: "Completed", completedDate: new Date().toISOString() } },
+        { label: isSpanish ? "Cancelado" : "Cancelled", patch: { status: "Cancelled" } },
+      ];
   const previewAttachment = record.attachments.find((attachment) => attachment.id === previewAttachmentId) ?? null;
+  const previewAttachmentIndex = previewAttachment ? previewableAttachments.findIndex((attachment) => attachment.id === previewAttachment.id) : -1;
+  const canCyclePreview = previewableAttachments.length > 1 && previewAttachmentIndex >= 0;
+  const openRelativePreview = (direction: -1 | 1) => {
+    if (!canCyclePreview) return;
+    const nextIndex = (previewAttachmentIndex + direction + previewableAttachments.length) % previewableAttachments.length;
+    setPreviewAttachmentId(previewableAttachments[nextIndex]?.id ?? null);
+  };
+
+  useEffect(() => {
+    if (!previewAttachment || !canCyclePreview) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        openRelativePreview(-1);
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        openRelativePreview(1);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [previewAttachment, canCyclePreview, previewAttachmentIndex, previewableAttachments]);
+
   return (
     <>
       <section className="pool-card projects-detail-shell">
@@ -326,6 +372,51 @@ function ProjectDetail({
         {record.pinX !== null && record.pinY !== null ? <p className="muted">{isSpanish ? "Pin colocado en" : "Pinned at"} {record.pinX.toFixed(1)}%, {record.pinY.toFixed(1)}%</p> : null}
       </div>
 
+      {canEdit ? (
+        <section className="projects-detail-card projects-workflow-card">
+          <div className="drawer-section-title">
+            <h4>{isSpanish ? "Flujo de trabajo" : "Workflow"}</h4>
+          </div>
+          <div className="projects-workflow-grid">
+            <label>{isSpanish ? "Estado" : "Status"}
+              <select value={record.status} onChange={(event) => onSave(record, { status: event.target.value })}>
+                {projectStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+              </select>
+            </label>
+            <label>{isSpanish ? "Diferido" : "Deferred"}
+              <select
+                value={record.deferredMaintenance ? "yes" : "no"}
+                onChange={(event) => onSave(record, { deferredMaintenance: event.target.value === "yes" })}
+              >
+                <option value="no">{isSpanish ? "No" : "No"}</option>
+                <option value="yes">{isSpanish ? "Sí" : "Yes"}</option>
+              </select>
+            </label>
+          </div>
+          <div className="pool-entry-actions projects-workflow-actions">
+            {quickWorkflowActions.map((action) => (
+              <button
+                key={action.label}
+                className="button button-secondary"
+                type="button"
+                onClick={() => onSave(record, action.patch)}
+              >
+                {action.label}
+              </button>
+            ))}
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={() => onSave(record, { deferredMaintenance: !record.deferredMaintenance })}
+            >
+              {record.deferredMaintenance
+                ? (isSpanish ? "Quitar diferido" : "Remove Deferred")
+                : (isSpanish ? "Marcar diferido" : "Mark Deferred")}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       <PropertyWikiWorkflowPanel
         title={isSpanish ? "Contexto de la wiki de la propiedad" : "Property Wiki Context"}
         module="PROJECTS"
@@ -351,7 +442,25 @@ function ProjectDetail({
                   <button className="button button-secondary" type="button" onClick={() => onSave(record, { status: record.recordType === "Recommendation" ? "Got Bid" : record.status, bidStatus: "Received" })}>{isSpanish ? "Marcar recibida" : "Mark Received"}</button>
                   <button className="button button-secondary" type="button" onClick={() => onSave(record, { bidStatus: "Approved" })}>{isSpanish ? "Aprobar cotización" : "Approve Bid"}</button>
                   <button className="button button-secondary" type="button" onClick={() => onSave(record, { bidStatus: "Denied" })}>{isSpanish ? "Rechazar cotización" : "Deny Bid"}</button>
+                  <label className="button button-secondary pool-upload-button">
+                    {isSpanish ? "Subir cotización / PDF" : "Upload Bid / PDF"}
+                    <input
+                      hidden
+                      type="file"
+                      multiple
+                      accept={attachmentAccept("BID")}
+                      onChange={(event) => {
+                        onUpload(record.id, event.target.files, "BID", bidDraft.companyName.trim() || undefined);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
                 </div>
+                <p className="muted projects-bid-upload-note">
+                  {isSpanish
+                    ? "Sube aquí PDFs, fotos o archivos de cotización. Se guardan como adjuntos de oferta para este proyecto."
+                    : "Upload bid PDFs, photos, or quote files here. They are stored as bid attachments for this project."}
+                </p>
                 <form className="pool-entry-form projects-detail-form" onSubmit={(event) => {
                   event.preventDefault();
                   onSave(record, {
@@ -392,9 +501,6 @@ function ProjectDetail({
             <div className="projects-photo-toolbar">
               {canEdit ? (
                 <>
-                  <select value={record.status} onChange={(event) => onSave(record, { status: event.target.value })}>
-                    {[...(record.recordType === "Recommendation" ? ["Open", "Needs Bid", "Got Bid", "Approved", "Denied", "Converted To Project", "Archived"] : ["Planning", "Approved", "Scheduled", "In Progress", "Waiting", "Completed", "Cancelled", "Archived"])].map((status) => <option key={status} value={status}>{status}</option>)}
-                  </select>
                   <select value={attachmentType} onChange={(event) => setAttachmentType(event.target.value as ProjectAttachmentType)}>
                     {attachmentTypes.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
                   </select>
@@ -411,7 +517,7 @@ function ProjectDetail({
                 <h5>{group.label}</h5>
                 <div className="projects-photo-grid">
                   {group.items.map((attachment) => (
-                    <article key={attachment.id} className="projects-photo-card">
+                    <article key={attachment.id} className={`projects-photo-card${editingAttachmentId === attachment.id ? " is-editing" : ""}`}>
                       {isImageAttachment(attachment.mimeType) ? (
                         <button
                           className="projects-photo-preview-button"
@@ -580,7 +686,29 @@ function ProjectDetail({
         {previewAttachment ? (
           <div className="attachment-lightbox">
             {isImageAttachment(previewAttachment.mimeType) ? (
-              <img src={projectAttachmentDownloadUrl(previewAttachment.id)} alt={previewAttachment.caption ?? previewAttachment.originalName} />
+              <div className="projects-attachment-lightbox-frame">
+                {canCyclePreview ? (
+                  <button
+                    className="projects-attachment-lightbox-nav prev"
+                    type="button"
+                    onClick={() => openRelativePreview(-1)}
+                    aria-label={isSpanish ? "Foto anterior" : "Previous photo"}
+                  >
+                    ‹
+                  </button>
+                ) : null}
+                <img src={projectAttachmentDownloadUrl(previewAttachment.id)} alt={previewAttachment.caption ?? previewAttachment.originalName} />
+                {canCyclePreview ? (
+                  <button
+                    className="projects-attachment-lightbox-nav next"
+                    type="button"
+                    onClick={() => openRelativePreview(1)}
+                    aria-label={isSpanish ? "Foto siguiente" : "Next photo"}
+                  >
+                    ›
+                  </button>
+                ) : null}
+              </div>
             ) : (
               <div className="attachment-lightbox-file">{previewAttachment.originalName}</div>
             )}
@@ -588,6 +716,7 @@ function ProjectDetail({
               <strong>{previewAttachment.caption ?? previewAttachment.originalName}</strong>
               <span>{attachmentTypes.find((entry) => entry.value === previewAttachment.attachmentType)?.label ?? previewAttachment.attachmentType}</span>
               <span>{previewAttachment.uploaderName ?? (isSpanish ? "Desconocido" : "Unknown")} / {formatDate(previewAttachment.createdAt)}</span>
+              {canCyclePreview ? <span>{isSpanish ? `Foto ${previewAttachmentIndex + 1} de ${previewableAttachments.length}` : `Photo ${previewAttachmentIndex + 1} of ${previewableAttachments.length}`}</span> : null}
             </div>
           </div>
         ) : null}
@@ -865,6 +994,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
       || record.attachments.some((attachment) => attachment.attachmentType === "BID"));
   }, [records, tab]);
   const pinnedRecords = mapQuery.data?.records ?? [];
+  const assignableUsers = overviewQuery.data?.assignableUsers ?? [];
   const filteredPinnedRecords = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
     return pinnedRecords.filter((record) => {
@@ -898,11 +1028,11 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
     });
   }, [agingFilter, budgetYearFilter, deferredFilter, pinnedRecords, search, sourceFilter]);
   const maps = mapsQuery.data?.maps ?? [];
-  const userOptions = useMemo<SearchSelectOption[]>(() => users.map((user) => ({
+  const userOptions = useMemo<SearchSelectOption[]>(() => assignableUsers.map((user) => ({
     value: user.id,
     label: `${user.fullName} / ${user.role}`,
     keywords: [user.fullName, user.role],
-  })), [users]);
+  })), [assignableUsers]);
   const mapsById = useMemo(() => new Map(maps.map((map) => [map.id, map])), [maps]);
   const selectedCaptureMap = maps.find((map) => map.id === draft.propertyMapId) ?? null;
   const captureMapImagePreview = selectedCaptureMap?.mimeType?.startsWith("image/");
@@ -1874,7 +2004,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                 record={selectedRecord}
                 history={detailQuery.data?.history ?? []}
                 canEdit={canEdit}
-                users={users}
+                users={assignableUsers}
                 language={language}
                 onSave={(record, patch) => void updateMutation.mutateAsync({ id: record.id, patch })}
                 onConvert={(id) => void convertMutation.mutateAsync(id)}

@@ -1738,6 +1738,7 @@ export type ProjectRecord = {
 
 export type ProjectsOverviewResponse = {
   permissions: { view: boolean; edit: boolean; admin: boolean };
+  assignableUsers: Array<{ id: string; fullName: string; role: UserRole }>;
   summary: {
     openRecommendations: number;
     needsBid: number;

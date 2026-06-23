@@ -10988,8 +10988,33 @@ textarea {
   margin: 0;
 }
 
+.projects-workflow-card {
+  gap: 0.75rem;
+}
+
+.projects-workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.55rem 0.75rem;
+}
+
+.projects-workflow-grid label {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.projects-workflow-actions {
+  gap: 0.42rem;
+}
+
 .projects-detail-actions {
   gap: 0.42rem;
+}
+
+.projects-bid-upload-note {
+  margin: -0.15rem 0 0;
+  font-size: 0.78rem;
 }
 
 .projects-detail-form {
@@ -11380,6 +11405,11 @@ textarea {
   z-index: 0;
 }
 
+.projects-photo-card.is-editing {
+  grid-column: 1 / -1;
+  z-index: 3;
+}
+
 .projects-photo-preview-button {
   display: block;
   width: 100%;
@@ -11418,6 +11448,10 @@ textarea {
   box-sizing: border-box;
 }
 
+.projects-photo-card.is-editing .projects-photo-meta {
+  gap: 0.4rem;
+}
+
 .projects-photo-meta span,
 .projects-photo-meta a {
   font-size: 0.78rem;
@@ -11434,6 +11468,11 @@ textarea {
   z-index: 2;
 }
 
+.projects-photo-card.is-editing .projects-attachment-editor {
+  grid-template-columns: minmax(11rem, 14rem) minmax(0, 1fr) auto;
+  align-items: end;
+}
+
 .projects-attachment-editor input,
 .projects-attachment-editor select {
   min-width: 0;
@@ -11443,6 +11482,49 @@ textarea {
 
 .projects-attachment-editor .pool-entry-actions {
   flex-wrap: wrap;
+}
+
+.projects-photo-card.is-editing .projects-attachment-editor .pool-entry-actions {
+  justify-content: flex-start;
+}
+
+@media (max-width: 860px) {
+  .projects-photo-card.is-editing .projects-attachment-editor {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+}
+
+.projects-attachment-lightbox-frame {
+  position: relative;
+  display: grid;
+  align-items: center;
+}
+
+.projects-attachment-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2.4rem;
+  height: 2.4rem;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, white 14%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 78%, black 22%);
+  color: var(--text);
+  font-size: 1.6rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.projects-attachment-lightbox-nav.prev {
+  left: 0.85rem;
+}
+
+.projects-attachment-lightbox-nav.next {
+  right: 0.85rem;
 }
 
 @media (max-width: 1100px) {

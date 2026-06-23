@@ -342,6 +342,7 @@ function projectMatchesQuery(record: {
 async function projectOverview(propertyId: string | undefined, request: FastifyRequest) {
   await ensureDefaultCategories();
   const scoped = propertyScopeWhere(request, propertyId);
+  const assignableUsers = propertyId ? await listAssignableUsers(propertyId) : [];
   const records = await prisma.projectRecord.findMany({
     where: {
       propertyId: scoped.where,
@@ -375,6 +376,7 @@ async function projectOverview(propertyId: string | undefined, request: FastifyR
   }, new Map<string, number>()).entries()).map(([label, value]) => ({ label, value })).sort((left, right) => right.value - left.value || left.label.localeCompare(right.label));
   return {
     permissions: projectRoleAccess(request.currentUser!.role),
+    assignableUsers,
     summary: {
       openRecommendations: active.filter((entry) => entry.recordType === "Recommendation" && entry.status === "Open").length,
       needsBid: active.filter((entry) => entry.status === "Needs Bid").length,
