@@ -1,5 +1,5 @@
 [Unit]
-Description=Create and prune a MakeReadyOS PostgreSQL backup
+Description=Create and prune a full MakeReadyOS backup snapshot
 Requires=docker.service
 After=docker.service
 
@@ -8,6 +8,6 @@ Type=oneshot
 User=makereadyos
 Group=docker
 WorkingDirectory=/opt/makereadyos
-ExecStart=/opt/makereadyos/backup-db.sh
+ExecStart=/opt/makereadyos/backup-all.sh
 
 # The script reads /opt/makereadyos/.env. Keep credentials there, not in this unit.

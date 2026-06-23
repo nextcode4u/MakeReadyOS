@@ -457,6 +457,8 @@ function RefrigerantTypesCard({ language, canAdmin, types, onCreate, onToggle, l
   onToggle: (id: string, isActive: boolean) => void;
   loading: boolean;
 }) {
+  const activeTypes = types.filter((type) => type.isActive);
+  const inactiveTypes = types.filter((type) => !type.isActive);
   return (
     <section className="refrigerant-card">
       <div className="section-title-row">
@@ -473,7 +475,7 @@ function RefrigerantTypesCard({ language, canAdmin, types, onCreate, onToggle, l
         </form>
       ) : null}
       <div className="refrigerant-type-list">
-        {types.map((type) => (
+        {activeTypes.map((type) => (
           <div className="refrigerant-row" key={type.id}>
             <strong>{type.name}</strong>
             <span>{type.notes || t(language, "refrigerant.noNotes")}</span>
@@ -485,6 +487,25 @@ function RefrigerantTypesCard({ language, canAdmin, types, onCreate, onToggle, l
             ) : null}
           </div>
         ))}
+        {!activeTypes.length ? <p className="muted">{language === "es" ? "No hay tipos activos configurados." : "No active refrigerant types configured."}</p> : null}
+        {inactiveTypes.length ? (
+          <div className="pool-archived-list" data-testid="refrigerant-type-inactive-list">
+            <h3>{language === "es" ? "Tipos inactivos" : "Inactive types"}</h3>
+            <p className="muted">{language === "es" ? "Los tipos inactivos se ocultan de nuevas capturas, pero siguen visibles para historial y pueden reactivarse aquí." : "Inactive types stay out of new capture flows, but remain visible for history and can be reactivated here."}</p>
+            {inactiveTypes.map((type) => (
+              <div className="refrigerant-row" key={type.id}>
+                <strong>{type.name}</strong>
+                <span>{type.notes || t(language, "refrigerant.noNotes")}</span>
+                <span className="status-pill muted-pill">{t(language, "refrigerant.inactive")}</span>
+                {canAdmin ? (
+                  <button type="button" className="button button-secondary" onClick={() => onToggle(type.id, true)} disabled={loading}>
+                    {t(language, "refrigerant.reactivate")}
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
     </section>
   );
@@ -745,6 +766,8 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
   loading: boolean;
   resetVersion?: number;
 }) {
+  const activeTanks = tanks.filter((tank) => tank.status !== "ARCHIVED");
+  const archivedTanks = tanks.filter((tank) => tank.status === "ARCHIVED");
   return (
     <>
       {canEdit ? (
@@ -797,7 +820,7 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
 
       <section className="refrigerant-card">
         <h2>{title}</h2>
-        {tanks.length ? tanks.map((tank) => (
+        {activeTanks.length ? activeTanks.map((tank) => (
           <div className="refrigerant-tank-row" key={tank.id}>
             <div>
               <strong>{tank.identifier}</strong>
@@ -807,12 +830,35 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
             {canEdit ? (
               <div className="button-cluster">
                 {tank.category === "VIRGIN" && tank.status === "ACTIVE" ? <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "EMPTY_PENDING_RECOVERY" })}>{t(language, "refrigerant.markEmpty")}</button> : null}
-                {tank.status !== "ARCHIVED" ? <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "ARCHIVED", dispositionNotes: tank.category === "VIRGIN" ? tank.dispositionNotes : "Archived from tank workspace." })}>{t(language, "refrigerant.archive")}</button> : null}
-                {tank.status === "ARCHIVED" ? <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "ACTIVE" })}>{t(language, "refrigerant.restore")}</button> : null}
+                <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "ARCHIVED", dispositionNotes: tank.category === "VIRGIN" ? tank.dispositionNotes : "Archived from tank workspace." })}>{t(language, "refrigerant.archive")}</button>
               </div>
             ) : null}
           </div>
         )) : <p className="muted">{tWithVars(language, "refrigerant.noCategoryConfigured", { category: title.toLowerCase() })}</p>}
+        {archivedTanks.length ? (
+          <div className="pool-archived-list" data-testid={`refrigerant-${category.toLowerCase()}-archive-list`}>
+            <h3>{language === "es" ? "Cilindros archivados" : "Archived cylinders"}</h3>
+            <p className="muted">
+              {language === "es"
+                ? "Los cilindros archivados se retiran de las capturas activas, pero siguen visibles para historial y pueden restaurarse aquí."
+                : "Archived cylinders stay out of active capture flows, but remain visible for history and can be restored here."}
+            </p>
+            {archivedTanks.map((tank) => (
+              <div className="refrigerant-tank-row" key={tank.id}>
+                <div>
+                  <strong>{tank.identifier}</strong>
+                  <span>{tank.refrigerantType.name} / {tank.currentWeight} lb of {tank.tankSize} lb</span>
+                </div>
+                <CylinderStatusPill cylinder={tank} language={language} />
+                {canEdit ? (
+                  <div className="button-cluster">
+                    <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "ACTIVE" })}>{t(language, "refrigerant.restore")}</button>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
       </section>
     </>
   );

@@ -787,6 +787,29 @@ export async function makeReadyRoutes(app: FastifyInstance) {
         reply.code(400);
         return { message: "Select an active unit at the chosen property" };
       }
+      const existingActiveTurn = await prisma.makeReadyItem.findFirst({
+        where: {
+          propertyId: payload.propertyId,
+          unitId: payload.unitId,
+          isArchived: false,
+        },
+        orderBy: [{ updatedAt: "desc" }],
+      });
+      if (existingActiveTurn) {
+        reply.code(409);
+        return {
+          message: `Unit ${existingActiveTurn.unitNumber} already has an active turn. Open or archive that turn before starting a new one.`,
+          existingItem: {
+            id: existingActiveTurn.id,
+            unitNumber: existingActiveTurn.unitNumber,
+            boardGroup: existingActiveTurn.boardGroup,
+            makeReadyStatus: existingActiveTurn.makeReadyStatus,
+            assignedTech: existingActiveTurn.assignedTech,
+            moveInDate: existingActiveTurn.moveInDate?.toISOString() ?? null,
+            updatedAt: existingActiveTurn.updatedAt.toISOString(),
+          },
+        };
+      }
     }
     if (payload.assignedTech !== undefined && !(await isActiveStaffName(payload.assignedTech))) {
       reply.code(400);

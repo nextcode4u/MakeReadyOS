@@ -10,6 +10,7 @@ import { z } from "zod";
 import { allowedPropertyIds, canCompleteChecklist, canWriteOperations, requireManagerOrAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { notifyAssignedStaff } from "../lib/notifications.js";
+import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
@@ -75,6 +76,14 @@ export const chargePriceSheetPatchSchema = chargePriceSheetCreateSchema.omit({ p
   isActive: z.boolean().optional(),
   isArchived: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(100000).optional(),
+});
+export const chargePriceSheetImportSchema = z.object({
+  propertyId: z.string(),
+  content: z.string().trim().min(1).max(200000),
+  overwriteExisting: z.boolean().optional().default(true),
+});
+const chargeReportExportQuerySchema = z.object({
+  groupBy: z.enum(["category"]).optional(),
 });
 export const checklistTemplateInputSchema = z.object({
   propertyId: z.string().nullable().optional(),
@@ -269,6 +278,385 @@ function chargeReportCsv(report: NonNullable<Awaited<ReturnType<typeof buildChar
   return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
 }
 
+function groupChargeReportLines(lines: NonNullable<Awaited<ReturnType<typeof buildChargeReport>>>["lines"]) {
+  const groups = new Map<string, { label: string; lines: typeof lines; totalEstimatedCents: number }>();
+  for (const line of lines) {
+    const label = line.category?.trim() || "Uncategorized";
+    const key = label.toLowerCase();
+    const group = groups.get(key) ?? { label, lines: [], totalEstimatedCents: 0 };
+    group.lines.push(line);
+    group.totalEstimatedCents += line.estimatedCents;
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function chargeReportCsvGroupedByCategory(report: NonNullable<Awaited<ReturnType<typeof buildChargeReport>>>) {
+  const headers = [
+    "Property",
+    "Unit",
+    "Type",
+    "Attachment",
+    "Pin ID",
+    "Label",
+    "Category",
+    "Inspection Stage",
+    "Price Sheet Item",
+    "Quantity",
+    "Estimated Amount",
+    "Note",
+    "Charge Note",
+  ];
+  const rows: unknown[][] = [];
+  for (const group of groupChargeReportLines(report.lines)) {
+    rows.push([
+      report.item.propertyCode,
+      report.item.unitNumber,
+      "CATEGORY",
+      "",
+      "",
+      group.label,
+      group.label,
+      "",
+      "",
+      "",
+      centsToCsvDollars(group.totalEstimatedCents),
+      `${group.lines.length} line(s)`,
+      "",
+    ]);
+    rows.push(...group.lines.map((line) => [
+      report.item.propertyCode,
+      report.item.unitNumber,
+      line.type,
+      line.attachmentName,
+      line.pinId,
+      line.label,
+      line.category,
+      line.inspectionStage,
+      line.priceSheetItemName,
+      line.quantity,
+      centsToCsvDollars(line.estimatedCents),
+      line.note,
+      line.chargeNote,
+    ]));
+  }
+  rows.push([
+    report.item.propertyCode,
+    report.item.unitNumber,
+    "TOTAL",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    centsToCsvDollars(report.summary.totalEstimatedCents),
+    `${report.summary.lineCount} line(s)`,
+    "Evidence/estimate metadata only; does not create accounting charges.",
+  ]);
+  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
+}
+
+function parseDelimitedCells(line: string, delimiter: "," | "\t") {
+  const cells: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\"") {
+      if (inQuotes && line[index + 1] === "\"") {
+        current += "\"";
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (!inQuotes && char === delimiter) {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current.trim());
+  return cells.map((cell) => cell.replace(/^\uFEFF/, "").trim());
+}
+
+function normalizeImportHeader(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function parseImportAmountToCents(value: string) {
+  const normalized = value.replace(/[$,\s]/g, "");
+  if (!normalized) return null;
+  const amount = Number(normalized);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  return Math.round(amount * 100);
+}
+
+type ParsedChargePriceSheetRow = {
+  rowNumber: number;
+  name: string;
+  category: string | null;
+  unitLabel: string | null;
+  defaultCents: number | null;
+  description: string | null;
+};
+
+function parseChargePriceSheetImport(content: string) {
+  const rawLines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!rawLines.length) {
+    return { rows: [] as ParsedChargePriceSheetRow[], errors: ["Paste at least one price-sheet row."] };
+  }
+
+  const parsedLines = rawLines.map((line) => {
+    const delimiter: "," | "\t" = line.includes("\t") ? "\t" : ",";
+    return parseDelimitedCells(line, delimiter);
+  });
+
+  const headerAliases = new Map<string, keyof Omit<ParsedChargePriceSheetRow, "rowNumber">>([
+    ["name", "name"],
+    ["item", "name"],
+    ["itemname", "name"],
+    ["chargeitem", "name"],
+    ["category", "category"],
+    ["damagecategory", "category"],
+    ["group", "category"],
+    ["unit", "unitLabel"],
+    ["unitlabel", "unitLabel"],
+    ["uom", "unitLabel"],
+    ["amount", "defaultCents"],
+    ["defaultamount", "defaultCents"],
+    ["estimate", "defaultCents"],
+    ["defaultestimate", "defaultCents"],
+    ["price", "defaultCents"],
+    ["defaultprice", "defaultCents"],
+    ["description", "description"],
+    ["notes", "description"],
+    ["note", "description"],
+  ]);
+  const normalizedHeaders = parsedLines[0].map(normalizeImportHeader);
+  const hasHeader = normalizedHeaders.some((header) => headerAliases.has(header));
+  const headerMap = new Map<keyof Omit<ParsedChargePriceSheetRow, "rowNumber">, number>();
+  if (hasHeader) {
+    normalizedHeaders.forEach((header, index) => {
+      const key = headerAliases.get(header);
+      if (key && !headerMap.has(key)) headerMap.set(key, index);
+    });
+  }
+
+  const rows: ParsedChargePriceSheetRow[] = [];
+  const errors: string[] = [];
+  const seenNames = new Set<string>();
+  const dataLines = hasHeader ? parsedLines.slice(1) : parsedLines;
+
+  dataLines.forEach((cells, index) => {
+    const rowNumber = index + (hasHeader ? 2 : 1);
+    const pick = (key: keyof Omit<ParsedChargePriceSheetRow, "rowNumber">, fallbackIndex: number) => {
+      const cellIndex = hasHeader ? headerMap.get(key) : fallbackIndex;
+      return typeof cellIndex === "number" ? (cells[cellIndex] ?? "").trim() : "";
+    };
+
+    const name = pick("name", 0);
+    if (!name) {
+      errors.push(`Row ${rowNumber}: name is required.`);
+      return;
+    }
+    const dedupeKey = name.toLowerCase();
+    if (seenNames.has(dedupeKey)) {
+      errors.push(`Row ${rowNumber}: duplicate item name "${name}" in the same import.`);
+      return;
+    }
+    seenNames.add(dedupeKey);
+
+    const amountValue = pick("defaultCents", 3);
+    const defaultCents = amountValue ? parseImportAmountToCents(amountValue) : null;
+    if (amountValue && defaultCents === null) {
+      errors.push(`Row ${rowNumber}: amount "${amountValue}" is not a valid non-negative dollar value.`);
+      return;
+    }
+
+    rows.push({
+      rowNumber,
+      name,
+      category: pick("category", 1) || null,
+      unitLabel: pick("unitLabel", 2) || null,
+      defaultCents,
+      description: pick("description", 4) || null,
+    });
+  });
+
+  return { rows, errors };
+}
+
+function htmlEscape(value: unknown) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function formatReportDollars(cents: number | null | undefined) {
+  return `$${((cents ?? 0) / 100).toFixed(2)}`;
+}
+
+function buildChargeReportHtml(report: NonNullable<Awaited<ReturnType<typeof buildChargeReport>>>, options?: { groupByCategory?: boolean }) {
+  const grouped = options?.groupByCategory ? groupChargeReportLines(report.lines) : null;
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Charge Evidence Summary</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 24px; background: #f8fafc; color: #0f172a; }
+    .report { display: grid; gap: 20px; }
+    .header h1 { margin: 0 0 6px; font-size: 30px; }
+    .header p { margin: 0; color: #475569; }
+    .meta, .kpis { display: grid; gap: 12px; }
+    .meta { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .kpis { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+    .card, .kpi { background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px; padding: 16px; }
+    .kpi strong { display: block; font-size: 28px; margin-bottom: 4px; }
+    .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; }
+    .value { font-size: 16px; margin-top: 4px; }
+    .note { color: #475569; font-size: 13px; }
+    .warning { color: #9a3412; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; background: #fff; border: 1px solid #cbd5e1; border-radius: 16px; overflow: hidden; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: left; vertical-align: top; }
+    th { background: #e2e8f0; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #334155; }
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    .muted { color: #475569; }
+    .footer { font-size: 12px; color: #64748b; }
+    .group { display: grid; gap: 8px; margin-bottom: 16px; }
+    .group-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 12px; background: #fff; }
+    .group-header strong { font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="report">
+    <div class="header">
+      <h1>Charge Evidence Summary</h1>
+      <p>${htmlEscape(report.item.propertyCode)} • Unit ${htmlEscape(report.item.unitNumber)} • ${htmlEscape(report.item.boardGroup)}</p>
+    </div>
+    <div class="meta">
+      <div class="card">
+        <div class="label">Property</div>
+        <div class="value">${htmlEscape(report.item.propertyCode)}</div>
+      </div>
+      <div class="card">
+        <div class="label">Unit</div>
+        <div class="value">${htmlEscape(report.item.unitNumber)}</div>
+      </div>
+      <div class="card">
+        <div class="label">Section</div>
+        <div class="value">${htmlEscape(report.item.boardGroup)}</div>
+      </div>
+      <div class="card">
+        <div class="label">Generated</div>
+        <div class="value">${htmlEscape(new Date().toISOString().slice(0, 10))}</div>
+      </div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><strong>${report.summary.lineCount}</strong><span>Line items</span></div>
+      <div class="kpi"><strong>${report.summary.fileCount}</strong><span>Charge-candidate files</span></div>
+      <div class="kpi"><strong>${report.summary.pinCount}</strong><span>Charge-candidate pins</span></div>
+      <div class="kpi"><strong>${formatReportDollars(report.summary.totalEstimatedCents)}</strong><span>Total estimate</span></div>
+    </div>
+    <div class="card note${report.summary.missingContext ? " warning" : ""}">
+      ${report.summary.missingContext
+        ? `${report.summary.missingContext} line item(s) still need pricing or notes before handoff.`
+        : "All charge-candidate lines include either pricing context, estimate context, or notes."}
+    </div>
+    <div class="card">
+      ${grouped ? grouped.map((group) => `
+        <div class="group">
+          <div class="group-header">
+            <strong>${htmlEscape(group.label)}</strong>
+            <span>${group.lines.length} line(s) • ${htmlEscape(formatReportDollars(group.totalEstimatedCents))}</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Evidence</th>
+                <th>Stage</th>
+                <th>Category</th>
+                <th>Price Sheet</th>
+                <th>Quantity</th>
+                <th>Estimate</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${group.lines.map((line) => `
+                <tr>
+                  <td>${htmlEscape(line.type === "PIN" ? "Pin" : "File")}</td>
+                  <td>
+                    <strong>${htmlEscape(line.label)}</strong><br />
+                    <span class="muted">${htmlEscape(line.attachmentName)}${line.pinId ? ` • Pin ${htmlEscape(line.pinId)}` : ""}</span>
+                  </td>
+                  <td>${htmlEscape(line.inspectionStage)}</td>
+                  <td>${htmlEscape(line.category ?? "-")}</td>
+                  <td>${htmlEscape(line.priceSheetItemName ?? "-")}</td>
+                  <td>${htmlEscape(line.quantity ?? "-")}</td>
+                  <td>${htmlEscape(formatReportDollars(line.estimatedCents))}</td>
+                  <td class="muted">${htmlEscape(line.chargeNote || line.note || "-")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `).join("") : `
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Evidence</th>
+              <th>Stage</th>
+              <th>Category</th>
+              <th>Price Sheet</th>
+              <th>Quantity</th>
+              <th>Estimate</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${report.lines.length ? report.lines.map((line) => `
+              <tr>
+                <td>${htmlEscape(line.type === "PIN" ? "Pin" : "File")}</td>
+                <td>
+                  <strong>${htmlEscape(line.label)}</strong><br />
+                  <span class="muted">${htmlEscape(line.attachmentName)}${line.pinId ? ` • Pin ${htmlEscape(line.pinId)}` : ""}</span>
+                </td>
+                <td>${htmlEscape(line.inspectionStage)}</td>
+                <td>${htmlEscape(line.category ?? "-")}</td>
+                <td>${htmlEscape(line.priceSheetItemName ?? "-")}</td>
+                <td>${htmlEscape(line.quantity ?? "-")}</td>
+                <td>${htmlEscape(formatReportDollars(line.estimatedCents))}</td>
+                <td class="muted">${htmlEscape(line.chargeNote || line.note || "-")}</td>
+              </tr>
+            `).join("") : `
+              <tr>
+                <td colspan="8" class="muted">No charge-candidate evidence has been marked on this turn yet.</td>
+              </tr>
+            `}
+          </tbody>
+        </table>
+      `}
+    </div>
+    <div class="footer">Evidence/estimate metadata only. This report does not create resident charges, invoices, or accounting entries.</div>
+  </div>
+</body>
+</html>`;
+}
+
 export async function collaborationRoutes(app: FastifyInstance) {
   app.get("/make-ready-items/:id/collaboration", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
@@ -321,12 +709,33 @@ export async function collaborationRoutes(app: FastifyInstance) {
 
   app.get("/make-ready-items/:id/charge-report.csv", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
+    const query = chargeReportExportQuerySchema.parse(request.query);
     const report = await buildChargeReport(request, reply, id);
     if (!report) return;
     reply.header("Content-Type", "text/csv; charset=utf-8");
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`${report.item.propertyCode}-${report.item.unitNumber}-charge-report.csv`)}"`);
-    return reply.send(chargeReportCsv(report));
+    return reply.send(query.groupBy === "category" ? chargeReportCsvGroupedByCategory(report) : chargeReportCsv(report));
+  });
+
+  app.get("/make-ready-items/:id/charge-report.html", async (request, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const query = chargeReportExportQuerySchema.parse(request.query);
+    const report = await buildChargeReport(request, reply, id);
+    if (!report) return;
+    reply.header("Content-Type", "text/html; charset=utf-8");
+    return reply.send(buildChargeReportHtml(report, { groupByCategory: query.groupBy === "category" }));
+  });
+
+  app.get("/make-ready-items/:id/charge-report.pdf", async (request, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const query = chargeReportExportQuerySchema.parse(request.query);
+    const report = await buildChargeReport(request, reply, id);
+    if (!report) return;
+    const pdf = await renderPdfFromHtml(buildChargeReportHtml(report, { groupByCategory: query.groupBy === "category" }));
+    reply.header("Content-Type", "application/pdf");
+    reply.header("Content-Disposition", `inline; filename="${sanitizeFilename(`${report.item.propertyCode}-${report.item.unitNumber}-charge-report.pdf`)}"`);
+    return reply.send(pdf);
   });
 
   app.post("/make-ready-items/:id/comments", async (request, reply) => {
@@ -402,6 +811,96 @@ export async function collaborationRoutes(app: FastifyInstance) {
     await writeAuditLog({ request, actorUserId: user.id, propertyId: input.propertyId, entityType: "CHARGE_PRICE_SHEET_ITEM", entityId: item.id, action: "CHARGE_PRICE_SHEET_ITEM_CREATED", message: `Created charge estimate price-sheet item ${item.name}` });
     reply.code(201);
     return { item };
+  });
+
+  app.post("/charge-price-sheet-items/import", { preHandler: requireManagerOrAdmin }, async (request, reply) => {
+    const user = request.currentUser!;
+    const input = chargePriceSheetImportSchema.parse(request.body);
+    const scopedProperties = allowedPropertyIds(user);
+    if (scopedProperties && !scopedProperties.includes(input.propertyId)) return reply.code(403).send({ message: "Property access required" });
+
+    const parsed = parseChargePriceSheetImport(input.content);
+    if (!parsed.rows.length && parsed.errors.length) {
+      return reply.code(400).send({ message: parsed.errors[0], errors: parsed.errors });
+    }
+
+    const existingItems = await prisma.chargePriceSheetItem.findMany({
+      where: { propertyId: input.propertyId },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    });
+    const existingByName = new Map(existingItems.map((entry) => [entry.name.toLowerCase(), entry]));
+    let nextSortOrder = existingItems.reduce((max, entry) => Math.max(max, entry.sortOrder), 0) + 1;
+
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+    for (const row of parsed.rows) {
+      const existing = existingByName.get(row.name.toLowerCase());
+      if (!existing) {
+        const createdItem = await prisma.chargePriceSheetItem.create({
+          data: {
+            propertyId: input.propertyId,
+            name: row.name,
+            category: row.category,
+            unitLabel: row.unitLabel,
+            defaultCents: row.defaultCents,
+            description: row.description,
+            sortOrder: nextSortOrder,
+          },
+        });
+        existingByName.set(createdItem.name.toLowerCase(), createdItem);
+        nextSortOrder += 1;
+        created += 1;
+        continue;
+      }
+      if (!input.overwriteExisting) {
+        skipped += 1;
+        continue;
+      }
+      const nextData = {
+        name: row.name,
+        category: row.category,
+        unitLabel: row.unitLabel,
+        defaultCents: row.defaultCents,
+        description: row.description,
+      };
+      const changed =
+        existing.name !== nextData.name
+        || existing.category !== nextData.category
+        || existing.unitLabel !== nextData.unitLabel
+        || existing.defaultCents !== nextData.defaultCents
+        || existing.description !== nextData.description;
+      if (!changed) {
+        skipped += 1;
+        continue;
+      }
+      const updatedItem = await prisma.chargePriceSheetItem.update({
+        where: { id: existing.id },
+        data: nextData,
+      });
+      existingByName.set(updatedItem.name.toLowerCase(), updatedItem);
+      updated += 1;
+    }
+
+    await writeAuditLog({
+      request,
+      actorUserId: user.id,
+      propertyId: input.propertyId,
+      entityType: "CHARGE_PRICE_SHEET_ITEM",
+      entityId: input.propertyId,
+      action: "CHARGE_PRICE_SHEET_ITEM_IMPORTED",
+      message: `Imported charge estimate price-sheet items (${created} created, ${updated} updated, ${skipped} skipped).`,
+    });
+
+    return {
+      summary: {
+        created,
+        updated,
+        skipped,
+        errors: parsed.errors,
+        processed: parsed.rows.length,
+      },
+    };
   });
 
   app.patch("/charge-price-sheet-items/:id", { preHandler: requireManagerOrAdmin }, async (request, reply) => {

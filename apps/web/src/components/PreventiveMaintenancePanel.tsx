@@ -244,7 +244,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   });
   const templatesQuery = useQuery({
     queryKey: ["pm", "templates", propertyId],
-    queryFn: () => getPreventiveMaintenanceTemplates({ propertyId: propertyId || undefined }),
+    queryFn: () => getPreventiveMaintenanceTemplates({ propertyId: propertyId || undefined, includeArchived: true }),
     enabled: Boolean(propertyId),
   });
   const tasksQuery = useQuery({
@@ -362,6 +362,8 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   const tasks = tasksQuery.data?.tasks ?? [];
   const historyTasks = historyListQuery.data?.tasks ?? [];
   const templates = templatesQuery.data?.templates ?? [];
+  const activeTemplates = useMemo(() => templates.filter((template) => !template.isArchived), [templates]);
+  const archivedTemplates = useMemo(() => templates.filter((template) => template.isArchived), [templates]);
   const calendarTasks = calendarQuery.data?.tasks ?? [];
 
   const taskFocusCounts = useMemo(() => ({
@@ -648,7 +650,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
           </form>
           <article className="pool-card">
             <h2>{t(language, "pm.templates")}</h2>
-            {templates.map((template) => (
+            {activeTemplates.map((template) => (
               <div key={template.id} className="pool-row">
                 <div>
                   <strong>{template.name}</strong>
@@ -675,11 +677,26 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
                       isActive: template.isActive,
                     });
                   }}>{t(language, "drawer.edit")}</button>
-                  {canAdmin ? <button type="button" className="button button-secondary" onClick={() => updatePreventiveMaintenanceTemplate(template.id, { isArchived: !template.isArchived, isActive: template.isArchived ? false : template.isActive }).then(() => invalidate())}>{template.isArchived ? t(language, "pm.archived") : t(language, "common.archive")}</button> : null}
+                  {canAdmin ? <button type="button" className="button button-secondary" onClick={() => updatePreventiveMaintenanceTemplate(template.id, { isArchived: true, isActive: false }).then(() => invalidate())}>{t(language, "common.archive")}</button> : null}
                 </div>
               </div>
             ))}
-            {!templates.length ? <p className="muted">{t(language, "pm.noTemplatesYet")}</p> : null}
+            {!activeTemplates.length ? <p className="muted">{t(language, "pm.noTemplatesYet")}</p> : null}
+            {archivedTemplates.length ? (
+              <div className="pool-archived-list" data-testid="pm-template-archive-list">
+                <h3>{language === "es" ? "Plantillas archivadas" : "Archived templates"}</h3>
+                <p className="muted">{language === "es" ? "Las plantillas archivadas se ocultan de nuevas tareas recurrentes, pero se conservan para historial y pueden restaurarse aquí." : "Archived templates stay out of new recurring work, but remain available for history and can be restored here."}</p>
+                {archivedTemplates.map((template) => (
+                  <div key={template.id} className="pool-row">
+                    <div>
+                      <strong>{template.name}</strong>
+                      <span>{template.category} / {template.frequency} / {assignmentLabel(template)} / {language === "es" ? "archivada" : "archived"}</span>
+                    </div>
+                    {canAdmin ? <button type="button" className="button button-secondary" onClick={() => updatePreventiveMaintenanceTemplate(template.id, { isArchived: false }).then(() => invalidate())}>{language === "es" ? "Restaurar" : "Restore"}</button> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </article>
         </div>
       ) : null}

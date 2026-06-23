@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   BoardSection,
@@ -45,6 +45,26 @@ import { UnitSearchSelect } from "./UnitSearchSelect";
 type ColorSource = "riskLevel" | "vacancyStatus" | "boardSection" | "assignedTech" | "makeReadyStatus";
 type MarkerKind = "unit" | "area" | "pin" | "project";
 type PlacementMode = "none" | "unit" | "area" | "pin" | "move-pin";
+type BulkPlacementPreviewRow = {
+  rowNumber: number;
+  unitNumber: string;
+  unitId: string;
+  xPercent: number;
+  yPercent: number;
+  building: string;
+  area: string;
+  floor: string;
+};
+type BulkAreaPreviewRow = {
+  rowNumber: number;
+  name: string;
+  areaType: string;
+  xPercent: number;
+  yPercent: number;
+  color: string;
+  expectedUnitCount: number | null;
+  notes: string;
+};
 
 type Props = {
   properties: Property[];
@@ -164,8 +184,34 @@ function floorPlanLabel(plan: { code: string; name: string }) {
   return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
 }
 
-function formatDate(value: string | null | undefined) {
-  if (!value) return "Not set";
+function detectDelimiter(line: string) {
+  const candidates = ["\t", ";", ","];
+  let best = ",";
+  let bestCount = -1;
+  for (const candidate of candidates) {
+    const count = line.split(candidate).length;
+    if (count > bestCount) {
+      best = candidate;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+function normalizeHeader(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function csvEscape(value: string | number | null | undefined) {
+  const text = value === null || value === undefined ? "" : String(value);
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replace(/"/g, "\"\"")}"`;
+  }
+  return text;
+}
+
+function formatDate(value: string | null | undefined, language: UserLanguage = "en") {
+  if (!value) return language === "es" ? "Sin fecha" : "Not set";
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 }
 
@@ -222,11 +268,11 @@ function buildMarkerOffsetMap(entries: Array<{ key: string; xPercent: number; yP
     const bucketKey = `${bucketX}:${bucketY}`;
     groups.set(bucketKey, [...(groups.get(bucketKey) ?? []), entry]);
   }
-  const offsets = new Map<string, { offsetX: number; offsetY: number; overlapCount: number }>();
+  const offsets = new Map<string, { offsetX: number; offsetY: number; overlapCount: number; clusterLead: boolean }>();
   for (const group of groups.values()) {
     group.forEach((entry, index) => {
       const { offsetX, offsetY } = overlapOffset(index, group.length);
-      offsets.set(entry.key, { offsetX, offsetY, overlapCount: group.length });
+      offsets.set(entry.key, { offsetX, offsetY, overlapCount: group.length, clusterLead: index === 0 });
     });
   }
   return offsets;
@@ -268,6 +314,8 @@ export function PropertyMapsPanel({
   const defaultMap = propertyMaps.find((map) => map.isDefault && !map.isArchived) ?? propertyMaps.find((map) => map.isActive && !map.isArchived) ?? propertyMaps.find((map) => !map.isArchived) ?? propertyMaps[0];
   const [selectedMapId, setSelectedMapId] = useState("");
   const selectedMap = propertyMaps.find((map) => map.id === (selectedMapId || defaultMap?.id)) ?? defaultMap ?? null;
+  const activePropertyMaps = useMemo(() => propertyMaps.filter((map) => !map.isArchived), [propertyMaps]);
+  const archivedPropertyMaps = useMemo(() => propertyMaps.filter((map) => map.isArchived), [propertyMaps]);
   const [selectedUnitId, setSelectedUnitId] = useState("");
   const [selectedMarker, setSelectedMarker] = useState<SelectedMarker | null>(null);
   const [placementMode, setPlacementMode] = useState<PlacementMode>("none");
@@ -301,6 +349,48 @@ export function PropertyMapsPanel({
     wiki: true,
   });
   const [selectedBuilding, setSelectedBuilding] = useState("");
+  const [unitListScope, setUnitListScope] = useState<"all" | "unmapped" | "mapped">("all");
+  const [queueCopyMessage, setQueueCopyMessage] = useState("");
+  const [bulkPlacementText, setBulkPlacementText] = useState("");
+  const [bulkPlacementMessage, setBulkPlacementMessage] = useState("");
+  const [isImportingBulkPlacement, setIsImportingBulkPlacement] = useState(false);
+  const [bulkAreaText, setBulkAreaText] = useState("");
+  const [bulkAreaMessage, setBulkAreaMessage] = useState("");
+  const [isImportingBulkAreas, setIsImportingBulkAreas] = useState(false);
+
+  useEffect(() => {
+    if (!propertyMaps.length) {
+      if (selectedMapId) setSelectedMapId("");
+      if (selectedUnitId) setSelectedUnitId("");
+      if (selectedMarker) setSelectedMarker(null);
+      if (selectedBuilding) setSelectedBuilding("");
+      if (placementMode !== "none") setPlacementMode("none");
+      return;
+    }
+
+    const fallbackMapId = defaultMap?.id ?? "";
+    if (selectedMapId && propertyMaps.some((map) => map.id === selectedMapId)) {
+      return;
+    }
+    if (selectedMapId !== fallbackMapId) {
+      setSelectedMapId(fallbackMapId);
+    }
+  }, [defaultMap?.id, placementMode, propertyMaps, selectedBuilding, selectedMapId, selectedMarker, selectedUnitId]);
+
+  useEffect(() => {
+    setSelectedUnitId("");
+    setSelectedBuilding("");
+    if (placementMode === "unit" || placementMode === "move-pin") {
+      setPlacementMode("none");
+    }
+    setSelectedMarker((current) => {
+      if (!current || !selectedMap?.id) return null;
+      if (current.kind === "unit") return current.location.mapId === selectedMap.id ? current : null;
+      if (current.kind === "area") return current.area.mapId === selectedMap.id ? current : null;
+      if (current.kind === "pin") return current.pin.mapId === selectedMap.id ? current : null;
+      return current.record.propertyMapId === selectedMap.id ? current : null;
+    });
+  }, [selectedMap?.id]);
 
   const propertyUnits = units.filter((unit) => unit.propertyId === propertyId && unit.isActive);
   const itemByUnit = useMemo(() => {
@@ -387,25 +477,30 @@ export function PropertyMapsPanel({
   const customPins = pinsQuery.data?.pins ?? [];
 
   const buildingSummaries = useMemo(() => {
-    const summaries = new Map<string, { key: string; label: string; units: Unit[]; mapped: number; x: number | null; y: number | null }>();
+    const summaries = new Map<string, { key: string; label: string; units: Unit[]; mapped: number; unmapped: number; x: number | null; y: number | null }>();
     for (const area of mapAreas) {
-      const label = area.name.trim() || "Unnamed area";
-      summaries.set(label.toLowerCase(), { key: label.toLowerCase(), label, units: [], mapped: 0, x: area.xPercent, y: area.yPercent });
+      const label = area.name.trim() || (isSpanish ? "Área sin nombre" : "Unnamed area");
+      summaries.set(label.toLowerCase(), { key: label.toLowerCase(), label, units: [], mapped: 0, unmapped: 0, x: area.xPercent, y: area.yPercent });
     }
     for (const unit of propertyUnits) {
       const location = locationByUnit.get(unit.id);
-      const label = unit.building?.trim() || location?.building?.trim() || unit.area?.trim() || location?.area?.trim() || "No building";
+      const label = unit.building?.trim() || location?.building?.trim() || unit.area?.trim() || location?.area?.trim() || (isSpanish ? "Sin edificio" : "No building");
       const key = label.toLowerCase();
-      const existing = summaries.get(key) ?? { key, label, units: [], mapped: 0, x: null, y: null };
+      const existing = summaries.get(key) ?? { key, label, units: [], mapped: 0, unmapped: 0, x: null, y: null };
       existing.units.push(unit);
       if (location) {
         existing.mapped += 1;
         existing.x = existing.x === null ? location.xPercent : (existing.x + location.xPercent) / 2;
         existing.y = existing.y === null ? location.yPercent : (existing.y + location.yPercent) / 2;
+      } else {
+        existing.unmapped += 1;
       }
       summaries.set(key, existing);
     }
-    return Array.from(summaries.values()).sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }));
+    return Array.from(summaries.values()).sort((left, right) => {
+      if (left.unmapped !== right.unmapped) return right.unmapped - left.unmapped;
+      return left.label.localeCompare(right.label, undefined, { numeric: true });
+    });
   }, [locationByUnit, mapAreas, propertyUnits]);
 
   const linkedRecordOptions = useMemo(() => ({
@@ -425,6 +520,30 @@ export function PropertyMapsPanel({
     setSelectedUnitId("");
     setSelectedMarker(null);
     setSelectedBuilding("");
+  };
+
+  const beginPlacementForArea = (label: string) => {
+    setSelectedBuilding(label.toLowerCase());
+    setUnitListScope("unmapped");
+    setPlacementMode("unit");
+    setSelectedMarker(null);
+    setSelectedUnitId("");
+  };
+
+  const nextIncompleteBuilding = useMemo(
+    () => buildingSummaries.find((summary) => summary.unmapped > 0) ?? null,
+    [buildingSummaries],
+  );
+
+  const selectPlacementUnit = (unitId: string) => {
+    setSelectedUnitId(unitId);
+    const existing = locationByUnit.get(unitId);
+    const unit = propertyUnits.find((entry) => entry.id === unitId);
+    setLocationMeta({
+      building: existing?.building ?? unit?.building ?? "",
+      area: existing?.area ?? unit?.area ?? "",
+      floor: existing?.floor ?? unit?.floor ?? "",
+    });
   };
 
   const percentFromClick = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -449,6 +568,12 @@ export function PropertyMapsPanel({
         area: locationMeta.area || null,
         floor: locationMeta.floor || null,
       });
+      const nextUnit = buildingFilteredUnmappedUnits.find((unit) => unit.id !== selectedUnitId) ?? null;
+      if (nextUnit) {
+        selectPlacementUnit(nextUnit.id);
+      } else {
+        setSelectedUnitId("");
+      }
       return;
     }
     if (placementMode === "area" && areaDraft.name.trim()) {
@@ -535,6 +660,22 @@ export function PropertyMapsPanel({
     return results.slice(0, 30);
   }, [customPins, mapAreas, mapLocations, projectRecords, propertyUnits, search]);
 
+  const selectedAreaPlacement = useMemo(() => {
+    if (selectedMarker?.kind !== "area") return null;
+    const areaKey = selectedMarker.area.name.toLowerCase();
+    const areaUnits = propertyUnits.filter((unit) => {
+      const location = locationByUnit.get(unit.id);
+      return (unit.building?.trim() || location?.building?.trim() || unit.area?.trim() || location?.area?.trim() || (isSpanish ? "Sin edificio" : "No building")).toLowerCase() === areaKey;
+    });
+    const unmapped = areaUnits.filter((unit) => !locationByUnit.has(unit.id));
+    return {
+      total: areaUnits.length,
+      mapped: areaUnits.length - unmapped.length,
+      unmappedCount: unmapped.length,
+      nextUnit: unmapped[0] ?? null,
+    };
+  }, [isSpanish, locationByUnit, propertyUnits, selectedMarker]);
+
   const selectedMarkerDetails = (() => {
     if (!selectedMarker) return null;
     if (selectedMarker.kind === "unit") {
@@ -561,8 +702,19 @@ export function PropertyMapsPanel({
         description: selectedMarker.area.notes || (isSpanish ? `${selectedMarker.area.expectedUnitCount ?? 0} unidades esperadas` : `${selectedMarker.area.expectedUnitCount ?? 0} expected units`),
         related: [
           isSpanish
-            ? `${propertyUnits.filter((unit) => (unit.building ?? unit.area ?? "").toLowerCase() === selectedMarker.area.name.toLowerCase()).length} unidades`
-            : `${propertyUnits.filter((unit) => (unit.building ?? unit.area ?? "").toLowerCase() === selectedMarker.area.name.toLowerCase()).length} units`,
+            ? `${selectedAreaPlacement?.total ?? 0} unidades`
+            : `${selectedAreaPlacement?.total ?? 0} units`,
+          isSpanish
+            ? `${selectedAreaPlacement?.mapped ?? 0} mapeadas`
+            : `${selectedAreaPlacement?.mapped ?? 0} mapped`,
+          isSpanish
+            ? `${selectedAreaPlacement?.unmappedCount ?? 0} sin mapear`
+            : `${selectedAreaPlacement?.unmappedCount ?? 0} unmapped`,
+          selectedAreaPlacement?.nextUnit
+            ? (isSpanish
+                ? `Siguiente: ${selectedAreaPlacement.nextUnit.number}`
+                : `Next: ${selectedAreaPlacement.nextUnit.number}`)
+            : (isSpanish ? "Sin unidades pendientes" : "No units waiting"),
         ],
       };
     }
@@ -602,13 +754,343 @@ export function PropertyMapsPanel({
     ...visiblePins.map((pin) => ({ key: `pin:${pin.id}`, xPercent: pin.xPercent, yPercent: pin.yPercent })),
     ...visibleProjects.map((record) => ({ key: `project:${record.id}`, xPercent: record.pinX ?? 0, yPercent: record.pinY ?? 0 })),
   ]), [visibleAreaMarkers, visiblePins, visibleProjects, visibleUnitMarkers]);
+  const visibleOverlapClusterCount = useMemo(
+    () => Array.from(markerOffsets.values()).filter((entry) => entry.overlapCount > 1 && entry.clusterLead).length,
+    [markerOffsets],
+  );
+  const visibleOverlapMarkerCount = useMemo(
+    () => Array.from(markerOffsets.values()).filter((entry) => entry.overlapCount > 1).length,
+    [markerOffsets],
+  );
 
   const buildingFilteredUnits = selectedBuilding
     ? propertyUnits.filter((unit) => {
       const location = locationByUnit.get(unit.id);
-      return (unit.building?.trim() || location?.building?.trim() || unit.area?.trim() || location?.area?.trim() || "No building").toLowerCase() === selectedBuilding;
+      return (unit.building?.trim() || location?.building?.trim() || unit.area?.trim() || location?.area?.trim() || (isSpanish ? "Sin edificio" : "No building")).toLowerCase() === selectedBuilding;
     })
     : propertyUnits;
+  const buildingFilteredUnmappedUnits = useMemo(
+    () => buildingFilteredUnits.filter((unit) => !locationByUnit.has(unit.id)),
+    [buildingFilteredUnits, locationByUnit],
+  );
+  const buildingFilteredMappedUnits = useMemo(
+    () => buildingFilteredUnits.filter((unit) => locationByUnit.has(unit.id)),
+    [buildingFilteredUnits, locationByUnit],
+  );
+  const displayedBuildingUnits = unitListScope === "unmapped"
+    ? buildingFilteredUnmappedUnits
+    : unitListScope === "mapped"
+      ? buildingFilteredMappedUnits
+      : buildingFilteredUnits;
+  const displayedBuildingUnitReviewText = useMemo(() => {
+    const scopeLabel = unitListScope === "unmapped"
+      ? (isSpanish ? "Solo sin mapear" : "Unmapped only")
+      : unitListScope === "mapped"
+        ? (isSpanish ? "Solo mapeadas" : "Mapped only")
+        : (isSpanish ? "Todas" : "All");
+    const buildingLabel = selectedBuilding
+      ? buildingSummaries.find((summary) => summary.key === selectedBuilding)?.label ?? selectedBuilding
+      : (isSpanish ? "Todos los edificios" : "All buildings");
+    const heading = `${isSpanish ? "Cola de colocación" : "Placement queue"} - ${buildingLabel} - ${scopeLabel}`;
+    const lines = displayedBuildingUnits.map((unit) => {
+      const location = locationByUnit.get(unit.id);
+      const unitBuilding = unit.building?.trim() || location?.building?.trim() || "";
+      const unitArea = unit.area?.trim() || location?.area?.trim() || "";
+      const unitFloor = unit.floorPlan?.trim() || unit.floorPlanRecord?.name?.trim() || "";
+      return [
+        displayUnitNumber(property?.code ?? "", unit.number),
+        location ? (isSpanish ? "Mapeada" : "Mapped") : (isSpanish ? "Sin mapear" : "Unmapped"),
+        unitBuilding ? `${isSpanish ? "Edificio" : "Building"} ${unitBuilding}` : null,
+        unitArea ? `${isSpanish ? "Área" : "Area"} ${unitArea}` : null,
+        unitFloor ? `${isSpanish ? "Plano" : "Plan"} ${unitFloor}` : null,
+      ].filter(Boolean).join(" | ");
+    });
+    return [heading, ...lines].join("\n");
+  }, [buildingSummaries, displayedBuildingUnits, isSpanish, locationByUnit, property?.code, selectedBuilding, unitListScope]);
+  const displayedBuildingUnitCsv = useMemo(() => {
+    const header = ["unit", "status", "xPercent", "yPercent", "building", "area", "floor", "floorPlan"];
+    const rows = displayedBuildingUnits.map((unit) => {
+      const location = locationByUnit.get(unit.id);
+      return [
+        displayUnitNumber(property?.code ?? "", unit.number),
+        location ? "Mapped" : "Unmapped",
+        location?.xPercent ?? "",
+        location?.yPercent ?? "",
+        location?.building ?? unit.building ?? "",
+        location?.area ?? unit.area ?? "",
+        location?.floor ?? unit.floor ?? "",
+        unit.floorPlanRecord ? floorPlanLabel(unit.floorPlanRecord) : unit.floorPlan ?? "",
+      ].map(csvEscape).join(",");
+    });
+    return [header.join(","), ...rows].join("\n");
+  }, [displayedBuildingUnits, locationByUnit, property?.code]);
+  const visibleAreaMarkersCsv = useMemo(() => {
+    const header = ["name", "areaType", "xPercent", "yPercent", "color", "expectedUnitCount", "notes"];
+    const rows = visibleAreaMarkers.map((area) => [
+      area.name,
+      area.areaType,
+      area.xPercent,
+      area.yPercent,
+      area.color ?? "",
+      area.expectedUnitCount ?? "",
+      area.notes ?? "",
+    ].map(csvEscape).join(","));
+    return [header.join(","), ...rows].join("\n");
+  }, [visibleAreaMarkers]);
+  const bulkPlacementPreview = useMemo(() => {
+    const trimmed = bulkPlacementText.trim();
+    if (!trimmed) {
+      return { rows: [] as BulkPlacementPreviewRow[], errors: [] as string[] };
+    }
+    const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (!lines.length) {
+      return { rows: [] as BulkPlacementPreviewRow[], errors: [] as string[] };
+    }
+    const delimiter = detectDelimiter(lines[0]);
+    const firstCells = lines[0].split(delimiter).map((value) => value.trim());
+    const normalizedHeaders = firstCells.map(normalizeHeader);
+    const headerLooksPresent = normalizedHeaders.some((value) => ["unit", "unitnumber", "number", "x", "xpercent", "xcoordinate", "pinx", "y", "ypercent", "ycoordinate", "piny"].includes(value));
+    const headerIndex = headerLooksPresent
+      ? {
+        unit: normalizedHeaders.findIndex((value) => ["unit", "unitnumber", "number"].includes(value)),
+        x: normalizedHeaders.findIndex((value) => ["x", "xpercent", "xcoordinate", "pinx"].includes(value)),
+        y: normalizedHeaders.findIndex((value) => ["y", "ypercent", "ycoordinate", "piny"].includes(value)),
+        building: normalizedHeaders.findIndex((value) => value === "building"),
+        area: normalizedHeaders.findIndex((value) => value === "area"),
+        floor: normalizedHeaders.findIndex((value) => value === "floor"),
+      }
+      : { unit: 0, x: 1, y: 2, building: 3, area: 4, floor: 5 };
+    const startIndex = headerLooksPresent ? 1 : 0;
+    const rows: BulkPlacementPreviewRow[] = [];
+    const errors: string[] = [];
+    const unitByNormalizedNumber = new Map(
+      propertyUnits.map((unit) => [displayUnitNumber("", unit.number).trim().toLowerCase(), unit] as const),
+    );
+    const unitByPropertyNumber = new Map(propertyUnits.map((unit) => [unit.number.trim().toLowerCase(), unit] as const));
+    for (let index = startIndex; index < lines.length; index += 1) {
+      const rawCells = lines[index].split(delimiter).map((value) => value.trim());
+      const unitNumber = (rawCells[headerIndex.unit] ?? "").trim();
+      const xRaw = rawCells[headerIndex.x] ?? "";
+      const yRaw = rawCells[headerIndex.y] ?? "";
+      if (!unitNumber) {
+        errors.push(`${isSpanish ? "Fila" : "Row"} ${index + 1}: ${isSpanish ? "falta la unidad" : "missing unit number"}.`);
+        continue;
+      }
+      const unit = unitByPropertyNumber.get(unitNumber.toLowerCase()) ?? unitByNormalizedNumber.get(unitNumber.toLowerCase());
+      if (!unit) {
+        errors.push(`${isSpanish ? "Fila" : "Row"} ${index + 1}: ${isSpanish ? "unidad no encontrada" : "unit not found"} (${unitNumber}).`);
+        continue;
+      }
+      const xPercent = Number(xRaw);
+      const yPercent = Number(yRaw);
+      if (!Number.isFinite(xPercent) || xPercent < 0 || xPercent > 100 || !Number.isFinite(yPercent) || yPercent < 0 || yPercent > 100) {
+        errors.push(`${isSpanish ? "Fila" : "Row"} ${index + 1}: ${isSpanish ? "las coordenadas deben estar entre 0 y 100" : "coordinates must be between 0 and 100"} (${unitNumber}).`);
+        continue;
+      }
+      rows.push({
+        rowNumber: index + 1,
+        unitNumber,
+        unitId: unit.id,
+        xPercent,
+        yPercent,
+        building: (headerIndex.building >= 0 ? rawCells[headerIndex.building] : "") ?? "",
+        area: (headerIndex.area >= 0 ? rawCells[headerIndex.area] : "") ?? "",
+        floor: (headerIndex.floor >= 0 ? rawCells[headerIndex.floor] : "") ?? "",
+      });
+    }
+    return { rows, errors };
+  }, [bulkPlacementText, isSpanish, propertyUnits]);
+  const bulkAreaPreview = useMemo(() => {
+    const trimmed = bulkAreaText.trim();
+    if (!trimmed) {
+      return { rows: [] as BulkAreaPreviewRow[], errors: [] as string[] };
+    }
+    const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (!lines.length) {
+      return { rows: [] as BulkAreaPreviewRow[], errors: [] as string[] };
+    }
+    const delimiter = detectDelimiter(lines[0]);
+    const firstCells = lines[0].split(delimiter).map((value) => value.trim());
+    const normalizedHeaders = firstCells.map(normalizeHeader);
+    const headerLooksPresent = normalizedHeaders.some((value) => ["name", "areatype", "x", "xpercent", "y", "ypercent"].includes(value));
+    const headerIndex = headerLooksPresent
+      ? {
+        name: normalizedHeaders.findIndex((value) => value === "name"),
+        areaType: normalizedHeaders.findIndex((value) => value === "areatype"),
+        x: normalizedHeaders.findIndex((value) => ["x", "xpercent"].includes(value)),
+        y: normalizedHeaders.findIndex((value) => ["y", "ypercent"].includes(value)),
+        color: normalizedHeaders.findIndex((value) => value === "color"),
+        expectedUnitCount: normalizedHeaders.findIndex((value) => ["expectedunitcount", "expectedunits", "unitcount"].includes(value)),
+        notes: normalizedHeaders.findIndex((value) => value === "notes"),
+      }
+      : { name: 0, areaType: 1, x: 2, y: 3, color: 4, expectedUnitCount: 5, notes: 6 };
+    const startIndex = headerLooksPresent ? 1 : 0;
+    const rows: BulkAreaPreviewRow[] = [];
+    const errors: string[] = [];
+    for (let index = startIndex; index < lines.length; index += 1) {
+      const rawCells = lines[index].split(delimiter).map((value) => value.trim());
+      const name = (rawCells[headerIndex.name] ?? "").trim();
+      const areaType = ((rawCells[headerIndex.areaType] ?? "BUILDING").trim().toUpperCase() || "BUILDING");
+      const xPercent = Number(rawCells[headerIndex.x] ?? "");
+      const yPercent = Number(rawCells[headerIndex.y] ?? "");
+      const color = (headerIndex.color >= 0 ? rawCells[headerIndex.color] : "") || "#1f8fdb";
+      const expectedUnitCountRaw = headerIndex.expectedUnitCount >= 0 ? rawCells[headerIndex.expectedUnitCount] : "";
+      const expectedUnitCount = expectedUnitCountRaw ? Number(expectedUnitCountRaw) : null;
+      const notes = (headerIndex.notes >= 0 ? rawCells[headerIndex.notes] : "") ?? "";
+      if (!name) {
+        errors.push(`${isSpanish ? "Fila" : "Row"} ${index + 1}: ${isSpanish ? "falta el nombre del área" : "missing area name"}.`);
+        continue;
+      }
+      if (!["BUILDING", "AREA", "FLOOR", "ZONE"].includes(areaType)) {
+        errors.push(`${isSpanish ? "Fila" : "Row"} ${index + 1}: ${isSpanish ? "tipo de área no válido" : "invalid area type"} (${name}).`);
+        continue;
+      }
+      if (!Number.isFinite(xPercent) || xPercent < 0 || xPercent > 100 || !Number.isFinite(yPercent) || yPercent < 0 || yPercent > 100) {
+        errors.push(`${isSpanish ? "Fila" : "Row"} ${index + 1}: ${isSpanish ? "las coordenadas deben estar entre 0 y 100" : "coordinates must be between 0 and 100"} (${name}).`);
+        continue;
+      }
+      if (expectedUnitCount !== null && (!Number.isFinite(expectedUnitCount) || expectedUnitCount < 0)) {
+        errors.push(`${isSpanish ? "Fila" : "Row"} ${index + 1}: ${isSpanish ? "las unidades esperadas deben ser 0 o más" : "expected units must be 0 or more"} (${name}).`);
+        continue;
+      }
+      rows.push({
+        rowNumber: index + 1,
+        name,
+        areaType,
+        xPercent,
+        yPercent,
+        color,
+        expectedUnitCount,
+        notes,
+      });
+    }
+    return { rows, errors };
+  }, [bulkAreaText, isSpanish]);
+  const nextUnmappedPlacementUnit = useMemo(() => {
+    if (!buildingFilteredUnmappedUnits.length) return null;
+    const currentIndex = buildingFilteredUnmappedUnits.findIndex((unit) => unit.id === selectedUnitId);
+    if (currentIndex >= 0 && currentIndex < buildingFilteredUnmappedUnits.length - 1) {
+      return buildingFilteredUnmappedUnits[currentIndex + 1];
+    }
+    return buildingFilteredUnmappedUnits[0] ?? null;
+  }, [buildingFilteredUnmappedUnits, selectedUnitId]);
+
+  useEffect(() => {
+    if (placementMode !== "unit" || selectedUnitId) return;
+    if (!nextUnmappedPlacementUnit) return;
+    selectPlacementUnit(nextUnmappedPlacementUnit.id);
+  }, [nextUnmappedPlacementUnit, placementMode, selectedUnitId]);
+
+  const copyDisplayedPlacementQueue = async () => {
+    if (typeof navigator === "undefined" || !navigator.clipboard || !displayedBuildingUnits.length) {
+      setQueueCopyMessage(isSpanish ? "No se pudo copiar la cola." : "Could not copy the queue.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(displayedBuildingUnitReviewText);
+      setQueueCopyMessage(isSpanish ? "Cola copiada." : "Queue copied.");
+      window.setTimeout(() => setQueueCopyMessage(""), 2000);
+    } catch {
+      setQueueCopyMessage(isSpanish ? "No se pudo copiar la cola." : "Could not copy the queue.");
+    }
+  };
+
+  const importBulkPlacement = async () => {
+    if (!selectedMap || !bulkPlacementPreview.rows.length) {
+      setBulkPlacementMessage(isSpanish ? "No hay filas válidas para importar." : "No valid rows to import.");
+      return;
+    }
+    setIsImportingBulkPlacement(true);
+    setBulkPlacementMessage("");
+    try {
+      for (const row of bulkPlacementPreview.rows) {
+        await onSaveLocation({
+          propertyId,
+          mapId: selectedMap.id,
+          unitId: row.unitId,
+          xPercent: row.xPercent,
+          yPercent: row.yPercent,
+          building: row.building || null,
+          area: row.area || null,
+          floor: row.floor || null,
+        });
+      }
+      setBulkPlacementMessage(
+        isSpanish
+          ? `Se importaron ${bulkPlacementPreview.rows.length} ubicaciones de unidad.`
+          : `Imported ${bulkPlacementPreview.rows.length} unit locations.`,
+      );
+      setBulkPlacementText("");
+    } catch {
+      setBulkPlacementMessage(isSpanish ? "No se pudo importar la colocación masiva." : "Could not import the bulk placement.");
+    } finally {
+      setIsImportingBulkPlacement(false);
+    }
+  };
+
+  const exportDisplayedPlacementQueueCsv = () => {
+    if (!displayedBuildingUnits.length || typeof document === "undefined") return;
+    const blob = new Blob([displayedBuildingUnitCsv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const buildingLabel = selectedBuilding
+      ? buildingSummaries.find((summary) => summary.key === selectedBuilding)?.label ?? selectedBuilding
+      : "all-buildings";
+    const scopeLabel = unitListScope === "unmapped" ? "unmapped" : unitListScope === "mapped" ? "mapped" : "all";
+    link.href = url;
+    link.download = `${(property?.code ?? "property").toLowerCase()}-${String(buildingLabel).replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${scopeLabel}-map-queue.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportVisibleAreasCsv = () => {
+    if (!visibleAreaMarkers.length || typeof document === "undefined") return;
+    const blob = new Blob([visibleAreaMarkersCsv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${(property?.code ?? "property").toLowerCase()}-map-areas.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const importBulkAreas = async () => {
+    if (!selectedMap || !bulkAreaPreview.rows.length) {
+      setBulkAreaMessage(isSpanish ? "No hay filas válidas para importar." : "No valid rows to import.");
+      return;
+    }
+    setIsImportingBulkAreas(true);
+    setBulkAreaMessage("");
+    try {
+      for (const row of bulkAreaPreview.rows) {
+        await onCreateArea({
+          propertyId,
+          mapId: selectedMap.id,
+          name: row.name,
+          areaType: row.areaType,
+          xPercent: row.xPercent,
+          yPercent: row.yPercent,
+          color: row.color || null,
+          expectedUnitCount: row.expectedUnitCount,
+          notes: row.notes || null,
+        });
+      }
+      setBulkAreaMessage(
+        isSpanish
+          ? `Se importaron ${bulkAreaPreview.rows.length} marcadores de área.`
+          : `Imported ${bulkAreaPreview.rows.length} area markers.`,
+      );
+      setBulkAreaText("");
+    } catch {
+      setBulkAreaMessage(isSpanish ? "No se pudo importar la colocación masiva de áreas." : "Could not import the bulk area placement.");
+    } finally {
+      setIsImportingBulkAreas(false);
+    }
+  };
 
   return (
     <section className="panel property-map-panel" data-testid="property-maps-panel">
@@ -630,8 +1112,17 @@ export function PropertyMapsPanel({
         </label>
         <label>{isSpanish ? "Mapa" : "Map"}
           <select data-testid="property-maps-map-select" value={selectedMap?.id ?? ""} onChange={(event) => setSelectedMapId(event.target.value)}>
-            <option value="">{isSpanish ? "Ningun mapa seleccionado" : "No map selected"}</option>
-            {propertyMaps.map((map) => <option key={map.id} value={map.id}>{map.name}{map.isDefault ? " / default" : ""}</option>)}
+            <option value="">{isSpanish ? "Ningún mapa seleccionado" : "No map selected"}</option>
+            {activePropertyMaps.length ? (
+              <optgroup label={isSpanish ? "Mapas activos" : "Active maps"}>
+                {activePropertyMaps.map((map) => <option key={map.id} value={map.id}>{map.name}{map.isDefault ? (isSpanish ? " / predeterminado" : " / default") : ""}</option>)}
+              </optgroup>
+            ) : null}
+            {archivedPropertyMaps.length ? (
+              <optgroup label={isSpanish ? "Mapas archivados" : "Archived maps"}>
+                {archivedPropertyMaps.map((map) => <option key={map.id} value={map.id}>{map.name}</option>)}
+              </optgroup>
+            ) : null}
           </select>
         </label>
         <label>{isSpanish ? "Buscar" : "Search"}
@@ -653,7 +1144,40 @@ export function PropertyMapsPanel({
 
       {canManage ? (
         <div className="operations-card map-management-card">
-          <h3>{isSpanish ? "Configuracion del mapa" : "Map Setup"}</h3>
+          <h3>{isSpanish ? "Configuración del mapa" : "Map Setup"}</h3>
+          {selectedMap ? (
+            <div className="admin-message" style={{ marginBottom: 12 }}>
+              <strong>{selectedMap.name}</strong>{" "}
+              <span className={`status-chip ${selectedMap.isArchived ? "inactive" : "active"}`}>
+                {selectedMap.isArchived ? (isSpanish ? "Archivado" : "Archived") : (isSpanish ? "Activo" : "Active")}
+              </span>
+              {selectedMap.isDefault ? (
+                <>
+                  {" "}
+                  <span className="status-chip active">{isSpanish ? "Predeterminado" : "Default"}</span>
+                </>
+              ) : null}
+              {" "}
+              <span className={`status-chip ${selectedMap.mimeType ? "active" : "inactive"}`}>
+                {selectedMap.mimeType
+                  ? (isSpanish ? "Archivo cargado" : "File uploaded")
+                  : (isSpanish ? "Sin archivo" : "No file yet")}
+              </span>
+              <p className="helper-copy" style={{ marginTop: 8 }}>
+                {!selectedMap.mimeType
+                  ? (isSpanish
+                      ? "Este mapa existe, pero todavía no tiene un PNG, JPG, WebP o PDF cargado. Súbelo aquí para empezar a colocar unidades y pins."
+                      : "This map record exists, but it does not have a PNG, JPG, WebP, or PDF uploaded yet. Upload one here to start placing units and pins.")
+                  : selectedMap.isArchived
+                    ? (isSpanish
+                        ? "Este mapa está archivado. Puedes restaurarlo o eliminarlo permanentemente aquí."
+                        : "This map is archived. You can restore it or permanently delete it here.")
+                    : (isSpanish
+                        ? "Para eliminar un mapa permanentemente, archívalo primero. Los mapas archivados aparecen en el selector superior."
+                        : "To permanently delete a map, archive it first. Archived maps appear in the selector above.")}
+              </p>
+            </div>
+          ) : null}
           <div className="map-management-grid">
             <form className="inline-form" onSubmit={async (event) => {
               event.preventDefault();
@@ -690,9 +1214,9 @@ export function PropertyMapsPanel({
                     {isSpanish ? "Eliminar mapa" : "Delete Map"}
                   </button>
                 ) : null}
-                <a className="button button-secondary" href={propertyMapExportCsvUrl(selectedMap.id)} target="_blank" rel="noreferrer">CSV</a>
-                <a className="button button-secondary" href={propertyMapExportXlsUrl(selectedMap.id)} target="_blank" rel="noreferrer">Excel</a>
-                <a className="button button-secondary" href={propertyMapPrintableReportUrl(selectedMap.id)} target="_blank" rel="noreferrer">PDF</a>
+                <a className="button button-secondary" href={propertyMapExportCsvUrl(selectedMap.id)} target="_blank" rel="noreferrer">{isSpanish ? "CSV" : "CSV"}</a>
+                <a className="button button-secondary" href={propertyMapExportXlsUrl(selectedMap.id)} target="_blank" rel="noreferrer">{isSpanish ? "Excel" : "Excel"}</a>
+                <a className="button button-secondary" href={propertyMapPrintableReportUrl(selectedMap.id)} target="_blank" rel="noreferrer">{isSpanish ? "PDF" : "PDF"}</a>
               </div>
             ) : null}
           </div>
@@ -705,6 +1229,13 @@ export function PropertyMapsPanel({
             <div>
               <h3>{selectedMap?.name ?? (isSpanish ? "No hay mapa configurado" : "No map configured")}</h3>
               <p className="muted">{selectedMap ? `${selectedMap.mapType} / ${visibleUnitMarkers.length} ${isSpanish ? "marcadores de unidad" : "unit markers"} / ${visiblePins.length} ${isSpanish ? "pins personalizados" : "custom pins"} / ${visibleProjects.length} ${isSpanish ? "pins de proyecto" : "project pins"}` : (isSpanish ? "Selecciona un mapa de la propiedad para comenzar" : "Select a property map to begin")}</p>
+              {visibleOverlapClusterCount ? (
+                <p className="helper-copy">
+                  {isSpanish
+                    ? `${visibleOverlapClusterCount} agrupaciones visibles todavía contienen ${visibleOverlapMarkerCount} marcadores superpuestos.`
+                    : `${visibleOverlapClusterCount} visible cluster${visibleOverlapClusterCount === 1 ? "" : "s"} still contain ${visibleOverlapMarkerCount} overlapping markers.`}
+                </p>
+              ) : null}
             </div>
             <div className="map-legend">
               <button type="button" className="button button-secondary" onClick={() => setZoom((current) => Math.max(0.7, Number((current - 0.1).toFixed(1))))}>-</button>
@@ -736,7 +1267,15 @@ export function PropertyMapsPanel({
               {selectedMap && imagePreview ? <img src={propertyMapFileUrl(selectedMap.id)} alt={`${selectedMap.name} map`} /> : (
                 <div className="map-placeholder">
                   <strong>{selectedMap ? (isSpanish ? "Vista previa del mapa no disponible" : "Map preview unavailable") : (isSpanish ? "Crea o selecciona un mapa" : "Create or select a map")}</strong>
-                  <span>{selectedMap?.mimeType === "application/pdf" ? (isSpanish ? "Los mapas PDF siguen funcionando para colocar pins y exportar." : "PDF maps stay usable for pin placement and export.") : (isSpanish ? "Sube un mapa PNG, JPG, WebP o PDF." : "Upload a PNG, JPG, WebP, or PDF map.")}</span>
+                  <span>
+                    {!selectedMap
+                      ? (isSpanish ? "Crea un mapa y luego sube un PNG, JPG, WebP o PDF." : "Create a map, then upload a PNG, JPG, WebP, or PDF.")
+                      : !selectedMap.mimeType
+                        ? (isSpanish ? "Aún no hay archivo cargado para este mapa. Súbelo desde Configuración del mapa." : "No file has been uploaded for this map yet. Upload one from Map Setup.")
+                        : selectedMap.mimeType === "application/pdf"
+                          ? (isSpanish ? "Los mapas PDF siguen funcionando para colocar pins y exportar, pero se abren por separado en vez de mostrarse aquí." : "PDF maps still work for pin placement and export, but they open separately instead of rendering here.")
+                          : (isSpanish ? "Sube un mapa PNG, JPG, WebP o PDF." : "Upload a PNG, JPG, WebP, or PDF map.")}
+                  </span>
                 </div>
               )}
               {visibleAreaMarkers.map((area) => (
@@ -750,12 +1289,16 @@ export function PropertyMapsPanel({
                     borderColor: area.color ?? undefined,
                     transform: `translate(calc(-50% + ${markerOffsets.get(`area:${area.id}`)?.offsetX ?? 0}px), calc(-50% + ${markerOffsets.get(`area:${area.id}`)?.offsetY ?? 0}px))`,
                   }}
+                  title={`${area.name}${(markerOffsets.get(`area:${area.id}`)?.overlapCount ?? 1) > 1 ? ` / ${isSpanish ? `grupo de ${markerOffsets.get(`area:${area.id}`)?.overlapCount} marcadores` : `cluster of ${markerOffsets.get(`area:${area.id}`)?.overlapCount} markers`}` : ""}`}
                   onClick={(event) => {
                     event.stopPropagation();
                     setSelectedMarker({ kind: "area", area });
                     setSelectedBuilding(area.name.toLowerCase());
                   }}
                 >
+                  {(markerOffsets.get(`area:${area.id}`)?.overlapCount ?? 1) > 1 && markerOffsets.get(`area:${area.id}`)?.clusterLead ? (
+                    <span className="map-overlap-badge">{markerOffsets.get(`area:${area.id}`)?.overlapCount}</span>
+                  ) : null}
                   <strong>{area.name}</strong>
                   <span>{area.areaType.toLowerCase()}</span>
                 </button>
@@ -774,12 +1317,15 @@ export function PropertyMapsPanel({
                       background: markerColor(colorSource, item, labelsByField, boardSections),
                       transform: `translate(calc(-50% + ${markerOffsets.get(`unit:${location.id}`)?.offsetX ?? 0}px), calc(-50% + ${markerOffsets.get(`unit:${location.id}`)?.offsetY ?? 0}px))`,
                     }}
-                    title={`${unit.number} / ${markerLabel(colorSource, item, boardSections)}`}
+                    title={`${unit.number} / ${markerLabel(colorSource, item, boardSections)}${(markerOffsets.get(`unit:${location.id}`)?.overlapCount ?? 1) > 1 ? ` / ${isSpanish ? `grupo de ${markerOffsets.get(`unit:${location.id}`)?.overlapCount} marcadores` : `cluster of ${markerOffsets.get(`unit:${location.id}`)?.overlapCount} markers`}` : ""}`}
                     onClick={(event) => {
                       event.stopPropagation();
                       setSelectedMarker({ kind: "unit", location });
                     }}
                   >
+                    {(markerOffsets.get(`unit:${location.id}`)?.overlapCount ?? 1) > 1 && markerOffsets.get(`unit:${location.id}`)?.clusterLead ? (
+                      <span className="map-overlap-badge">{markerOffsets.get(`unit:${location.id}`)?.overlapCount}</span>
+                    ) : null}
                     {unit.number}
                   </button>
                 );
@@ -795,11 +1341,15 @@ export function PropertyMapsPanel({
                     background: pinTypePalette[pin.pinType] ?? pinTypePalette.Custom,
                     transform: `translate(calc(-50% + ${markerOffsets.get(`pin:${pin.id}`)?.offsetX ?? 0}px), calc(-50% + ${markerOffsets.get(`pin:${pin.id}`)?.offsetY ?? 0}px))`,
                   }}
+                  title={`${pin.title}${(markerOffsets.get(`pin:${pin.id}`)?.overlapCount ?? 1) > 1 ? ` / ${isSpanish ? `grupo de ${markerOffsets.get(`pin:${pin.id}`)?.overlapCount} marcadores` : `cluster of ${markerOffsets.get(`pin:${pin.id}`)?.overlapCount} markers`}` : ""}`}
                   onClick={(event) => {
                     event.stopPropagation();
                     setSelectedMarker({ kind: "pin", pin });
                   }}
                 >
+                  {(markerOffsets.get(`pin:${pin.id}`)?.overlapCount ?? 1) > 1 && markerOffsets.get(`pin:${pin.id}`)?.clusterLead ? (
+                    <span className="map-overlap-badge">{markerOffsets.get(`pin:${pin.id}`)?.overlapCount}</span>
+                  ) : null}
                   {pin.title}
                 </button>
               ))}
@@ -814,11 +1364,15 @@ export function PropertyMapsPanel({
                     background: record.recordType === "Project" ? pinTypePalette.Project : pinTypePalette.Recommendation,
                     transform: `translate(calc(-50% + ${markerOffsets.get(`project:${record.id}`)?.offsetX ?? 0}px), calc(-50% + ${markerOffsets.get(`project:${record.id}`)?.offsetY ?? 0}px))`,
                   }}
+                  title={`${record.title}${(markerOffsets.get(`project:${record.id}`)?.overlapCount ?? 1) > 1 ? ` / ${isSpanish ? `grupo de ${markerOffsets.get(`project:${record.id}`)?.overlapCount} marcadores` : `cluster of ${markerOffsets.get(`project:${record.id}`)?.overlapCount} markers`}` : ""}`}
                   onClick={(event) => {
                     event.stopPropagation();
                     setSelectedMarker({ kind: "project", record });
                   }}
                 >
+                  {(markerOffsets.get(`project:${record.id}`)?.overlapCount ?? 1) > 1 && markerOffsets.get(`project:${record.id}`)?.clusterLead ? (
+                    <span className="map-overlap-badge">{markerOffsets.get(`project:${record.id}`)?.overlapCount}</span>
+                  ) : null}
                   {record.title}
                 </button>
               ))}
@@ -829,14 +1383,38 @@ export function PropertyMapsPanel({
 
         <div className="operations-card unit-directory-card">
           <h3>{isSpanish ? "Controles del mapa" : "Map Controls"}</h3>
+          <div className="pool-entry-actions" style={{ marginBottom: 10 }}>
+            <span className="helper-copy">
+              {nextIncompleteBuilding
+                ? (isSpanish
+                    ? `Siguiente área con huecos: ${nextIncompleteBuilding.label} (${nextIncompleteBuilding.unmapped} sin mapear)`
+                    : `Next gap area: ${nextIncompleteBuilding.label} (${nextIncompleteBuilding.unmapped} unmapped)`)
+                : (isSpanish ? "Todas las áreas/unidades visibles están mapeadas." : "All visible areas/units are mapped.")}
+            </span>
+            {nextIncompleteBuilding ? (
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => beginPlacementForArea(nextIncompleteBuilding.label)}
+              >
+                {isSpanish ? "Ir al siguiente hueco" : "Go To Next Gap"}
+              </button>
+            ) : null}
+          </div>
           <div className="map-building-summary">
             <button type="button" className={!selectedBuilding ? "selected" : ""} onClick={() => setSelectedBuilding("")}>
               {isSpanish ? "Todos los edificios" : "All buildings"} <strong>{propertyUnits.length}</strong>
             </button>
             {buildingSummaries.map((summary) => (
-              <button key={summary.key} type="button" className={selectedBuilding === summary.key ? "selected" : ""} onClick={() => setSelectedBuilding(summary.key)}>
+              <button
+                key={summary.key}
+                type="button"
+                className={`${selectedBuilding === summary.key ? "selected " : ""}${summary.unmapped > 0 ? "incomplete" : "complete"}`}
+                onClick={() => setSelectedBuilding(summary.key)}
+              >
                 {summary.label}
                 <strong>{summary.mapped}/{summary.units.length} {isSpanish ? "mapeadas" : "mapped"}</strong>
+                <span>{summary.unmapped} {isSpanish ? "sin mapear" : "unmapped"}</span>
               </button>
             ))}
           </div>
@@ -851,28 +1429,174 @@ export function PropertyMapsPanel({
                 {selectedMarker?.kind === "pin" ? <option value="move-pin">{isSpanish ? "Mover pin seleccionado" : "Move selected pin"}</option> : null}
               </select>
             </label>
+            <label className="compact-toggle">
+              {isSpanish ? "Alcance de lista" : "List scope"}
+              <select value={unitListScope} onChange={(event) => setUnitListScope(event.target.value as "all" | "unmapped" | "mapped")}>
+                <option value="all">{`${isSpanish ? "Todas" : "All"} (${buildingFilteredUnits.length})`}</option>
+                <option value="unmapped">{`${isSpanish ? "Solo sin mapear" : "Unmapped only"} (${buildingFilteredUnmappedUnits.length})`}</option>
+                <option value="mapped">{`${isSpanish ? "Solo mapeadas" : "Mapped only"} (${buildingFilteredMappedUnits.length})`}</option>
+              </select>
+            </label>
           </div>
+          <div className="pool-entry-actions" style={{ marginBottom: 10 }}>
+            <button className="button button-secondary" type="button" onClick={() => void copyDisplayedPlacementQueue()} disabled={!displayedBuildingUnits.length}>
+              {isSpanish ? "Copiar cola visible" : "Copy visible queue"}
+            </button>
+            <button className="button button-secondary" type="button" onClick={exportDisplayedPlacementQueueCsv} disabled={!displayedBuildingUnits.length}>
+              {isSpanish ? "Exportar cola CSV" : "Export queue CSV"}
+            </button>
+            {queueCopyMessage ? <span className="helper-copy">{queueCopyMessage}</span> : null}
+          </div>
+          {canManage ? (
+            <div className="stacked-form" style={{ marginBottom: 12 }}>
+              <label>{isSpanish ? "Importación masiva de ubicaciones" : "Bulk placement import"}</label>
+              <p className="helper-copy">
+                {isSpanish
+                  ? "Pega CSV, TSV o texto separado por punto y coma con columnas unit,xPercent,yPercent,building,area,floor. Los encabezados son opcionales."
+                  : "Paste CSV, TSV, or semicolon-delimited text with columns unit,xPercent,yPercent,building,area,floor. Headers are optional."}
+              </p>
+              <textarea
+                rows={5}
+                value={bulkPlacementText}
+                onChange={(event) => setBulkPlacementText(event.target.value)}
+                placeholder={"unit,xPercent,yPercent,building,area,floor\n4804,12.5,22.1,Building 4,North Breezeway,1\n4816,18.4,24.2,Building 4,North Breezeway,1"}
+              />
+              <div className="pool-entry-actions">
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={() => setBulkPlacementText("unit,xPercent,yPercent,building,area,floor\n4804,12.5,22.1,Building 4,North Breezeway,1\n4816,18.4,24.2,Building 4,North Breezeway,1")}
+                >
+                  {isSpanish ? "Cargar plantilla" : "Load Template"}
+                </button>
+                <button className="button button-secondary" type="button" onClick={() => setBulkPlacementText("")} disabled={!bulkPlacementText.trim()}>
+                  {isSpanish ? "Limpiar" : "Clear"}
+                </button>
+                <button className="button button-primary" type="button" onClick={() => void importBulkPlacement()} disabled={!selectedMap || !bulkPlacementPreview.rows.length || isImportingBulkPlacement}>
+                  {isImportingBulkPlacement
+                    ? (isSpanish ? "Importando..." : "Importing...")
+                    : (isSpanish ? "Importar ubicaciones" : "Import Locations")}
+                </button>
+              </div>
+              {bulkPlacementText.trim() ? (
+                <div className="admin-message">
+                  <strong>{bulkPlacementPreview.rows.length}</strong> {isSpanish ? "filas válidas listas para importar." : "valid rows ready to import."}{" "}
+                  <strong>{bulkPlacementPreview.errors.length}</strong> {isSpanish ? "errores encontrados." : "errors found."}
+                  {bulkPlacementPreview.rows.length ? (
+                    <ul className="compact-list">
+                      {bulkPlacementPreview.rows.slice(0, 5).map((row) => (
+                        <li key={`${row.rowNumber}:${row.unitId}`}>
+                          <strong>{row.unitNumber}</strong>: {row.xPercent.toFixed(1)}%, {row.yPercent.toFixed(1)}%
+                          {row.building ? ` / ${isSpanish ? "Edificio" : "Building"} ${row.building}` : ""}
+                          {row.area ? ` / ${isSpanish ? "Área" : "Area"} ${row.area}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {bulkPlacementPreview.errors.length ? (
+                    <ul className="compact-list">
+                      {bulkPlacementPreview.errors.slice(0, 5).map((errorLine) => <li key={errorLine}>{errorLine}</li>)}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+              {bulkPlacementMessage ? <span className="helper-copy">{bulkPlacementMessage}</span> : null}
+            </div>
+          ) : null}
+          {canManage ? (
+            <div className="stacked-form" style={{ marginBottom: 12 }}>
+              <label>{isSpanish ? "Importación masiva de áreas" : "Bulk area import"}</label>
+              <p className="helper-copy">
+                {isSpanish
+                  ? "Pega CSV, TSV o texto separado por punto y coma con columnas name,areaType,xPercent,yPercent,color,expectedUnitCount,notes."
+                  : "Paste CSV, TSV, or semicolon-delimited text with columns name,areaType,xPercent,yPercent,color,expectedUnitCount,notes."}
+              </p>
+              <textarea
+                rows={4}
+                value={bulkAreaText}
+                onChange={(event) => setBulkAreaText(event.target.value)}
+                placeholder={"name,areaType,xPercent,yPercent,color,expectedUnitCount,notes\nBuilding 4,BUILDING,12.5,22.1,#1f8fdb,24,North side building\nPool Area,AREA,61.2,44.5,#45d4ff,0,Pool gate and deck"}
+              />
+              <div className="pool-entry-actions">
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={() => setBulkAreaText("name,areaType,xPercent,yPercent,color,expectedUnitCount,notes\nBuilding 4,BUILDING,12.5,22.1,#1f8fdb,24,North side building\nPool Area,AREA,61.2,44.5,#45d4ff,0,Pool gate and deck")}
+                >
+                  {isSpanish ? "Cargar plantilla" : "Load Template"}
+                </button>
+                <button className="button button-secondary" type="button" onClick={exportVisibleAreasCsv} disabled={!visibleAreaMarkers.length}>
+                  {isSpanish ? "Exportar áreas CSV" : "Export areas CSV"}
+                </button>
+                <button className="button button-secondary" type="button" onClick={() => setBulkAreaText("")} disabled={!bulkAreaText.trim()}>
+                  {isSpanish ? "Limpiar" : "Clear"}
+                </button>
+                <button className="button button-primary" type="button" onClick={() => void importBulkAreas()} disabled={!selectedMap || !bulkAreaPreview.rows.length || isImportingBulkAreas}>
+                  {isImportingBulkAreas ? (isSpanish ? "Importando..." : "Importing...") : (isSpanish ? "Importar áreas" : "Import Areas")}
+                </button>
+              </div>
+              {bulkAreaText.trim() ? (
+                <div className="admin-message">
+                  <strong>{bulkAreaPreview.rows.length}</strong> {isSpanish ? "filas válidas listas para importar." : "valid rows ready to import."}{" "}
+                  <strong>{bulkAreaPreview.errors.length}</strong> {isSpanish ? "errores encontrados." : "errors found."}
+                  {bulkAreaPreview.rows.length ? (
+                    <ul className="compact-list">
+                      {bulkAreaPreview.rows.slice(0, 5).map((row) => (
+                        <li key={`${row.rowNumber}:${row.name}`}>
+                          <strong>{row.name}</strong>: {row.areaType} / {row.xPercent.toFixed(1)}%, {row.yPercent.toFixed(1)}%
+                          {row.expectedUnitCount !== null ? ` / ${row.expectedUnitCount} ${isSpanish ? "esperadas" : "expected"}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {bulkAreaPreview.errors.length ? (
+                    <ul className="compact-list">
+                      {bulkAreaPreview.errors.slice(0, 5).map((errorLine) => <li key={errorLine}>{errorLine}</li>)}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+              {bulkAreaMessage ? <span className="helper-copy">{bulkAreaMessage}</span> : null}
+            </div>
+          ) : null}
 
           {placementMode === "unit" ? (
             <div className="stacked-form">
               <label>{isSpanish ? "Unidad a colocar" : "Unit to place"}</label>
               <UnitSearchSelect
-                units={buildingFilteredUnits}
+                units={unitListScope === "mapped" ? buildingFilteredMappedUnits : unitListScope === "unmapped" ? buildingFilteredUnmappedUnits : buildingFilteredUnits}
                 value={selectedUnitId}
                 onChange={(value) => {
-                  setSelectedUnitId(value);
-                  const existing = locationByUnit.get(value);
-                  const unit = propertyUnits.find((entry) => entry.id === value);
-                  setLocationMeta({ building: existing?.building ?? unit?.building ?? "", area: existing?.area ?? unit?.area ?? "", floor: existing?.floor ?? unit?.floor ?? "" });
+                  selectPlacementUnit(value);
                 }}
                 placeholder={isSpanish ? "Buscar unidad..." : "Search unit..."}
               />
+              <div className="pool-entry-actions">
+                <span className="helper-copy">
+                  {selectedBuilding
+                    ? (isSpanish
+                        ? `${buildingFilteredUnmappedUnits.length} sin mapear en este edificio/área`
+                        : `${buildingFilteredUnmappedUnits.length} unmapped in this building/area`)
+                    : (isSpanish
+                        ? `${unmappedUnits.length} unidades sin mapear en esta propiedad`
+                        : `${unmappedUnits.length} unmapped units in this property`)}
+                </span>
+                {nextUnmappedPlacementUnit ? (
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={() => selectPlacementUnit(nextUnmappedPlacementUnit.id)}
+                  >
+                    {isSpanish ? "Siguiente sin mapear" : "Next Unmapped"}
+                  </button>
+                ) : null}
+              </div>
               <div className="three-column-form">
                 <input value={locationMeta.building} onChange={(event) => setLocationMeta((current) => ({ ...current, building: event.target.value }))} placeholder={isSpanish ? "Edificio" : "Building"} />
                 <input value={locationMeta.area} onChange={(event) => setLocationMeta((current) => ({ ...current, area: event.target.value }))} placeholder={isSpanish ? "Area" : "Area"} />
                 <input value={locationMeta.floor} onChange={(event) => setLocationMeta((current) => ({ ...current, floor: event.target.value }))} placeholder={isSpanish ? "Piso" : "Floor"} />
               </div>
-              <p className="muted">{isSpanish ? "Selecciona una unidad y luego toca el mapa para colocarla." : "Select a unit, then click the map to place it."}</p>
+              <p className="muted">{isSpanish ? "Selecciona una unidad y luego toca el mapa para colocarla. Después de guardar, MakeReadyOS prepara automáticamente la siguiente unidad sin mapear." : "Select a unit, then click the map to place it. After each save, MakeReadyOS automatically prepares the next unmapped unit."}</p>
             </div>
           ) : null}
 
@@ -943,7 +1667,7 @@ export function PropertyMapsPanel({
           ) : null}
 
           <div className="unit-directory-list">
-            {buildingFilteredUnits.map((unit) => {
+            {displayedBuildingUnits.map((unit) => {
               const location = locationByUnit.get(unit.id);
               const item = itemByUnit.get(unit.id);
               return (
@@ -956,7 +1680,7 @@ export function PropertyMapsPanel({
                 </article>
               );
             })}
-            {!buildingFilteredUnits.length ? <p className="muted">{isSpanish ? "No hay unidades que coincidan con el filtro de edificio seleccionado." : "No units match the selected building filter."}</p> : null}
+            {!displayedBuildingUnits.length ? <p className="muted">{unitListScope === "unmapped" ? (isSpanish ? "No hay unidades sin mapear para este filtro." : "No unmapped units match this filter.") : unitListScope === "mapped" ? (isSpanish ? "No hay unidades mapeadas para este filtro." : "No mapped units match this filter.") : (isSpanish ? "No hay unidades que coincidan con el filtro de edificio seleccionado." : "No units match the selected building filter.")}</p> : null}
           </div>
         </div>
 
@@ -1048,6 +1772,16 @@ export function PropertyMapsPanel({
                   ) : null}
                   {selectedMarker?.kind === "area" ? (
                     <>
+                      <button
+                        className="button button-primary"
+                        type="button"
+                        disabled={!selectedAreaPlacement?.nextUnit}
+                        onClick={() => beginPlacementForArea(selectedMarker.area.name)}
+                      >
+                        {selectedAreaPlacement?.nextUnit
+                          ? (isSpanish ? `Colocar siguiente unidad (${selectedAreaPlacement.nextUnit.number})` : `Place Next Unit (${selectedAreaPlacement.nextUnit.number})`)
+                          : (isSpanish ? "Todas las unidades ya están mapeadas" : "All Units Already Mapped")}
+                      </button>
                       <button
                         className="button button-secondary"
                         type="button"
@@ -1217,7 +1951,7 @@ export function PropertyMapsPanel({
               ) : null}
               {selectedMarker?.kind === "area" && canManage ? (
                 <div className="pool-entry-actions">
-                  <button className="button button-secondary" type="button" onClick={() => void onRemoveArea(selectedMarker.area.id)}>{isSpanish ? "Archivar area" : "Archive Area"}</button>
+                  <button className="button button-secondary" type="button" onClick={() => void onRemoveArea(selectedMarker.area.id)}>{isSpanish ? "Archivar área" : "Archive Area"}</button>
                 </div>
               ) : null}
             </div>

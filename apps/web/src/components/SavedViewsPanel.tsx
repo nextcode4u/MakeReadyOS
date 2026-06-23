@@ -61,6 +61,8 @@ type Props = {
     name?: string;
     isShared?: boolean;
   }) => Promise<void>;
+  onArchiveView: (id: string) => Promise<void>;
+  onRestoreView: (id: string) => Promise<void>;
   onDeleteView: (id: string) => Promise<void>;
   onConfigChange: (next: Partial<CurrentConfig>) => void;
   onRenameColumn: (fieldKey: string, label: string) => Promise<void>;
@@ -89,6 +91,8 @@ export function SavedViewsPanel({
   onApplyView,
   onCreateView,
   onUpdateView,
+  onArchiveView,
+  onRestoreView,
   onDeleteView,
   onConfigChange,
   onRenameColumn,
@@ -96,6 +100,7 @@ export function SavedViewsPanel({
   const [viewName, setViewName] = useState("");
   const [shared, setShared] = useState(false);
   const [selectedViewId, setSelectedViewId] = useState("");
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [customFieldToAdd, setCustomFieldToAdd] = useState("");
 
@@ -450,21 +455,28 @@ export function SavedViewsPanel({
             <button
               key={view.id}
               data-testid={`saved-view-item-${view.id}`}
-              className={selectedViewId === view.id ? "saved-view active" : "saved-view"}
-              onClick={() => {
-                setSelectedViewId(view.id);
-                setViewName(view.name);
-                setShared(view.isShared);
+            className={selectedViewId === view.id ? "saved-view active" : "saved-view"}
+            onClick={() => {
+              setSelectedViewId(view.id);
+              setViewName(view.name);
+              setShared(view.isShared);
+              if (!view.isArchived) {
                 onApplyView(view);
-              }}
-            >
+              }
+            }}
+          >
               <span className="saved-view-copy">
                 <strong>{view.name}</strong>
                 <small>{view.viewType.toUpperCase()}</small>
               </span>
-              <small className={view.isShared ? "saved-view-badge shared" : "saved-view-badge"}>
-                {view.isShared ? t(language, "savedViews.shared") : t(language, "savedViews.personal")}
-              </small>
+              <span className="saved-view-badges">
+                <small className={view.isShared ? "saved-view-badge shared" : "saved-view-badge"}>
+                  {view.isShared ? t(language, "savedViews.shared") : t(language, "savedViews.personal")}
+                </small>
+                {view.isArchived ? (
+                  <small className="saved-view-badge archived">{t(language, "savedViews.archived")}</small>
+                ) : null}
+              </span>
             </button>
           ))
         )}
@@ -516,23 +528,61 @@ export function SavedViewsPanel({
             <button
               data-testid="saved-view-update-button"
               className="button button-secondary"
-              disabled={!viewName.trim()}
+              disabled={!viewName.trim() || selectedView.isArchived}
               onClick={async () => {
                 await onUpdateView(selectedView.id, { name: viewName.trim(), isShared: shared });
               }}
             >
               {t(language, "savedViews.updateSelected")}
             </button>
-            <button
-              data-testid="saved-view-delete-button"
-              className="button button-danger"
-              onClick={() => setShowDeleteConfirm(true)}
-            >
-              {t(language, "savedViews.deleteSelected")}
-            </button>
+            {selectedView.isArchived ? (
+              <>
+                <p className="empty-copy">{t(language, "savedViews.archivedHint")}</p>
+                <button
+                  data-testid="saved-view-restore-button"
+                  className="button button-secondary"
+                  onClick={async () => {
+                    await onRestoreView(selectedView.id);
+                  }}
+                >
+                  {t(language, "savedViews.restoreSelected")}
+                </button>
+                <button
+                  data-testid="saved-view-delete-button"
+                  className="button button-danger"
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  {t(language, "savedViews.deleteSelected")}
+                </button>
+              </>
+            ) : (
+              <button
+                data-testid="saved-view-archive-button"
+                className="button button-secondary"
+                onClick={() => setShowArchiveConfirm(true)}
+              >
+                {t(language, "savedViews.archiveSelected")}
+              </button>
+            )}
           </>
         ) : null}
       </div>
+
+      <ConfirmDialog
+        open={showArchiveConfirm && Boolean(selectedView) && !selectedView?.isArchived}
+        language={language}
+        title={t(language, "savedViews.archiveTitle")}
+        description={tWithVars(language, "savedViews.archiveConfirm", { name: selectedView?.name ?? t(language, "savedViews.title").toLowerCase() })}
+        confirmLabel={t(language, "savedViews.archiveLabel")}
+        onClose={() => setShowArchiveConfirm(false)}
+        onConfirm={async () => {
+          if (!selectedView) {
+            return;
+          }
+          await onArchiveView(selectedView.id);
+          setShowArchiveConfirm(false);
+        }}
+      />
 
       <ConfirmDialog
         open={showDeleteConfirm && Boolean(selectedView)}
@@ -550,6 +600,7 @@ export function SavedViewsPanel({
           setSelectedViewId("");
           setViewName("");
           setShared(false);
+          setShowArchiveConfirm(false);
           setShowDeleteConfirm(false);
         }}
       />

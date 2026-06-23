@@ -107,6 +107,8 @@ export function AdminPanel({
       return matchesSearch && matchesRole && matchesStatus;
     });
   }, [roleFilter, search, statusFilter, users]);
+  const activeFilteredUsers = useMemo(() => filteredUsers.filter((user) => user.isActive), [filteredUsers]);
+  const inactiveFilteredUsers = useMemo(() => filteredUsers.filter((user) => !user.isActive), [filteredUsers]);
 
   const selectedUser = useMemo(
     () => filteredUsers.find((user) => user.id === selectedUserId)
@@ -186,6 +188,44 @@ export function AdminPanel({
     if (option === "ACTIVE") return t(language, "admin.activeOnly");
     return t(language, "admin.inactiveOnly");
   };
+
+  const renderUserTable = (userList: ManagedUser[]) => (
+    <div className="admin-user-table-wrap">
+      <table className="admin-user-table">
+        <thead>
+          <tr>
+            <th>{t(language, "admin.name")}</th>
+            <th>{t(language, "admin.username")}</th>
+            <th>{t(language, "admin.email")}</th>
+            <th>{t(language, "admin.role")}</th>
+            <th>{t(language, "language.label")}</th>
+            <th>{t(language, "admin.status")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {userList.map((user) => (
+            <tr
+              key={user.id}
+              data-testid={`admin-user-row-${user.username.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase()}`}
+              className={selectedUser?.id === user.id ? "selected" : ""}
+              onClick={() => setSelectedUserId(user.id)}
+            >
+              <td>{user.fullName}{user.id === currentUserId ? ` (${t(language, "admin.you")})` : ""}</td>
+              <td>{user.username}</td>
+              <td>{user.email || t(language, "admin.noEmail")}</td>
+              <td>{translateUserRole(language, user.role)}</td>
+              <td>{languageOptions.find((option) => option.value === user.language)?.nativeLabel ?? user.language}</td>
+              <td>
+                <span className={user.isActive ? "status-chip active" : "status-chip inactive"}>
+                  {user.isActive ? t(language, "admin.active") : t(language, "admin.inactive")}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <div className="admin-shell" data-testid="admin-panel">
@@ -371,40 +411,21 @@ export function AdminPanel({
             {filteredUsers.length === 0 ? (
               <StatusState title={t(language, "admin.noMatchingUsers")} description={t(language, "admin.noMatchingUsersCopy")} tone="subtle" />
             ) : (
-              <div className="admin-user-table-wrap">
-                <table className="admin-user-table">
-                  <thead>
-                    <tr>
-                      <th>{t(language, "admin.name")}</th>
-                      <th>{t(language, "admin.username")}</th>
-                      <th>{t(language, "admin.email")}</th>
-                      <th>{t(language, "admin.role")}</th>
-                      <th>{t(language, "language.label")}</th>
-                      <th>{t(language, "admin.status")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredUsers.map((user) => (
-                      <tr
-                        key={user.id}
-                        data-testid={`admin-user-row-${user.username.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase()}`}
-                        className={selectedUser?.id === user.id ? "selected" : ""}
-                        onClick={() => setSelectedUserId(user.id)}
-                      >
-                        <td>{user.fullName}{user.id === currentUserId ? ` (${t(language, "admin.you")})` : ""}</td>
-                        <td>{user.username}</td>
-                        <td>{user.email || t(language, "admin.noEmail")}</td>
-                        <td>{translateUserRole(language, user.role)}</td>
-                        <td>{languageOptions.find((option) => option.value === user.language)?.nativeLabel ?? user.language}</td>
-                        <td>
-                          <span className={user.isActive ? "status-chip active" : "status-chip inactive"}>
-                            {user.isActive ? t(language, "admin.active") : t(language, "admin.inactive")}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="stack gap-sm">
+                <div className="section-header">
+                  <strong>{t(language, "admin.activeOnly")}</strong>
+                  <span className="muted">{activeFilteredUsers.length}</span>
+                </div>
+                {activeFilteredUsers.length ? renderUserTable(activeFilteredUsers) : <p className="muted">{language === "es" ? "Ningún usuario activo coincide con los filtros." : "No active users match these filters."}</p>}
+                {inactiveFilteredUsers.length ? (
+                  <div className="stack gap-sm" style={{ marginTop: 16 }}>
+                    <div className="section-header">
+                      <strong>{t(language, "admin.inactiveOnly")}</strong>
+                      <span className="muted">{inactiveFilteredUsers.length}</span>
+                    </div>
+                    {renderUserTable(inactiveFilteredUsers)}
+                  </div>
+                ) : null}
               </div>
             )}
           </section>

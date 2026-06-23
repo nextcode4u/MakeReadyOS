@@ -30,7 +30,7 @@ import {
   type UserLanguage,
   type UserRole,
 } from "../lib/api";
-import { enqueuePestCreate, enqueuePestUpload } from "../lib/offlineSync";
+import { enqueuePestCreate, enqueuePestUpload, getOfflineSyncEventName, listOfflineSyncJobs, syncOfflineJobs, type OfflineSyncJobSummary } from "../lib/offlineSync";
 import { t } from "../lib/i18n";
 import type { OpenPestQuickAddRequest, OpenPestWorkspaceRequest } from "../lib/pestNavigation";
 import { isTouchMobileViewport } from "../lib/responsive";
@@ -145,6 +145,39 @@ function PestIssueCard({
   useEffect(() => {
     setExpanded(!compact);
   }, [compact]);
+
+  const submitSupplementalNote = (body: string) => {
+    const trimmed = body.trim();
+    if (trimmed) {
+      onNote(issue.id, trimmed);
+    }
+  };
+
+  const markTreated = () => {
+    onSave(issue.id, {
+      status: "Treated",
+      treatmentDate: treatmentDate || today(),
+      followUpRequired: false,
+      followUpDate: null,
+    });
+    submitSupplementalNote(closingNotes);
+    setClosingNotes("");
+  };
+
+  const setNeedsFollowUp = () => {
+    if (!followUpDate) {
+      return;
+    }
+    onClose(issue.id, closingNotes.trim() || t(language, "pest.followUpScheduledNote"), treatmentDate || today(), followUpDate);
+    setClosingNotes("");
+  };
+
+  const closeIssue = () => {
+    onClose(issue.id, closingNotes.trim() || t(language, "pest.closedAfterTreatmentNote"), treatmentDate || today(), undefined);
+    setClosingNotes("");
+    setFollowUpDate("");
+  };
+
   return (
     <article className={`pool-card pest-issue-card ${overdueFollowUp ? "pm-task-card" : ""}`} data-testid={`pest-issue-${issue.id}`}>
       <button type="button" className="compact-issue-summary pest-issue-summary" onClick={() => setExpanded((current) => !current)}>
@@ -179,116 +212,147 @@ function PestIssueCard({
           {canEdit ? <button className="button button-secondary" type="button" onClick={() => onDismissRecurring(issue.id, "Reviewed from Pest Control workspace.")}>{t(language, "pest.dismissFlag")}</button> : null}
         </div>
       ) : null}
-      {canEdit ? (
-        <div className="lease-issue-edit-grid" style={{ marginBottom: 12 }}>
-          <label>{t(language, "admin.status")}
-            <select value={issue.status} onChange={(event) => onSave(issue.id, { status: event.target.value as PestStatus })}>
-              {pestStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
-            </select>
-          </label>
-          <label>{t(language, "pest.priority")}
-            <select value={issue.priority} onChange={(event) => onSave(issue.id, { priority: event.target.value as PestPriority })}>
-              {pestPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
-            </select>
-          </label>
-          <label>{t(language, "pest.vendor")}
-            <SearchSelect
-              options={vendorOptions}
-              value={issue.vendorId ?? ""}
-              onChange={(vendorId) => onSave(issue.id, { vendorId: vendorId || null })}
-              placeholder={t(language, "pest.searchVendor")}
-              emptyLabel={t(language, "pest.unassigned")}
-              noMatchesLabel={t(language, "pest.noMatchingVendors")}
-              clearLabel={t(language, "pest.clearVendor")}
-            />
-          </label>
-          <label>{t(language, "pest.assignedUser")}
-            <SearchSelect
-              options={assignableUserOptions}
-              value={issue.assignedUserId ?? ""}
-              onChange={(assignedUserId) => onSave(issue.id, { assignedUserId: assignedUserId || null })}
-              placeholder={t(language, "pest.searchUser")}
-              emptyLabel={t(language, "pest.unassigned")}
-              noMatchesLabel={t(language, "pest.noMatchingUsers")}
-              clearLabel={t(language, "pest.clearAssignedUser")}
-            />
-          </label>
+      <div className="lease-issue-toolbar">
+        <div className="pool-reading-stack lease-issue-meta">
+          <span>{t(language, "pest.requested")} {formatDate(issue.requestDate)}</span>
+          <span>{t(language, "pest.treatedDate")} {formatDate(issue.treatmentDate)}</span>
+          <span>{t(language, "pest.followUp")} {formatDate(issue.followUpDate)}</span>
+          <span>{issue.vendor?.vendorName ?? t(language, "pest.unassigned")}</span>
+          <span>{issue.assignedUser?.fullName ?? t(language, "pest.unassigned")}</span>
         </div>
-      ) : null}
-      {issue.notes.length ? (
-        <div className="activity-feed" style={{ marginBottom: 12 }}>
-          {issue.notes.slice(0, 4).map((entry) => (
-            <div key={entry.id} className="activity-entry">
-              <strong>{entry.authorName}</strong>
-              <span>{new Date(entry.createdAt).toLocaleString()}</span>
-              <p>{entry.body}</p>
+      </div>
+      <div className="issue-detail-shell">
+        <div className="issue-detail-main">
+          {issue.notes.length ? (
+            <div className="activity-feed">
+              {issue.notes.slice(0, 4).map((entry) => (
+                <div key={entry.id} className="activity-entry">
+                  <strong>{entry.authorName}</strong>
+                  <span>{new Date(entry.createdAt).toLocaleString()}</span>
+                  <p>{entry.body}</p>
+                </div>
+              ))}
             </div>
-          ))}
+          ) : <p className="muted">{t(language, "pest.noNotesYet")}</p>}
+
+          {canEdit ? (
+            <div className="lease-issue-note-grid">
+              <label>{t(language, "pest.quickNote")}
+                <textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder={t(language, "pest.quickNotePlaceholder")} />
+              </label>
+              <label>{t(language, "pest.closingNotes")}
+                <textarea rows={2} value={closingNotes} onChange={(event) => setClosingNotes(event.target.value)} placeholder={t(language, "pest.closingNotesPlaceholder")} />
+              </label>
+              <label>{t(language, "pest.treatedDate")}
+                <input type="date" value={treatmentDate} onChange={(event) => setTreatmentDate(event.target.value)} />
+              </label>
+              <label>{t(language, "pest.followUpDate")}
+                <input type="date" value={followUpDate} onChange={(event) => setFollowUpDate(event.target.value)} />
+              </label>
+            </div>
+          ) : null}
         </div>
-      ) : <p className="muted">{t(language, "pest.noNotesYet")}</p>}
-      <PestMediaStrip
-        files={issue.attachments}
-        getUrl={pestIssueAttachmentDownloadUrl}
-        emptyLabel={t(language, "pest.noPriorPhoto")}
-      />
-      {issue.attachments.length ? (
-        <div className="pool-attachment-list lease-issue-attachments" style={{ marginBottom: 12 }}>
-          {issue.attachments.map((attachment) => (
-            <span key={attachment.id} style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-              <a href={pestIssueAttachmentDownloadUrl(attachment.id)} target="_blank" rel="noreferrer">{attachment.originalName}</a>
-              {attachment.caption ? <em className="muted">{attachment.caption}</em> : null}
-              {canEdit ? <button className="link-button" type="button" onClick={() => onDeleteAttachment(attachment.id)}>{t(language, "common.remove")}</button> : null}
-            </span>
-          ))}
+
+        <div className="issue-detail-side">
+          {canEdit ? (
+            <div className="lease-issue-edit-grid">
+              <label>{t(language, "admin.status")}
+                <select value={issue.status} onChange={(event) => onSave(issue.id, { status: event.target.value as PestStatus })}>
+                  {pestStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                </select>
+              </label>
+              <label>{t(language, "pest.priority")}
+                <select value={issue.priority} onChange={(event) => onSave(issue.id, { priority: event.target.value as PestPriority })}>
+                  {pestPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+                </select>
+              </label>
+              <label>{t(language, "pest.vendor")}
+                <SearchSelect
+                  options={vendorOptions}
+                  value={issue.vendorId ?? ""}
+                  onChange={(vendorId) => onSave(issue.id, { vendorId: vendorId || null })}
+                  placeholder={t(language, "pest.searchVendor")}
+                  emptyLabel={t(language, "pest.unassigned")}
+                  noMatchesLabel={t(language, "pest.noMatchingVendors")}
+                  clearLabel={t(language, "pest.clearVendor")}
+                />
+              </label>
+              <label>{t(language, "pest.assignedUser")}
+                <SearchSelect
+                  options={assignableUserOptions}
+                  value={issue.assignedUserId ?? ""}
+                  onChange={(assignedUserId) => onSave(issue.id, { assignedUserId: assignedUserId || null })}
+                  placeholder={t(language, "pest.searchUser")}
+                  emptyLabel={t(language, "pest.unassigned")}
+                  noMatchesLabel={t(language, "pest.noMatchingUsers")}
+                  clearLabel={t(language, "pest.clearAssignedUser")}
+                />
+              </label>
+            </div>
+          ) : null}
+
+          <PestMediaStrip
+            files={issue.attachments}
+            getUrl={pestIssueAttachmentDownloadUrl}
+            emptyLabel={t(language, "pest.noPriorPhoto")}
+          />
+          {issue.attachments.length ? (
+            <div className="pool-attachment-list lease-issue-attachments">
+              {issue.attachments.map((attachment) => (
+                <span key={attachment.id} style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+                  <a href={pestIssueAttachmentDownloadUrl(attachment.id)} target="_blank" rel="noreferrer">{attachment.originalName}</a>
+                  {attachment.caption ? <em className="muted">{attachment.caption}</em> : null}
+                  {canEdit ? <button className="link-button" type="button" onClick={() => onDeleteAttachment(attachment.id)}>{t(language, "common.remove")}</button> : null}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
+          {canEdit ? (
+            <div className="lease-issue-actions">
+              <label className="button button-secondary pool-upload-button">
+                {t(language, "pest.uploadPhotoPdf")}
+                <input
+                  type="file"
+                  hidden
+                  accept="image/*,.pdf"
+                  onChange={(event) => {
+                    onUpload(issue.id, event.target.files);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      </div>
       {canEdit ? (
-        <>
-          <div className="lease-issue-actions" style={{ marginBottom: 12 }}>
-            <label className="button button-secondary pool-upload-button">
-              {t(language, "pest.uploadPhotoPdf")}
-              <input
-                type="file"
-                hidden
-                accept="image/*,.pdf"
-                onChange={(event) => {
-                  onUpload(issue.id, event.target.files);
-                  event.currentTarget.value = "";
-                }}
-              />
-            </label>
-          </div>
-          <div className="lease-issue-note-grid">
-            <label>{t(language, "pest.quickNote")}
-              <textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder={t(language, "pest.quickNotePlaceholder")} />
-            </label>
-            <label>{t(language, "pest.closingNotes")}
-              <textarea rows={3} value={closingNotes} onChange={(event) => setClosingNotes(event.target.value)} placeholder={t(language, "pest.closingNotesPlaceholder")} />
-            </label>
-            <label>{t(language, "pest.treatedDate")}
-              <input type="date" value={treatmentDate} onChange={(event) => setTreatmentDate(event.target.value)} />
-            </label>
-            <label>{t(language, "pest.followUpDate")}
-              <input type="date" value={followUpDate} onChange={(event) => setFollowUpDate(event.target.value)} />
-            </label>
-          </div>
-          <div className="lease-issue-actions" style={{ marginTop: 12 }}>
-            <button className="button button-secondary" type="button" onClick={() => { if (note.trim()) { onNote(issue.id, note.trim()); setNote(""); } }}>{t(language, "pest.addNote")}</button>
-            <button
-              className="button button-primary"
-              type="button"
-              onClick={() => {
-                if (closingNotes.trim()) {
-                  onClose(issue.id, closingNotes.trim(), treatmentDate || undefined, followUpDate || undefined);
-                  setClosingNotes("");
-                }
-              }}
-            >
-              {t(language, "pest.quickClose")}
-            </button>
-            <button className="button button-secondary" type="button" onClick={() => onArchive(issue.id, "Archived from Pest Control workspace.")}>{t(language, "common.archive")}</button>
-          </div>
-        </>
+        <div className="lease-issue-actions lease-issue-actions-dense">
+          <button className="button button-secondary" type="button" onClick={() => { if (note.trim()) { onNote(issue.id, note.trim()); setNote(""); } }}>{t(language, "pest.addNote")}</button>
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={markTreated}
+          >
+            {t(language, "pest.markTreated")}
+          </button>
+          <button
+            className="button button-primary"
+            type="button"
+            disabled={!followUpDate}
+            onClick={setNeedsFollowUp}
+          >
+            {t(language, "pest.setFollowUp")}
+          </button>
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={closeIssue}
+          >
+            {t(language, "pest.closeWithoutFollowUp")}
+          </button>
+          <button className="button button-secondary" type="button" onClick={() => onArchive(issue.id, "Archived from Pest Control workspace.")}>{t(language, "common.archive")}</button>
+        </div>
       ) : null}
         </>
       ) : null}
@@ -306,6 +370,9 @@ export function PestControlPanel({ properties, units, users, userRole, language,
   const [linkedMakeReadyItemId, setLinkedMakeReadyItemId] = useState("");
   const [quickAddUnitId, setQuickAddUnitId] = useState("");
   const [quickAddPhotos, setQuickAddPhotos] = useState<File[]>([]);
+  const [queuedPestJobs, setQueuedPestJobs] = useState<OfflineSyncJobSummary[]>([]);
+  const [queueSyncing, setQueueSyncing] = useState(false);
+  const [lastQueuedPestSummary, setLastQueuedPestSummary] = useState<{ title: string; fileCount: number } | null>(null);
   const captureInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [quickAddDraft, setQuickAddDraft] = useState({
@@ -437,11 +504,13 @@ export function PestControlPanel({ properties, units, users, userRole, language,
   const assignableUsers = useMemo(() => users.filter((user) => user.role !== "CLEANER"), [users]);
   const propertyUnits = useMemo(() => units.filter((unit) => unit.propertyId === propertyId), [propertyId, units]);
   const vendors = vendorsQuery.data?.vendors ?? overviewQuery.data?.vendors ?? [];
-  const vendorOptions = useMemo<SearchSelectOption[]>(() => vendors.map((vendor) => ({
+  const activeVendors = useMemo(() => vendors.filter((vendor) => vendor.isActive), [vendors]);
+  const inactiveVendors = useMemo(() => vendors.filter((vendor) => !vendor.isActive), [vendors]);
+  const vendorOptions = useMemo<SearchSelectOption[]>(() => activeVendors.map((vendor) => ({
     value: vendor.id,
     label: vendor.vendorName,
     keywords: [vendor.vendorName, vendor.primaryContact ?? "", vendor.phone ?? "", vendor.email ?? ""].filter(Boolean),
-  })), [vendors]);
+  })), [activeVendors]);
   const defaultVendorId = overviewQuery.data?.defaultVendor?.id ?? "";
   const archivedOnly = (archiveQuery.data?.issues ?? []).filter((issue) => issue.isArchived || issue.status === "Archived");
   const selectedQuickAddUnit = useMemo(
@@ -466,6 +535,40 @@ export function PestControlPanel({ properties, units, users, userRole, language,
       });
   }, [activeQuery.data?.issues, quickAddDraft.area, quickAddDraft.pestType, quickAddUnitId]);
   const latestMatchingQuickAddIssue = matchingQuickAddIssues[0] ?? null;
+
+  const refreshQueuedPestJobs = async () => {
+    const jobs = await listOfflineSyncJobs();
+    setQueuedPestJobs(jobs.filter((job) => job.module === "pest" && (job.kind === "pestCreate" || job.kind === "pestUpload")));
+  };
+
+  const syncQueuedPestJobs = async () => {
+    if (queueSyncing || (typeof navigator !== "undefined" && !navigator.onLine)) return;
+    setQueueSyncing(true);
+    try {
+      await syncOfflineJobs();
+      await invalidate();
+      await refreshQueuedPestJobs();
+    } finally {
+      setQueueSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshQueuedPestJobs();
+  }, []);
+
+  useEffect(() => {
+    const queueEventName = getOfflineSyncEventName();
+    const refresh = () => {
+      void refreshQueuedPestJobs();
+    };
+    window.addEventListener(queueEventName, refresh as EventListener);
+    window.addEventListener("online", refresh);
+    return () => {
+      window.removeEventListener(queueEventName, refresh as EventListener);
+      window.removeEventListener("online", refresh);
+    };
+  }, []);
 
   useEffect(() => {
     if (!selectedPropertyId) return;
@@ -527,6 +630,11 @@ export function PestControlPanel({ properties, units, users, userRole, language,
         throw error;
       }
       await enqueuePestCreate(quickIssueInput, quickAddPhotos.map((file) => ({ file })));
+      setLastQueuedPestSummary({
+        title: selectedQuickAddUnit?.number ?? (quickAddDraft.area.trim() || quickAddDraft.pestType),
+        fileCount: quickAddPhotos.length,
+      });
+      await refreshQueuedPestJobs();
     }
     event.currentTarget.reset();
     resetQuickAddForm();
@@ -616,6 +724,49 @@ export function PestControlPanel({ properties, units, users, userRole, language,
           <div className="drawer-section-title">
             <h2>{t(language, "pest.quickAddTitle")}</h2>
           </div>
+          {queuedPestJobs.length ? (
+            <div className="pool-card projects-sync-banner" style={{ marginBottom: 12 }}>
+              <div className="projects-sync-copy">
+                <strong>
+                  {language === "es"
+                    ? `${queuedPestJobs.length} captura(s)/archivo(s) de plagas pendientes de sincronización`
+                    : `${queuedPestJobs.length} pest capture(s)/upload(s) pending sync`}
+                </strong>
+                <span className="muted">
+                  {language === "es"
+                    ? "Las capturas y fotos guardadas sin conexión permanecen en este navegador hasta que la solicitud y sus archivos queden confirmados en el servidor."
+                    : "Offline captures and photos stay in this browser until the request and its files are confirmed on the server."}
+                </span>
+              </div>
+              <div className="pool-entry-actions">
+                <button className="button button-secondary" type="button" onClick={() => void refreshQueuedPestJobs()} disabled={queueSyncing}>
+                  {language === "es" ? "Actualizar cola" : "Refresh Queue"}
+                </button>
+                <button className="button button-primary" type="button" onClick={() => void syncQueuedPestJobs()} disabled={queueSyncing || (typeof navigator !== "undefined" && !navigator.onLine)}>
+                  {queueSyncing ? (language === "es" ? "Sincronizando..." : "Syncing...") : (language === "es" ? "Sincronizar ahora" : "Sync Now")}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {lastQueuedPestSummary ? (
+            <div className="projects-capture-success" style={{ marginBottom: 12 }}>
+              <strong>
+                {language === "es"
+                  ? `${lastQueuedPestSummary.title} quedó en cola para sincronizarse.`
+                  : `${lastQueuedPestSummary.title} was queued for sync.`}
+              </strong>
+              <p className="muted">
+                {language === "es"
+                  ? `${lastQueuedPestSummary.fileCount} archivo(s) adjunto(s) seguirán ligados a esta captura y no se eliminarán de la cola hasta que el servidor confirme tanto la solicitud como las fotos.`
+                  : `${lastQueuedPestSummary.fileCount} attached file(s) will stay linked to this capture and will not leave the queue until the server confirms both the request and the photos.`}
+              </p>
+              <div className="pool-entry-actions">
+                <button className="button button-secondary" type="button" onClick={() => setLastQueuedPestSummary(null)}>
+                  {language === "es" ? "Descartar aviso" : "Dismiss"}
+                </button>
+              </div>
+            </div>
+          ) : null}
           <form data-testid="pest-quick-add-form" className="pool-form" onSubmit={(event) => void submitQuickAdd(event)}>
             <div className="pool-entry-actions" style={{ marginBottom: 12, flexWrap: "wrap" }}>
               <button className="button button-secondary" type="button" onClick={() => captureInputRef.current?.click()}>{t(language, "pest.snapPicture")}</button>
@@ -894,7 +1045,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
                 <label>{t(language, "wiki.phone")}
                   <input name="phone" />
                 </label>
-                <label>Email
+                <label>{language === "es" ? "Correo" : "Email"}
                   <input name="email" type="email" />
                 </label>
                 <label>{t(language, "wiki.emergencyPhone")}
@@ -915,29 +1066,66 @@ export function PestControlPanel({ properties, units, users, userRole, language,
             </section>
           ) : null}
           {vendorsQuery.isLoading ? <StatusState title={t(language, "pest.loadingVendorsTitle")} description={t(language, "pest.loadingVendorsCopy")} /> : vendorsQuery.isError || !vendorsQuery.data ? <StatusState title={t(language, "pest.vendorsFailedTitle")} description={t(language, "pest.refreshTryAgain")} tone="error" /> : (
-            <div className="pool-card-grid">
-              {vendorsQuery.data.vendors.map((vendor) => (
-                <article key={vendor.id} className="pool-card">
-                  <div className="drawer-section-title">
-                    <h3>{vendor.vendorName}</h3>
-                    <span className="status-pill">{vendor.isDefault ? t(language, "pest.defaultStatus") : vendor.isActive ? t(language, "admin.active") : t(language, "admin.inactive")}</span>
-                  </div>
-                  <div className="pool-reading-stack">
-                    <span>{vendor.primaryContact || t(language, "pest.noContact")}</span>
-                    <span>{vendor.phone || t(language, "pest.noPhone")}</span>
-                    <span>{vendor.email || t(language, "pest.noEmail")}</span>
-                    <span>{vendor.serviceDay || t(language, "pest.noServiceDay")}</span>
-                    <span>{vendor.serviceFrequency || t(language, "pest.noFrequency")}</span>
-                  </div>
-                  {vendor.notes ? <p>{vendor.notes}</p> : null}
-                  {canEdit ? (
-                    <div className="pool-entry-actions">
-                      <button className="button button-secondary" type="button" onClick={() => vendorUpdateMutation.mutate({ id: vendor.id, input: { isDefault: !vendor.isDefault } })}>{vendor.isDefault ? t(language, "pest.unsetDefault") : t(language, "pest.makeDefault")}</button>
-                      <button className="button button-secondary" type="button" onClick={() => vendorUpdateMutation.mutate({ id: vendor.id, input: { isActive: !vendor.isActive } })}>{vendor.isActive ? t(language, "pest.deactivate") : t(language, "pest.activate")}</button>
-                    </div>
-                  ) : null}
-                </article>
-              ))}
+            <div className="panel-stack">
+              <section className="panel-card">
+                <div className="drawer-section-title">
+                  <h3>{t(language, "admin.active")}</h3>
+                </div>
+                <div className="pool-card-grid">
+                  {activeVendors.map((vendor) => (
+                    <article key={vendor.id} className="pool-card">
+                      <div className="drawer-section-title">
+                        <h3>{vendor.vendorName}</h3>
+                        <span className="status-pill">{vendor.isDefault ? t(language, "pest.defaultStatus") : t(language, "admin.active")}</span>
+                      </div>
+                      <div className="pool-reading-stack">
+                        <span>{vendor.primaryContact || t(language, "pest.noContact")}</span>
+                        <span>{vendor.phone || t(language, "pest.noPhone")}</span>
+                        <span>{vendor.email || t(language, "pest.noEmail")}</span>
+                        <span>{vendor.serviceDay || t(language, "pest.noServiceDay")}</span>
+                        <span>{vendor.serviceFrequency || t(language, "pest.noFrequency")}</span>
+                      </div>
+                      {vendor.notes ? <p>{vendor.notes}</p> : null}
+                      {canEdit ? (
+                        <div className="pool-entry-actions">
+                          <button className="button button-secondary" type="button" onClick={() => vendorUpdateMutation.mutate({ id: vendor.id, input: { isDefault: !vendor.isDefault } })}>{vendor.isDefault ? t(language, "pest.unsetDefault") : t(language, "pest.makeDefault")}</button>
+                          <button className="button button-secondary" type="button" onClick={() => vendorUpdateMutation.mutate({ id: vendor.id, input: { isActive: false } })}>{t(language, "pest.deactivate")}</button>
+                        </div>
+                      ) : null}
+                    </article>
+                  ))}
+                  {activeVendors.length === 0 ? <p className="muted">{t(language, "pest.noMatchingVendors")}</p> : null}
+                </div>
+              </section>
+              <section className="panel-card">
+                <div className="drawer-section-title">
+                  <h3>{t(language, "admin.inactive")}</h3>
+                </div>
+                <div className="pool-card-grid">
+                  {inactiveVendors.map((vendor) => (
+                    <article key={vendor.id} className="pool-card">
+                      <div className="drawer-section-title">
+                        <h3>{vendor.vendorName}</h3>
+                        <span className="status-pill">{t(language, "admin.inactive")}</span>
+                      </div>
+                      <div className="pool-reading-stack">
+                        <span>{vendor.primaryContact || t(language, "pest.noContact")}</span>
+                        <span>{vendor.phone || t(language, "pest.noPhone")}</span>
+                        <span>{vendor.email || t(language, "pest.noEmail")}</span>
+                        <span>{vendor.serviceDay || t(language, "pest.noServiceDay")}</span>
+                        <span>{vendor.serviceFrequency || t(language, "pest.noFrequency")}</span>
+                      </div>
+                      {vendor.notes ? <p>{vendor.notes}</p> : null}
+                      {canEdit ? (
+                        <div className="pool-entry-actions">
+                          <button className="button button-secondary" type="button" onClick={() => vendorUpdateMutation.mutate({ id: vendor.id, input: { isActive: true } })}>{t(language, "pest.activate")}</button>
+                        </div>
+                      ) : null}
+                    </article>
+                  ))}
+                  {inactiveVendors.length === 0 ? <p className="muted">{t(language, "lease.noneArchived")}</p> : null}
+                </div>
+              </section>
             </div>
           )}
         </>

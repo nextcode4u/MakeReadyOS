@@ -50,6 +50,7 @@ import { StatusState } from "./StatusState";
 import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
 import type { OpenProjectCreateRequest, OpenProjectRecordRequest } from "../lib/projectNavigation";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
+import { isTouchMobileViewport } from "../lib/responsive";
 
 type Props = {
   properties: Property[];
@@ -80,6 +81,8 @@ const attachmentTypes: Array<{ value: ProjectAttachmentType; label: string }> = 
   { value: "LOCATION", label: "Location Photo" },
 ];
 const budgetYearOptions = ["2026", "2027", "2028", "2029", "Future"];
+const projectAllowedAttachmentExtensions = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".heic", ".heif", ".bmp", ".tif", ".tiff", ".pdf", ".doc", ".docx", ".xls", ".xlsx"]);
+const projectAllowedAttachmentTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/heic", "image/heif", "image/bmp", "image/tiff", "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]);
 
 function formatCurrency(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
@@ -160,6 +163,46 @@ function isImageAttachment(mimeType: string) {
   return mimeType.startsWith("image/");
 }
 
+function fileExtension(name: string) {
+  const match = name.toLowerCase().match(/\.[^.]+$/);
+  return match?.[0] ?? "";
+}
+
+function isAllowedProjectAttachment(file: File, attachmentType: ProjectAttachmentType = "GENERAL") {
+  if (file.size <= 0) return false;
+  if (attachmentType !== "BID" && !file.type.startsWith("image/")) return false;
+  return projectAllowedAttachmentTypes.has(file.type) || projectAllowedAttachmentExtensions.has(fileExtension(file.name));
+}
+
+async function buildImagePreviewUrl(file: File) {
+  if (!isImageAttachment(file.type)) return "";
+  const sourceUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const next = new Image();
+      next.onload = () => resolve(next);
+      next.onerror = () => reject(new Error("preview-load-failed"));
+      next.src = sourceUrl;
+    });
+    const maxDimension = 640;
+    const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth || 1, image.naturalHeight || 1));
+    const width = Math.max(1, Math.round((image.naturalWidth || 1) * scale));
+    const height = Math.max(1, Math.round((image.naturalHeight || 1) * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return sourceUrl;
+    context.drawImage(image, 0, 0, width, height);
+    const previewBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.74));
+    if (!previewBlob) return sourceUrl;
+    URL.revokeObjectURL(sourceUrl);
+    return URL.createObjectURL(previewBlob);
+  } catch {
+    return sourceUrl;
+  }
+}
+
 function buildAutoProjectTitle(
   draft: ReturnType<typeof recordDraft>,
   categories: ProjectCategory[],
@@ -236,64 +279,7 @@ function ProjectDetail({
     items: record.attachments.filter((attachment) => attachment.attachmentType === type.value),
   })).filter((group) => group.items.length > 0);
   return (
-    <section className="pool-card">
-      {groupedAttachments.length ? groupedAttachments.map((group) => (
-        <div key={group.value} className="pm-task-list">
-          <h4>{group.label}</h4>
-          <div className="projects-photo-grid">
-            {group.items.map((attachment) => (
-              <article key={attachment.id} className="projects-photo-card">
-                {isImageAttachment(attachment.mimeType) ? <img src={projectAttachmentDownloadUrl(attachment.id)} alt={attachment.caption ?? attachment.originalName} /> : <div className="projects-photo-file">FILE</div>}
-                <div className="projects-photo-meta">
-                  <strong>{attachment.caption ?? attachment.originalName}</strong>
-                  <span>{group.label}</span>
-                  <span>{attachment.uploaderName ?? (isSpanish ? "Desconocido" : "Unknown")} / {formatDate(attachment.createdAt)}</span>
-                  <a href={projectAttachmentDownloadUrl(attachment.id)} target="_blank" rel="noreferrer">{isSpanish ? "Abrir" : "Open"}</a>
-                  {canEdit ? (
-                    editingAttachmentId === attachment.id ? (
-                      <div className="projects-attachment-editor">
-                        <select value={editingAttachmentType} onChange={(event) => setEditingAttachmentType(event.target.value as ProjectAttachmentType)}>
-                          {attachmentTypes.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
-                        </select>
-                        <input value={editingAttachmentCaption} onChange={(event) => setEditingAttachmentCaption(event.target.value)} placeholder={isSpanish ? "Pie de foto" : "Caption"} />
-                        <div className="pool-entry-actions">
-                          <button
-                            className="button button-primary"
-                            type="button"
-                            onClick={() => {
-                              onUpdateAttachment(attachment.id, {
-                                attachmentType: editingAttachmentType,
-                                caption: editingAttachmentCaption.trim() || null,
-                              });
-                              setEditingAttachmentId(null);
-                              setEditingAttachmentCaption("");
-                            }}
-                          >
-                            {isSpanish ? "Guardar" : "Save"}
-                          </button>
-                          <button className="button button-secondary" type="button" onClick={() => setEditingAttachmentId(null)}>{isSpanish ? "Cancelar" : "Cancel"}</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        className="link-button"
-                        type="button"
-                        onClick={() => {
-                          setEditingAttachmentId(attachment.id);
-                          setEditingAttachmentCaption(attachment.caption ?? "");
-                          setEditingAttachmentType(attachment.attachmentType);
-                        }}
-                      >
-                        {isSpanish ? "Editar detalles" : "Edit details"}
-                      </button>
-                    )
-                  ) : null}
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      )) : <p className="muted">{isSpanish ? "Todavía no hay fotos/archivos del proyecto." : "No project photos/files yet."}</p>}
+    <section className="pool-card projects-detail-shell">
       <div className="projects-detail-section">
         <div className="drawer-section-title">
           <h3>{record.title}</h3>
@@ -305,7 +291,7 @@ function ProjectDetail({
         </div>
       </div>
 
-      <div className="pool-reading-grid">
+      <div className="pool-reading-grid projects-detail-summary-grid">
         <div><dt>{isSpanish ? "Tipo" : "Type"}</dt><dd>{record.recordType}</dd></div>
         <div><dt>{isSpanish ? "Origen" : "Source"}</dt><dd>{record.source ?? (isSpanish ? "Otro" : "Other")}</dd></div>
         <div><dt>{isSpanish ? "Prioridad" : "Priority"}</dt><dd>{record.priority}</dd></div>
@@ -326,12 +312,14 @@ function ProjectDetail({
         <div><dt>{isSpanish ? "Programado" : "Scheduled"}</dt><dd>{formatDate(record.scheduledDate)}</dd></div>
         <div><dt>{isSpanish ? "Vence" : "Due"}</dt><dd>{formatDate(record.dueDate)}</dd></div>
       </div>
-      {record.description ? <p>{record.description}</p> : null}
-      {record.locationNotes ? <p className="muted">{record.locationNotes}</p> : null}
-      {record.deferredReason ? <p className="muted">{isSpanish ? "Motivo de diferimiento" : "Deferred reason"}: {record.deferredReason}</p> : null}
-      {record.deferredNotes ? <p className="muted">{record.deferredNotes}</p> : null}
-      {record.bidNotes ? <p className="muted">{isSpanish ? "Notas de cotización" : "Bid notes"}: {record.bidNotes}</p> : null}
-      {record.pinX !== null && record.pinY !== null ? <p className="muted">{isSpanish ? "Pin colocado en" : "Pinned at"} {record.pinX.toFixed(1)}%, {record.pinY.toFixed(1)}%</p> : null}
+      <div className="projects-detail-notes">
+        {record.description ? <p>{record.description}</p> : null}
+        {record.locationNotes ? <p className="muted">{record.locationNotes}</p> : null}
+        {record.deferredReason ? <p className="muted">{isSpanish ? "Motivo de diferimiento" : "Deferred reason"}: {record.deferredReason}</p> : null}
+        {record.deferredNotes ? <p className="muted">{record.deferredNotes}</p> : null}
+        {record.bidNotes ? <p className="muted">{isSpanish ? "Notas de cotización" : "Bid notes"}: {record.bidNotes}</p> : null}
+        {record.pinX !== null && record.pinY !== null ? <p className="muted">{isSpanish ? "Pin colocado en" : "Pinned at"} {record.pinX.toFixed(1)}%, {record.pinY.toFixed(1)}%</p> : null}
+      </div>
 
       <PropertyWikiWorkflowPanel
         title={isSpanish ? "Contexto de la wiki de la propiedad" : "Property Wiki Context"}
@@ -345,149 +333,223 @@ function ProjectDetail({
         canEdit={canEdit}
       />
 
-      <div className="pm-task-list">
-        <div className="drawer-section-title">
-          <h4>{isSpanish ? "Cotizaciones / Propuestas" : "Bids / Quotes"}</h4>
-        </div>
-        {canEdit ? (
-          <>
-            <div className="pool-entry-actions">
-              <button className="button button-secondary" type="button" onClick={() => onSave(record, { status: "Needs Bid", bidStatus: "Requested" })}>{isSpanish ? "Solicitar cotización" : "Request Bid"}</button>
-              <button className="button button-secondary" type="button" onClick={() => onSave(record, { status: record.recordType === "Recommendation" ? "Got Bid" : record.status, bidStatus: "Received" })}>{isSpanish ? "Marcar recibida" : "Mark Received"}</button>
-              <button className="button button-secondary" type="button" onClick={() => onSave(record, { bidStatus: "Approved" })}>{isSpanish ? "Aprobar cotización" : "Approve Bid"}</button>
-              <button className="button button-secondary" type="button" onClick={() => onSave(record, { bidStatus: "Denied" })}>{isSpanish ? "Rechazar cotización" : "Deny Bid"}</button>
-            </div>
-            <form className="pool-entry-form" onSubmit={(event) => {
-              event.preventDefault();
-              onSave(record, {
-                companyName: bidDraft.companyName.trim() || null,
-                contactName: bidDraft.contactName.trim() || null,
-                contactPhone: bidDraft.contactPhone.trim() || null,
-                contactEmail: bidDraft.contactEmail.trim() || null,
-                bidStatus: bidDraft.bidStatus as ProjectRecord["bidStatus"],
-                bidNotes: bidDraft.bidNotes.trim() || null,
-              });
-            }}>
-              <div className="form-grid">
-                <label>{isSpanish ? "Proveedor / Compañía" : "Vendor / Company"}<input value={bidDraft.companyName} onChange={(event) => setBidDraft((current) => ({ ...current, companyName: event.target.value }))} /></label>
-                <label>{isSpanish ? "Nombre del contacto" : "Contact name"}<input value={bidDraft.contactName} onChange={(event) => setBidDraft((current) => ({ ...current, contactName: event.target.value }))} /></label>
-                <label>{isSpanish ? "Teléfono del contacto" : "Contact phone"}<input value={bidDraft.contactPhone} onChange={(event) => setBidDraft((current) => ({ ...current, contactPhone: event.target.value }))} /></label>
-                <label>{isSpanish ? "Correo del contacto" : "Contact email"}<input type="email" value={bidDraft.contactEmail} onChange={(event) => setBidDraft((current) => ({ ...current, contactEmail: event.target.value }))} /></label>
-                <label>{isSpanish ? "Estado de cotización" : "Bid status"}
-                  <select value={bidDraft.bidStatus} onChange={(event) => setBidDraft((current) => ({ ...current, bidStatus: event.target.value as typeof current.bidStatus }))}>
-                    {["Needed", "Requested", "Received", "Approved", "Denied", "Warranty", "Not Applicable"].map((status) => <option key={status} value={status}>{status}</option>)}
-                  </select>
-                </label>
-              </div>
-              <label>{isSpanish ? "Notas de cotización" : "Bid notes"}<textarea value={bidDraft.bidNotes} onChange={(event) => setBidDraft((current) => ({ ...current, bidNotes: event.target.value }))} placeholder={isSpanish ? "Detalles de la cotización, alcance, garantía, exclusiones..." : "Quote details, scope notes, warranty terms, exclusions..."} /></label>
-              <button className="button button-primary" type="submit">{isSpanish ? "Guardar detalles de cotización" : "Save Bid Details"}</button>
-            </form>
-          </>
-        ) : (
-          <div className="pool-reading-stack">
-            <span>{record.companyName ?? (isSpanish ? "Sin proveedor" : "No vendor set")}</span>
-            <span>{record.contactName ?? record.contactEmail ?? record.contactPhone ?? (isSpanish ? "Sin contacto" : "No contact set")}</span>
-            <span>{record.bidStatus ?? (isSpanish ? "Sin estado de cotización" : "No bid status")}</span>
-          </div>
-        )}
-      </div>
-
-      <div className="projects-detail-section">
-        <h4>{isSpanish ? "Fotos" : "Photos"}</h4>
-        <div className="projects-photo-toolbar">
-          {canEdit ? (
-            <>
-              <select value={record.status} onChange={(event) => onSave(record, { status: event.target.value })}>
-                {[...(record.recordType === "Recommendation" ? ["Open", "Needs Bid", "Got Bid", "Approved", "Denied", "Converted To Project", "Archived"] : ["Planning", "Approved", "Scheduled", "In Progress", "Waiting", "Completed", "Cancelled", "Archived"])].map((status) => <option key={status} value={status}>{status}</option>)}
-              </select>
-              <select value={attachmentType} onChange={(event) => setAttachmentType(event.target.value as ProjectAttachmentType)}>
-                {attachmentTypes.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
-              </select>
-              <input value={attachmentCaption} onChange={(event) => setAttachmentCaption(event.target.value)} placeholder={isSpanish ? "Pie de foto" : "Photo caption"} />
-              <label className="button button-secondary pool-upload-button">
-                {isSpanish ? "Subir fotos" : "Upload Photos"}
-                <input hidden type="file" multiple capture={attachmentType === "BID" ? undefined : "environment"} accept={attachmentAccept(attachmentType)} onChange={(event) => { onUpload(record.id, event.target.files, attachmentType, attachmentCaption); event.currentTarget.value = ""; setAttachmentCaption(""); }} />
-              </label>
-            </>
-          ) : null}
-        </div>
-      </div>
-      <div className="pm-task-list">
-        <h4>{isSpanish ? "Tareas" : "Tasks"}</h4>
-        {record.tasks.map((entry) => (
-          <div key={entry.id} className="pool-card">
-            <strong>{entry.title}</strong>
-            <div className="pool-reading-stack">
-              <span>{entry.status}</span>
-              <span>{entry.assignedUserName ?? (isSpanish ? "Sin asignar" : "Unassigned")}</span>
-              <span>{isSpanish ? "Vence" : "Due"} {formatDate(entry.dueDate)}</span>
+      <div className="projects-detail-workspace">
+        <div className="projects-detail-column">
+          <section className="projects-detail-card">
+            <div className="drawer-section-title">
+              <h4>{isSpanish ? "Cotizaciones / Propuestas" : "Bids / Quotes"}</h4>
             </div>
             {canEdit ? (
-              <div className="pool-entry-actions">
-                <select value={entry.status} onChange={(event) => onUpdateTask(entry, { status: event.target.value as ProjectTaskStatus, completedDate: event.target.value === "Completed" ? new Date().toISOString() : null })}>
-                  {["Open", "In Progress", "Completed", "Skipped"].map((status) => <option key={status} value={status}>{status}</option>)}
-                </select>
+              <>
+                <div className="pool-entry-actions projects-detail-actions">
+                  <button className="button button-secondary" type="button" onClick={() => onSave(record, { status: "Needs Bid", bidStatus: "Requested" })}>{isSpanish ? "Solicitar cotización" : "Request Bid"}</button>
+                  <button className="button button-secondary" type="button" onClick={() => onSave(record, { status: record.recordType === "Recommendation" ? "Got Bid" : record.status, bidStatus: "Received" })}>{isSpanish ? "Marcar recibida" : "Mark Received"}</button>
+                  <button className="button button-secondary" type="button" onClick={() => onSave(record, { bidStatus: "Approved" })}>{isSpanish ? "Aprobar cotización" : "Approve Bid"}</button>
+                  <button className="button button-secondary" type="button" onClick={() => onSave(record, { bidStatus: "Denied" })}>{isSpanish ? "Rechazar cotización" : "Deny Bid"}</button>
+                </div>
+                <form className="pool-entry-form projects-detail-form" onSubmit={(event) => {
+                  event.preventDefault();
+                  onSave(record, {
+                    companyName: bidDraft.companyName.trim() || null,
+                    contactName: bidDraft.contactName.trim() || null,
+                    contactPhone: bidDraft.contactPhone.trim() || null,
+                    contactEmail: bidDraft.contactEmail.trim() || null,
+                    bidStatus: bidDraft.bidStatus as ProjectRecord["bidStatus"],
+                    bidNotes: bidDraft.bidNotes.trim() || null,
+                  });
+                }}>
+                  <div className="form-grid projects-detail-compact-grid">
+                    <label>{isSpanish ? "Proveedor / Compañía" : "Vendor / Company"}<input value={bidDraft.companyName} onChange={(event) => setBidDraft((current) => ({ ...current, companyName: event.target.value }))} /></label>
+                    <label>{isSpanish ? "Nombre del contacto" : "Contact name"}<input value={bidDraft.contactName} onChange={(event) => setBidDraft((current) => ({ ...current, contactName: event.target.value }))} /></label>
+                    <label>{isSpanish ? "Teléfono del contacto" : "Contact phone"}<input value={bidDraft.contactPhone} onChange={(event) => setBidDraft((current) => ({ ...current, contactPhone: event.target.value }))} /></label>
+                    <label>{isSpanish ? "Correo del contacto" : "Contact email"}<input type="email" value={bidDraft.contactEmail} onChange={(event) => setBidDraft((current) => ({ ...current, contactEmail: event.target.value }))} /></label>
+                    <label>{isSpanish ? "Estado de cotización" : "Bid status"}
+                      <select value={bidDraft.bidStatus} onChange={(event) => setBidDraft((current) => ({ ...current, bidStatus: event.target.value as typeof current.bidStatus }))}>
+                        {["Needed", "Requested", "Received", "Approved", "Denied", "Warranty", "Not Applicable"].map((status) => <option key={status} value={status}>{status}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  <label>{isSpanish ? "Notas de cotización" : "Bid notes"}<textarea value={bidDraft.bidNotes} onChange={(event) => setBidDraft((current) => ({ ...current, bidNotes: event.target.value }))} placeholder={isSpanish ? "Detalles de la cotización, alcance, garantía, exclusiones..." : "Quote details, scope notes, warranty terms, exclusions..."} /></label>
+                  <button className="button button-primary" type="submit">{isSpanish ? "Guardar detalles de cotización" : "Save Bid Details"}</button>
+                </form>
+              </>
+            ) : (
+              <div className="pool-reading-stack">
+                <span>{record.companyName ?? (isSpanish ? "Sin proveedor" : "No vendor set")}</span>
+                <span>{record.contactName ?? record.contactEmail ?? record.contactPhone ?? (isSpanish ? "Sin contacto" : "No contact set")}</span>
+                <span>{record.bidStatus ?? (isSpanish ? "Sin estado de cotización" : "No bid status")}</span>
               </div>
+            )}
+          </section>
+
+          <section className="projects-detail-card">
+            <h4>{isSpanish ? "Fotos" : "Photos"}</h4>
+            <div className="projects-photo-toolbar">
+              {canEdit ? (
+                <>
+                  <select value={record.status} onChange={(event) => onSave(record, { status: event.target.value })}>
+                    {[...(record.recordType === "Recommendation" ? ["Open", "Needs Bid", "Got Bid", "Approved", "Denied", "Converted To Project", "Archived"] : ["Planning", "Approved", "Scheduled", "In Progress", "Waiting", "Completed", "Cancelled", "Archived"])].map((status) => <option key={status} value={status}>{status}</option>)}
+                  </select>
+                  <select value={attachmentType} onChange={(event) => setAttachmentType(event.target.value as ProjectAttachmentType)}>
+                    {attachmentTypes.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
+                  </select>
+                  <input value={attachmentCaption} onChange={(event) => setAttachmentCaption(event.target.value)} placeholder={isSpanish ? "Pie de foto" : "Photo caption"} />
+                  <label className="button button-secondary pool-upload-button">
+                    {isSpanish ? "Subir fotos" : "Upload Photos"}
+                    <input hidden type="file" multiple capture={attachmentType === "BID" ? undefined : "environment"} accept={attachmentAccept(attachmentType)} onChange={(event) => { onUpload(record.id, event.target.files, attachmentType, attachmentCaption); event.currentTarget.value = ""; setAttachmentCaption(""); }} />
+                  </label>
+                </>
+              ) : null}
+            </div>
+            {groupedAttachments.length ? groupedAttachments.map((group) => (
+              <div key={group.value} className="projects-photo-group">
+                <h5>{group.label}</h5>
+                <div className="projects-photo-grid">
+                  {group.items.map((attachment) => (
+                    <article key={attachment.id} className="projects-photo-card">
+                      {isImageAttachment(attachment.mimeType) ? <img loading="lazy" decoding="async" src={projectAttachmentDownloadUrl(attachment.id)} alt={attachment.caption ?? attachment.originalName} /> : <div className="projects-photo-file">FILE</div>}
+                      <div className="projects-photo-meta">
+                        <strong>{attachment.caption ?? attachment.originalName}</strong>
+                        <span>{group.label}</span>
+                        <span>{attachment.uploaderName ?? (isSpanish ? "Desconocido" : "Unknown")} / {formatDate(attachment.createdAt)}</span>
+                        <a href={projectAttachmentDownloadUrl(attachment.id)} target="_blank" rel="noreferrer">{isSpanish ? "Abrir" : "Open"}</a>
+                        {canEdit ? (
+                          editingAttachmentId === attachment.id ? (
+                            <div className="projects-attachment-editor">
+                              <select value={editingAttachmentType} onChange={(event) => setEditingAttachmentType(event.target.value as ProjectAttachmentType)}>
+                                {attachmentTypes.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
+                              </select>
+                              <input value={editingAttachmentCaption} onChange={(event) => setEditingAttachmentCaption(event.target.value)} placeholder={isSpanish ? "Pie de foto" : "Caption"} />
+                              <div className="pool-entry-actions">
+                                <button
+                                  className="button button-primary"
+                                  type="button"
+                                  onClick={() => {
+                                    onUpdateAttachment(attachment.id, {
+                                      attachmentType: editingAttachmentType,
+                                      caption: editingAttachmentCaption.trim() || null,
+                                    });
+                                    setEditingAttachmentId(null);
+                                    setEditingAttachmentCaption("");
+                                  }}
+                                >
+                                  {isSpanish ? "Guardar" : "Save"}
+                                </button>
+                                <button className="button button-secondary" type="button" onClick={() => setEditingAttachmentId(null)}>{isSpanish ? "Cancelar" : "Cancel"}</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              className="link-button"
+                              type="button"
+                              onClick={() => {
+                                setEditingAttachmentId(attachment.id);
+                                setEditingAttachmentCaption(attachment.caption ?? "");
+                                setEditingAttachmentType(attachment.attachmentType);
+                              }}
+                            >
+                              {isSpanish ? "Editar detalles" : "Edit details"}
+                            </button>
+                          )
+                        ) : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            )) : <p className="muted">{isSpanish ? "Todavía no hay fotos/archivos del proyecto." : "No project photos/files yet."}</p>}
+          </section>
+        </div>
+
+        <div className="projects-detail-column">
+          <section className="projects-detail-card">
+            <h4>{isSpanish ? "Tareas" : "Tasks"}</h4>
+            <div className="projects-detail-list">
+              {record.tasks.map((entry) => (
+                <div key={entry.id} className="projects-detail-list-item">
+                  <div className="projects-detail-list-copy">
+                    <strong>{entry.title}</strong>
+                    <div className="pool-reading-stack">
+                      <span>{entry.status}</span>
+                      <span>{entry.assignedUserName ?? (isSpanish ? "Sin asignar" : "Unassigned")}</span>
+                      <span>{isSpanish ? "Vence" : "Due"} {formatDate(entry.dueDate)}</span>
+                    </div>
+                  </div>
+                  {canEdit ? (
+                    <select value={entry.status} onChange={(event) => onUpdateTask(entry, { status: event.target.value as ProjectTaskStatus, completedDate: event.target.value === "Completed" ? new Date().toISOString() : null })}>
+                      {["Open", "In Progress", "Completed", "Skipped"].map((status) => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            {canEdit ? (
+              <form className="pool-entry-form projects-detail-form" onSubmit={(event) => {
+                event.preventDefault();
+                onAddTask(record.id, {
+                  title: task.title,
+                  status: task.status,
+                  assignedUserId: task.assignedUserId || null,
+                  dueDate: task.dueDate || null,
+                });
+                setTask(taskDraft());
+              }}>
+                <div className="form-grid projects-detail-compact-grid">
+                  <label>{isSpanish ? "Nueva tarea" : "New task"}<input value={task.title} onChange={(event) => setTask((current) => ({ ...current, title: event.target.value }))} /></label>
+                  <label>{isSpanish ? "Usuario asignado" : "Assigned user"}
+                    <SearchSelect
+                      options={userOptions}
+                      value={task.assignedUserId}
+                      onChange={(assignedUserId) => setTask((current) => ({ ...current, assignedUserId }))}
+                      placeholder={isSpanish ? "Buscar usuario..." : "Search user..."}
+                      emptyLabel={isSpanish ? "Sin asignar" : "Unassigned"}
+                      noMatchesLabel={isSpanish ? "No hay usuarios coincidentes" : "No matching users"}
+                      clearLabel={isSpanish ? "Quitar usuario asignado" : "Clear assigned user"}
+                    />
+                  </label>
+                  <label>{isSpanish ? "Fecha límite" : "Due date"}<input type="date" value={task.dueDate} onChange={(event) => setTask((current) => ({ ...current, dueDate: event.target.value }))} /></label>
+                </div>
+                <button className="button button-primary" type="submit" disabled={!task.title.trim()}>{isSpanish ? "Agregar tarea" : "Add Task"}</button>
+              </form>
             ) : null}
-          </div>
-        ))}
-        {canEdit ? (
-          <form className="pool-entry-form" onSubmit={(event) => {
-            event.preventDefault();
-            onAddTask(record.id, {
-              title: task.title,
-              status: task.status,
-              assignedUserId: task.assignedUserId || null,
-              dueDate: task.dueDate || null,
-            });
-            setTask(taskDraft());
-          }}>
-            <label>{isSpanish ? "Nueva tarea" : "New task"}<input value={task.title} onChange={(event) => setTask((current) => ({ ...current, title: event.target.value }))} /></label>
-            <label>{isSpanish ? "Usuario asignado" : "Assigned user"}
-              <SearchSelect
-                options={userOptions}
-                value={task.assignedUserId}
-                onChange={(assignedUserId) => setTask((current) => ({ ...current, assignedUserId }))}
-                placeholder={isSpanish ? "Buscar usuario..." : "Search user..."}
-                emptyLabel={isSpanish ? "Sin asignar" : "Unassigned"}
-                noMatchesLabel={isSpanish ? "No hay usuarios coincidentes" : "No matching users"}
-                clearLabel={isSpanish ? "Quitar usuario asignado" : "Clear assigned user"}
-              />
-            </label>
-            <label>{isSpanish ? "Fecha límite" : "Due date"}<input type="date" value={task.dueDate} onChange={(event) => setTask((current) => ({ ...current, dueDate: event.target.value }))} /></label>
-            <button className="button button-primary" type="submit" disabled={!task.title.trim()}>{isSpanish ? "Agregar tarea" : "Add Task"}</button>
-          </form>
-        ) : null}
-      </div>
-      <div className="pm-task-list">
-        <h4>{isSpanish ? "Comentarios" : "Comments"}</h4>
-        {record.comments.map((entry) => (
-          <div key={entry.id} className="pool-card">
-            <strong>{entry.authorName ?? (isSpanish ? "Desconocido" : "Unknown")}</strong>
-            <p>{entry.body}</p>
-            <span className="muted">{new Date(entry.createdAt).toLocaleString()}</span>
-          </div>
-        ))}
-        {canEdit ? (
-          <form className="pool-entry-form" onSubmit={(event) => {
-            event.preventDefault();
-            onAddComment(record.id, comment);
-            setComment("");
-          }}>
-            <label>{isSpanish ? "Comentario" : "Comment"}<textarea value={comment} onChange={(event) => setComment(event.target.value)} /></label>
-            <button className="button button-primary" type="submit" disabled={!comment.trim()}>{isSpanish ? "Agregar comentario" : "Add Comment"}</button>
-          </form>
-        ) : null}
-      </div>
-      <div className="pm-task-list">
-        <h4>{isSpanish ? "Historial del ciclo de vida" : "Lifecycle History"}</h4>
-        {history.length ? history.map((entry) => (
-          <div key={entry.id} className="pool-card">
-            <strong>{entry.user}</strong>
-            <p>{entry.action}</p>
-            <span className="muted">{new Date(entry.date).toLocaleString()}</span>
-          </div>
-        )) : <p className="muted">{isSpanish ? "Todavía no hay historial del ciclo de vida." : "No lifecycle history yet."}</p>}
+          </section>
+
+          <section className="projects-detail-card">
+            <h4>{isSpanish ? "Comentarios" : "Comments"}</h4>
+            <div className="projects-detail-list">
+              {record.comments.map((entry) => (
+                <div key={entry.id} className="projects-detail-list-item projects-detail-history-item">
+                  <strong>{entry.authorName ?? (isSpanish ? "Desconocido" : "Unknown")}</strong>
+                  <p>{entry.body}</p>
+                  <span className="muted">{new Date(entry.createdAt).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+            {canEdit ? (
+              <form className="pool-entry-form projects-detail-form" onSubmit={(event) => {
+                event.preventDefault();
+                onAddComment(record.id, comment);
+                setComment("");
+              }}>
+                <label>{isSpanish ? "Comentario" : "Comment"}<textarea value={comment} onChange={(event) => setComment(event.target.value)} /></label>
+                <button className="button button-primary" type="submit" disabled={!comment.trim()}>{isSpanish ? "Agregar comentario" : "Add Comment"}</button>
+              </form>
+            ) : null}
+          </section>
+
+          <section className="projects-detail-card">
+            <h4>{isSpanish ? "Historial del ciclo de vida" : "Lifecycle History"}</h4>
+            <div className="projects-detail-list">
+              {history.length ? history.map((entry) => (
+                <div key={entry.id} className="projects-detail-list-item projects-detail-history-item">
+                  <strong>{entry.user}</strong>
+                  <p>{entry.action}</p>
+                  <span className="muted">{new Date(entry.date).toLocaleString()}</span>
+                </div>
+              )) : <p className="muted">{isSpanish ? "Todavía no hay historial del ciclo de vida." : "No lifecycle history yet."}</p>}
+            </div>
+          </section>
+        </div>
       </div>
     </section>
   );
@@ -496,6 +558,7 @@ function ProjectDetail({
 export function ProjectsPanel({ properties, users, userRole, language = "en", selectedPropertyId, openRecordRequest, openCreateRequest }: Props) {
   const queryClient = useQueryClient();
   const captureInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const captureMapCanvasRef = useRef<HTMLDivElement | null>(null);
   const mapViewCanvasRef = useRef<HTMLDivElement | null>(null);
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -519,12 +582,22 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   const [lastCaptureOutcome, setLastCaptureOutcome] = useState<CaptureOutcome | null>(null);
   const [queuedCaptures, setQueuedCaptures] = useState<QueuedProjectCaptureSummary[]>([]);
   const [queueSyncing, setQueueSyncing] = useState(false);
+  const [projectUploadNotice, setProjectUploadNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState(() => recordDraft(selectedPropertyId || properties[0]?.id || ""));
   const [categoryForm, setCategoryForm] = useState<CategoryDraft>(categoryDraft);
   const canView = userRole !== "CLEANER";
   const canEdit = userRole === "ADMIN" || userRole === "MANAGER" || userRole === "TECH";
   const canAdmin = userRole === "ADMIN";
   const isSpanish = language === "es";
+  const isMobileCaptureViewport = isTouchMobileViewport();
+
+  const openQuickCapture = (options?: { launchCamera?: boolean }) => {
+    setQuickCaptureOpen(true);
+    setPropertyWalkSummary(null);
+    if (options?.launchCamera) {
+      window.setTimeout(() => captureInputRef.current?.click(), 40);
+    }
+  };
 
   useEffect(() => {
     if (!openRecordRequest?.id) return;
@@ -605,6 +678,8 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
       return left.name.localeCompare(right.name);
     });
   }, [categories]);
+  const activeCategoryOptions = useMemo(() => categoryOptions.filter((category) => category.isActive), [categoryOptions]);
+  const inactiveCategoryOptions = useMemo(() => categoryOptions.filter((category) => !category.isActive), [categoryOptions]);
   const recordsQuery = useQuery({
     queryKey: ["projects", "records", propertyId, tab, search, sourceFilter, budgetYearFilter, deferredFilter, agingFilter],
     queryFn: () => getProjectRecords({
@@ -650,18 +725,32 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
     setShowMoreDetails(false);
     setLastCreatedRecord(null);
     setLastCaptureOutcome(null);
+    setProjectUploadNotice(null);
   };
 
-  const appendCaptureFiles = (files: FileList | File[]) => {
+  const appendCaptureFiles = async (files: FileList | File[]) => {
     const incoming = Array.from(files);
     if (!incoming.length) return;
+    const accepted = incoming.filter((file) => isAllowedProjectAttachment(file, "GENERAL"));
+    const rejected = incoming.filter((file) => !isAllowedProjectAttachment(file, "GENERAL"));
+    if (rejected.length) {
+      setProjectUploadNotice(
+        isSpanish
+          ? `${rejected.length} archivo${rejected.length === 1 ? "" : "s"} se omitieron porque no son fotos válidas o estaban vacíos.`
+          : `${rejected.length} file${rejected.length === 1 ? "" : "s"} were skipped because they were not valid photos or were empty.`,
+      );
+    } else {
+      setProjectUploadNotice(null);
+    }
+    if (!accepted.length) return;
+    const stagedEntries = await Promise.all(accepted.map(async (file, index) => ({
+      id: `${file.name}-${file.lastModified}-${Date.now()}-${index}`,
+      file,
+      previewUrl: await buildImagePreviewUrl(file),
+    })));
     setCaptureFiles((current) => [
       ...current,
-      ...incoming.map((file, index) => ({
-        id: `${file.name}-${file.lastModified}-${current.length + index}`,
-        file,
-        previewUrl: isImageAttachment(file.type) ? URL.createObjectURL(file) : "",
-      })),
+      ...stagedEntries,
     ]);
   };
 
@@ -674,7 +763,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
 
   const handleCaptureDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    appendCaptureFiles(event.dataTransfer.files);
+    void appendCaptureFiles(event.dataTransfer.files);
   };
 
   const createMutation = useMutation({
@@ -1025,8 +1114,17 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
           <p>Track recommendations, approved projects, bids, photos, location notes, and assigned work.</p>
         </div>
         <div className="module-actions">
-          {canEdit ? <button data-testid="projects-quick-capture-open" className="button button-primary" type="button" onClick={() => { setQuickCaptureOpen(true); setPropertyWalkSummary(null); }}>Quick Capture</button> : null}
-          {canEdit && !propertyWalkActive ? <button className="button button-secondary" type="button" onClick={() => { setPropertyWalkActive(true); setPropertyWalkStats({ count: 0, highPriority: 0, needsBid: 0 }); setPropertyWalkSummary(null); setQuickCaptureOpen(true); }}>Start Property Walk</button> : null}
+          {canEdit ? (
+            <button
+              data-testid="projects-quick-capture-open"
+              className="button button-primary"
+              type="button"
+              onClick={() => openQuickCapture({ launchCamera: isMobileCaptureViewport })}
+            >
+              {isMobileCaptureViewport ? (isSpanish ? "Tomar foto" : "Take Photo") : "Quick Capture"}
+            </button>
+          ) : null}
+          {canEdit && !propertyWalkActive ? <button className="button button-secondary" type="button" onClick={() => { setPropertyWalkActive(true); setPropertyWalkStats({ count: 0, highPriority: 0, needsBid: 0 }); openQuickCapture({ launchCamera: isMobileCaptureViewport }); }}>{isSpanish ? "Iniciar recorrido" : "Start Property Walk"}</button> : null}
           {canEdit && propertyWalkActive ? <button className="button button-secondary" type="button" onClick={() => { setPropertyWalkActive(false); setPropertyWalkSummary(propertyWalkStats); }}>End Walk</button> : null}
           <label>Property
             <select value={propertyId} onChange={(event) => setPropertyId(event.target.value)}>
@@ -1072,6 +1170,12 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
               {queueSyncing ? "Syncing..." : "Sync Now"}
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {projectUploadNotice ? (
+        <div className="pool-card">
+          <p className="muted" style={{ margin: 0 }}>{projectUploadNotice}</p>
         </div>
       ) : null}
 
@@ -1166,23 +1270,37 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
               event.preventDefault();
               void saveQuickCapture();
             }}>
+              <div className="pool-entry-actions projects-capture-actions-top" style={{ marginBottom: 12, flexWrap: "wrap" }}>
+                <button className="button button-primary" type="button" onClick={() => captureInputRef.current?.click()}>{isSpanish ? "Tomar foto" : "Take Photo"}</button>
+                <button className="button button-secondary" type="button" onClick={() => uploadInputRef.current?.click()}>{isSpanish ? "Subir archivo" : "Upload File"}</button>
+              </div>
               <div className="projects-capture-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={handleCaptureDrop}>
                 <input
                   ref={captureInputRef}
                   hidden
                   type="file"
                   multiple
-                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                  accept="image/*"
                   capture="environment"
                   onChange={(event) => {
-                    appendCaptureFiles(event.target.files ?? []);
+                    void appendCaptureFiles(event.target.files ?? []);
+                    event.currentTarget.value = "";
+                  }}
+                />
+                <input
+                  ref={uploadInputRef}
+                  hidden
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                  onChange={(event) => {
+                    void appendCaptureFiles(event.target.files ?? []);
                     event.currentTarget.value = "";
                   }}
                 />
                 <strong>{isSpanish ? "Fotos primero" : "Photos first"}</strong>
                 <p className="muted">{isSpanish ? "Tome una foto, cargue desde escritorio o arrastre archivos aquí." : "Take a photo, upload from desktop, or drag files here."}</p>
                 <div className="pool-entry-actions">
-                  <button className="button button-primary" type="button" onClick={() => captureInputRef.current?.click()}>{isSpanish ? "Tomar foto" : "Take Photo"}</button>
                   <button className="button button-secondary" type="button" onClick={() => captureInputRef.current?.click()}>{isSpanish ? "Agregar más fotos" : "Add More Photos"}</button>
                 </div>
               </div>
@@ -1190,7 +1308,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                 <div className="projects-capture-preview-grid">
                   {captureFiles.map((entry) => (
                     <article key={entry.id} className="projects-capture-preview">
-                      {entry.previewUrl ? <img src={entry.previewUrl} alt={entry.file.name} /> : <div className="projects-photo-file">FILE</div>}
+                      {entry.previewUrl ? <img loading="lazy" decoding="async" src={entry.previewUrl} alt={entry.file.name} /> : <div className="projects-photo-file">FILE</div>}
                       <div className="projects-photo-meta">
                         <strong>{entry.file.name}</strong>
                         <span>{Math.round(entry.file.size / 1024)} KB</span>
@@ -1349,10 +1467,10 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                 }}
               >
                 <div className="form-grid projects-category-admin-grid">
-                  <label>Name<input value={categoryForm.name} onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.target.value }))} placeholder="Boiler Room" /></label>
-                  <label>Color<input type="color" value={categoryForm.color} onChange={(event) => setCategoryForm((current) => ({ ...current, color: event.target.value }))} /></label>
-                  <label>Sort order<input type="number" min="0" max="999" value={categoryForm.sortOrder} onChange={(event) => setCategoryForm((current) => ({ ...current, sortOrder: event.target.value }))} placeholder="0" /></label>
-                  <label className="compact-toggle">{isSpanish ? "Específico de la propiedad" : "Property-specific"}
+                  <label>{isSpanish ? "Nombre" : "Name"}<input value={categoryForm.name} onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.target.value }))} placeholder={isSpanish ? "Cuarto de calderas" : "Boiler Room"} /></label>
+                  <label>{isSpanish ? "Color" : "Color"}<input type="color" value={categoryForm.color} onChange={(event) => setCategoryForm((current) => ({ ...current, color: event.target.value }))} /></label>
+                  <label>{isSpanish ? "Orden" : "Sort order"}<input type="number" min="0" max="999" value={categoryForm.sortOrder} onChange={(event) => setCategoryForm((current) => ({ ...current, sortOrder: event.target.value }))} placeholder="0" /></label>
+                  <label className="compact-toggle">{isSpanish ? "Específica de la propiedad" : "Property-specific"}
                     <input type="checkbox" checked={categoryForm.propertyScoped} onChange={(event) => setCategoryForm((current) => ({ ...current, propertyScoped: event.target.checked }))} />
                   </label>
                 </div>
@@ -1361,31 +1479,70 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                 </div>
               </form>
               <div className="projects-category-list">
-                {categoryOptions.map((category) => (
-                  <div key={category.id} className="projects-category-row">
-                    <div className="projects-category-summary">
-                      <span className="projects-category-swatch" style={{ background: category.color ?? "var(--accent)" }} />
-                      <strong>{category.name}</strong>
-                      <span className="muted">{category.propertyId ? "Property-specific" : "Global"}</span>
-                    </div>
-                    <div className="pool-entry-actions">
-                      <input
-                        type="color"
-                        value={category.color ?? "#58a6de"}
-                        onChange={(event) => void categoryUpdateMutation.mutateAsync({ id: category.id, patch: { color: event.target.value } })}
-                        aria-label={`${category.name} color`}
-                      />
-                      <button className="button button-secondary" type="button" onClick={() => {
-                        const nextName = window.prompt("Rename category", category.name);
-                        if (!nextName || !nextName.trim() || nextName.trim() === category.name) return;
-                        void categoryUpdateMutation.mutateAsync({ id: category.id, patch: { name: nextName.trim() } });
-                      }}>Rename</button>
-                      <button className="button button-secondary" type="button" onClick={() => void categoryUpdateMutation.mutateAsync({ id: category.id, patch: { isActive: !category.isActive } })}>
-                        {category.isActive ? "Deactivate" : "Activate"}
-                      </button>
-                    </div>
+                <div className="stack gap-sm">
+                  <div className="section-header">
+                    <strong>{isSpanish ? "Categorías activas" : "Active categories"}</strong>
+                    <span className="muted">{activeCategoryOptions.length}</span>
                   </div>
-                ))}
+                  {activeCategoryOptions.map((category) => (
+                    <div key={category.id} className="projects-category-row">
+                      <div className="projects-category-summary">
+                        <span className="projects-category-swatch" style={{ background: category.color ?? "var(--accent)" }} />
+                        <strong>{category.name}</strong>
+                        <span className="muted">{category.propertyId ? (isSpanish ? "Específica de la propiedad" : "Property-specific") : (isSpanish ? "Global" : "Global")}</span>
+                      </div>
+                      <div className="pool-entry-actions">
+                        <input
+                          type="color"
+                          value={category.color ?? "#58a6de"}
+                          onChange={(event) => void categoryUpdateMutation.mutateAsync({ id: category.id, patch: { color: event.target.value } })}
+                          aria-label={`${category.name} color`}
+                        />
+                        <button className="button button-secondary" type="button" onClick={() => {
+                          const nextName = window.prompt(isSpanish ? "Renombrar categoría" : "Rename category", category.name);
+                          if (!nextName || !nextName.trim() || nextName.trim() === category.name) return;
+                          void categoryUpdateMutation.mutateAsync({ id: category.id, patch: { name: nextName.trim() } });
+                        }}>{isSpanish ? "Renombrar" : "Rename"}</button>
+                        <button className="button button-secondary" type="button" onClick={() => void categoryUpdateMutation.mutateAsync({ id: category.id, patch: { isActive: false } })}>
+                          {isSpanish ? "Desactivar" : "Deactivate"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {inactiveCategoryOptions.length > 0 ? (
+                  <div className="stack gap-sm" style={{ marginTop: 16 }}>
+                    <div className="section-header">
+                      <strong>{isSpanish ? "Categorías inactivas" : "Inactive categories"}</strong>
+                      <span className="muted">{inactiveCategoryOptions.length}</span>
+                    </div>
+                    {inactiveCategoryOptions.map((category) => (
+                      <div key={category.id} className="projects-category-row">
+                        <div className="projects-category-summary">
+                          <span className="projects-category-swatch" style={{ background: category.color ?? "var(--accent)" }} />
+                          <strong>{category.name}</strong>
+                          <span className="muted">{category.propertyId ? (isSpanish ? "Específica de la propiedad" : "Property-specific") : (isSpanish ? "Global" : "Global")}</span>
+                        </div>
+                        <div className="pool-entry-actions">
+                          <input
+                            type="color"
+                            value={category.color ?? "#58a6de"}
+                            onChange={(event) => void categoryUpdateMutation.mutateAsync({ id: category.id, patch: { color: event.target.value } })}
+                            aria-label={`${category.name} color`}
+                          />
+                          <button className="button button-secondary" type="button" onClick={() => {
+                            const nextName = window.prompt(isSpanish ? "Renombrar categoría" : "Rename category", category.name);
+                            if (!nextName || !nextName.trim() || nextName.trim() === category.name) return;
+                            void categoryUpdateMutation.mutateAsync({ id: category.id, patch: { name: nextName.trim() } });
+                          }}>{isSpanish ? "Renombrar" : "Rename"}</button>
+                          <button className="button button-secondary" type="button" onClick={() => void categoryUpdateMutation.mutateAsync({ id: category.id, patch: { isActive: true } })}>
+                            {isSpanish ? "Activar" : "Activate"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -1665,7 +1822,18 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                 onUpdateTask={(task, patch) => void taskUpdateMutation.mutateAsync({ id: task.id, patch })}
                 onUpload={(id, files, attachmentType, caption) => {
                   if (!files?.length) return;
-                  Array.from(files).forEach((file) => void uploadMutation.mutateAsync({ id, file, attachmentType, caption }));
+                  const accepted = Array.from(files).filter((file) => isAllowedProjectAttachment(file, attachmentType));
+                  const rejectedCount = files.length - accepted.length;
+                  if (rejectedCount) {
+                    setProjectUploadNotice(
+                      isSpanish
+                        ? `${rejectedCount} archivo${rejectedCount === 1 ? "" : "s"} se omitieron porque no coincidían con el tipo permitido o estaban vacíos.`
+                        : `${rejectedCount} file${rejectedCount === 1 ? "" : "s"} were skipped because they did not match the allowed type or were empty.`,
+                    );
+                  } else {
+                    setProjectUploadNotice(null);
+                  }
+                  accepted.forEach((file) => void uploadMutation.mutateAsync({ id, file, attachmentType, caption }));
                 }}
                 onUpdateAttachment={(id, patch) => void attachmentUpdateMutation.mutateAsync({ id, patch })}
               />

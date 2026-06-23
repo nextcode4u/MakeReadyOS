@@ -4,7 +4,9 @@ import {
   createPoolChemical,
   createPoolFacility,
   createPoolLogEntry,
+  getPoolChemicals,
   getPoolEntries,
+  getPoolFacilities,
   poolAttachmentDownloadUrl,
   getPoolOverview,
   poolLogPrintableReportUrl,
@@ -207,6 +209,14 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
     queryKey: ["pool-overview", propertyId],
     queryFn: () => getPoolOverview(propertyId ? { propertyId } : {}),
   });
+  const facilitiesQuery = useQuery({
+    queryKey: ["pool-facilities", propertyId],
+    queryFn: () => getPoolFacilities(propertyId ? { propertyId, includeArchived: true } : { includeArchived: true }),
+  });
+  const chemicalsQuery = useQuery({
+    queryKey: ["pool-chemicals", propertyId],
+    queryFn: () => getPoolChemicals(propertyId ? { propertyId, includeArchived: true } : { includeArchived: true }),
+  });
   const historyQuery = useQuery({
     queryKey: ["pool-entries", propertyId],
     queryFn: () => getPoolEntries({ propertyId: propertyId || undefined, limit: 60 }),
@@ -214,15 +224,21 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
 
   const facilities = overviewQuery.data?.facilities ?? [];
   const chemicals = overviewQuery.data?.chemicals ?? [];
-  const activeChemicalsById = useMemo(() => new Map(chemicals.map((chemical) => [chemical.id, chemical])), [chemicals]);
+  const allFacilities = facilitiesQuery.data?.facilities ?? facilities;
+  const allChemicals = chemicalsQuery.data?.chemicals ?? chemicals;
+  const activeFacilities = useMemo(() => allFacilities.filter((facility) => facility.isActive), [allFacilities]);
+  const archivedFacilities = useMemo(() => allFacilities.filter((facility) => !facility.isActive), [allFacilities]);
+  const activeChemicals = useMemo(() => allChemicals.filter((chemical) => chemical.isActive), [allChemicals]);
+  const archivedChemicals = useMemo(() => allChemicals.filter((chemical) => !chemical.isActive), [allChemicals]);
+  const activeChemicalsById = useMemo(() => new Map(activeChemicals.map((chemical) => [chemical.id, chemical])), [activeChemicals]);
   const selectedProperty = properties.find((property) => property.id === propertyId);
-  const defaultFacilityId = facilities[0]?.id ?? "";
+  const defaultFacilityId = activeFacilities[0]?.id ?? "";
   const [selectedChemicalId, setSelectedChemicalId] = useState("");
   const [chemicalAmountPounds, setChemicalAmountPounds] = useState("");
   const [chemicalAmountOunces, setChemicalAmountOunces] = useState("");
   const selectedChemical = selectedChemicalId ? activeChemicalsById.get(selectedChemicalId) ?? null : null;
   const workflowEntry = historyQuery.data?.entries[0] ?? overviewQuery.data?.recentEntries?.[0] ?? null;
-  const workflowFacilityName = workflowEntry?.facility?.name ?? facilities[0]?.name ?? null;
+  const workflowFacilityName = workflowEntry?.facility?.name ?? activeFacilities[0]?.name ?? null;
   const solidChemicalTotalOunces = useMemo(() => (
     normalizeSolidChemicalAmount(
       chemicalAmountPounds.trim() ? Number(chemicalAmountPounds) : null,
@@ -234,6 +250,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
   const invalidate = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["pool-overview"] }),
+      queryClient.invalidateQueries({ queryKey: ["pool-facilities"] }),
+      queryClient.invalidateQueries({ queryKey: ["pool-chemicals"] }),
       queryClient.invalidateQueries({ queryKey: ["pool-entries"] }),
     ]);
   };
@@ -589,7 +607,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
           </form>
           <article className="pool-card">
             <h2>{isSpanish ? "Piscinas/spas configurados" : "Configured pools/spas"}</h2>
-            {facilities.map((facility) => (
+            {activeFacilities.map((facility) => (
               <div className="pool-row" key={facility.id}>
                 <div>
                   <strong>{facility.name}</strong>
@@ -598,7 +616,22 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                 {canManage ? <button type="button" onClick={() => facilityUpdateMutation.mutate({ id: facility.id, data: { isActive: false } })}>{isSpanish ? "Archivar" : "Archive"}</button> : null}
               </div>
             ))}
-            {!facilities.length ? <p className="muted">{isSpanish ? "No hay piscinas/spas activos configurados." : "No active pools/spas configured."}</p> : null}
+            {!activeFacilities.length ? <p className="muted">{isSpanish ? "No hay piscinas/spas activos configurados." : "No active pools/spas configured."}</p> : null}
+            {archivedFacilities.length ? (
+              <div className="pool-archived-list" data-testid="pool-facility-archive-list">
+                <h3>{isSpanish ? "Piscinas/spas archivados" : "Archived pools/spas"}</h3>
+                <p className="muted">{isSpanish ? "Archivar oculta la piscina/spa del trabajo diario sin borrar su historial. Puede restaurarla aquí cuando vuelva a usarse." : "Archive hides the pool/spa from daily work without deleting its history. Restore it here when it returns to service."}</p>
+                {archivedFacilities.map((facility) => (
+                  <div className="pool-row" key={facility.id}>
+                    <div>
+                      <strong>{facility.name}</strong>
+                      <span>{poolTypeLabel(facility.type, language)} / {facility.capacityGallons ? `${facility.capacityGallons.toLocaleString()} gal` : (isSpanish ? "capacidad faltante" : "capacity missing")} / {isSpanish ? "archivado" : "archived"}</span>
+                    </div>
+                    {canManage ? <button type="button" onClick={() => facilityUpdateMutation.mutate({ id: facility.id, data: { isActive: true } })}>{isSpanish ? "Restaurar" : "Restore"}</button> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </article>
         </div>
       ) : tab === "chemicals" ? (
@@ -615,7 +648,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
           </form>
           <article className="pool-card">
             <h2>{isSpanish ? "Biblioteca de químicos" : "Chemical library"}</h2>
-            {chemicals.map((chemical) => (
+            {activeChemicals.map((chemical) => (
               <div className="pool-row" key={chemical.id}>
                 <div>
                   <strong>{chemical.name}</strong>
@@ -624,7 +657,22 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                 {canManage ? <button type="button" onClick={() => chemicalUpdateMutation.mutate({ id: chemical.id, data: { isActive: false } })}>{isSpanish ? "Archivar" : "Archive"}</button> : null}
               </div>
             ))}
-            {!chemicals.length ? <p className="muted">{isSpanish ? "No hay químicos activos configurados." : "No active chemicals configured."}</p> : null}
+            {!activeChemicals.length ? <p className="muted">{isSpanish ? "No hay químicos activos configurados." : "No active chemicals configured."}</p> : null}
+            {archivedChemicals.length ? (
+              <div className="pool-archived-list" data-testid="pool-chemical-archive-list">
+                <h3>{isSpanish ? "Químicos archivados" : "Archived chemicals"}</h3>
+                <p className="muted">{isSpanish ? "Archivar retira el químico de nuevas entradas, pero conserva su referencia histórica en registros anteriores. Puede restaurarlo aquí." : "Archive removes the chemical from new entries while preserving its historical meaning on older logs. Restore it here when needed."}</p>
+                {archivedChemicals.map((chemical) => (
+                  <div className="pool-row" key={chemical.id}>
+                    <div>
+                      <strong>{chemical.name}</strong>
+                      <span>{chemical.category.replace(/_/g, " ")} / {chemical.concentrationPercent ? `${chemical.concentrationPercent}%` : (isSpanish ? "concentración faltante" : "concentration missing")} / {chemical.unit} / {isSpanish ? "archivado" : "archived"}</span>
+                    </div>
+                    {canManage ? <button type="button" onClick={() => chemicalUpdateMutation.mutate({ id: chemical.id, data: { isActive: true } })}>{isSpanish ? "Restaurar" : "Restore"}</button> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </article>
         </div>
       ) : (

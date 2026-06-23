@@ -115,6 +115,8 @@ export type SavedView = {
   visibleColumns: string[] | null;
   isShared: boolean;
   isDefault: boolean;
+  isArchived: boolean;
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -1112,7 +1114,13 @@ export type PlanningResponse = {
 export type NotificationResponse = {
   notifications: NotificationRecord[];
   unreadCount: number;
-  preferences: Array<{ category: string; enabled: boolean }>;
+  preferences: Array<{ category: string; enabled: boolean; propertyId: string | null; scopeKey: string }>;
+  settings: {
+    quietHoursEnabled: boolean;
+    quietHoursStartMinute: number;
+    quietHoursEndMinute: number;
+  };
+  properties: Array<Pick<Property, "id" | "code" | "name">>;
   categories: string[];
   pagination: {
     total: number;
@@ -1209,6 +1217,12 @@ export type ChargeReport = {
   }>;
 };
 
+export type ChargeReportGroup = {
+  label: string;
+  lines: ChargeReport["lines"];
+  totalEstimatedCents: number;
+};
+
 export type ChecklistTemplate = {
   id: string;
   name: string;
@@ -1267,6 +1281,14 @@ export type LeaseComplianceIssueType = {
   updatedById?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ChargePriceSheetImportSummary = {
+  created: number;
+  updated: number;
+  skipped: number;
+  processed: number;
+  errors: string[];
 };
 
 export type LeaseComplianceSettings = {
@@ -1693,6 +1715,7 @@ export type ActivityRecord = {
   action: string;
   entityType: string;
   entityId: string | null;
+  entityLabel: string;
   description: string;
   property: Property | null;
   unitNumber: string | null;
@@ -1951,6 +1974,13 @@ export type OperationalLibrarySummary = Record<string, {
   conflicts: number;
   errors: string[];
 }>;
+
+export type OperationalLibraryPreviewResponse = {
+  pack: Pick<OperationalLibraryPack, "packKey" | "name" | "version" | "category" | "description" | "setupNotes">;
+  dryRun: true;
+  summary: OperationalLibrarySummary;
+  warnings: string[];
+};
 
 export type PropertyTemplate = {
   id: string;
@@ -2378,10 +2408,17 @@ export function dismissNotification(id: string) {
   return request<{ ok: true }>(`/notifications/${id}`, { method: "DELETE" });
 }
 
-export function updateNotificationPreference(category: string, enabled: boolean) {
-  return request<{ preference: { category: string; enabled: boolean } }>(`/notifications/preferences/${encodeURIComponent(category)}`, {
+export function updateNotificationPreference(category: string, enabled: boolean, propertyId?: string | null) {
+  return request<{ preference: { category: string; enabled: boolean; propertyId: string | null; scopeKey: string } }>(`/notifications/preferences/${encodeURIComponent(category)}`, {
     method: "PATCH",
-    body: JSON.stringify({ enabled }),
+    body: JSON.stringify({ enabled, propertyId: propertyId ?? null }),
+  });
+}
+
+export function updateNotificationSettings(input: { quietHoursEnabled: boolean; quietHoursStartMinute: number; quietHoursEndMinute: number }) {
+  return request<{ settings: NotificationResponse["settings"] }>("/notifications/settings", {
+    method: "PATCH",
+    body: JSON.stringify(input),
   });
 }
 
@@ -2398,8 +2435,22 @@ export function getChargeReport(itemId: string) {
   return request<ChargeReport>(`/make-ready-items/${itemId}/charge-report`);
 }
 
-export function chargeReportCsvUrl(itemId: string) {
-  return `${apiBaseUrl}/make-ready-items/${encodeURIComponent(itemId)}/charge-report.csv`;
+export function chargeReportCsvUrl(itemId: string, options?: { groupByCategory?: boolean }) {
+  const params = new URLSearchParams();
+  if (options?.groupByCategory) params.set("groupBy", "category");
+  return `${apiBaseUrl}/make-ready-items/${encodeURIComponent(itemId)}/charge-report.csv${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function chargeReportPrintableHtmlUrl(itemId: string, options?: { groupByCategory?: boolean }) {
+  const params = new URLSearchParams();
+  if (options?.groupByCategory) params.set("groupBy", "category");
+  return `${apiBaseUrl}/make-ready-items/${encodeURIComponent(itemId)}/charge-report.html${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+export function chargeReportPrintableReportUrl(itemId: string, options?: { groupByCategory?: boolean }) {
+  const params = new URLSearchParams();
+  if (options?.groupByCategory) params.set("groupBy", "category");
+  return `${apiBaseUrl}/make-ready-items/${encodeURIComponent(itemId)}/charge-report.pdf${params.toString() ? `?${params.toString()}` : ""}`;
 }
 
 export function createItemComment(itemId: string, body: string) {
@@ -2467,6 +2518,14 @@ export function createChargePriceSheetItem(input: {
   description?: string | null;
 }) {
   return request<{ item: ChargePriceSheetItem }>("/charge-price-sheet-items", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function importChargePriceSheetItems(input: {
+  propertyId: string;
+  content: string;
+  overwriteExisting?: boolean;
+}) {
+  return request<{ summary: ChargePriceSheetImportSummary }>("/charge-price-sheet-items/import", { method: "POST", body: JSON.stringify(input) });
 }
 
 export function createChecklistTemplate(input: {
@@ -3175,7 +3234,7 @@ export function getOperationalLibraryPacks() {
 }
 
 export function previewOperationalLibraryPack(input: { packKey?: string; pack?: unknown }) {
-  return request<{ pack: Pick<OperationalLibraryPack, "packKey" | "name" | "version" | "category" | "description" | "setupNotes">; dryRun: true; summary: OperationalLibrarySummary; warnings: string[] }>("/operational-library/preview", {
+  return request<OperationalLibraryPreviewResponse>("/operational-library/preview", {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -3188,8 +3247,8 @@ export function installOperationalLibraryPack(input: { packKey?: string; pack?: 
   });
 }
 
-export function getPropertyTemplates() {
-  return request<{ templates: PropertyTemplate[] }>("/property-templates");
+export function getPropertyTemplates(includeArchived = false) {
+  return request<{ templates: PropertyTemplate[] }>(`/property-templates?includeArchived=${includeArchived}`);
 }
 
 export function previewPropertyTemplateFromProperty(input: {
@@ -3239,6 +3298,18 @@ export function applyPropertyTemplate(id: string, input: {
 export function archivePropertyTemplate(id: string) {
   return request<{ template: PropertyTemplate }>(`/property-templates/${id}/archive`, {
     method: "POST",
+  });
+}
+
+export function restorePropertyTemplate(id: string) {
+  return request<{ template: PropertyTemplate }>(`/property-templates/${id}/restore`, {
+    method: "POST",
+  });
+}
+
+export function deletePropertyTemplate(id: string) {
+  return request<{ ok: true }>(`/property-templates/${id}`, {
+    method: "DELETE",
   });
 }
 
@@ -3374,8 +3445,16 @@ export function updateCustomFieldValue(itemId: string, fieldId: string, value: u
   });
 }
 
-export function getSavedViews() {
-  return request<{ views: SavedView[] }>("/saved-views");
+export function getSavedViews(input?: { includeArchived?: boolean; module?: string }) {
+  const params = new URLSearchParams();
+  if (input?.includeArchived) {
+    params.set("includeArchived", "true");
+  }
+  if (input?.module) {
+    params.set("module", input.module);
+  }
+  const suffix = params.size ? `?${params.toString()}` : "";
+  return request<{ views: SavedView[] }>(`/saved-views${suffix}`);
 }
 
 export function createSavedView(input: {
@@ -3406,6 +3485,18 @@ export function updateSavedView(id: string, input: Partial<{
   return request<{ view: SavedView }>(`/saved-views/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+export function archiveSavedView(id: string) {
+  return request<{ ok: true; view: SavedView }>(`/saved-views/${id}/archive`, {
+    method: "POST",
+  });
+}
+
+export function restoreSavedView(id: string) {
+  return request<{ ok: true; view: SavedView }>(`/saved-views/${id}/restore`, {
+    method: "POST",
   });
 }
 
@@ -3702,7 +3793,9 @@ export type AvailabilityImportConflict = {
   unitNumber: string;
   updatedAt: string;
   reportDate: string | null;
+  conflictKind: "LOCAL_AHEAD_READY" | "LOCAL_NEWER";
   reason: string;
+  recommendedAction: string;
   fieldChanges: string[];
 };
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-MakeReadyOS does not run a backup scheduler inside the application. Linux hosts should schedule `./backup-db.sh` so database backup behavior remains simple, visible, and independent of the web app.
+MakeReadyOS does not run a backup scheduler inside the application. Linux hosts should schedule `./backup-all.sh` so database state and upload bytes are snapshotted together in one visible host-level job, independent of the web app.
 
 The supplied examples target a Docker Compose deployment installed at `/opt/makereadyos`. Adjust that path and service user for your server.
 
@@ -35,7 +35,7 @@ Example files are included:
 - `deploy/examples/makereadyos-backup.service`
 - `deploy/examples/makereadyos-backup.timer`
 
-The timer runs nightly at approximately `02:15`, with up to 15 minutes of randomized delay. To install on a Raspberry Pi, VM, or Linux server using systemd:
+The timer runs nightly at approximately `02:15`, with up to 15 minutes of randomized delay. It now runs the full `backup-all.sh` snapshot so upload bytes are included alongside PostgreSQL dumps. To install on a Raspberry Pi, VM, or Linux server using systemd:
 
 ```bash
 sudo cp deploy/examples/makereadyos-backup.service /etc/systemd/system/
@@ -60,7 +60,7 @@ View timer execution and application backup logs with:
 systemctl status makereadyos-backup.timer
 journalctl -u makereadyos-backup.service
 ls -lh /opt/makereadyos/backups/
-ls -1t /opt/makereadyos/logs/backup-db-*.txt | head
+ls -1t /opt/makereadyos/logs/backup-all-*.txt | head
 ```
 
 ## Cron Alternative
@@ -68,7 +68,7 @@ ls -1t /opt/makereadyos/logs/backup-db-*.txt | head
 If the host does not use systemd, schedule the same script with cron. This example contains no secrets:
 
 ```cron
-15 2 * * * cd /opt/makereadyos && ./backup-db.sh
+15 2 * * * cd /opt/makereadyos && ./backup-all.sh
 ```
 
 Use the account that owns the deployment and can run `docker compose`. Keep credentials in `.env`, not in the crontab.
@@ -78,11 +78,12 @@ Use the account that owns the deployment and can run `docker compose`. Keep cred
 After scheduling:
 
 1. Run `./backup-db.sh` manually once.
-2. Confirm a new `.dump` file appears under `backups/`.
-3. Confirm a backup log and, when retention is configured, a prune log appear under `logs/`.
-4. Run `./prune-backups.sh --dry-run` to inspect local expiration behavior.
-5. Regularly copy dumps off-host.
-6. Periodically restore a dump on a separate non-production instance.
+2. Run `./backup-uploads.sh` manually once, or run `./backup-all.sh` and confirm both steps succeed.
+3. Confirm a new `.dump` file and a new `.tgz` upload archive appear under `backups/`.
+4. Confirm backup logs and, when retention is configured, a prune log appear under `logs/`.
+5. Run `./prune-backups.sh --dry-run` to inspect local expiration behavior.
+6. Regularly copy both backup artifact types off-host.
+7. Periodically restore both artifacts on a separate non-production instance with `./restore-all.sh`.
 
 ## Not Included
 

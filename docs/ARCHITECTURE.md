@@ -282,9 +282,11 @@ The right-side item inspector is a frontend composition over existing authorized
 
 Current saved-view routes:
 
-- `GET /api/saved-views`
+- `GET /api/saved-views?includeArchived=`
 - `POST /api/saved-views`
 - `PATCH /api/saved-views/:id`
+- `POST /api/saved-views/:id/archive`
+- `POST /api/saved-views/:id/restore`
 - `DELETE /api/saved-views/:id`
 
 Permission behavior:
@@ -293,6 +295,8 @@ Permission behavior:
 - `TECH`: can create/update/delete personal views
 - `MANAGER` and `ADMIN`: can create shared views
 - only the owner or an `ADMIN` can modify an existing saved view
+- archived views stay queryable for restore and audit context, but they are excluded from normal quick-load lists unless `includeArchived=true`
+- permanent delete requires the saved view to be archived first so operators can distinguish archive from destructive removal
 
 ## Custom Fields
 
@@ -470,5 +474,7 @@ MakeReadyOS extension points are JSON contracts only: operational library packs,
 `PropertyTemplate` stores reusable property setup as a versioned `makereadyos.propertyTemplate` JSON manifest. The manifest can include board sections, built-in option sets, custom fields/options, optional floor-plan definitions, schedule tracks, shared saved views/dashboard presets, checklist templates, and structured automation rules.
 
 Template routes live under `/api/property-templates`. Managers/admins can preview or create a template from an accessible source property. Applying a template uses merge mode with a dry-run-first summary; matching records are skipped rather than overwritten. Creating a new target property from a template is admin-only, while managers may apply templates only to existing assigned properties. Automation rules installed from property templates default to disabled unless explicitly enabled.
+
+Property templates now follow the same safer lifecycle pattern as other recoverable setup records: active library queries hide archived templates by default, archived templates can be listed explicitly for restore, and permanent delete is rejected until the template is archived first so operators can distinguish archive from destructive removal.
 
 Templates intentionally exclude live make-ready items, units, comments, attachments, users, sessions, tokens, audit history, and unit history so they remain safe operational configuration. Native backup includes template metadata/manifests, and operational library packs may store property templates as data-only pack items.

@@ -103,6 +103,7 @@ type FrogRender = {
   color: string;
   pose: string;
   sheet: SpriteSheet;
+  achievementLabel: string | null;
   frame: FrogFrame;
   tadpoleUrl: string;
   x: number;
@@ -182,12 +183,32 @@ function poseForItem(item: MakeReadyItem, poseBy: FrogPondConfig["poseBy"]) {
   return "working";
 }
 
-function sheetForItem(item: MakeReadyItem) {
-  if (item.riskLevel === "CRITICAL") return frogSheets.purple;
-  if (item.riskLevel === "HIGH") return frogSheets.brown;
-  if (item.makeReadyStatus === "DONE" || item.completionStatus === "YES") return frogSheets.blue;
-  if (item.scopeLevel === "MAJOR") return frogSheets.tan;
-  return frogSheets.green;
+function sheetForItem(item: MakeReadyItem): { sheet: SpriteSheet; achievementLabel: string | null } {
+  if (item.makeReadyStatus === "DONE" || item.completionStatus === "YES") {
+    return { sheet: frogSheets.tophat, achievementLabel: frogSheets.tophat.achievement ?? null };
+  }
+  if (item.scopeLevel === "MAJOR") {
+    return { sheet: frogSheets.viking, achievementLabel: frogSheets.viking.achievement ?? null };
+  }
+  if (item.riskLevel === "CRITICAL") {
+    return { sheet: frogSheets.pirate, achievementLabel: frogSheets.pirate.achievement ?? null };
+  }
+  if (isThisWeek(item.moveInDate)) {
+    return { sheet: frogSheets.funnyglasses, achievementLabel: frogSheets.funnyglasses.achievement ?? null };
+  }
+  if (item.assignedTech?.trim()) {
+    return { sheet: frogSheets.cowboy, achievementLabel: frogSheets.cowboy.achievement ?? null };
+  }
+  if (item.riskLevel === "HIGH") {
+    return { sheet: frogSheets.brown, achievementLabel: null };
+  }
+  if (item.vacancyStatus?.startsWith("NTV")) {
+    return { sheet: frogSheets.tan, achievementLabel: null };
+  }
+  if (item.scopeLevel === "FULL" || item.scopeLevel === "PARTIAL") {
+    return { sheet: frogSheets.clown, achievementLabel: frogSheets.clown.achievement ?? null };
+  }
+  return { sheet: frogSheets.green, achievementLabel: null };
 }
 
 function validRunsForSheet(sheet: SpriteSheet, pose: string): FrogRun[] {
@@ -317,6 +338,38 @@ function loadPositions(): Record<string, PondPosition> {
   }
 }
 
+const pondPlaybooks: Array<{
+  id: string;
+  label: string;
+  description: string;
+  config: Partial<FrogPondConfig>;
+}> = [
+  {
+    id: "ops-overview",
+    label: "Ops Overview",
+    description: "Balanced live board view with calm pond spacing.",
+    config: { metricSource: "active", groupBy: "property", colorBy: "riskLevel", poseBy: "riskLevel", density: "comfortable", theme: "pond-05", animated: true },
+  },
+  {
+    id: "risk-watch",
+    label: "Risk Watch",
+    description: "High-risk focus with tighter grouping for supervisors.",
+    config: { metricSource: "risk", groupBy: "riskLevel", colorBy: "riskLevel", poseBy: "riskLevel", density: "dense", theme: "pond-14", animated: true },
+  },
+  {
+    id: "tech-loadout",
+    label: "Tech Loadout",
+    description: "Assigned work grouped by tech for quick coverage checks.",
+    config: { metricSource: "techWorkload", groupBy: "assignedTech", colorBy: "property", poseBy: "makeReadyStatus", density: "dense", theme: "pond-08", animated: true },
+  },
+  {
+    id: "move-in-watch",
+    label: "Move-In Watch",
+    description: "This week's move-ins with clearer readiness cues.",
+    config: { metricSource: "moveInsWeek", groupBy: "property", colorBy: "makeReadyStatus", poseBy: "makeReadyStatus", density: "comfortable", theme: "pond-12", animated: false },
+  },
+];
+
 export function FrogPondPanel({ items, properties, boardSections, labelsByField, language, selectedPropertyId, loading, error, onOpenItem, onPropertyChange, onGroupDrillDown }: Props) {
   const isSpanish = language === "es";
   const sceneRef = useRef<HTMLDivElement | null>(null);
@@ -412,13 +465,25 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
   const groups = Object.keys(grouped).sort();
   const legendValues = Array.from(new Set(visibleItems.map((item) => colorValue(item, config.colorBy))));
   const activePond = pondThemes.find((theme) => theme.key === config.theme) ?? pondThemes[0];
+  const hiddenGroupSummary = useMemo(() => scopedItems.slice(Math.max(1, config.maxFrogs)).reduce<Array<{ group: string; count: number; units: string[] }>>((acc, item) => {
+    const group = groupValue(item, config.groupBy, boardSections);
+    const existing = acc.find((entry) => entry.group === group);
+    if (existing) {
+      existing.count += 1;
+      if (existing.units.length < 3) existing.units.push(displayUnitNumber(item.property.code, item.unitNumber));
+      return acc;
+    }
+    acc.push({ group, count: 1, units: [displayUnitNumber(item.property.code, item.unitNumber)] });
+    return acc;
+  }, []).sort((left, right) => right.count - left.count), [boardSections, config.groupBy, config.maxFrogs, scopedItems]);
+  const achievementLegend = useMemo(() => Array.from(new Set(visibleItems.map((item) => sheetForItem(item).achievementLabel).filter((value): value is string => Boolean(value)))), [visibleItems]);
   const renderedFrogs = useMemo<FrogRender[]>(() => visibleItems.map((item, index) => {
     const group = groupValue(item, config.groupBy, boardSections);
     const groupIndex = Math.max(0, groups.indexOf(group));
     const colorLabel = colorValue(item, config.colorBy);
     const color = colorForValue(colorLabel, config.colorBy, labelsByField, legendValues.indexOf(colorLabel));
     const pose = poseForItem(item, config.poseBy);
-    const sheet = sheetForItem(item);
+    const { sheet, achievementLabel } = sheetForItem(item);
     const frame = spriteFrameForItem(item, pose, index, frameTick, sheet);
     const tadpoleUrl = tadpoleSprites[(frameTick + index) % tadpoleSprites.length];
     const basePosition = positions[item.id] ?? frogPosition(index, groupIndex, groups.length, config.density);
@@ -432,6 +497,7 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
       color,
       pose,
       sheet,
+      achievementLabel,
       frame,
       tadpoleUrl,
       x: clamp(basePosition.x + wander.x + evade.x, pondMinX, pondMaxX),
@@ -458,6 +524,10 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
     setPresets(next);
     window.localStorage.setItem(presetsKey, JSON.stringify(next));
     setPresetName("");
+  };
+
+  const applyPlaybook = (playbook: (typeof pondPlaybooks)[number]) => {
+    updateConfig(playbook.config);
   };
 
   const resetPositions = () => {
@@ -550,6 +620,14 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
       </header>
 
       <div className="frog-config" data-testid="frog-config">
+        <div className="frog-playbooks" data-testid="frog-playbooks">
+          {pondPlaybooks.map((playbook) => (
+            <button key={playbook.id} type="button" className="frog-playbook" data-testid={`frog-playbook-${playbook.id}`} onClick={() => applyPlaybook(playbook)}>
+              <strong>{playbook.label}</strong>
+              <span>{playbook.description}</span>
+            </button>
+          ))}
+        </div>
         <label>{isSpanish ? "Las ranas representan" : "Frogs represent"}
           <select data-testid="frog-metric-source" value={config.metricSource} onChange={(event) => updateConfig({ metricSource: event.target.value as MetricSource })}>
             <option value="active">{isSpanish ? "Make-readies activos" : "Active make-readies"}</option>
@@ -617,7 +695,7 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
         </div>
       ) : (
         <div ref={sceneRef} className="frog-pond-scene" data-testid="frog-pond-scene" aria-label={isSpanish ? "Visualizacion operativa de Frog Pond" : "Frog Pond operational visualization"} style={{ "--pond-image": `url("${activePond.url}")` } as CSSProperties}>
-          {renderedFrogs.map(({ item, index, group, colorLabel, color, pose, sheet, frame, tadpoleUrl, x, y }) => {
+          {renderedFrogs.map(({ item, index, group, colorLabel, color, pose, sheet, achievementLabel, frame, tadpoleUrl, x, y }) => {
             return (
               <button
                 type="button"
@@ -649,11 +727,12 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
                 onPointerEnter={(event) => evadeOnce(event, item.id, index, pose, { x, y })}
-                title={`${displayUnitNumber(item.property.code, item.unitNumber)} / ${group} / ${colorLabel}`}
+                title={`${displayUnitNumber(item.property.code, item.unitNumber)} / ${group} / ${colorLabel}${achievementLabel ? ` / ${achievementLabel}` : ""}`}
               >
                 <span className="frog-body" aria-hidden="true"><i /><b /></span>
                 <strong>{displayUnitNumber(item.property.code, item.unitNumber)}</strong>
                 <em>{pose.replace("-", " ")}</em>
+                {achievementLabel ? <small>{achievementLabel}</small> : null}
               </button>
             );
           })}
@@ -668,7 +747,20 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
               } as CSSProperties}
             />
           ))}
-          {hiddenCount > 0 ? <div className="frog-cluster" data-testid="frog-cluster">+{hiddenCount} more frogs clustered by current limit</div> : null}
+          {hiddenCount > 0 ? (
+            <div className="frog-cluster" data-testid="frog-cluster">
+              <strong>+{hiddenCount}</strong>
+              <span>{isSpanish ? "ranas ocultas por el límite actual" : "frogs hidden by the current limit"}</span>
+              <div className="frog-cluster-list">
+                {hiddenGroupSummary.slice(0, 4).map((entry) => (
+                  <button key={entry.group} type="button" className="frog-cluster-chip" onClick={() => onGroupDrillDown({ type: config.groupBy, value: entry.group })} title={entry.units.join(", ")}>
+                    <span>{entry.group}</span>
+                    <strong>{entry.count}</strong>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -684,7 +776,8 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
       <div className="frog-legend" data-testid="frog-legend">
         <strong>Legend: {config.colorBy.replace(/([A-Z])/g, " $1")}</strong>
         {legendValues.map((value, index) => <span key={value}><i style={{ background: colorForValue(value, config.colorBy, labelsByField, index) }} />{value}</span>)}
-        <small>Sprite frames use 32x32 tiles; hat/accessory sheets are reserved for future goal unlocks.</small>
+        {achievementLegend.length ? <small>{isSpanish ? "Accesorios activos:" : "Active accessories:"} {achievementLegend.join(" · ")}</small> : null}
+        <small>{isSpanish ? "Los sprites usan cuadros 32x32 y los accesorios ahora se activan por señales operativas reales como listo, trabajo mayor, riesgo crítico o mudanza cercana." : "Sprites use 32x32 frames, and accessories now activate from real operating signals such as ready units, major scope, critical risk, or near-term move-ins."}</small>
       </div>
     </section>
   );

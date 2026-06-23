@@ -59,11 +59,11 @@ The evidence package panel highlights charge-candidate files and charge-candidat
 
 ## Price-Sheet Estimates
 
-Managers and administrators can add property-scoped price-sheet items from the Inspection Gallery. Each item can carry a name, category, unit label, and default estimate. Operators can then mark a photo/file or an individual image markup pin as a charge candidate, select a price-sheet item, set quantity, and override the estimated amount when the field walk requires it.
+Managers and administrators can add property-scoped price-sheet items from the Inspection Gallery. Each item can carry a name, category, unit label, and default estimate. The same panel now supports bulk CSV or tab-delimited paste import using `Name, Category, Unit, Amount, Description`, with optional header row support and per-property upsert-by-name behavior for large initial setup passes. Operators can then mark a photo/file or an individual image markup pin as a charge candidate, select a price-sheet item, set quantity, and override the estimated amount when the field walk requires it.
 
 The estimate total shown in the gallery is a review aid for damage, cleaning, trash-out, and similar evidence packets. It is intentionally separate from accounting. Exported ZIPs contain the files; the database stores the structured estimate metadata, including pin-level price-sheet references.
 
-`GET /api/make-ready-items/:id/charge-report` returns a scoped, read-only line-item summary of charge-candidate photos and charge-candidate markup pins. It includes file/pin labels, categories, notes, selected price-sheet items, quantities, per-line estimates, missing-context count, and total estimate. `GET /api/make-ready-items/:id/charge-report.csv` downloads the same line items as CSV for spreadsheet review. The Inspection Gallery exposes the same data through the “Open charge report” action with CSV and ZIP download actions. Use this report for internal review/export tooling; it is still evidence metadata rather than an accounting charge.
+`GET /api/make-ready-items/:id/charge-report` returns a scoped, read-only line-item summary of charge-candidate photos and charge-candidate markup pins. It includes file/pin labels, categories, notes, selected price-sheet items, quantities, per-line estimates, missing-context count, and total estimate. `GET /api/make-ready-items/:id/charge-report.csv` downloads the same line items as CSV for spreadsheet review, and the CSV/HTML/PDF variants support optional category grouping with `?groupBy=category` for cleaner damage-review packets. `GET /api/make-ready-items/:id/charge-report.html` and `GET /api/make-ready-items/:id/charge-report.pdf` produce printable evidence summaries for handoff/review without mixing this workflow into accounting. The Inspection Gallery exposes the same data through the “Open charge report” action with an in-app Group by category toggle plus Print, PDF, CSV, and ZIP download actions. Use this report for internal review/export tooling; it is still evidence metadata rather than an accounting charge.
 
 ## Storage And Backups
 
@@ -81,7 +81,6 @@ The Admin storage screen shows the current upload path, validates proposed local
 ## Current Limits
 
 - No resident charge ledger, invoice workflow, or accounting export.
-- Price-sheet estimates are property-scoped and manually maintained; there is no bulk price-sheet importer yet.
 - No OCR or automatic damage classification.
 - No direct attachment-to-checklist-item relation yet; attachments are item-level.
 - Markup pins are metadata overlays. They do not burn annotations into the original image file yet.

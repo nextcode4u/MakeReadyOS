@@ -202,6 +202,19 @@ function emptyVendorDraft(): VendorDraft {
   };
 }
 
+function mapVendorToDraft(vendor: PropertyWikiVendor): VendorDraft {
+  return {
+    vendorType: vendor.vendorType,
+    companyName: vendor.companyName,
+    contactName: vendor.contactName ?? "",
+    phone: vendor.phone ?? "",
+    email: vendor.email ?? "",
+    emergencyPhone: vendor.emergencyPhone ?? "",
+    notes: vendor.notes ?? "",
+    isActive: vendor.isActive,
+  };
+}
+
 function sectionLabel(section: string, language: UserLanguage) {
   switch (section as PropertyWikiSection) {
     case "UTILITIES": return t(language, "wiki.utilities");
@@ -450,8 +463,31 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
 
   const allEntries = allEntriesQuery.data?.entries ?? [];
   const wikiVendors = vendorsQuery.data?.vendors ?? [];
-  const activeEntries = entriesQuery.data?.entries ?? [];
+  const activeEntries = useMemo(() => (entriesQuery.data?.entries ?? []).filter((entry) => entry.isActive), [entriesQuery.data?.entries]);
   const wikiAssets = activeTab === "photos" ? (photosQuery.data?.assets ?? []) : (documentsQuery.data?.assets ?? []);
+  const normalizedSectionFilter = sectionFilter.trim().toLowerCase();
+  const archivedEntries = useMemo(() => {
+    if (!section) return [];
+    return allEntries.filter((entry) => {
+      if (entry.section !== section || entry.isActive) return false;
+      if (!normalizedSectionFilter) return true;
+      return [
+        entry.title,
+        entry.category,
+        entry.contactType,
+        entry.building,
+        entry.locationDescription,
+        entry.manufacturer,
+        entry.equipmentModel,
+        entry.serialNumber,
+        entry.notes,
+        entry.content,
+        Array.isArray(entry.tags) ? entry.tags.join(" ") : entry.tags,
+      ].some((value) => value?.toLowerCase().includes(normalizedSectionFilter));
+    });
+  }, [allEntries, normalizedSectionFilter, section]);
+  const activeWikiVendors = useMemo(() => wikiVendors.filter((vendor) => vendor.isActive), [wikiVendors]);
+  const archivedWikiVendors = useMemo(() => wikiVendors.filter((vendor) => !vendor.isActive), [wikiVendors]);
 
   const currentCategories = useMemo(() => {
     const categories = overviewQuery.data?.categories;
@@ -605,6 +641,63 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
   const loadEntryForEdit = (entry: PropertyWikiEntry) => {
     setEditingEntryId(entry.id);
     setEntryDraft(mapEntryToDraft(entry));
+  };
+
+  const setEntryActiveState = (entry: PropertyWikiEntry, isActive: boolean) => {
+    void updatePropertyWikiEntry(entry.id, {
+      propertyId,
+      ...mapEntryToDraft(entry),
+      category: entry.category,
+      building: entry.building,
+      locationDescription: entry.locationDescription,
+      equipmentModel: entry.equipmentModel,
+      manufacturer: entry.manufacturer,
+      serialNumber: entry.serialNumber,
+      installDate: entry.installDate,
+      warrantyExpiresAt: entry.warrantyExpiresAt,
+      floorPlan: entry.floorPlan,
+      unitType: entry.unitType,
+      blindSizes: entry.blindSizes,
+      hvacNotes: entry.hvacNotes,
+      waterHeaterNotes: entry.waterHeaterNotes,
+      applianceNotes: entry.applianceNotes,
+      paintStandards: entry.paintStandards,
+      countertopNotes: entry.countertopNotes,
+      cabinetNotes: entry.cabinetNotes,
+      flooringNotes: entry.flooringNotes,
+      contactType: entry.contactType,
+      contactTitle: entry.contactTitle,
+      phone: entry.phone,
+      email: entry.email,
+      relatedEntryIds: entry.relatedEntryIds,
+      relatedVendorIds: entry.relatedVendorIds,
+      notes: entry.notes,
+      content: entry.content,
+      issueStatus: entry.issueStatus,
+      tags: entry.tags.join(", "),
+      contacts: entry.contacts,
+      situation: entry.situation,
+      poolCapacity: entry.poolCapacity,
+      spaCapacity: entry.spaCapacity,
+      pumpModels: entry.pumpModels,
+      filterModels: entry.filterModels,
+      filterSizes: entry.filterSizes,
+      heaterModels: entry.heaterModels,
+      controllerNotes: entry.controllerNotes,
+      chemicalTargetNotes: entry.chemicalTargetNotes,
+      isPinned: entry.isPinned,
+      isEmergency: entry.isEmergency,
+      isEmergencyContact: entry.isEmergencyContact,
+      isActive,
+    }).then(() => propertyWikiInvalidate());
+  };
+
+  const setVendorActiveState = (vendor: PropertyWikiVendor, isActive: boolean) => {
+    void updatePropertyWikiVendor(vendor.id, {
+      propertyId,
+      ...mapVendorToDraft(vendor),
+      isActive,
+    }).then(() => propertyWikiInvalidate());
   };
 
   const duplicateStandard = (entry: PropertyWikiEntry) => {
@@ -1000,24 +1093,62 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
                   <h2>{sectionLabel(section, language)}</h2>
                   <input placeholder={tWithVars(language, "wiki.filterSection", { section: sectionLabel(section, language).toLowerCase() })} value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value)} />
                 </div>
-                {entriesQuery.isLoading ? <p className="muted">{t(language, "wiki.loadingRecords")}</p> : activeEntries.length === 0 ? <p className="muted">{t(language, "wiki.noRecordsInSectionYet")}</p> : activeEntries.map((entry) => (
-                  <article key={entry.id} className={`property-wiki-record${entry.isEmergency ? " emergency" : ""}`}>
-                    <div>
-                      <strong>{entry.title}</strong>
-                      <span>{entry.category || entry.contactType || sectionLabel(entry.section, language)}{entry.building ? ` / ${entry.building}` : ""}{entry.locationDescription ? ` / ${entry.locationDescription}` : ""}{!entry.isActive ? ` / ${t(language, "wiki.archived")}` : ""}</span>
-                      {entry.issueStatus ? <small>{t(language, "admin.status")}: {entry.issueStatus}</small> : null}
-                      {entry.manufacturer || entry.equipmentModel ? <small>{[entry.manufacturer, entry.equipmentModel].filter(Boolean).join(" / ")}</small> : null}
-                      <p>{recordSummary(entry) || t(language, "wiki.noSummaryYet")}</p>
-                      {renderTags(entry.tags)}
+                {entriesQuery.isLoading ? <p className="muted">{t(language, "wiki.loadingRecords")}</p> : (
+                  <>
+                    <div className="stack gap-sm">
+                      <div className="section-header">
+                        <strong>{t(language, "wiki.activeRecord")}</strong>
+                        <span className="muted">{activeEntries.length}</span>
+                      </div>
+                      {activeEntries.length === 0 ? <p className="muted">{t(language, "wiki.noRecordsInSectionYet")}</p> : activeEntries.map((entry) => (
+                        <article key={entry.id} className={`property-wiki-record${entry.isEmergency ? " emergency" : ""}`}>
+                          <div>
+                            <strong>{entry.title}</strong>
+                            <span>{entry.category || entry.contactType || sectionLabel(entry.section, language)}{entry.building ? ` / ${entry.building}` : ""}{entry.locationDescription ? ` / ${entry.locationDescription}` : ""}</span>
+                            {entry.issueStatus ? <small>{t(language, "admin.status")}: {entry.issueStatus}</small> : null}
+                            {entry.manufacturer || entry.equipmentModel ? <small>{[entry.manufacturer, entry.equipmentModel].filter(Boolean).join(" / ")}</small> : null}
+                            <p>{recordSummary(entry) || t(language, "wiki.noSummaryYet")}</p>
+                            {renderTags(entry.tags)}
+                          </div>
+                          <div className="pool-entry-actions">
+                            {section === "UNIT_STANDARDS" && access.edit ? <button type="button" className="button button-secondary" onClick={() => duplicateStandard(entry)}>{t(language, "wiki.duplicate")}</button> : null}
+                            {canFavoriteRecord(entry.section, "ENTRY") ? <button type="button" className="button button-secondary" onClick={() => toggleFavorite("ENTRY", entry.id)}>{t(language, "wiki.favorite")}</button> : null}
+                            <button type="button" className="button button-secondary" onClick={() => openRecord("ENTRY", entry.id)}>{t(language, "wiki.view")}</button>
+                            {access.edit ? <button type="button" className="button button-secondary" onClick={() => loadEntryForEdit(entry)}>{t(language, "drawer.edit")}</button> : null}
+                            {access.edit ? <button type="button" className="button button-secondary" onClick={() => setEntryActiveState(entry, false)}>{t(language, "wiki.archived")}</button> : null}
+                          </div>
+                        </article>
+                      ))}
                     </div>
-                    <div className="pool-entry-actions">
-                      {section === "UNIT_STANDARDS" && access.edit ? <button type="button" className="button button-secondary" onClick={() => duplicateStandard(entry)}>{t(language, "wiki.duplicate")}</button> : null}
-                      {canFavoriteRecord(entry.section, "ENTRY") ? <button type="button" className="button button-secondary" onClick={() => toggleFavorite("ENTRY", entry.id)}>{t(language, "wiki.favorite")}</button> : null}
-                      <button type="button" className="button button-secondary" onClick={() => openRecord("ENTRY", entry.id)}>{t(language, "wiki.view")}</button>
-                      {access.edit ? <button type="button" className="button button-secondary" onClick={() => loadEntryForEdit(entry)}>{t(language, "drawer.edit")}</button> : null}
-                    </div>
-                  </article>
-                ))}
+
+                    {archivedEntries.length > 0 ? (
+                      <div className="stack gap-sm" style={{ marginTop: 16 }}>
+                        <div className="section-header">
+                          <strong>{t(language, "wiki.archived")}</strong>
+                          <span className="muted">{archivedEntries.length}</span>
+                        </div>
+                        {archivedEntries.map((entry) => (
+                          <article key={entry.id} className={`property-wiki-record${entry.isEmergency ? " emergency" : ""}`}>
+                            <div>
+                              <strong>{entry.title}</strong>
+                              <span>{entry.category || entry.contactType || sectionLabel(entry.section, language)}{entry.building ? ` / ${entry.building}` : ""}{entry.locationDescription ? ` / ${entry.locationDescription}` : ""}{` / ${t(language, "wiki.archived")}`}</span>
+                              {entry.issueStatus ? <small>{t(language, "admin.status")}: {entry.issueStatus}</small> : null}
+                              {entry.manufacturer || entry.equipmentModel ? <small>{[entry.manufacturer, entry.equipmentModel].filter(Boolean).join(" / ")}</small> : null}
+                              <p>{recordSummary(entry) || t(language, "wiki.noSummaryYet")}</p>
+                              {renderTags(entry.tags)}
+                            </div>
+                            <div className="pool-entry-actions">
+                              {canFavoriteRecord(entry.section, "ENTRY") ? <button type="button" className="button button-secondary" onClick={() => toggleFavorite("ENTRY", entry.id)}>{t(language, "wiki.favorite")}</button> : null}
+                              <button type="button" className="button button-secondary" onClick={() => openRecord("ENTRY", entry.id)}>{t(language, "wiki.view")}</button>
+                              {access.edit ? <button type="button" className="button button-secondary" onClick={() => loadEntryForEdit(entry)}>{t(language, "drawer.edit")}</button> : null}
+                              {access.edit ? <button type="button" className="button button-secondary" onClick={() => setEntryActiveState(entry, true)}>{t(language, "common.restore")}</button> : null}
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : null}
+                  </>
+                )}
               </div>
             </div>
           ) : null}
@@ -1049,19 +1180,48 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
               </form>
               <div className="pool-card">
                 <h2>{t(language, "wiki.vendorDirectory")}</h2>
-                {wikiVendors.map((vendor) => (
-                  <article key={vendor.id} className="property-wiki-record">
-                    <div>
-                      <strong>{vendor.companyName}</strong>
-                      <span>{vendor.vendorType}{vendor.contactName ? ` / ${vendor.contactName}` : ""}{!vendor.isActive ? ` / ${t(language, "wiki.inactive")}` : ""}</span>
-                      <p>{vendor.notes || vendor.phone || vendor.email || vendor.emergencyPhone || t(language, "wiki.noDetailsYet")}</p>
+                <div className="stack gap-sm">
+                  <div className="section-header">
+                    <strong>{t(language, "wiki.activeVendor")}</strong>
+                    <span className="muted">{activeWikiVendors.length}</span>
+                  </div>
+                  {activeWikiVendors.map((vendor) => (
+                    <article key={vendor.id} className="property-wiki-record">
+                      <div>
+                        <strong>{vendor.companyName}</strong>
+                        <span>{vendor.vendorType}{vendor.contactName ? ` / ${vendor.contactName}` : ""}</span>
+                        <p>{vendor.notes || vendor.phone || vendor.email || vendor.emergencyPhone || t(language, "wiki.noDetailsYet")}</p>
+                      </div>
+                      <div className="pool-entry-actions">
+                        <button type="button" className="button button-secondary" onClick={() => toggleFavorite("VENDOR", vendor.id)}>{t(language, "wiki.favorite")}</button>
+                        <button type="button" className="button button-secondary" onClick={() => openRecord("VENDOR", vendor.id)}>{t(language, "wiki.view")}</button>
+                        {access.edit ? <button type="button" className="button button-secondary" onClick={() => setVendorActiveState(vendor, false)}>{t(language, "wiki.archived")}</button> : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                {archivedWikiVendors.length > 0 ? (
+                  <div className="stack gap-sm" style={{ marginTop: 16 }}>
+                    <div className="section-header">
+                      <strong>{t(language, "wiki.inactive")}</strong>
+                      <span className="muted">{archivedWikiVendors.length}</span>
                     </div>
-                    <div className="pool-entry-actions">
-                      <button type="button" className="button button-secondary" onClick={() => toggleFavorite("VENDOR", vendor.id)}>{t(language, "wiki.favorite")}</button>
-                      <button type="button" className="button button-secondary" onClick={() => openRecord("VENDOR", vendor.id)}>{t(language, "wiki.view")}</button>
-                    </div>
-                  </article>
-                ))}
+                    {archivedWikiVendors.map((vendor) => (
+                      <article key={vendor.id} className="property-wiki-record">
+                        <div>
+                          <strong>{vendor.companyName}</strong>
+                          <span>{vendor.vendorType}{vendor.contactName ? ` / ${vendor.contactName}` : ""}{` / ${t(language, "wiki.inactive")}`}</span>
+                          <p>{vendor.notes || vendor.phone || vendor.email || vendor.emergencyPhone || t(language, "wiki.noDetailsYet")}</p>
+                        </div>
+                        <div className="pool-entry-actions">
+                          <button type="button" className="button button-secondary" onClick={() => toggleFavorite("VENDOR", vendor.id)}>{t(language, "wiki.favorite")}</button>
+                          <button type="button" className="button button-secondary" onClick={() => openRecord("VENDOR", vendor.id)}>{t(language, "wiki.view")}</button>
+                          {access.edit ? <button type="button" className="button button-secondary" onClick={() => setVendorActiveState(vendor, true)}>{t(language, "common.restore")}</button> : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}

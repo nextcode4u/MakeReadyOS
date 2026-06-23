@@ -39,6 +39,7 @@ import {
   createVendorAssignment,
   createPropertyMap,
   createPropertyTemplateFromProperty,
+  deletePropertyTemplate,
   importAvailability,
   importUnits,
   revertUnitImport,
@@ -48,8 +49,10 @@ import {
   archiveBoardOption,
   archiveFloorPlan,
   archiveScheduleTrack,
+  archiveSavedView,
   archiveCustomField,
   restoreCustomField,
+  restoreSavedView,
   trashCustomField,
   permanentlyDeleteCustomField,
   archiveAutomation,
@@ -116,9 +119,11 @@ import {
   patchMakeReadyItem,
   previewAutomation,
   previewOperationalLibraryPack,
+  type OperationalLibraryPreviewResponse,
   previewPropertyTemplateFromProperty,
   runAutomationNow,
   reorderCustomFields,
+  restorePropertyTemplate,
   resetAdminUserPassword,
   SavedView,
   AutomationPreviewResponse,
@@ -149,6 +154,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   dismissNotification,
+  updateNotificationSettings,
   updateNotificationPreference,
   updateVendorAssignment,
   uploadPropertyMap,
@@ -165,14 +171,14 @@ import {
   type PestIssue,
   type PropertyMap,
 } from "./lib/api";
-import { configuredScheduleTracks, kanbanGroupOptions, labelMap, normalizeVisibleColumns, visibleColumnOptions } from "./lib/board";
+import { configuredScheduleTracks, kanbanGroupOptions, labelMap, normalizeVisibleColumns, tableColumnPresets, visibleColumnOptions } from "./lib/board";
 import { clockModeStorageKey, type ClockMode } from "./lib/dateTime";
 import { t, tWithVars } from "./lib/i18n";
 import { customFieldFilterChipLabel, customOperatorsByType, defaultCustomFilterFor, defaultStructuredFilters, itemMatchesStructuredFilters, normalizeCustomFieldFilters, type CustomFieldFilter, type StructuredFilters } from "./lib/structuredFilters";
 import { openWikiRecordEventName, type OpenWikiRecordRequest } from "./lib/wikiNavigation";
 import { openProjectCreateEventName, openProjectRecordEventName, type OpenProjectCreateRequest, type OpenProjectRecordRequest } from "./lib/projectNavigation";
 import { openPestQuickAddEventName, openPestWorkspaceEventName, type OpenPestQuickAddRequest, type OpenPestWorkspaceRequest } from "./lib/pestNavigation";
-import { openLeaseQuickAddEventName, type OpenLeaseQuickAddRequest } from "./lib/leaseNavigation";
+import { openLeaseQuickAddEventName, openLeaseWorkspaceEventName, type OpenLeaseQuickAddRequest, type OpenLeaseWorkspaceRequest } from "./lib/leaseNavigation";
 import { isTouchMobileViewport } from "./lib/responsive";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel").then((module) => ({ default: module.AdminPanel })));
@@ -201,6 +207,10 @@ const VendorsPanel = lazy(() => import("./components/VendorsPanel").then((module
 type AppView = "dashboard" | "mywork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "fields" | "automations" | "activity" | "admin";
 type KanbanGroupKey = string;
 type NavigationHistoryState = { view?: AppView; selectedItemId?: string | null };
+type DashboardDrilldownContext = {
+  label: string;
+  savedViewName: string;
+};
 const compactModeStorageKey = "makereadyos.compactMode";
 const themeModeStorageKey = "makereadyos.themeMode";
 const eyeStrainModeStorageKey = "makereadyos.eyeStrainMode";
@@ -364,7 +374,7 @@ function offlineJobChangeSummary(job: OfflineSyncJob) {
     case "makeReadyCommentDelete":
       return [`Comment ID: ${job.payload.commentId}`];
     case "makeReadyChecklistAttach":
-      return [`Template ID: ${job.payload.templateId}`];
+      return [`Checklist template ID: ${job.payload.templateId}`];
     case "makeReadyChecklistUpdate":
       return Object.entries(job.payload.input).map(([field, value]) => `${humanizeField(field)}: ${String(value ?? "-")}`);
     case "projectCreate":
@@ -607,6 +617,7 @@ function App() {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [scopeLevelFilter, setScopeLevelFilter] = useState("");
   const [structuredFilters, setStructuredFilters] = useState<StructuredFilters>(defaultStructuredFilters);
+  const [dashboardDrilldownContext, setDashboardDrilldownContext] = useState<DashboardDrilldownContext | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<string[] | null>(null);
   const [customFieldToAdd, setCustomFieldToAdd] = useState("");
   const [tableFiltersOpen, setTableFiltersOpen] = useState(() => !isTouchMobileViewport());
@@ -619,7 +630,7 @@ function App() {
   const [fieldError, setFieldError] = useState("");
   const [automationMessage, setAutomationMessage] = useState("");
   const [automationError, setAutomationError] = useState("");
-  const [libraryPreview, setLibraryPreview] = useState<string>("");
+  const [libraryPreview, setLibraryPreview] = useState<OperationalLibraryPreviewResponse | null>(null);
   const [templatePreview, setTemplatePreview] = useState<string>("");
   const [operationsMessage, setOperationsMessage] = useState("");
   const [operationsError, setOperationsError] = useState("");
@@ -637,6 +648,7 @@ function App() {
   const [dyslexiaMode, setDyslexiaMode] = useState(() => readStorageFlag(dyslexiaModeStorageKey));
   const [clockMode, setClockMode] = useState<ClockMode>(() => (readStorageValue(clockModeStorageKey) === "24h" ? "24h" : "12h"));
   const [boardWindowedMode, setBoardWindowedMode] = useState(() => readStorageFlag(boardWindowedModeStorageKey));
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const [boardWindowLimit, setBoardWindowLimit] = useState(() => {
     const stored = Number(readStorageValue(boardWindowLimitStorageKey));
     return Number.isFinite(stored) && stored >= boardWindowPageSize ? stored : boardWindowPageSize;
@@ -671,6 +683,7 @@ function App() {
   const [projectCreateRequest, setProjectCreateRequest] = useState<(OpenProjectCreateRequest & { nonce: number }) | null>(null);
   const [pestQuickAddRequest, setPestQuickAddRequest] = useState<(OpenPestQuickAddRequest & { nonce: number }) | null>(null);
   const [pestWorkspaceRequest, setPestWorkspaceRequest] = useState<(OpenPestWorkspaceRequest & { nonce: number }) | null>(null);
+  const [leaseWorkspaceRequest, setLeaseWorkspaceRequest] = useState<(OpenLeaseWorkspaceRequest & { nonce: number }) | null>(null);
   const [leaseQuickAddRequest, setLeaseQuickAddRequest] = useState<(OpenLeaseQuickAddRequest & { nonce: number }) | null>(null);
   const queryClient = useQueryClient();
   const hasInitializedHistoryRef = useRef(false);
@@ -1147,8 +1160,23 @@ function App() {
         ];
       }
       case "makeReadyChecklistAttach": {
+        const payload = selectedOfflineQueueJob.payload;
+        const queuedTemplate = selectedOfflineQueueServerCollaboration.templates.find(
+          (template) => template.id === payload.templateId,
+        ) ?? null;
+        const matchingLiveInstances = queuedTemplate
+          ? selectedOfflineQueueServerCollaboration.checklistInstances.filter((instance) => instance.name === queuedTemplate.name)
+          : [];
         return [
-          comparisonRow("templateId", selectedOfflineQueueJob.payload.templateId, "Live checklist instances loaded below"),
+          comparisonRow("templateId", payload.templateId, queuedTemplate?.id ?? null),
+          comparisonRow("templateName", queuedTemplate?.name ?? payload.templateId, matchingLiveInstances.map((instance) => instance.name).join(", ") || null),
+          comparisonRow(
+            "matchingLiveChecklist",
+            t(meQuery.data?.user.language ?? "en", "offlineQueue.pendingAttach"),
+            matchingLiveInstances.length
+              ? `${matchingLiveInstances.length} ${t(meQuery.data?.user.language ?? "en", "offlineQueue.alreadyAttached")}`
+              : t(meQuery.data?.user.language ?? "en", "offlineQueue.noneAttached"),
+          ),
           comparisonRow("liveChecklistCount", "Pending attach", selectedOfflineQueueServerCollaboration.checklistInstances.length),
         ];
       }
@@ -1295,6 +1323,18 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const handleOpenLeaseWorkspace = (event: Event) => {
+      const detail = (event as CustomEvent<OpenLeaseWorkspaceRequest>).detail;
+      if (!detail?.propertyId) return;
+      setPropertyId(detail.propertyId);
+      setLeaseWorkspaceRequest({ ...detail, nonce: Date.now() });
+      setAppView("lease");
+    };
+    window.addEventListener(openLeaseWorkspaceEventName, handleOpenLeaseWorkspace as EventListener);
+    return () => window.removeEventListener(openLeaseWorkspaceEventName, handleOpenLeaseWorkspace as EventListener);
+  }, []);
+
+  useEffect(() => {
     const handleSetActiveView = (event: Event) => {
       const detail = (event as CustomEvent<{ view?: AppView; propertyId?: string }>).detail;
       if (!detail?.view) return;
@@ -1421,7 +1461,7 @@ function App() {
 
   const savedViewsQuery = useQuery({
     queryKey: ["saved-views"],
-    queryFn: getSavedViews,
+    queryFn: () => getSavedViews({ includeArchived: true }),
     enabled: meQuery.isSuccess,
   });
   const dashboardQuery = useQuery({
@@ -1592,7 +1632,7 @@ function App() {
 
   const propertyTemplatesQuery = useQuery({
     queryKey: ["property-templates"],
-    queryFn: getPropertyTemplates,
+    queryFn: () => getPropertyTemplates(true),
     enabled: meQuery.isSuccess
       && (meQuery.data?.user.role === "ADMIN" || meQuery.data?.user.role === "MANAGER")
       && activeView === "automations",
@@ -1926,10 +1966,22 @@ function App() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
   });
   const notificationPreferenceMutation = useMutation({
-    mutationFn: ({ category, enabled }: { category: string; enabled: boolean }) => updateNotificationPreference(category, enabled),
+    mutationFn: ({ category, enabled, propertyId }: { category: string; enabled: boolean; propertyId?: string | null }) => updateNotificationPreference(category, enabled, propertyId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
       pushToast(t(meQuery.data?.user.language ?? "en", "ops.preferenceUpdated"), t(meQuery.data?.user.language ?? "en", "ops.preferenceUpdatedCopy"), "success");
+    },
+    onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.preferenceUpdateFailed"), error instanceof Error ? error.message : undefined, "error"),
+  });
+  const notificationSettingsMutation = useMutation({
+    mutationFn: updateNotificationSettings,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      pushToast(
+        t(meQuery.data?.user.language ?? "en", "ops.preferenceUpdated"),
+        meQuery.data?.user.language === "es" ? "Las horas de silencio se guardaron." : "Quiet hours were saved.",
+        "success",
+      );
     },
     onError: (error) => pushToast(t(meQuery.data?.user.language ?? "en", "ops.preferenceUpdateFailed"), error instanceof Error ? error.message : undefined, "error"),
   });
@@ -2365,13 +2417,12 @@ function App() {
   const previewOperationalLibraryMutation = useMutation({
     mutationFn: previewOperationalLibraryPack,
     onSuccess: (data) => {
-      const lines = Object.entries(data.summary).map(([bucket, summary]) => `${bucket}: ${summary.created} create, ${summary.skipped} skip, ${summary.conflicts} conflict`);
-      setLibraryPreview(lines.join("\n"));
+      setLibraryPreview(data);
       setAutomationError("");
       pushToast(t("ops.libraryPreviewComplete", language), tWithVars("ops.libraryPreviewCompleteCopy", language, { name: data.pack.name }), "info");
     },
     onError: (error) => {
-      setLibraryPreview("");
+      setLibraryPreview(null);
       setAutomationError(error instanceof Error ? error.message : "Library preview failed");
       pushToast(t("ops.libraryPreviewFailed", language), error instanceof Error ? error.message : t("ops.libraryPreviewFailed", language), "error");
     },
@@ -2462,6 +2513,30 @@ function App() {
     onError: (error) => {
       setAutomationError(error instanceof Error ? error.message : "Template archive failed");
       pushToast(t("ops.templateArchiveFailed", language), error instanceof Error ? error.message : t("ops.templateArchiveFailed", language), "error");
+    },
+  });
+
+  const restorePropertyTemplateMutation = useMutation({
+    mutationFn: restorePropertyTemplate,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["property-templates"] });
+      pushToast(t("ops.templateRestored", language), t("ops.templateRestoredCopy", language), "success");
+    },
+    onError: (error) => {
+      setAutomationError(error instanceof Error ? error.message : "Template restore failed");
+      pushToast(t("ops.templateRestoreFailed", language), error instanceof Error ? error.message : t("ops.templateRestoreFailed", language), "error");
+    },
+  });
+
+  const deletePropertyTemplateMutation = useMutation({
+    mutationFn: deletePropertyTemplate,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["property-templates"] });
+      pushToast(t("ops.templateDeleted", language), t("ops.templateDeletedCopy", language), "info");
+    },
+    onError: (error) => {
+      setAutomationError(error instanceof Error ? error.message : "Template delete failed");
+      pushToast(t("ops.templateDeleteFailed", language), error instanceof Error ? error.message : t("ops.templateDeleteFailed", language), "error");
     },
   });
 
@@ -2714,6 +2789,38 @@ function App() {
     },
   });
 
+  const archiveViewMutation = useMutation({
+    mutationFn: archiveSavedView,
+    onSuccess: async (data) => {
+      queryClient.setQueryData<{ views: SavedView[] } | undefined>(["saved-views"], (current) => (
+        current ? { views: current.views.map((view) => (view.id === data.view.id ? data.view : view)) } : current
+      ));
+      await refreshViews(`Archived view ${data.view.name}`);
+      pushToast(t("ops.savedViewArchived", language), tWithVars("ops.savedViewArchivedCopy", language, { name: data.view.name }), "info");
+    },
+    onError: (error) => {
+      setViewMessage("");
+      setViewError(error instanceof Error ? error.message : "Archive view failed");
+      pushToast(t("ops.archiveViewFailed", language), error instanceof Error ? error.message : t("ops.archiveViewFailed", language), "error");
+    },
+  });
+
+  const restoreViewMutation = useMutation({
+    mutationFn: restoreSavedView,
+    onSuccess: async (data) => {
+      queryClient.setQueryData<{ views: SavedView[] } | undefined>(["saved-views"], (current) => (
+        current ? { views: current.views.map((view) => (view.id === data.view.id ? data.view : view)) } : current
+      ));
+      await refreshViews(`Restored view ${data.view.name}`);
+      pushToast(t("ops.savedViewRestored", language), tWithVars("ops.savedViewRestoredCopy", language, { name: data.view.name }), "success");
+    },
+    onError: (error) => {
+      setViewMessage("");
+      setViewError(error instanceof Error ? error.message : "Restore view failed");
+      pushToast(t("ops.restoreViewFailed", language), error instanceof Error ? error.message : t("ops.restoreViewFailed", language), "error");
+    },
+  });
+
   useEffect(() => {
     writeStorageValue(compactModeStorageKey, String(compactMode));
   }, [compactMode]);
@@ -2882,6 +2989,11 @@ function App() {
   const scheduleFieldOptions = useMemo(() => configuredScheduleTracks(metaQuery.data?.scheduleTracks ?? [], metaQuery.data?.customFields ?? []), [metaQuery.data?.customFields, metaQuery.data?.scheduleTracks]);
   const activeScheduleTrack = scheduleFieldOptions.find((track) => track.id === activeCalendarField || track.sourceField === activeCalendarField) ?? scheduleFieldOptions[0];
   const currentUser = forceLoggedOut ? undefined : meQuery.data?.user;
+  const applyBasicBoardMode = () => {
+    const basicPreset = tableColumnPresets.find((preset) => preset.key === "basic");
+    setActiveView("table");
+    setVisibleColumns(normalizeVisibleColumns(basicPreset?.columns ?? ["unitNumber"], metaQuery.data?.customFields ?? [], metaQuery.data?.columns ?? []));
+  };
   const commandPaletteWorkspaceGroups = useMemo<CommandPaletteWorkspaceGroup[]>(() => {
     if (!currentUser) {
       return [];
@@ -3046,6 +3158,7 @@ function App() {
     setSearch("");
     setScopeLevelFilter("");
     setStructuredFilters(defaultStructuredFilters);
+    setDashboardDrilldownContext(null);
     if (!preserveProperty) setPropertyId("");
   };
   const activeFilterChips = [
@@ -3086,6 +3199,30 @@ function App() {
     scopeLevel: scopeLevelFilter,
     ...structuredFilters,
     moveInThisWeek: structuredFilters.moveInWindow === "week",
+  };
+
+  const saveDashboardDrilldownView = async () => {
+    if (!dashboardDrilldownContext || !currentUser || currentUser.role === "VIEWER") return;
+    await createViewMutation.mutateAsync({
+      name: dashboardDrilldownContext.savedViewName,
+      module: "make-ready-board",
+      viewType: activeView === "kanban" || activeView === "calendar" || activeView === "dashboard" ? activeView : "table",
+      filters: serializedFilters,
+      sorts: { key: sortKey, direction: sortDirection },
+      grouping: {
+        kanbanBy: kanbanGroupBy,
+        kanbanColorBy,
+        kanbanCardFields,
+        kanbanSortBy,
+        kanbanHideEmpty,
+        calendarField: activeCalendarField,
+        calendarLayout,
+        calendarFields: calendarPanelFields,
+        dashboardLayout,
+      },
+      visibleColumns,
+      isShared: false,
+    });
   };
 
   const calendarEventsByTrack = useMemo(() => Object.fromEntries(scheduleFieldOptions.map((track) => {
@@ -3216,6 +3353,22 @@ function App() {
     }
   }, [currentUser]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName ?? "";
+      const isEditingTarget = target?.isContentEditable || tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
+      if (isEditingTarget) return;
+      if (event.key === "?") {
+        event.preventDefault();
+        setShortcutHelpOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   if (meQuery.isPending && !forceLoggedOut) {
     return (
       <main className="login-shell">
@@ -3283,6 +3436,8 @@ function App() {
           removeStorageValue(onboardingSkippedStorageKey);
           setOnboardingOpen(true);
         }}
+        onApplyBasicMode={applyBasicBoardMode}
+        onOpenShortcutHelp={() => setShortcutHelpOpen(true)}
         onLogout={async () => {
           await logoutMutation.mutateAsync();
         }}
@@ -3339,7 +3494,7 @@ function App() {
             data-testid="module-rail-lease-compliance"
             onClick={() => setActiveView("lease")}
           >
-            <span className="module-rail-icon" style={moduleRailMask("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm2 4v2h6V8H9Zm0 4v2h6v-2H9Zm-2-8v16H5V4h2Z'/%3E%3C/svg%3E")} aria-hidden="true" />
+            <span className="module-rail-icon" style={moduleRailMask("/icons/fontawesome/lease.svg")} aria-hidden="true" />
           </button>
           <button
             className={activeView === "pm" ? "module-rail-button active" : "module-rail-button"}
@@ -3349,7 +3504,7 @@ function App() {
             data-testid="module-rail-pm"
             onClick={() => setActiveView("pm")}
           >
-            <span className="module-rail-icon" style={moduleRailMask("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 7.5 16.5 3l-2.1 2.1 1.5 1.5-3.9 3.9-1.5-1.5L3 16.5 7.5 21l7.5-7.5-1.5-1.5 3.9-3.9 1.5 1.5L21 7.5Z'/%3E%3C/svg%3E")} aria-hidden="true" />
+            <span className="module-rail-icon" style={moduleRailMask("/icons/fontawesome/pm.svg")} aria-hidden="true" />
           </button>
           {currentUser.role !== "CLEANER" ? (
             <button
@@ -3409,6 +3564,13 @@ function App() {
               onDrillDown={({ type, value }) => {
                 setActiveView("table");
                 clearBoardFilters(true);
+                const contextLabel = currentUser.language === "es"
+                  ? `Filtro aplicado desde el dashboard: ${value}`
+                  : `Dashboard drilldown: ${value}`;
+                const savedViewName = currentUser.language === "es"
+                  ? `Dashboard / ${value}`
+                  : `Dashboard / ${value}`;
+                setDashboardDrilldownContext({ label: contextLabel, savedViewName });
                 if (type === "property") {
                   setPropertyId(metaQuery.data?.properties.find((property) => property.code === value)?.id ?? "");
                 } else if (type === "vacancy") {
@@ -3667,6 +3829,7 @@ function App() {
               userRole={currentUser.role}
               language={currentUser.language}
               openQuickAddRequest={leaseQuickAddRequest}
+              workspaceRequest={leaseWorkspaceRequest}
             />
           ) : activeView === "pm" ? (
             <PreventiveMaintenancePanel
@@ -3755,7 +3918,7 @@ function App() {
                 templatePreview={templatePreview}
                 runs={automationRunsQuery.data?.runs ?? []}
                 preview={automationPreview}
-                loading={createAutomationMutation.isPending || installAutomationTemplateMutation.isPending || previewOperationalLibraryMutation.isPending || installOperationalLibraryMutation.isPending || previewPropertyTemplateMutation.isPending || createPropertyTemplateMutation.isPending || applyPropertyTemplateMutation.isPending || archivePropertyTemplateMutation.isPending || updateAutomationMutation.isPending || toggleAutomationMutation.isPending || archiveAutomationMutation.isPending || previewAutomationMutation.isPending || runAutomationMutation.isPending}
+                loading={createAutomationMutation.isPending || installAutomationTemplateMutation.isPending || previewOperationalLibraryMutation.isPending || installOperationalLibraryMutation.isPending || previewPropertyTemplateMutation.isPending || createPropertyTemplateMutation.isPending || applyPropertyTemplateMutation.isPending || archivePropertyTemplateMutation.isPending || restorePropertyTemplateMutation.isPending || deletePropertyTemplateMutation.isPending || updateAutomationMutation.isPending || toggleAutomationMutation.isPending || archiveAutomationMutation.isPending || previewAutomationMutation.isPending || runAutomationMutation.isPending}
                 previewLoading={previewAutomationMutation.isPending}
                 message={automationMessage}
                 error={automationError}
@@ -3782,6 +3945,12 @@ function App() {
                 }}
                 onArchivePropertyTemplate={async (id) => {
                   await archivePropertyTemplateMutation.mutateAsync(id);
+                }}
+                onRestorePropertyTemplate={async (id) => {
+                  await restorePropertyTemplateMutation.mutateAsync(id);
+                }}
+                onDeletePropertyTemplate={async (id) => {
+                  await deletePropertyTemplateMutation.mutateAsync(id);
                 }}
                 onUpdate={async (id, input) => {
                   await updateAutomationMutation.mutateAsync({ id, data: input });
@@ -3886,7 +4055,16 @@ function App() {
           ) : <>
             {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
               <>
-                <ActiveFilterBar chips={activeFilterChips} resultCount={structuredFilters.archiveState === "occupied" ? occupiedDirectoryResultCount : sortedItems.length} onClear={() => clearBoardFilters()} />
+                <ActiveFilterBar
+                  chips={activeFilterChips}
+                  resultCount={structuredFilters.archiveState === "occupied" ? occupiedDirectoryResultCount : sortedItems.length}
+                  onClear={() => clearBoardFilters()}
+                  contextLabel={dashboardDrilldownContext?.label ?? null}
+                  onDismissContext={dashboardDrilldownContext ? () => setDashboardDrilldownContext(null) : undefined}
+                  saveLabel={currentUser.role === "VIEWER" ? null : currentUser.language === "es" ? "Guardar vista" : "Save view"}
+                  onSaveContext={dashboardDrilldownContext && currentUser.role !== "VIEWER" ? () => void saveDashboardDrilldownView() : undefined}
+                  savingContext={createViewMutation.isPending}
+                />
                 <div className="board-window-controls" data-testid="board-window-controls">
                   <label className="toggle-row">
                     <input
@@ -4285,14 +4463,15 @@ function App() {
         onReadAll={async () => { await readAllNotificationsMutation.mutateAsync(); }}
         onDismiss={async (id) => { await dismissNotificationMutation.mutateAsync(id); }}
         onOpenItem={(id) => { openItemDrawer(id); setNotificationsOpen(false); }}
-        onPreferenceChange={async (category, enabled) => { await notificationPreferenceMutation.mutateAsync({ category, enabled }); }}
+        onPreferenceChange={async (category, enabled, propertyId) => { await notificationPreferenceMutation.mutateAsync({ category, enabled, propertyId }); }}
+        onSettingsChange={async (input) => { await notificationSettingsMutation.mutateAsync(input); }}
       />
       <CommandPalette
         open={commandPaletteOpen}
         language={currentUser.language}
         items={boardItems}
         properties={metaQuery.data?.properties ?? []}
-        views={savedViewsQuery.data?.views ?? []}
+        views={(savedViewsQuery.data?.views ?? []).filter((view) => !view.isArchived)}
         staff={metaQuery.data?.staff ?? []}
         floorPlans={floorPlansQuery.data?.floorPlans ?? []}
         workspaceGroups={commandPaletteWorkspaceGroups}
@@ -4305,6 +4484,8 @@ function App() {
           removeStorageValue(onboardingSkippedStorageKey);
           setOnboardingOpen(true);
         }}
+        onApplyBasicMode={applyBasicBoardMode}
+        onOpenShortcutHelp={() => setShortcutHelpOpen(true)}
         onLoadView={applySavedView}
       />
       <OnboardingPanel
@@ -4313,7 +4494,7 @@ function App() {
         properties={metaQuery.data?.properties ?? []}
         units={metaQuery.data?.units ?? []}
         floorPlans={floorPlansQuery.data?.floorPlans ?? []}
-        savedViews={savedViewsQuery.data?.views ?? metaQuery.data?.views ?? []}
+        savedViews={(savedViewsQuery.data?.views ?? metaQuery.data?.views ?? []).filter((view) => !view.isArchived)}
         scheduleTracks={metaQuery.data?.scheduleTracks ?? []}
         firstRunDetected={firstRunDetected}
         onNavigate={(view) => setActiveView(view)}
@@ -4324,6 +4505,20 @@ function App() {
           setOnboardingOpen(false);
         }}
       />
+      <Modal
+        open={shortcutHelpOpen}
+        title={currentUser.language === "es" ? "Atajos del tablero" : "Board shortcuts"}
+        onClose={() => setShortcutHelpOpen(false)}
+        testId="shortcut-help-modal"
+      >
+        <div className="shortcut-help-list">
+          <div className="shortcut-help-row"><strong>{currentUser.language === "es" ? "Abrir busqueda rapida" : "Open quick search"}</strong><kbd>Ctrl / Command + K</kbd></div>
+          <div className="shortcut-help-row"><strong>{currentUser.language === "es" ? "Cerrar dialogos o paneles" : "Close dialogs or panels"}</strong><kbd>Escape</kbd></div>
+          <div className="shortcut-help-row"><strong>{currentUser.language === "es" ? "Abrir ayuda de atajos" : "Open shortcut help"}</strong><kbd>?</kbd></div>
+          <div className="shortcut-help-row"><strong>{currentUser.language === "es" ? "Modo basico" : "Basic board mode"}</strong><span>{currentUser.language === "es" ? "Usa el boton Basic board para mostrar solo las columnas esenciales." : "Use the Basic board button to show only the essential columns."}</span></div>
+          <div className="shortcut-help-row"><strong>{currentUser.language === "es" ? "Configuracion rapida de tabla" : "Quick table setup"}</strong><span>{currentUser.language === "es" ? "Usa Board Tools para agregar campos o ajustar etiquetas y planos." : "Use Board Tools to add fields or adjust labels and floor plans."}</span></div>
+        </div>
+      </Modal>
       <Modal
         open={offlineQueueReviewOpen}
         title={t(currentUser.language, "offlineQueue.title")}

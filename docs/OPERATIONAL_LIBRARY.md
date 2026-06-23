@@ -42,7 +42,14 @@ The current JSON Schema and example pack live at:
 
 `ADMIN` and `MANAGER` can preview/install packs. `TECH`, `LEASING`, `CLEANER`, and `VIEWER` are denied.
 
-The Automation workspace exposes bundled packs plus a JSON import box for paste/import workflows. Operators should use Preview Imported JSON before Install Imported JSON to inspect created/skipped/conflict counts.
+The Automation workspace now exposes a guided pack wizard instead of only a raw JSON box. Operators can:
+
+- choose a bundled pack or paste imported JSON,
+- review a field/option mapping preview before install, including structured create/skip/conflict totals per pack section, operator-readable option samples, an at-a-glance install/readiness decision, remediation hints for common validation failures, a grouped blocking-section remediation plan when multiple cross-record references fail at once, and explicit review/install-anyway handling when some sections conflict,
+- run preview/install from the same guided step, and
+- inspect installed-pack details and created artifact provenance after install, with manifest-friendly item names shown first and stable duplicate-match keys kept as secondary detail.
+
+Imported JSON is still supported, but the workflow now keeps the raw manifest secondary to the install review path. The install step also requires a current preview for the actively selected pack so operators do not continue from stale validation output.
 
 The bundled starter pack includes data-only scheduling and readiness helpers such as weekend schedule review, Monday/Friday schedule review, vendor lead-time reminders, daily load review notes, scope-day planning, date-sequence review, in-house/vendor routing review, cleaner-assignment review, balanced tech-assignment review, upcoming make-ready workload review, and ready-unit stock expectations. These helpers install as disabled structured rules so each property can adjust wording, scope, and enablement before use.
 
@@ -63,6 +70,7 @@ Browser smoke coverage now verifies that the balanced tech auto-assignment start
 - Shared saved views are skipped by module/name.
 - Automation rules are created from structured definitions with `templateId` provenance in the form `pack:<packKey>:<itemKey>`.
 - Property templates are stored as reusable `makereadyos.propertyTemplate` manifests and must still be applied separately through their own dry-run/confirm workflow.
+- Archived property templates are kept out of the active library/apply selectors until restored, and permanent delete requires archiving first.
 - Imported automation rules are always disabled until reviewed and explicitly enabled.
 - Starter risk helper templates can add activity notes, but the native SLA/risk engine remains the source for item risk scores and reasons.
 

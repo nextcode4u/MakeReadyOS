@@ -56,6 +56,8 @@ type Props = {
   onNavigate: (view: CommandPaletteView) => void;
   onOpenNotifications: () => void;
   onOpenOnboarding: () => void;
+  onApplyBasicMode: () => void;
+  onOpenShortcutHelp: () => void;
   onLoadView: (view: SavedView) => void;
 };
 
@@ -63,7 +65,7 @@ function searchableText(value: string | null | undefined) {
   return (value ?? "").toLowerCase();
 }
 
-export function CommandPalette({ open, language, items, properties, views, staff, floorPlans, workspaceGroups, onClose, onOpenItem, onNavigate, onOpenNotifications, onOpenOnboarding, onLoadView }: Props) {
+export function CommandPalette({ open, language, items, properties, views, staff, floorPlans, workspaceGroups, onClose, onOpenItem, onNavigate, onOpenNotifications, onOpenOnboarding, onApplyBasicMode, onOpenShortcutHelp, onLoadView }: Props) {
   const isSpanish = language === "es";
   const [query, setQuery] = useState("");
   useEffect(() => {
@@ -131,6 +133,14 @@ export function CommandPalette({ open, language, items, properties, views, staff
                 <button data-testid="command-palette-action-onboarding" onClick={() => { onOpenOnboarding(); onClose(); }}>
                   <strong>{isSpanish ? "Guia de configuracion" : "Setup Guide"}</strong>
                   <small>{isSpanish ? "Reabrir la lista de inicio inicial." : "Reopen the first-run onboarding checklist."}</small>
+                </button>
+                <button data-testid="command-palette-action-basic-board" onClick={() => { onApplyBasicMode(); onClose(); }}>
+                  <strong>{isSpanish ? "Modo basico del tablero" : "Basic board mode"}</strong>
+                  <small>{isSpanish ? "Reducir el tablero a las columnas operativas esenciales." : "Reduce the board to the essential operational columns."}</small>
+                </button>
+                <button data-testid="command-palette-action-shortcuts" onClick={() => { onOpenShortcutHelp(); onClose(); }}>
+                  <strong>{isSpanish ? "Atajos de teclado" : "Keyboard shortcuts"}</strong>
+                  <small>{isSpanish ? "Abrir la hoja rapida de atajos del tablero." : "Open the board shortcut cheat sheet."}</small>
                 </button>
               </div>
             </div>

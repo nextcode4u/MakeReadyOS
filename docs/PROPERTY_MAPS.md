@@ -6,12 +6,26 @@ Property maps are a local, self-hosted foundation for visual unit navigation. Th
 
 - `ADMIN` and scoped `MANAGER` users can create/archive property map records.
 - Archived property maps can now be permanently deleted from Map Setup when a duplicate upload or retired layout should be removed completely.
+- Map Setup now also distinguishes between a map record that exists with no file uploaded yet versus a PDF map that is stored but not rendered inline, so “blank” map states no longer all read like a failed upload.
 - Map files can be uploaded as PNG, JPG, WebP, or PDF and are stored in the local uploads volume.
 - Map file downloads/previews require authentication and property access.
 - Units can be placed on a map with normalized percentage coordinates.
 - Existing unit markers can be dragged to adjust placement without reselecting the unit.
 - Unit markers can store optional building, area, and floor metadata.
 - Building/area summaries are derived from the unit directory and saved marker metadata. The map can show a building label near mapped units, filter the directory by building, and show mapped/unmapped counts per building.
+- Unit placement now includes a next-unmapped assist. When placing units, Map Setup shows how many units remain unmapped for the current building/property, offers a direct `Next Unmapped` shortcut, and auto-advances to the next unmapped unit after each successful placement.
+- Map Controls now also support an `Unmapped only` filter for the setup list and unit picker, so supervisors can work through placement gaps without scrolling past already-mapped units.
+- Selected building/area markers can now jump directly into unit-placement mode for that area. The workflow automatically turns on the area filter, enables unmapped-only mode, and preloads the first unmapped unit so setup can continue from the map itself.
+- Selected building/area markers now also show area-specific total, mapped, unmapped, and next-unit context in the detail panel, and the placement shortcut disables itself when nothing is left to place.
+- Building/area summary chips now prioritize incomplete areas first, show explicit unmapped counts, and the controls panel exposes a `Go To Next Gap` shortcut so map setup behaves more like a placement queue than a static summary list.
+- Those same summary chips now visually distinguish incomplete versus fully mapped areas, so supervisors can spot remaining setup work without reading every chip count.
+- Map Controls now also support `All`, `Unmapped only`, and `Mapped only` list scopes for the side unit list and placement picker, so setup, cleanup, and verification can happen from the same workspace without mixing every unit into one scroll.
+- That same `List scope` selector now shows live counts for all, unmapped, and mapped units, so supervisors can tell immediately whether a building still has placement gaps before changing views.
+- Map Setup also includes a `Copy visible queue` action that copies the currently filtered building/unit placement list to the clipboard, which gives teams a lightweight bulk setup/export aid without introducing a heavier importer first.
+- Map Setup now also supports lightweight bulk unit placement import from pasted CSV/TSV/semicolon-delimited text using `unit,xPercent,yPercent,building,area,floor` columns, with preview/error feedback before locations are saved through the normal placement API.
+- The currently filtered unit placement queue can also be exported directly as CSV from Map Controls, which gives setup teams a quick review/share path for one building, one scope, or the whole visible property without needing a separate backend report first.
+- Dense marker collisions are now easier to reason about during setup and field review: the map header reports how many visible overlap clusters remain, and overlap groups render a badge with the shared marker count on the cluster lead instead of only relying on slight spread offsets.
+- Building/area markers now share the same lightweight bulk setup path as unit markers: Map Controls can export visible area markers as CSV and can paste-import `name,areaType,xPercent,yPercent,color,expectedUnitCount,notes` rows with preview/error feedback before creating markers through the normal API.
 - Managers/admins can add dedicated building, floor, area, or zone markers to the map. These markers store expected unit counts and coordinates separately from unit markers, which helps irregular properties, skipped building numbers, office buildings, and phased setup.
 - Map viewer colors markers by risk level, vacancy status, board section, assigned tech, or make-ready status.
 - Clicking a mapped unit marker opens the same operational item drawer when an active make-ready item exists.
@@ -37,6 +51,7 @@ Coordinates are stored as percentages so uploaded map images can resize in respo
 ## Delete Behavior
 
 - Property maps must be archived before they can be deleted.
+- Map Setup now shows the selected map's active/archived state directly above the action buttons and explains when permanent delete becomes available, so operators do not have to guess whether delete is missing or intentionally gated.
 - Deleting a property map also removes its uploaded map file, unit markers, area markers, shared pins, and pin attachments through the normal cleanup path.
 - Linked Projects records and Lease Compliance issues are preserved, but their map link and stored pin coordinates are cleared so those records stay usable after the map is removed.
 

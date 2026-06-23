@@ -96,6 +96,7 @@ model Property {
   operatingCalendar         OperatingCalendar?
   riskPolicy                PropertyRiskPolicy?
   notifications             Notification[]
+  notificationPreferences   NotificationPreference[]
   apiTokenScopes            ApiTokenPropertyScope[]
   webhookScopes             WebhookPropertyScope[]
 }
@@ -241,6 +242,7 @@ model User {
   savedViews                   SavedView[]
   notifications                Notification[]
   notificationPreferences      NotificationPreference[]
+  notificationSettings         UserNotificationSettings?
   capacity                     UserCapacity?
   workAssignments              WorkAssignmentBlock[]
   comments                     ItemComment[]
@@ -1172,11 +1174,13 @@ model SavedView {
   visibleColumns Json?
   isShared       Boolean  @default(false)
   isDefault      Boolean  @default(false)
+  isArchived     Boolean  @default(false)
+  archivedAt     DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  @@index([module, isShared, createdAt])
-  @@index([ownerUserId, module, createdAt])
+  @@index([module, isArchived, isShared, createdAt])
+  @@index([ownerUserId, module, isArchived, createdAt])
 }
 
 model Notification {
@@ -1201,15 +1205,30 @@ model Notification {
 }
 
 model NotificationPreference {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  category  String
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category   String
+  scopeKey   String    @default("GLOBAL")
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  enabled    Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-  @@unique([userId, category])
+  @@unique([userId, category, scopeKey])
+  @@index([userId, propertyId])
+}
+
+model UserNotificationSettings {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quietHoursEnabled     Boolean  @default(false)
+  quietHoursStartMinute Int      @default(1320)
+  quietHoursEndMinute   Int      @default(420)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 model AutomationRule {

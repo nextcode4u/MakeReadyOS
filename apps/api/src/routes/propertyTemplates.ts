@@ -437,8 +437,9 @@ async function applyTemplateManifest(options: {
 export async function propertyTemplateRoutes(app: FastifyInstance) {
   app.get("/property-templates", async (request, reply) => {
     if (!(await ensureTemplateManager(request, reply))) return;
+    const { includeArchived } = z.object({ includeArchived: z.coerce.boolean().default(false) }).parse(request.query);
     const templates = await prisma.propertyTemplate.findMany({
-      where: { isArchived: false },
+      where: includeArchived ? undefined : { isArchived: false },
       orderBy: [{ category: "asc" }, { name: "asc" }],
     });
     return { templates: templates.map(serializeTemplate) };
@@ -540,5 +541,44 @@ export async function propertyTemplateRoutes(app: FastifyInstance) {
       message: `Archived property template ${template.name}`,
     });
     return { template: serializeTemplate(template) };
+  });
+
+  app.post("/property-templates/:id/restore", async (request, reply) => {
+    if (!(await ensureTemplateManager(request, reply))) return;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const template = await prisma.propertyTemplate.update({ where: { id }, data: { isArchived: false } });
+    await writeAuditLog({
+      request,
+      actorUserId: request.currentUser!.id,
+      entityType: "PROPERTY_TEMPLATE",
+      entityId: template.id,
+      action: "PROPERTY_TEMPLATE_RESTORED",
+      message: `Restored property template ${template.name}`,
+    });
+    return { template: serializeTemplate(template) };
+  });
+
+  app.delete("/property-templates/:id", async (request, reply) => {
+    if (!(await ensureTemplateManager(request, reply))) return;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.propertyTemplate.findUnique({ where: { id } });
+    if (!existing) {
+      reply.code(404);
+      return { message: "Property template not found" };
+    }
+    if (!existing.isArchived) {
+      reply.code(400);
+      return { message: "Archive the property template before permanently deleting it" };
+    }
+    await prisma.propertyTemplate.delete({ where: { id } });
+    await writeAuditLog({
+      request,
+      actorUserId: request.currentUser!.id,
+      entityType: "PROPERTY_TEMPLATE",
+      entityId: existing.id,
+      action: "PROPERTY_TEMPLATE_DELETED",
+      message: `Deleted archived property template ${existing.name}`,
+    });
+    return { ok: true };
   });
 }

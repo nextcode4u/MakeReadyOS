@@ -61,7 +61,7 @@ Tokens can also be scoped to specific properties. Property scope is an additiona
 - `GET /api/operations/schedule-tracks`
 - `GET /api/operations/operating-calendars`
 - `GET /api/custom-fields`
-- `GET /api/saved-views`
+- `GET /api/saved-views?includeArchived=&module=`
 - `GET /api/make-ready-items?propertyId=&boardSection=&vacancyStatus=&assignedTech=&riskCategory=&moveInWindow=&sortBy=&sortDirection=&includeArchived=&limit=&offset=`
 - `POST /api/make-ready-items`
 - `PATCH /api/make-ready-items/:id`
@@ -111,7 +111,10 @@ Tokens can also be scoped to specific properties. Property scope is an additiona
 - `GET /api/property-maps`
 - `GET /api/property-map-areas?propertyId=&mapId=`
 - `GET /api/unit-map-locations`
-- `GET /api/property-templates`
+- `GET /api/property-templates?includeArchived=`
+- `POST /api/property-templates/:id/archive`
+- `POST /api/property-templates/:id/restore`
+- `DELETE /api/property-templates/:id`
 - `GET /api/automations`
 - `POST /api/automations/preview`
 - `GET /api/operational-library/packs`

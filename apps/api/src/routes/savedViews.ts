@@ -7,6 +7,7 @@ import { prisma } from "../lib/prisma.js";
 
 export const savedViewModuleQuerySchema = z.object({
   module: z.string().default("make-ready"),
+  includeArchived: z.coerce.boolean().default(false),
 });
 
 export const savedViewSchema = z.object({
@@ -40,6 +41,8 @@ function serializeSavedView(view: {
   visibleColumns: unknown;
   isShared: boolean;
   isDefault: boolean;
+  isArchived: boolean;
+  archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -55,6 +58,8 @@ function serializeSavedView(view: {
     visibleColumns: view.visibleColumns,
     isShared: view.isShared,
     isDefault: view.isDefault,
+    isArchived: view.isArchived,
+    archivedAt: view.archivedAt,
     createdAt: view.createdAt,
     updatedAt: view.updatedAt,
   };
@@ -92,6 +97,7 @@ export async function savedViewRoutes(app: FastifyInstance) {
     const views = await prisma.savedView.findMany({
       where: {
         module: query.module,
+        ...(query.includeArchived ? {} : { isArchived: false }),
         OR: [
           { ownerUserId: user.id },
           { isShared: true },
@@ -170,6 +176,10 @@ export async function savedViewRoutes(app: FastifyInstance) {
       reply.code(404);
       return { message: "Saved view not found" };
     }
+    if (existing.isArchived) {
+      reply.code(409);
+      return { message: "Restore the saved view before editing it" };
+    }
 
     const nextShared = payload.isShared ?? existing.isShared;
     if (nextShared && !canManageSharedViews(user)) {
@@ -208,6 +218,96 @@ export async function savedViewRoutes(app: FastifyInstance) {
     };
   });
 
+  app.post("/saved-views/:id/archive", async (request, reply) => {
+    const user = request.currentUser!;
+    if (user.role === "VIEWER") {
+      reply.code(403);
+      return { message: "Viewer role cannot archive saved views" };
+    }
+
+    const params = z.object({ id: z.string() }).parse(request.params);
+    const existing = await findAuthorizedView(params.id, user.id, user.role === "ADMIN");
+
+    if (!existing) {
+      reply.code(404);
+      return { message: "Saved view not found" };
+    }
+    if (existing.isArchived) {
+      return { ok: true };
+    }
+
+    const archivedAt = new Date();
+    const archived = await prisma.savedView.update({
+      where: { id: existing.id },
+      data: {
+        isArchived: true,
+        archivedAt,
+      },
+    });
+
+    await writeAuditLog({
+      request,
+      actorUserId: user.id,
+      entityType: "SAVED_VIEW",
+      entityId: archived.id,
+      action: "SAVED_VIEW_ARCHIVED",
+      message: `Archived saved view ${archived.name}`,
+      metadata: {
+        isShared: archived.isShared,
+        archivedAt: archivedAt.toISOString(),
+      },
+    });
+
+    return {
+      ok: true,
+      view: serializeSavedView(archived),
+    };
+  });
+
+  app.post("/saved-views/:id/restore", async (request, reply) => {
+    const user = request.currentUser!;
+    if (user.role === "VIEWER") {
+      reply.code(403);
+      return { message: "Viewer role cannot restore saved views" };
+    }
+
+    const params = z.object({ id: z.string() }).parse(request.params);
+    const existing = await findAuthorizedView(params.id, user.id, user.role === "ADMIN");
+
+    if (!existing) {
+      reply.code(404);
+      return { message: "Saved view not found" };
+    }
+    if (!existing.isArchived) {
+      return { ok: true };
+    }
+
+    const restored = await prisma.savedView.update({
+      where: { id: existing.id },
+      data: {
+        isArchived: false,
+        archivedAt: null,
+      },
+    });
+
+    await writeAuditLog({
+      request,
+      actorUserId: user.id,
+      entityType: "SAVED_VIEW",
+      entityId: restored.id,
+      action: "SAVED_VIEW_RESTORED",
+      message: `Restored saved view ${restored.name}`,
+      metadata: {
+        isShared: restored.isShared,
+      },
+    });
+
+    return {
+      ok: true,
+      view: serializeSavedView(restored),
+    };
+  });
+
   app.delete("/saved-views/:id", async (request, reply) => {
     const user = request.currentUser!;
     if (user.role === "VIEWER") {
@@ -221,6 +321,10 @@ export async function savedViewRoutes(app: FastifyInstance) {
     if (!existing) {
       reply.code(404);
       return { message: "Saved view not found" };
+    }
+    if (!existing.isArchived) {
+      reply.code(409);
+      return { message: "Archive the saved view before deleting it permanently" };
     }
 
     await prisma.savedView.delete({

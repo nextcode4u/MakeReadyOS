@@ -101,7 +101,7 @@ Email, SMS, push, and external maintenance dispatch are not part of this foundat
 ## Current Limits
 
 - Native backup/export now includes PM templates, generated tasks, attachment metadata, and PM Wiki references.
-- Uploaded PM file bytes remain local upload storage and are not embedded in native JSON transfer, so destination downloads still depend on the normal upload backup/restore path.
+- Uploaded PM file bytes remain local upload storage and are not embedded in native JSON transfer, so full disaster recovery should use the standard `backup-all.sh` / `restore-all.sh` snapshot flow alongside native JSON transfer when operators need both portable metadata and local file continuity.
 - PM Wiki references restore only when the destination can resolve the referenced Wiki target.
 - No standalone background scheduler exists by design. Recurring generation is request-driven and completion-driven, which keeps deployment simpler while still ensuring active templates always surface an open task when PM views are used.
 - No approval workflow, vendor dispatch engine, inventory management, or accounting layer is included.

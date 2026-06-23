@@ -267,6 +267,16 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
       } satisfies MakeReadyItem));
   }, [allowedPropertyIds, archiveState, searchText, units]);
   const tableItems = archiveState === "occupied" ? occupiedDirectoryItems : items;
+  const activeTurnByPropertyAndUnit = useMemo(() => new Map(
+    items
+      .filter((item) => !item.isArchived)
+      .map((item) => [`${item.propertyId}:${item.unitNumber.trim().toUpperCase()}`, item] as const),
+  ), [items]);
+  const addItemConflictForGroup = (group: string) => {
+    const property = activeProperties.find((property) => property.id === newItem.propertyId) ?? propertyForGroup(group);
+    if (!property || !newItem.unitNumber.trim()) return null;
+    return activeTurnByPropertyAndUnit.get(`${property.id}:${newItem.unitNumber.trim().toUpperCase()}`) ?? null;
+  };
   const groups = useMemo(() => {
     const acc = Object.fromEntries(visibleSectionKeys.map((key) => [key, [] as MakeReadyItem[]]));
     return tableItems.reduce<Record<string, MakeReadyItem[]>>((acc, item) => {
@@ -289,6 +299,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const [editing, setEditing] = useState<EditingCell | null>(null);
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [mobileBatchModalOpen, setMobileBatchModalOpen] = useState(false);
   const [addGroup, setAddGroup] = useState<string | null>(null);
   const [newItem, setNewItem] = useState({ propertyId: "", unitNumber: "", assignedTech: "", vacancyStatus: "VACANT NOT LEASED NOT READY", makeReadyStatus: "" });
   const [batchTech, setBatchTech] = useState("");
@@ -299,6 +310,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const [quickOption, setQuickOption] = useState({ value: "", color: "#58a6de" });
   const [optionDrafts, setOptionDrafts] = useState<Record<string, { value: string; color: string; isArchived: boolean }>>({});
   const [optionBusy, setOptionBusy] = useState(false);
+  const [confirmOptionArchiveSave, setConfirmOptionArchiveSave] = useState(false);
   const [dragColumn, setDragColumn] = useState<string | null>(null);
   const [renamingSection, setRenamingSection] = useState<{ id: string; value: string } | null>(null);
   const [columnMenu, setColumnMenu] = useState<{ group: string; key: string } | null>(null);
@@ -310,6 +322,8 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const pendingCells = useRef(new Set<string>());
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedItems = useMemo(() => items.filter((item) => selectedSet.has(item.id)), [items, selectedSet]);
+  const selectableVisibleIds = useMemo(() => orderedItems.filter((item) => !isOccupiedDirectoryItem(item)).map((item) => item.id), [orderedItems]);
+  const allVisibleSelected = selectableVisibleIds.length > 0 && selectableVisibleIds.every((id) => selectedSet.has(id));
   const sectionForGroup = (group: string) => {
     if (isOccupiedDirectoryGroup(group)) return undefined;
     const property = propertyForGroup(group);
@@ -467,10 +481,20 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
     setSelectedIds((current) => selected ? current.filter((id) => !ids.includes(id)) : Array.from(new Set([...current, ...ids])));
   };
 
+  const toggleAllVisible = () => {
+    if (selectableVisibleIds.length === 0) return;
+    setSelectedIds((current) => allVisibleSelected ? current.filter((id) => !selectableVisibleIds.includes(id)) : Array.from(new Set([...current, ...selectableVisibleIds])));
+  };
+
   const createInGroup = async (group: string) => {
     const property = activeProperties.find((candidate) => candidate.id === newItem.propertyId) ?? propertyForGroup(group);
     const unitNumber = newItem.unitNumber.trim();
     if (!property || !unitNumber) return;
+    const existingActiveTurn = activeTurnByPropertyAndUnit.get(`${property.id}:${unitNumber.toUpperCase()}`);
+    if (existingActiveTurn) {
+      onOpenItem(existingActiveTurn.id);
+      return;
+    }
     let unit = units.find((candidate) =>
       candidate.isActive && candidate.propertyId === property.id && candidate.number.toLowerCase() === unitNumber.toLowerCase(),
     );
@@ -496,6 +520,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const applyBatch = async (input: Parameters<Props["onBatch"]>[0]) => {
     await onBatch(input);
     setSelectedIds([]);
+    setMobileBatchModalOpen(false);
   };
 
   const openOptionManager = (fieldKey: string, label: string, customField?: CustomField) => {
@@ -553,6 +578,14 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const optionsForTarget = optionTarget?.customField
     ? optionTarget.customField.options
     : Object.values(labelsByField[optionTarget?.fieldKey ?? ""] ?? {});
+  const optionArchiveChanges = optionsForTarget.flatMap((option) => {
+    const draft = optionDrafts[option.id];
+    if (!draft || draft.isArchived === Boolean(option.isArchived)) return [];
+    const label = "value" in option ? option.value : option.label;
+    return [{ id: option.id, label, archived: draft.isArchived }];
+  });
+  const activeManagedOptionCount = optionsForTarget.filter((option) => !option.isArchived).length;
+  const archivedManagedOptionCount = optionsForTarget.filter((option) => Boolean(option.isArchived)).length;
   const plansForInlineManager = floorPlans.filter((plan) => plan.propertyId === floorPlanPropertyId);
   const selectedPlan = plansForInlineManager.find((plan) => plan.id === selectedPlanId);
   const numberOrNull = (value: string) => value === "" ? null : Number(value);
@@ -587,6 +620,14 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
     }
   };
 
+  const submitManagedOptions = async () => {
+    if (optionArchiveChanges.length > 0) {
+      setConfirmOptionArchiveSave(true);
+      return;
+    }
+    await saveManagedOptions();
+  };
+
   const moveManagedOption = async (id: string, direction: -1 | 1) => {
     if (!optionTarget) return;
     const options = [...optionsForTarget];
@@ -610,6 +651,23 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
     </div>
   ) : null;
 
+  const mobileBoardToolbar = canManageItems ? (
+    <div className="mobile-board-toolbar" data-testid="mobile-board-toolbar" role="toolbar" aria-label={isSpanish ? "Herramientas moviles del tablero" : "Mobile board tools"}>
+      <button type="button" className="button button-secondary" data-testid="mobile-board-select-all" onClick={toggleAllVisible}>
+        {allVisibleSelected ? (isSpanish ? "Limpiar visibles" : "Clear visible") : (isSpanish ? "Seleccionar visibles" : "Select visible")}
+      </button>
+      <button type="button" className="button button-secondary" data-testid="mobile-board-bulk-open" disabled={selectedIds.length === 0} onClick={() => setMobileBatchModalOpen(true)}>
+        {isSpanish ? `Items seleccionados (${selectedIds.length})` : `Selected items (${selectedIds.length})`}
+      </button>
+      <button type="button" className="button button-secondary" data-testid="mobile-board-add-field" onClick={onOpenFieldManager}>
+        {isSpanish ? "+ Campo" : "+ Field"}
+      </button>
+      <button type="button" className="button button-secondary" data-testid="mobile-board-setup" onClick={onOpenBoardSetup}>
+        {isSpanish ? "Etiquetas y planos" : "Labels & floor plans"}
+      </button>
+    </div>
+  ) : null;
+
   if (orderedItems.length === 0 && Object.keys(groups).length === 0) {
     return (
       <div className="board-scroll" data-testid="board-table-view">
@@ -626,8 +684,9 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   return (
     <div className="board-scroll" data-testid="board-table-view">
       {workflowTools}
+      {mobileBoardToolbar}
       {selectedIds.length > 0 && canManageItems ? (
-        <div className="batch-action-bar" data-testid="batch-action-bar" role="toolbar" aria-label={isSpanish ? "Acciones para elementos de make-ready seleccionados" : "Actions for selected make-ready items"}>
+        <div className="batch-action-bar desktop-batch-action-bar" data-testid="batch-action-bar" role="toolbar" aria-label={isSpanish ? "Acciones para elementos de make-ready seleccionados" : "Actions for selected make-ready items"}>
           <strong>{selectedIds.length} {isSpanish ? "seleccionados" : "selected"}</strong>
           <button data-testid="batch-archive" className="button button-danger" onClick={() => void applyBatch({ action: "ARCHIVE", ids: selectedIds })}>{isSpanish ? "Archivar" : "Archive"}</button>
           {selectedItems.some((item) => item.isArchived) ? <button data-testid="batch-restore" className="button button-secondary" onClick={() => void applyBatch({ action: "RESTORE", ids: selectedIds })}>{isSpanish ? "Restaurar" : "Restore"}</button> : null}
@@ -1278,6 +1337,10 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                     <td colSpan={orderedVisibleColumns.length}>
                       {addGroup === group ? (
                         <div className="inline-add-item" data-testid={`add-item-form-${slug(group)}`}>
+                          {(() => {
+                            const conflict = addItemConflictForGroup(group);
+                            return (
+                              <>
                           <span className="inline-add-context">{(activeProperties.find((property) => property.id === newItem.propertyId) ?? propertyForGroup(group))?.code ?? (isSpanish ? "Elegir propiedad" : "Choose property")} / {groupName(group)}</span>
                           {!propertyForGroup(group) && activeProperties.length > 1 ? (
                             <select data-testid={`add-item-property-${slug(group)}`} value={newItem.propertyId} onChange={(event) => setNewItem((current) => ({ ...current, propertyId: event.target.value }))}>
@@ -1286,6 +1349,15 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                             </select>
                           ) : null}
                           <input data-testid={`add-item-unit-number-${slug(group)}`} value={newItem.unitNumber} onChange={(event) => setNewItem((current) => ({ ...current, unitNumber: event.target.value }))} placeholder={isSpanish ? "Numero de unidad" : "Unit number"} aria-label={isSpanish ? "Numero de unidad" : "Unit number"} />
+                          {conflict ? (
+                            <div className="inline-add-warning">
+                              <strong>{isSpanish ? "La unidad ya tiene una rotación activa." : "That unit already has an active turn."}</strong>
+                              <span>{conflict.unitNumber} / {groupName(conflict.boardGroup)}{conflict.assignedTech ? ` / ${conflict.assignedTech}` : ""}</span>
+                              <button type="button" className="button button-secondary" onClick={() => onOpenItem(conflict.id)}>
+                                {isSpanish ? "Abrir activa" : "Open active"}
+                              </button>
+                            </div>
+                          ) : null}
                           <select data-testid={`add-item-tech-${slug(group)}`} value={newItem.assignedTech} onChange={(event) => setNewItem((current) => ({ ...current, assignedTech: event.target.value }))}>
                             <option value="">{isSpanish ? "Sin asignar" : "Unassigned"}</option>
                             {staff.map((person) => <option key={person.id} value={person.fullName}>{person.fullName} - {person.role}</option>)}
@@ -1294,8 +1366,11 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                             <option value="">{isSpanish ? "Estado" : "Status"}</option>
                             {Object.values(labelsByField.makeReadyStatus ?? {}).filter((label) => !label.isArchived).map((label) => <option key={label.id} value={label.value}>{label.value}</option>)}
                           </select>
-                          <button data-testid={`add-item-save-${slug(group)}`} className="button button-primary" disabled={!newItem.unitNumber.trim() || !(newItem.propertyId || propertyForGroup(group))} onClick={() => void createInGroup(group)}>{isSpanish ? "Agregar" : "Add"}</button>
+                          <button data-testid={`add-item-save-${slug(group)}`} className="button button-primary" disabled={!newItem.unitNumber.trim() || !(newItem.propertyId || propertyForGroup(group)) || Boolean(conflict)} onClick={() => void createInGroup(group)}>{isSpanish ? "Agregar" : "Add"}</button>
                           <button className="button button-ghost" onClick={() => setAddGroup(null)}>{isSpanish ? "Cancelar" : "Cancel"}</button>
+                              </>
+                            );
+                          })()}
                         </div>
                       ) : (
                         <button data-testid={`add-item-row-${slug(group)}`} className="add-item-button" onClick={() => {
@@ -1319,7 +1394,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
         actions={(
           <>
             <button type="button" className="button button-ghost" onClick={() => setOptionTarget(null)}>{isSpanish ? "Cancelar" : "Cancel"}</button>
-            <button type="button" data-testid="table-option-save-existing" className="button button-secondary" disabled={optionBusy} onClick={() => void saveManagedOptions()}>
+            <button type="button" data-testid="table-option-save-existing" className="button button-secondary" disabled={optionBusy} onClick={() => void submitManagedOptions()}>
               {isSpanish ? "Guardar cambios" : "Save changes"}
             </button>
             <button type="button" data-testid="table-option-save" className="button button-primary" disabled={optionBusy || !quickOption.value.trim()} onClick={() => void createQuickOption()}>
@@ -1333,6 +1408,11 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
           <label>{isSpanish ? "Etiqueta" : "Label"}<input autoFocus data-testid="table-option-label" value={quickOption.value} onChange={(event) => setQuickOption((current) => ({ ...current, value: event.target.value }))} /></label>
           <label>{isSpanish ? "Color" : "Color"}<input data-testid="table-option-color" type="color" value={quickOption.color} onChange={(event) => setQuickOption((current) => ({ ...current, color: event.target.value }))} /></label>
         </div>
+        <div className="option-summary">
+          <span className="status-chip active">{isSpanish ? `${activeManagedOptionCount} activas` : `${activeManagedOptionCount} active`}</span>
+          <span className="status-chip inactive">{isSpanish ? `${archivedManagedOptionCount} archivadas` : `${archivedManagedOptionCount} archived`}</span>
+          {quickOption.value.trim() ? <LabelPill value={quickOption.value.trim()} label={{ color: quickOption.color, textColor: "#f4f6fa" } as LabelDefinition} /> : null}
+        </div>
         <div className="inline-option-list">
           {optionsForTarget.map((option, index) => {
             const draft = optionDrafts[option.id] ?? {
@@ -1345,6 +1425,10 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                 <input aria-label={`Rename ${"value" in option ? option.value : option.label}`} data-testid={`table-option-edit-${option.id}`} value={draft.value} onChange={(event) => setOptionDrafts((current) => ({ ...current, [option.id]: { ...draft, value: event.target.value } }))} />
                 <input type="color" aria-label={`Color for ${draft.value}`} value={draft.color} onChange={(event) => setOptionDrafts((current) => ({ ...current, [option.id]: { ...draft, color: event.target.value } }))} />
                 <label><input type="checkbox" checked={draft.isArchived} onChange={(event) => setOptionDrafts((current) => ({ ...current, [option.id]: { ...draft, isArchived: event.target.checked } }))} /> {isSpanish ? "Archivado" : "Archived"}</label>
+                <div className="inline-option-preview">
+                  <LabelPill value={draft.value} label={{ color: draft.color, textColor: "#f4f6fa" } as LabelDefinition} muted={draft.isArchived} />
+                  <span className={`option-state-badge ${draft.isArchived ? "archived" : "active"}`}>{draft.isArchived ? (isSpanish ? "Solo historial" : "Historical only") : (isSpanish ? "Activa" : "Active")}</span>
+                </div>
                 <button type="button" className="icon-button" aria-label={isSpanish ? `Mover ${draft.value} arriba` : `Move ${draft.value} up`} disabled={index === 0} onClick={() => void moveManagedOption(option.id, -1)}>↑</button>
                 <button type="button" className="icon-button" aria-label={isSpanish ? `Mover ${draft.value} abajo` : `Move ${draft.value} down`} disabled={index === optionsForTarget.length - 1} onClick={() => void moveManagedOption(option.id, 1)}>↓</button>
               </div>
@@ -1440,6 +1524,23 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
         ) : null}
       </Modal>
       <ConfirmDialog
+        open={confirmOptionArchiveSave}
+        language={isSpanish ? "es" : "en"}
+        title={isSpanish ? "Confirmar cambios de opciones archivadas" : "Confirm archived option changes"}
+        description={
+          optionArchiveChanges.length === 0
+            ? ""
+            : `${isSpanish ? "Se actualizaran" : "This will update"} ${optionArchiveChanges.map((change) => `${change.label} (${change.archived ? (isSpanish ? "archivar" : "archive") : (isSpanish ? "restaurar" : "restore")})`).join(", ")}. ${isSpanish ? "Los valores historicos se conservan; solo cambia si siguen disponibles para nuevas selecciones." : "Historical values stay in place; only future selectability changes."}`
+        }
+        confirmLabel={isSpanish ? "Aplicar cambios" : "Apply changes"}
+        tone="danger"
+        onClose={() => setConfirmOptionArchiveSave(false)}
+        onConfirm={async () => {
+          setConfirmOptionArchiveSave(false);
+          await saveManagedOptions();
+        }}
+      />
+      <ConfirmDialog
         open={Boolean(pendingGroupMove)}
         language={isSpanish ? "es" : "en"}
         title={isSpanish ? "Mover items seleccionados?" : "Move selected items?"}
@@ -1453,6 +1554,66 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
           setPendingGroupMove(null);
         }}
       />
+      <Modal
+        open={mobileBatchModalOpen}
+        title={isSpanish ? "Acciones para items seleccionados" : "Selected item actions"}
+        onClose={() => setMobileBatchModalOpen(false)}
+        testId="mobile-batch-actions-modal"
+        actions={(
+          <>
+            <button type="button" className="button button-ghost" onClick={() => setSelectedIds([])}>
+              {isSpanish ? "Limpiar seleccion" : "Clear selection"}
+            </button>
+            <button type="button" className="button button-secondary" onClick={() => setMobileBatchModalOpen(false)}>
+              {isSpanish ? "Cerrar" : "Close"}
+            </button>
+          </>
+        )}
+      >
+        <div className="mobile-batch-sheet">
+          <div className="mobile-batch-summary">
+            <strong>{selectedIds.length} {isSpanish ? "items listos" : "items ready"}</strong>
+            <span>{isSpanish ? "Use acciones masivas sin volver al escritorio." : "Run bulk actions without falling back to the desktop table."}</span>
+          </div>
+          <div className="mobile-batch-grid">
+            <button type="button" className="button button-danger" onClick={() => void applyBatch({ action: "ARCHIVE", ids: selectedIds })}>
+              {isSpanish ? "Archivar seleccionados" : "Archive selected"}
+            </button>
+            {selectedItems.some((item) => item.isArchived) ? (
+              <button type="button" className="button button-secondary" onClick={() => void applyBatch({ action: "RESTORE", ids: selectedIds })}>
+                {isSpanish ? "Restaurar seleccionados" : "Restore selected"}
+              </button>
+            ) : null}
+            <label>{isSpanish ? "Asignar tecnico" : "Assign tech"}
+              <select data-testid="mobile-batch-tech-select" value={batchTech} onChange={(event) => setBatchTech(event.target.value)}>
+                <option value="">{isSpanish ? "Seleccionar tecnico..." : "Select tech..."}</option>
+                {staff.map((person) => <option key={person.id} value={person.fullName}>{person.fullName} - {person.role}</option>)}
+              </select>
+            </label>
+            <button type="button" className="button button-secondary" disabled={!batchTech} onClick={() => void applyBatch({ action: "ASSIGN_TECH", ids: selectedIds, value: batchTech || null })}>
+              {isSpanish ? "Aplicar tecnico" : "Apply tech"}
+            </button>
+            <label>{isSpanish ? "Estado make-ready" : "Make-ready status"}
+              <select data-testid="mobile-batch-status-select" value={batchStatus} onChange={(event) => setBatchStatus(event.target.value)}>
+                <option value="">{isSpanish ? "Seleccionar estado..." : "Select status..."}</option>
+                {Object.values(labelsByField.makeReadyStatus ?? {}).filter((label) => !label.isArchived).map((label) => <option key={label.id} value={label.value}>{label.value}</option>)}
+              </select>
+            </label>
+            <button type="button" className="button button-secondary" disabled={!batchStatus} onClick={() => void applyBatch({ action: "SET_FIELD", ids: selectedIds, field: "makeReadyStatus", value: batchStatus || null })}>
+              {isSpanish ? "Aplicar estado" : "Apply status"}
+            </button>
+            <label>{isSpanish ? "Mover a seccion" : "Move to section"}
+              <select data-testid="mobile-batch-group-select" value={batchGroup} onChange={(event) => setBatchGroup(event.target.value)}>
+                <option value="">{isSpanish ? "Seleccionar seccion..." : "Select section..."}</option>
+                {boardGroups.map((group) => <option key={group} value={group}>{groupName(group)}</option>)}
+              </select>
+            </label>
+            <button type="button" className="button button-secondary" disabled={!batchGroup} onClick={() => { setMobileBatchModalOpen(false); setPendingGroupMove(batchGroup); }}>
+              {isSpanish ? "Revisar movimiento" : "Review move"}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

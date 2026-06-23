@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CustomField, CustomFieldOption, CustomFieldType, UserLanguage } from "../lib/api";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { LabelPill } from "./LabelPill";
 import { StatusState } from "./StatusState";
 
 const fieldTypes: Array<{ value: CustomFieldType; label: string }> = [
@@ -98,6 +99,8 @@ export function CustomFieldsPanel({ fields, loading, language, message, error, o
       .filter((option) => option.label.trim())
       .map((option, index) => ({ ...option, label: option.label.trim(), sortOrder: index }))
     : undefined;
+  const activeDraftOptionCount = submittedOptions?.filter((option) => !option.isArchived).length ?? 0;
+  const archivedDraftOptionCount = submittedOptions?.filter((option) => option.isArchived).length ?? 0;
 
   return (
     <div className="custom-fields-shell" data-testid="custom-fields-panel">
@@ -242,6 +245,15 @@ export function CustomFieldsPanel({ fields, loading, language, message, error, o
                   <p className="section-label">{isSpanish ? "Opciones de estado" : "Status options"}</p>
                   <button type="button" className="button button-secondary" onClick={() => setDraft((current) => ({ ...current, options: [...current.options, { ...startingOption(), sortOrder: current.options.length }] }))}>{isSpanish ? "Agregar opción" : "Add Option"}</button>
                 </div>
+                <div className="option-summary" data-testid="custom-field-option-summary">
+                  <span className="status-chip active">{isSpanish ? `${activeDraftOptionCount} activas` : `${activeDraftOptionCount} active`}</span>
+                  <span className="status-chip inactive">{isSpanish ? `${archivedDraftOptionCount} archivadas` : `${archivedDraftOptionCount} archived`}</span>
+                </div>
+                <p className="helper-copy span-full">
+                  {isSpanish
+                    ? "Las opciones archivadas permanecen en registros existentes, pero no se ofrecerán para nuevas selecciones."
+                    : "Archived options remain on existing records, but they will not be offered for new selections."}
+                </p>
                 {draft.options.map((option, index) => (
                   <div className="custom-field-option" key={option.id ?? index}>
                     <input data-testid={`custom-field-option-label-${index}`} value={option.label} onChange={(event) => updateOption(index, { label: event.target.value })} placeholder={isSpanish ? "Etiqueta" : "Label"} />
@@ -250,6 +262,10 @@ export function CustomFieldsPanel({ fields, loading, language, message, error, o
                       <input type="checkbox" checked={option.isArchived} onChange={(event) => updateOption(index, { isArchived: event.target.checked })} />
                       {isSpanish ? "Archivado" : "Archived"}
                     </label>
+                    <div className="inline-option-preview">
+                      <LabelPill value={option.label || (isSpanish ? "Vista previa" : "Preview")} label={{ color: option.color, textColor: "#f4f6fa" } as never} muted={option.isArchived} />
+                      <span className={`option-state-badge ${option.isArchived ? "archived" : "active"}`}>{option.isArchived ? (isSpanish ? "Solo historial" : "Historical only") : (isSpanish ? "Activa" : "Active")}</span>
+                    </div>
                   </div>
                 ))}
               </div>

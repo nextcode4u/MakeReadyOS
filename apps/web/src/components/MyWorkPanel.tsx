@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import type { CurrentUser, LabelDefinition, MyWorkResponse, StaffOption } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
 import { t, tWithVars } from "../lib/i18n";
+import { openLeaseWorkspace } from "../lib/leaseNavigation";
+import { openPestWorkspace } from "../lib/pestNavigation";
 import { openProjectRecord } from "../lib/projectNavigation";
 import { LabelPill } from "./LabelPill";
 import { StatusState } from "./StatusState";
@@ -34,6 +36,40 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
   const canSelectStaff = currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
   const canQuickUpdate = ["ADMIN", "MANAGER", "TECH", "CLEANER"].includes(currentUser.role);
   const makeReadyOptions = Object.values(labelsByField.makeReadyStatus ?? {}).filter((label) => !label.isArchived);
+
+  const openPestItem = (item: NonNullable<MyWorkResponse["pestItems"]>[number]) => {
+    const search = item.unit?.number ?? item.area ?? item.pestType ?? "";
+    const tab = item.status === "Archived"
+      ? "archive"
+      : item.makeReadyItemId
+        ? "make-ready"
+        : "active";
+    openPestWorkspace({
+      propertyId: item.propertyId,
+      tab,
+      makeReadyItemId: item.makeReadyItemId ?? undefined,
+      search,
+    });
+  };
+
+  const openLeaseItem = (item: NonNullable<MyWorkResponse["leaseComplianceItems"]>[number]) => {
+    const search = item.unit?.number ?? item.area ?? item.building ?? item.issueTypeName ?? "";
+    const tab = item.isArchived || item.status === "Archived"
+      ? "archive"
+      : item.status === "Resolved"
+        ? "resolved"
+        : item.status === "Violation Needed" || item.noticeStage === "Violation Needed"
+          ? "violation"
+          : item.noticeStage !== "None" || item.status === "Resident Notified" || item.status === "Notice Sent"
+            ? "needs-notice"
+            : "active";
+    openLeaseWorkspace({
+      propertyId: item.propertyId,
+      tab,
+      search,
+    });
+  };
+
   return (
     <section className="my-work-panel" data-testid="my-work-panel">
       <header className="panel-heading my-work-heading">
@@ -146,7 +182,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                   <progress value={item.status === "Closed" ? 1 : item.status === "Treated" ? 0.8 : item.status === "Scheduled" ? 0.5 : 0.2} max={1} />
                 </div>
                 <div className="my-work-actions">
-                  <button className="button button-primary" type="button" onClick={() => window.dispatchEvent(new CustomEvent("makereadyos:set-active-view", { detail: { view: "pest", propertyId: item.propertyId } }))}>{t(language, "myWork.openPest")}</button>
+                  <button className="button button-primary" type="button" onClick={() => openPestItem(item)}>{t(language, "myWork.openPest")}</button>
                   <span className="muted">{item.description || item.followUpNotes || t(language, "myWork.noExtraNotes")}</span>
                 </div>
               </article>
@@ -173,7 +209,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                   <progress value={item.status === "Resolved" ? 1 : item.noticeStage === "Violation Needed" ? 0.9 : item.noticeStage === "3rd Notice" ? 0.75 : item.noticeStage === "2nd Notice" ? 0.55 : item.noticeStage === "1st Notice" ? 0.35 : 0.15} max={1} />
                 </div>
                 <div className="my-work-actions">
-                  <button className="button button-primary" type="button" onClick={() => window.dispatchEvent(new CustomEvent("makereadyos:set-active-view", { detail: { view: "lease", propertyId: item.propertyId } }))}>{t(language, "myWork.openLease")}</button>
+                  <button className="button button-primary" type="button" onClick={() => openLeaseItem(item)}>{t(language, "myWork.openLease")}</button>
                   <span className="muted">{item.description || item.locationNotes || t(language, "myWork.noExtraNotes")}</span>
                 </div>
               </article>

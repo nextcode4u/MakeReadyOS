@@ -1,7 +1,7 @@
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { BoardColumnDefinition, BoardSection, ChargePriceSheetItem, CurrentUser, CustomField, FloorPlan, ItemCollaboration, LabelDefinition, MakeReadyItem, StaffOption, UnitHistoryResponse, Vendor, VendorAssignment, WorkAssignmentBlock } from "../lib/api";
-import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, chargeReportCsvUrl, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getPestIssues, getUnitHistory, isApiError, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
+import type { BoardColumnDefinition, BoardSection, ChargePriceSheetImportSummary, ChargePriceSheetItem, ChargeReport, ChargeReportGroup, CurrentUser, CustomField, FloorPlan, ItemCollaboration, LabelDefinition, MakeReadyItem, StaffOption, UnitHistoryResponse, Vendor, VendorAssignment, WorkAssignmentBlock } from "../lib/api";
+import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, chargeReportCsvUrl, chargeReportPrintableHtmlUrl, chargeReportPrintableReportUrl, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getPestIssues, getUnitHistory, importChargePriceSheetItems, isApiError, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
 import { enqueueMakeReadyAttachmentUpload, enqueueMakeReadyChecklistAttach, enqueueMakeReadyChecklistUpdate, enqueueMakeReadyCommentCreate, enqueueMakeReadyCommentDelete, enqueueMakeReadyCommentUpdate, getOfflineSyncEventName, getOfflineSyncJobs } from "../lib/offlineSync";
 import { boardGroupLabel, configuredBoardColumns } from "../lib/board";
 import { formatDateTime } from "../lib/dateTime";
@@ -130,6 +130,19 @@ function formatCents(value: number | null | undefined) {
   return typeof value === "number" ? `$${(value / 100).toFixed(2)}` : t("en", "drawer.noEstimate");
 }
 
+function groupChargeReportLines(lines: ChargeReport["lines"]): ChargeReportGroup[] {
+  const groups = new Map<string, ChargeReportGroup>();
+  for (const line of lines) {
+    const label = line.category?.trim() || "Uncategorized";
+    const key = label.toLowerCase();
+    const group = groups.get(key) ?? { label, lines: [], totalEstimatedCents: 0 };
+    group.lines.push(line);
+    group.totalEstimatedCents += line.estimatedCents;
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((left, right) => left.label.localeCompare(right.label));
+}
+
 function AttachmentMedia({ attachment, onOpen, language }: { attachment: DrawerAttachment; onOpen: () => void; language: CurrentUser["language"] }) {
   const [failed, setFailed] = useState(false);
   if (attachment.mimeType.startsWith("image/") && !failed) {
@@ -183,6 +196,7 @@ export function ItemDrawer({
   const [attachmentStageFilter, setAttachmentStageFilter] = useState("ALL");
   const [attachmentGalleryOpen, setAttachmentGalleryOpen] = useState(false);
   const [chargeReportOpen, setChargeReportOpen] = useState(false);
+  const [chargeReportGroupByCategory, setChargeReportGroupByCategory] = useState(false);
   const [previewAttachmentId, setPreviewAttachmentId] = useState<string | null>(null);
   const [attachmentZoom, setAttachmentZoom] = useState(1);
   const [pinModeAttachmentId, setPinModeAttachmentId] = useState<string | null>(null);
@@ -193,11 +207,16 @@ export function ItemDrawer({
   const [newPinChargeQuantity, setNewPinChargeQuantity] = useState("1");
   const [newPinChargeEstimate, setNewPinChargeEstimate] = useState("");
   const [newChargeItem, setNewChargeItem] = useState({ name: "", category: "", amount: "", unitLabel: "" });
+  const [chargeImportText, setChargeImportText] = useState("");
+  const [chargeImportOverwriteExisting, setChargeImportOverwriteExisting] = useState(true);
+  const [chargeImportSummary, setChargeImportSummary] = useState<ChargePriceSheetImportSummary | null>(null);
   const [templateId, setTemplateId] = useState("");
   const [vendorDraft, setVendorDraft] = useState({ vendorId: "", trade: "", scheduledDate: "", dueDate: "", notes: "" });
   const [newTemplateName, setNewTemplateName] = useState("");
   const [newTemplateItems, setNewTemplateItems] = useState("");
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [pendingAttachmentSyncCount, setPendingAttachmentSyncCount] = useState(0);
+  const [pendingChecklistItemIds, setPendingChecklistItemIds] = useState<string[]>([]);
   const columns = useMemo(() => configuredBoardColumns(columnDefinitions), [columnDefinitions]);
   const drawerColumns = useMemo(() => columns.filter((column) => column.key !== "unitNumber" && column.key !== "notes" && column.key !== "completionStatus"), [columns]);
   const readinessBlockers = useMemo(() => completionBlockers(item), [item]);
@@ -239,7 +258,12 @@ export function ItemDrawer({
   const itemVendorAssignments = vendorAssignments.filter((assignment) => assignment.itemId === item.id);
   const itemWorkBlocks = workBlocks.filter((block) => block.itemId === item.id && block.status !== "CANCELED");
   const attachments = collaborationQuery.data?.attachments ?? [];
+  const comments = collaborationQuery.data?.comments ?? [];
   const activeChargePriceSheetItems = (chargePriceSheetQuery.data?.items ?? []).filter((entry) => entry.isActive && !entry.isArchived);
+  const groupedChargeReportLines = useMemo(
+    () => chargeReportQuery.data ? groupChargeReportLines(chargeReportQuery.data.lines) : [],
+    [chargeReportQuery.data],
+  );
   const needsClassification = attachments.filter((attachment) => (attachment.inspectionStage || "GENERAL") === "GENERAL" && !attachment.category && !attachment.note && !attachment.chargeCandidate);
   const chargeCandidates = attachments.filter((attachment) => attachment.chargeCandidate);
   const chargePinAnnotations = attachments.flatMap((attachment) => (attachment.markupAnnotations ?? [])
@@ -269,6 +293,54 @@ export function ItemDrawer({
   const activeStageLabel = attachmentStageOptions.find((stage) => stage.value === attachmentStageFilter)?.label ?? "current filter";
   const attachmentCategories = Array.from(new Set(attachments.map((attachment) => attachment.category?.trim()).filter((category): category is string => Boolean(category)))).sort((a, b) => a.localeCompare(b));
   const markupCategoryOptions = Array.from(new Set([...attachmentCategoryOptions, ...attachmentCategories, newPinCategory.trim()].filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  const latestComment = comments[0] ?? null;
+  const pendingCommentCount = comments.filter((comment) => comment.id.startsWith("offline-comment-")).length;
+  const attachmentReviewCards = [
+    {
+      key: "pending",
+      count: pendingAttachmentSyncCount,
+      title: t(language, "drawer.pendingUploadFiles"),
+      copy: t(language, "drawer.pendingUploadFilesCopy"),
+      action: t(language, "drawer.openGallery"),
+      onClick: () => setAttachmentGalleryOpen(true),
+      hidden: pendingAttachmentSyncCount === 0,
+    },
+    {
+      key: "classify",
+      count: needsClassification.length,
+      title: t(language, "drawer.needClassification"),
+      copy: t(language, "drawer.classifyPhotosHelp"),
+      action: t(language, "drawer.reviewNow"),
+      onClick: () => {
+        setAttachmentStageFilter("NEEDS_CLASSIFICATION");
+        setAttachmentGalleryOpen(true);
+      },
+      hidden: needsClassification.length === 0,
+    },
+    {
+      key: "charge",
+      count: chargeCount,
+      title: t(language, "drawer.chargeCandidates"),
+      copy: t(language, "drawer.chargeCandidatesCopy"),
+      action: t(language, "drawer.reviewNow"),
+      onClick: () => {
+        setAttachmentStageFilter("CHARGE_CANDIDATES");
+        setAttachmentGalleryOpen(true);
+      },
+      hidden: chargeCount === 0,
+    },
+    {
+      key: "recent",
+      count: recentAttachments.length,
+      title: t(language, "drawer.recentFiles"),
+      copy: filteredAttachments.length > recentAttachments.length
+        ? tWithVars(language, "drawer.moreFilesInFilter", { count: filteredAttachments.length - recentAttachments.length })
+        : t(language, "drawer.galleryHelp"),
+      action: t(language, "drawer.openGallery"),
+      onClick: () => setAttachmentGalleryOpen(true),
+      hidden: recentAttachments.length === 0,
+    },
+  ].filter((card) => !card.hidden);
   const canManageVendorWork = currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "LEASING";
   const canManageChargePriceSheet = currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
   const canUpdateVendorWork = canManageVendorWork || currentUser.role === "TECH";
@@ -292,7 +364,23 @@ export function ItemDrawer({
       }
       return false;
     }).length;
+    const pendingAttachmentFiles = jobs.reduce((total, job) => {
+      const payload = job.payload;
+      if (payload.kind === "makeReadyUpload" && payload.itemId === item.id) {
+        return total + payload.files.length;
+      }
+      return total;
+    }, 0);
+    const queuedChecklistItemIds = jobs.flatMap((job) => {
+      const payload = job.payload;
+      if (payload.kind === "makeReadyChecklistUpdate" && payload.itemId === item.id) {
+        return [payload.checklistItemId];
+      }
+      return [];
+    });
     setPendingSyncCount(count);
+    setPendingAttachmentSyncCount(pendingAttachmentFiles);
+    setPendingChecklistItemIds(Array.from(new Set(queuedChecklistItemIds)));
   };
   const patchAttachmentMetadata = (attachmentId: string, patch: Parameters<typeof updateItemAttachment>[1]) => {
     queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current ? {
@@ -315,6 +403,21 @@ export function ItemDrawer({
       await queryClient.invalidateQueries({ queryKey: ["charge-price-sheet-items", item.propertyId] });
       await queryClient.invalidateQueries({ queryKey: ["charge-report", item.id] });
       return created;
+    });
+  };
+  const importChargePriceSheet = () => {
+    if (!chargeImportText.trim()) return;
+    void operation("charge-price-sheet-import", async () => {
+      const result = await importChargePriceSheetItems({
+        propertyId: item.propertyId,
+        content: chargeImportText,
+        overwriteExisting: chargeImportOverwriteExisting,
+      });
+      setChargeImportSummary(result.summary);
+      setChargeImportText("");
+      await queryClient.invalidateQueries({ queryKey: ["charge-price-sheet-items", item.propertyId] });
+      await queryClient.invalidateQueries({ queryKey: ["charge-report", item.id] });
+      return result;
     });
   };
   const saveAttachmentAnnotations = (attachment: DrawerAttachment, annotations: AttachmentAnnotation[]) => {
@@ -969,15 +1072,33 @@ export function ItemDrawer({
               <label><span className="sr-only">{t(language, "drawer.addOperationalUpdate")}</span>
                 <textarea data-testid="comment-input" value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder={t(language, "drawer.updatePlaceholder")} />
               </label>
-              <div>
+              <div className="comment-compose-actions">
                 {editingCommentId ? <button className="button button-ghost" type="button" onClick={() => { setEditingCommentId(null); setCommentText(""); }}>{t(language, "drawer.cancelEdit")}</button> : null}
                 <button className="button button-primary" data-testid="comment-submit" disabled={!commentText.trim() || saving === "comment"}>{editingCommentId ? t(language, "drawer.saveUpdate") : t(language, "drawer.postUpdate")}</button>
               </div>
             </form>
           ) : null}
-          {collaborationQuery.isLoading ? <p className="drawer-empty">{t(language, "drawer.loadingUpdates")}</p> : !collaborationQuery.data?.comments.length ? <p className="drawer-empty">{t(language, "drawer.noUpdates")}</p> : (
+          {!collaborationQuery.isLoading ? (
+            <div className="drawer-collab-summary" data-testid="drawer-comment-summary">
+              <article className="drawer-collab-card">
+                <strong>{t(language, "drawer.recentUpdates")}</strong>
+                <span>{comments.length} {t(language, "drawer.updatesCountLabel")}</span>
+                <small>{latestComment ? `${latestComment.authorName} / ${formatDateTime(latestComment.createdAt)}` : t(language, "drawer.noUpdatesYetShort")}</small>
+              </article>
+              <article className="drawer-collab-card">
+                <strong>{t(language, "drawer.pendingSyncShort")}</strong>
+                <span>{pendingCommentCount} {t(language, "drawer.commentsLabel")}</span>
+                <small>{pendingCommentCount ? t(language, "drawer.pendingCommentSync") : t(language, "drawer.allCommentsSynced")}</small>
+              </article>
+              <article className="drawer-collab-card">
+                <strong>{t(language, "drawer.latestUpdate")}</strong>
+                <small>{latestComment ? latestComment.body : t(language, "drawer.noUpdates")}</small>
+              </article>
+            </div>
+          ) : null}
+          {collaborationQuery.isLoading ? <p className="drawer-empty">{t(language, "drawer.loadingUpdates")}</p> : !comments.length ? <p className="drawer-empty">{t(language, "drawer.noUpdates")}</p> : (
             <div className="comment-list" data-testid="comment-list">
-              {collaborationQuery.data.comments.map((comment) => (
+              {comments.map((comment) => (
                 <article key={comment.id} className="comment-card">
                   <header><strong>{comment.authorName}</strong><time>{formatDateTime(comment.createdAt)}{comment.editedAt ? ` / ${t(language, "drawer.edited")}` : ""}</time></header>
                   <p>{comment.body}</p>
@@ -1017,6 +1138,7 @@ export function ItemDrawer({
               }} />
             </label>
           ) : null}</div>
+          {pendingAttachmentSyncCount ? <p className="drawer-empty" role="status">{t(language, "drawer.pendingAttachmentSync").replace("{count}", String(pendingAttachmentSyncCount))}</p> : null}
           <div className="attachment-workflow-summary">
             <span><strong>{attachments.length}</strong> {t(language, "drawer.files")}</span>
             <span><strong>{imageCount}</strong> {t(language, "drawer.images")}</span>
@@ -1024,6 +1146,18 @@ export function ItemDrawer({
             <span><strong>{needsClassification.length}</strong> {t(language, "drawer.needClassification")}</span>
             <span>{t(language, "drawer.galleryHelp")}</span>
           </div>
+          {attachmentReviewCards.length ? (
+            <div className="drawer-collab-summary" data-testid="drawer-attachment-summary">
+              {attachmentReviewCards.map((card) => (
+                <article key={card.key} className="drawer-collab-card">
+                  <strong>{card.title}</strong>
+                  <span>{card.count}</span>
+                  <small>{card.copy}</small>
+                  <button type="button" className="button button-ghost" onClick={card.onClick}>{card.action}</button>
+                </article>
+              ))}
+            </div>
+          ) : null}
           {attachments.length ? (
             <div className="attachment-stage-filter" data-testid="attachment-stage-filter">
               {attachmentStageOptions.map((stage) => {
@@ -1122,6 +1256,7 @@ export function ItemDrawer({
                     <input type="checkbox" data-testid={`checklist-item-${entry.id}`} checked={entry.completed} disabled={!canCollaborate || saving === entry.id} onChange={(event) => toggleChecklistItem(entry.id, event.target.checked)} />
                     <span>{entry.title}{entry.required ? " *" : ""}</span>
                     {entry.completedBy ? <small>{entry.completedBy.fullName}</small> : null}
+                    {pendingChecklistItemIds.includes(entry.id) ? <small>{t(language, "drawer.pendingChecklistSync")}</small> : null}
                   </label>
                 ))}
               </article>
@@ -1231,6 +1366,7 @@ export function ItemDrawer({
             <span><strong>{imageCount}</strong> {t(language, "drawer.images")}</span>
             <span><strong>{chargeCount}</strong> {t(language, "drawer.chargeCandidates")}</span>
             <span><strong>{needsClassification.length}</strong> {t(language, "drawer.needClassification")}</span>
+            {pendingAttachmentSyncCount ? <span><strong>{pendingAttachmentSyncCount}</strong> {t(language, "drawer.pendingAttachmentFilesShort")}</span> : null}
           </div>
           {canCollaborate ? (
             <label className="button button-secondary file-action">
@@ -1296,34 +1432,79 @@ export function ItemDrawer({
             <span>{chargePriceSheetQuery.data?.items.length ?? 0} {t(language, "drawer.estimateOptionsForProperty")}</span>
           </div>
           {canManageChargePriceSheet ? (
-            <div className="inspection-price-sheet-form">
-              <input
-                data-testid="charge-price-name"
-                placeholder={t(language, "drawer.chargeItemPlaceholder")}
-                value={newChargeItem.name}
-                onChange={(event) => setNewChargeItem((current) => ({ ...current, name: event.target.value }))}
-              />
-              <input
-                placeholder={t(language, "drawer.categoryPlaceholder")}
-                value={newChargeItem.category}
-                onChange={(event) => setNewChargeItem((current) => ({ ...current, category: event.target.value }))}
-              />
-              <input
-                placeholder={t(language, "drawer.unitPlaceholder")}
-                value={newChargeItem.unitLabel}
-                onChange={(event) => setNewChargeItem((current) => ({ ...current, unitLabel: event.target.value }))}
-              />
-              <input
-                data-testid="charge-price-amount"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder={t(language, "drawer.defaultDollarPlaceholder")}
-                value={newChargeItem.amount}
-                onChange={(event) => setNewChargeItem((current) => ({ ...current, amount: event.target.value }))}
-              />
-              <button type="button" className="button button-secondary" data-testid="charge-price-create" disabled={!newChargeItem.name.trim()} onClick={addChargePriceSheetItem}>{t(language, "drawer.addPriceItem")}</button>
-            </div>
+            <>
+              <div className="inspection-price-sheet-form">
+                <input
+                  data-testid="charge-price-name"
+                  placeholder={t(language, "drawer.chargeItemPlaceholder")}
+                  value={newChargeItem.name}
+                  onChange={(event) => setNewChargeItem((current) => ({ ...current, name: event.target.value }))}
+                />
+                <input
+                  placeholder={t(language, "drawer.categoryPlaceholder")}
+                  value={newChargeItem.category}
+                  onChange={(event) => setNewChargeItem((current) => ({ ...current, category: event.target.value }))}
+                />
+                <input
+                  placeholder={t(language, "drawer.unitPlaceholder")}
+                  value={newChargeItem.unitLabel}
+                  onChange={(event) => setNewChargeItem((current) => ({ ...current, unitLabel: event.target.value }))}
+                />
+                <input
+                  data-testid="charge-price-amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder={t(language, "drawer.defaultDollarPlaceholder")}
+                  value={newChargeItem.amount}
+                  onChange={(event) => setNewChargeItem((current) => ({ ...current, amount: event.target.value }))}
+                />
+                <button type="button" className="button button-secondary" data-testid="charge-price-create" disabled={!newChargeItem.name.trim()} onClick={addChargePriceSheetItem}>{t(language, "drawer.addPriceItem")}</button>
+              </div>
+              <details className="inspection-price-sheet-import">
+                <summary>{t(language, "drawer.bulkImportPriceSheet")}</summary>
+                <p>{t(language, "drawer.bulkImportPriceSheetHelp")}</p>
+                <textarea
+                  data-testid="charge-price-import-text"
+                  placeholder={t(language, "drawer.bulkImportPriceSheetPlaceholder")}
+                  value={chargeImportText}
+                  onChange={(event) => setChargeImportText(event.target.value)}
+                />
+                <label className="inspection-price-sheet-import-toggle">
+                  <input
+                    type="checkbox"
+                    checked={chargeImportOverwriteExisting}
+                    onChange={(event) => setChargeImportOverwriteExisting(event.target.checked)}
+                  />
+                  <span>{t(language, "drawer.bulkImportOverwriteExisting")}</span>
+                </label>
+                <div className="inspection-price-sheet-import-actions">
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    data-testid="charge-price-import"
+                    disabled={!chargeImportText.trim()}
+                    onClick={importChargePriceSheet}
+                  >
+                    {t(language, "drawer.importPriceSheet")}
+                  </button>
+                </div>
+                {chargeImportSummary ? (
+                  <div className="inspection-price-sheet-import-summary" data-testid="charge-price-import-summary">
+                    <span><strong>{chargeImportSummary.processed}</strong> {t(language, "drawer.lines")}</span>
+                    <span><strong>{chargeImportSummary.created}</strong> {t(language, "drawer.createdLabel")}</span>
+                    <span><strong>{chargeImportSummary.updated}</strong> {t(language, "drawer.updatedLabel")}</span>
+                    <span><strong>{chargeImportSummary.skipped}</strong> {t(language, "drawer.skippedLabel")}</span>
+                    {chargeImportSummary.errors.length ? <span className="warning"><strong>{chargeImportSummary.errors.length}</strong> {t(language, "drawer.errorsLabel")}</span> : null}
+                    {chargeImportSummary.errors.length ? (
+                      <div className="inspection-price-sheet-import-errors">
+                        {chargeImportSummary.errors.map((entry) => <small key={entry}>{entry}</small>)}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </details>
+            </>
           ) : null}
         </div>
         {attachmentCategories.length ? (
@@ -1351,7 +1532,13 @@ export function ItemDrawer({
         testId="charge-report-modal"
         actions={chargeReportQuery.data?.summary.lineCount ? (
           <>
-            <a className="button button-secondary" data-testid="charge-report-csv-download" href={chargeReportCsvUrl(item.id)} download={`${item.unitNumber}-charge-report.csv`}>
+            <a className="button button-secondary" href={chargeReportPrintableHtmlUrl(item.id, { groupByCategory: chargeReportGroupByCategory })} target="_blank" rel="noreferrer">
+              {t(language, "nav.print")}
+            </a>
+            <a className="button button-secondary" href={chargeReportPrintableReportUrl(item.id, { groupByCategory: chargeReportGroupByCategory })} target="_blank" rel="noreferrer">
+              {t(language, "nav.pdf")}
+            </a>
+            <a className="button button-secondary" data-testid="charge-report-csv-download" href={chargeReportCsvUrl(item.id, { groupByCategory: chargeReportGroupByCategory })} download={`${item.unitNumber}-charge-report.csv`}>
               {t(language, "nav.csv")}
             </a>
             <a className="button button-secondary" href={attachmentArchiveUrl(item.id, { stage: "CHARGE_CANDIDATES" })} download={`${item.unitNumber}-charge-candidates.zip`}>
@@ -1372,9 +1559,51 @@ export function ItemDrawer({
                 <span><strong>{chargeReportQuery.data.summary.fileCount}</strong> {t(language, "drawer.files")}</span>
                 <span><strong>{chargeReportQuery.data.summary.pinCount}</strong> {t(language, "drawer.pinCount")}</span>
                 <span><strong>{formatCents(chargeReportQuery.data.summary.totalEstimatedCents)}</strong> {t(language, "drawer.totalEstimate")}</span>
+                <label className="charge-report-toggle">
+                  <input
+                    type="checkbox"
+                    checked={chargeReportGroupByCategory}
+                    onChange={(event) => setChargeReportGroupByCategory(event.target.checked)}
+                  />
+                  <span>{t(language, "drawer.groupByCategory")}</span>
+                </label>
                 {chargeReportQuery.data.summary.missingContext ? <span className="warning"><strong>{chargeReportQuery.data.summary.missingContext}</strong> {t(language, "drawer.needPricingOrNotes")}</span> : null}
               </div>
-              {chargeReportQuery.data.lines.length ? (
+              {chargeReportQuery.data.lines.length ? chargeReportGroupByCategory ? (
+                <div className="charge-report-groups" data-testid="charge-report-groups">
+                  {groupedChargeReportLines.map((group) => (
+                    <section key={group.label} className="charge-report-group">
+                      <div className="charge-report-group-header">
+                        <strong>{group.label === "Uncategorized" ? t(language, "drawer.uncategorized") : group.label}</strong>
+                        <span>{group.lines.length} {t(language, "drawer.lines")} / {formatCents(group.totalEstimatedCents)}</span>
+                      </div>
+                      <div className="charge-report-table" role="table" aria-label={t(language, "drawer.chargeEvidenceItems")}>
+                        <div className="charge-report-row header" role="row">
+                          <span>{t(language, "drawer.type")}</span>
+                          <span>{t(language, "drawer.evidence")}</span>
+                          <span>{t(language, "drawer.priceSheet")}</span>
+                          <span>{t(language, "drawer.quantity")}</span>
+                          <span>{t(language, "drawer.estimate")}</span>
+                          <span>{t(language, "drawer.notes")}</span>
+                        </div>
+                        {group.lines.map((line, index) => (
+                          <div key={`${group.label}-${line.type}-${line.attachmentId}-${line.pinId ?? index}`} className="charge-report-row" role="row">
+                            <span>{line.type === "PIN" ? t(language, "drawer.pin") : t(language, "drawer.file")}</span>
+                            <span>
+                              <strong>{line.label}</strong>
+                              <small>{line.attachmentName}{line.category ? ` / ${line.category}` : ""} / {line.inspectionStage}</small>
+                            </span>
+                            <span>{line.priceSheetItemName ?? t(language, "drawer.noPriceSheetItem")}</span>
+                            <span>{line.quantity ?? "-"}</span>
+                            <span>{formatCents(line.estimatedCents)}</span>
+                            <span>{line.chargeNote || line.note || t(language, "drawer.noNote")}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              ) : (
                 <div className="charge-report-table" role="table" aria-label={t(language, "drawer.chargeEvidenceItems")}>
                   <div className="charge-report-row header" role="row">
                     <span>{t(language, "drawer.type")}</span>

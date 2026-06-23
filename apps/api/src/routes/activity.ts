@@ -95,6 +95,14 @@ function csvEscape(value: unknown) {
   return `"${text.replaceAll("\"", "\"\"")}"`;
 }
 
+function titleCase(value: string) {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export async function activityRoutes(app: FastifyInstance) {
   async function buildDailyReport(request: FastifyRequest, reply: FastifyReply) {
     const user = request.currentUser!;
@@ -336,14 +344,261 @@ export async function activityRoutes(app: FastifyInstance) {
       }),
     ]);
 
-    const itemIds = Array.from(new Set(activity.map((entry) => entry.entityId).filter((id): id is string => Boolean(id))));
-    const items = itemIds.length > 0
-      ? await prisma.makeReadyItem.findMany({
-          where: { id: { in: itemIds } },
-          select: { id: true, unitNumber: true },
-        })
-      : [];
-    const unitByEntityId = new Map(items.map((item) => [item.id, item.unitNumber]));
+    const entityIdsByType = activity.reduce<Record<string, string[]>>((acc, entry) => {
+      if (!entry.entityId) return acc;
+      (acc[entry.entityType] ??= []).push(entry.entityId);
+      return acc;
+    }, {});
+    const uniqueIds = (entityType: string) => Array.from(new Set(entityIdsByType[entityType] ?? []));
+
+    const [
+      items,
+      projectRecords,
+      pestIssues,
+      leaseIssues,
+      pmTasks,
+      pmTemplates,
+      poolEntries,
+      poolFacilities,
+      mapPins,
+      mapAreas,
+      mapFiles,
+      wikiEntries,
+      wikiVendors,
+      wikiAssets,
+      vendors,
+      workBlocks,
+      boardSections,
+      floorPlans,
+      scheduleTracks,
+      savedViews,
+      customFields,
+      propertiesAsEntities,
+      units,
+      automationRules,
+      webhookEndpoints,
+      apiTokens,
+    ] = await Promise.all([
+      uniqueIds("MAKE_READY_ITEM").length
+        ? prisma.makeReadyItem.findMany({ where: { id: { in: uniqueIds("MAKE_READY_ITEM") } }, select: { id: true, unitNumber: true, boardGroup: true } })
+        : Promise.resolve([]),
+      uniqueIds("PROJECT_RECORD").length
+        ? prisma.projectRecord.findMany({ where: { id: { in: uniqueIds("PROJECT_RECORD") } }, select: { id: true, title: true, recordType: true } })
+        : Promise.resolve([]),
+      uniqueIds("PEST_ISSUE").length
+        ? prisma.pestIssue.findMany({ where: { id: { in: uniqueIds("PEST_ISSUE") } }, select: { id: true, pestType: true, area: true, building: true, unit: { select: { number: true } }, makeReadyItem: { select: { unitNumber: true } } } })
+        : Promise.resolve([]),
+      uniqueIds("LEASE_COMPLIANCE_ISSUE").length
+        ? prisma.leaseComplianceIssue.findMany({ where: { id: { in: uniqueIds("LEASE_COMPLIANCE_ISSUE") } }, select: { id: true, issueTypeName: true, area: true, building: true, unit: { select: { number: true } } } })
+        : Promise.resolve([]),
+      uniqueIds("PM_TASK").length
+        ? prisma.preventiveMaintenanceTask.findMany({ where: { id: { in: uniqueIds("PM_TASK") } }, select: { id: true, taskName: true, category: true } })
+        : Promise.resolve([]),
+      uniqueIds("PM_TEMPLATE").length
+        ? prisma.preventiveMaintenanceTemplate.findMany({ where: { id: { in: uniqueIds("PM_TEMPLATE") } }, select: { id: true, name: true, category: true } })
+        : Promise.resolve([]),
+      uniqueIds("PoolLogEntry").length
+        ? prisma.poolLogEntry.findMany({ where: { id: { in: uniqueIds("PoolLogEntry") } }, select: { id: true, logDate: true, facility: { select: { name: true } } } })
+        : Promise.resolve([]),
+      uniqueIds("PoolFacility").length
+        ? prisma.poolFacility.findMany({ where: { id: { in: uniqueIds("PoolFacility") } }, select: { id: true, name: true, type: true } })
+        : Promise.resolve([]),
+      uniqueIds("PROPERTY_MAP_PIN").length
+        ? prisma.propertyMapPin.findMany({ where: { id: { in: uniqueIds("PROPERTY_MAP_PIN") } }, select: { id: true, title: true, pinType: true } })
+        : Promise.resolve([]),
+      uniqueIds("PROPERTY_MAP_AREA").length
+        ? prisma.propertyMapArea.findMany({ where: { id: { in: uniqueIds("PROPERTY_MAP_AREA") } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
+      uniqueIds("PROPERTY_MAP").length
+        ? prisma.propertyMap.findMany({ where: { id: { in: uniqueIds("PROPERTY_MAP") } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
+      uniqueIds("PROPERTY_WIKI_ENTRY").length
+        ? prisma.propertyWikiEntry.findMany({ where: { id: { in: uniqueIds("PROPERTY_WIKI_ENTRY") } }, select: { id: true, title: true, section: true } })
+        : Promise.resolve([]),
+      uniqueIds("PROPERTY_WIKI_VENDOR").length
+        ? prisma.propertyWikiVendor.findMany({ where: { id: { in: uniqueIds("PROPERTY_WIKI_VENDOR") } }, select: { id: true, companyName: true, vendorType: true } })
+        : Promise.resolve([]),
+      uniqueIds("PROPERTY_WIKI_ASSET").length
+        ? prisma.propertyWikiAsset.findMany({ where: { id: { in: uniqueIds("PROPERTY_WIKI_ASSET") } }, select: { id: true, title: true, kind: true } })
+        : Promise.resolve([]),
+      uniqueIds("VENDOR").length
+        ? prisma.vendor.findMany({ where: { id: { in: uniqueIds("VENDOR") } }, select: { id: true, name: true, trade: true } })
+        : Promise.resolve([]),
+      uniqueIds("WORK_ASSIGNMENT_BLOCK").length
+        ? prisma.workAssignmentBlock.findMany({ where: { id: { in: uniqueIds("WORK_ASSIGNMENT_BLOCK") } }, select: { id: true, category: true, item: { select: { unitNumber: true } } } })
+        : Promise.resolve([]),
+      uniqueIds("BOARD_SECTION").length
+        ? prisma.boardSection.findMany({ where: { id: { in: uniqueIds("BOARD_SECTION") } }, select: { id: true, displayName: true } })
+        : Promise.resolve([]),
+      uniqueIds("FLOOR_PLAN").length
+        ? prisma.floorPlan.findMany({ where: { id: { in: uniqueIds("FLOOR_PLAN") } }, select: { id: true, code: true, name: true } })
+        : Promise.resolve([]),
+      uniqueIds("SCHEDULE_TRACK").length
+        ? prisma.scheduleTrack.findMany({ where: { id: { in: uniqueIds("SCHEDULE_TRACK") } }, select: { id: true, displayName: true } })
+        : Promise.resolve([]),
+      uniqueIds("SAVED_VIEW").length
+        ? prisma.savedView.findMany({ where: { id: { in: uniqueIds("SAVED_VIEW") } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
+      uniqueIds("CUSTOM_FIELD").length
+        ? prisma.customField.findMany({ where: { id: { in: uniqueIds("CUSTOM_FIELD") } }, select: { id: true, label: true } })
+        : Promise.resolve([]),
+      uniqueIds("PROPERTY").length
+        ? prisma.property.findMany({ where: { id: { in: uniqueIds("PROPERTY") } }, select: { id: true, code: true, name: true } })
+        : Promise.resolve([]),
+      uniqueIds("UNIT").length
+        ? prisma.unit.findMany({ where: { id: { in: uniqueIds("UNIT") } }, select: { id: true, number: true } })
+        : Promise.resolve([]),
+      uniqueIds("AUTOMATION_RULE").length
+        ? prisma.automationRule.findMany({ where: { id: { in: uniqueIds("AUTOMATION_RULE") } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
+      uniqueIds("WEBHOOK_ENDPOINT").length
+        ? prisma.webhookEndpoint.findMany({ where: { id: { in: uniqueIds("WEBHOOK_ENDPOINT") } }, select: { id: true, name: true, url: true } })
+        : Promise.resolve([]),
+      uniqueIds("API_TOKEN").length
+        ? prisma.apiToken.findMany({ where: { id: { in: uniqueIds("API_TOKEN") } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
+    ]);
+
+    const itemById = new Map(items.map((item) => [item.id, item]));
+    const projectById = new Map(projectRecords.map((record) => [record.id, record]));
+    const pestById = new Map(pestIssues.map((issue) => [issue.id, issue]));
+    const leaseById = new Map(leaseIssues.map((issue) => [issue.id, issue]));
+    const pmTaskById = new Map(pmTasks.map((task) => [task.id, task]));
+    const pmTemplateById = new Map(pmTemplates.map((template) => [template.id, template]));
+    const poolEntryById = new Map(poolEntries.map((entry) => [entry.id, entry]));
+    const poolFacilityById = new Map(poolFacilities.map((facility) => [facility.id, facility]));
+    const mapPinById = new Map(mapPins.map((pin) => [pin.id, pin]));
+    const mapAreaById = new Map(mapAreas.map((area) => [area.id, area]));
+    const mapById = new Map(mapFiles.map((map) => [map.id, map]));
+    const wikiEntryById = new Map(wikiEntries.map((entry) => [entry.id, entry]));
+    const wikiVendorById = new Map(wikiVendors.map((vendor) => [vendor.id, vendor]));
+    const wikiAssetById = new Map(wikiAssets.map((asset) => [asset.id, asset]));
+    const vendorById = new Map(vendors.map((vendor) => [vendor.id, vendor]));
+    const workBlockById = new Map(workBlocks.map((block) => [block.id, block]));
+    const boardSectionById = new Map(boardSections.map((section) => [section.id, section]));
+    const floorPlanById = new Map(floorPlans.map((plan) => [plan.id, plan]));
+    const scheduleTrackById = new Map(scheduleTracks.map((track) => [track.id, track]));
+    const savedViewById = new Map(savedViews.map((view) => [view.id, view]));
+    const customFieldById = new Map(customFields.map((field) => [field.id, field]));
+    const propertyEntityById = new Map(propertiesAsEntities.map((property) => [property.id, property]));
+    const unitById = new Map(units.map((unit) => [unit.id, unit]));
+    const automationRuleById = new Map(automationRules.map((rule) => [rule.id, rule]));
+    const webhookEndpointById = new Map(webhookEndpoints.map((endpoint) => [endpoint.id, endpoint]));
+    const apiTokenById = new Map(apiTokens.map((token) => [token.id, token]));
+
+    const entityLabelFor = (entry: typeof activity[number]) => {
+      if (!entry.entityId) return titleCase(entry.entityType);
+      switch (entry.entityType) {
+        case "MAKE_READY_ITEM": {
+          const item = itemById.get(entry.entityId);
+          return item ? `Turn / ${item.unitNumber}${item.boardGroup ? ` / ${titleCase(item.boardGroup)}` : ""}` : "Turn";
+        }
+        case "PROJECT_RECORD": {
+          const record = projectById.get(entry.entityId);
+          return record ? `Project / ${record.title}${record.recordType ? ` / ${titleCase(record.recordType)}` : ""}` : "Project";
+        }
+        case "PEST_ISSUE": {
+          const issue = pestById.get(entry.entityId);
+          const place = issue?.unit?.number ?? issue?.makeReadyItem?.unitNumber ?? issue?.area ?? issue?.building;
+          return issue ? `Pest issue / ${place ? `${place} / ` : ""}${issue.pestType}` : "Pest issue";
+        }
+        case "LEASE_COMPLIANCE_ISSUE": {
+          const issue = leaseById.get(entry.entityId);
+          const place = issue?.unit?.number ?? issue?.area ?? issue?.building;
+          return issue ? `Lease issue / ${place ? `${place} / ` : ""}${issue.issueTypeName}` : "Lease issue";
+        }
+        case "PM_TASK": {
+          const task = pmTaskById.get(entry.entityId);
+          return task ? `PM task / ${task.taskName}${task.category ? ` / ${task.category}` : ""}` : "PM task";
+        }
+        case "PM_TEMPLATE": {
+          const template = pmTemplateById.get(entry.entityId);
+          return template ? `PM template / ${template.name}${template.category ? ` / ${template.category}` : ""}` : "PM template";
+        }
+        case "PoolLogEntry": {
+          const poolEntry = poolEntryById.get(entry.entityId);
+          return poolEntry ? `Pool log / ${poolEntry.facility.name} / ${poolEntry.logDate.toISOString().slice(0, 10)}` : "Pool log";
+        }
+        case "PoolFacility": {
+          const facility = poolFacilityById.get(entry.entityId);
+          return facility ? `Pool facility / ${facility.name}${facility.type ? ` / ${facility.type}` : ""}` : "Pool facility";
+        }
+        case "PROPERTY_MAP_PIN": {
+          const pin = mapPinById.get(entry.entityId);
+          return pin ? `Map pin / ${pin.title}${pin.pinType ? ` / ${titleCase(pin.pinType)}` : ""}` : "Map pin";
+        }
+        case "PROPERTY_MAP_AREA": {
+          const area = mapAreaById.get(entry.entityId);
+          return area ? `Map area / ${area.name}` : "Map area";
+        }
+        case "PROPERTY_MAP": {
+          const map = mapById.get(entry.entityId);
+          return map ? `Property map / ${map.name}` : "Property map";
+        }
+        case "PROPERTY_WIKI_ENTRY": {
+          const wiki = wikiEntryById.get(entry.entityId);
+          return wiki ? `Wiki entry / ${wiki.title}${wiki.section ? ` / ${titleCase(wiki.section)}` : ""}` : "Wiki entry";
+        }
+        case "PROPERTY_WIKI_VENDOR": {
+          const vendor = wikiVendorById.get(entry.entityId);
+          return vendor ? `Wiki vendor / ${vendor.companyName}${vendor.vendorType ? ` / ${vendor.vendorType}` : ""}` : "Wiki vendor";
+        }
+        case "PROPERTY_WIKI_ASSET": {
+          const asset = wikiAssetById.get(entry.entityId);
+          return asset ? `Wiki asset / ${asset.title}${asset.kind ? ` / ${titleCase(asset.kind)}` : ""}` : "Wiki asset";
+        }
+        case "VENDOR": {
+          const vendor = vendorById.get(entry.entityId);
+          return vendor ? `Vendor / ${vendor.name}${vendor.trade ? ` / ${vendor.trade}` : ""}` : "Vendor";
+        }
+        case "WORK_ASSIGNMENT_BLOCK": {
+          const block = workBlockById.get(entry.entityId);
+          return block ? `Work block / ${block.item.unitNumber} / ${block.category}` : "Work block";
+        }
+        case "BOARD_SECTION": {
+          const section = boardSectionById.get(entry.entityId);
+          return section ? `Board section / ${section.displayName}` : "Board section";
+        }
+        case "FLOOR_PLAN": {
+          const plan = floorPlanById.get(entry.entityId);
+          return plan ? `Floor plan / ${plan.code}${plan.name && plan.name !== plan.code ? ` / ${plan.name}` : ""}` : "Floor plan";
+        }
+        case "SCHEDULE_TRACK": {
+          const track = scheduleTrackById.get(entry.entityId);
+          return track ? `Schedule track / ${track.displayName}` : "Schedule track";
+        }
+        case "SAVED_VIEW": {
+          const view = savedViewById.get(entry.entityId);
+          return view ? `Saved view / ${view.name}` : "Saved view";
+        }
+        case "CUSTOM_FIELD": {
+          const field = customFieldById.get(entry.entityId);
+          return field ? `Custom field / ${field.label}` : "Custom field";
+        }
+        case "PROPERTY": {
+          const property = propertyEntityById.get(entry.entityId);
+          return property ? `Property / ${property.code} - ${property.name}` : "Property";
+        }
+        case "UNIT": {
+          const unit = unitById.get(entry.entityId);
+          return unit ? `Unit / ${unit.number}` : "Unit";
+        }
+        case "AUTOMATION_RULE": {
+          const rule = automationRuleById.get(entry.entityId);
+          return rule ? `Automation / ${rule.name}` : "Automation";
+        }
+        case "WEBHOOK_ENDPOINT": {
+          const endpoint = webhookEndpointById.get(entry.entityId);
+          return endpoint ? `Webhook / ${endpoint.name}` : "Webhook";
+        }
+        case "API_TOKEN": {
+          const token = apiTokenById.get(entry.entityId);
+          return token ? `API token / ${token.name}` : "API token";
+        }
+        default:
+          return titleCase(entry.entityType);
+      }
+    };
 
     return {
       activity: activity.map((entry) => ({
@@ -353,9 +608,12 @@ export async function activityRoutes(app: FastifyInstance) {
         action: entry.action,
         entityType: entry.entityType,
         entityId: entry.entityId,
+        entityLabel: entityLabelFor(entry),
         description: entry.message,
         property: entry.property,
-        unitNumber: entry.entityId ? unitByEntityId.get(entry.entityId) ?? null : null,
+        unitNumber: entry.entityType === "MAKE_READY_ITEM"
+          ? itemById.get(entry.entityId ?? "")?.unitNumber ?? null
+          : null,
       })),
       pagination: {
         total,

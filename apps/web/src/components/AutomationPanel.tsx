@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AutomationAction, AutomationActionSummary, AutomationCondition, AutomationPreviewResponse, AutomationRule, AutomationRun, AutomationTemplate, AutomationTriggerType, CustomField, OperationalLibraryPack, Property, PropertyTemplate, PropertyTemplateInclude, UserRole } from "../lib/api";
+import type { AutomationAction, AutomationActionSummary, AutomationCondition, AutomationPreviewResponse, AutomationRule, AutomationRun, AutomationTemplate, AutomationTriggerType, CustomField, OperationalLibraryPack, OperationalLibraryPreviewResponse, Property, PropertyTemplate, PropertyTemplateInclude, UserRole } from "../lib/api";
 import { formatDateDisplay, formatDateTime } from "../lib/dateTime";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusState } from "./StatusState";
@@ -54,7 +54,7 @@ type Props = {
   templates: AutomationTemplate[];
   libraryPacks: OperationalLibraryPack[];
   propertyTemplates: PropertyTemplate[];
-  libraryPreview: string;
+  libraryPreview: OperationalLibraryPreviewResponse | null;
   templatePreview: string;
   runs: AutomationRun[];
   preview: AutomationPreviewResponse | null;
@@ -70,6 +70,8 @@ type Props = {
   onCreatePropertyTemplate: (input: { propertyId: string; name: string; description?: string | null; category?: string | null; version?: number; notes?: string | null; include: PropertyTemplateInclude }) => Promise<void>;
   onApplyPropertyTemplate: (id: string, input: { dryRun: boolean; targetPropertyId?: string | null; newProperty?: { name: string; code: string } | null; enableAutomations?: boolean }) => Promise<void>;
   onArchivePropertyTemplate: (id: string) => Promise<void>;
+  onRestorePropertyTemplate: (id: string) => Promise<void>;
+  onDeletePropertyTemplate: (id: string) => Promise<void>;
   onUpdate: (id: string, input: ReturnType<typeof draftPayload>) => Promise<void>;
   onToggle: (id: string, enabled: boolean) => Promise<void>;
   onArchive: (id: string) => Promise<void>;
@@ -235,6 +237,301 @@ function isActionIncomplete(action: DraftAction) {
 
 function humanize(value: string) {
   return value.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function isOperationalLibraryPack(value: unknown): value is OperationalLibraryPack {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return candidate.format === "makereadyos.libraryPack"
+    && candidate.version === 1
+    && typeof candidate.packKey === "string"
+    && typeof candidate.name === "string";
+}
+
+function packItemGroups(pack: OperationalLibraryPack) {
+  return Object.entries(pack.items ?? {}).filter(([, value]) => Array.isArray(value) && value.length > 0);
+}
+
+function describePackEntry(section: string, item: unknown) {
+  const record = item && typeof item === "object" ? item as Record<string, unknown> : {};
+  const primary = typeof record.name === "string"
+    ? record.name
+    : typeof record.label === "string"
+      ? record.label
+      : typeof record.displayName === "string"
+        ? record.displayName
+        : typeof record.key === "string"
+          ? record.key
+          : typeof record.fieldKey === "string"
+            ? record.fieldKey
+            : "Item";
+  const target = typeof record.fieldKey === "string"
+    ? record.fieldKey
+    : typeof record.sourceField === "string"
+      ? record.sourceField
+      : typeof record.key === "string"
+        ? record.key
+        : null;
+  const optionSample = Array.isArray(record.options)
+    ? record.options
+      .map((entry) => {
+        const option = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+        return typeof option.label === "string"
+          ? option.label
+          : typeof option.value === "string"
+            ? option.value
+            : null;
+      })
+      .filter((entry): entry is string => Boolean(entry))
+      .slice(0, 3)
+    : [];
+  const detail = section === "optionSets" && Array.isArray(record.options)
+    ? `${record.options.length} options${optionSample.length ? ` · ${optionSample.join(", ")}` : ""}`
+    : section === "customFields" && Array.isArray(record.options)
+      ? `${record.options.length} choices${optionSample.length ? ` · ${optionSample.join(", ")}` : ""}`
+      : typeof record.description === "string" && record.description
+        ? record.description
+        : null;
+  return { primary, target, detail };
+}
+
+const installedPackSectionByType: Record<string, string> = {
+  CUSTOM_FIELD: "customFields",
+  OPTION: "optionSets",
+  CHECKLIST_TEMPLATE: "checklistTemplates",
+  SCHEDULE_TRACK: "scheduleTracks",
+  SAVED_VIEW: "savedViews",
+  AUTOMATION_RULE: "automationRules",
+  PROPERTY_TEMPLATE: "propertyTemplates",
+};
+
+function describeInstalledPackItem(pack: OperationalLibraryPack, item: NonNullable<OperationalLibraryPack["installedItems"]>[number]) {
+  const section = installedPackSectionByType[item.itemType];
+  const entries = section ? pack.items?.[section] : undefined;
+  if (item.itemType === "OPTION" && Array.isArray(entries)) {
+    const [optionSetKey, optionValue] = item.itemKey.split(":");
+    const optionSet = entries.find((entry) => {
+      const record = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+      return typeof record.key === "string" && record.key === optionSetKey;
+    });
+    const optionSetRecord = optionSet && typeof optionSet === "object" ? optionSet as Record<string, unknown> : null;
+    const option = Array.isArray(optionSetRecord?.options)
+      ? optionSetRecord.options.find((candidate) => {
+          const record = candidate && typeof candidate === "object" ? candidate as Record<string, unknown> : {};
+          return typeof record.value === "string" && record.value === optionValue;
+        })
+      : null;
+    const optionRecord = option && typeof option === "object" ? option as Record<string, unknown> : null;
+    return {
+      primary: typeof optionRecord?.label === "string" ? optionRecord.label : optionValue,
+      secondary: typeof optionSetRecord?.name === "string"
+        ? optionSetRecord.name
+        : typeof optionSetRecord?.key === "string"
+          ? optionSetRecord.key
+          : humanize(item.itemType),
+      key: item.itemKey,
+    };
+  }
+  if (Array.isArray(entries)) {
+    const match = entries.find((entry) => {
+      const record = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+      return (typeof record.key === "string" && record.key === item.itemKey)
+        || (typeof record.fieldKey === "string" && record.fieldKey === item.itemKey);
+    });
+    if (match) {
+      const described = describePackEntry(section, match);
+      return {
+        primary: described.primary,
+        secondary: described.detail ?? humanize(item.itemType),
+        key: item.itemKey,
+      };
+    }
+  }
+  return {
+    primary: humanize(item.itemKey),
+    secondary: humanize(item.itemType),
+    key: item.itemKey,
+  };
+}
+
+function summarizeLibraryPreviewTotals(summary: OperationalLibraryPreviewResponse["summary"]) {
+  return Object.values(summary).reduce((totals, bucket) => ({
+    created: totals.created + bucket.created,
+    skipped: totals.skipped + bucket.skipped,
+    conflicts: totals.conflicts + bucket.conflicts,
+    errors: totals.errors + bucket.errors.length,
+  }), { created: 0, skipped: 0, conflicts: 0, errors: 0 });
+}
+
+function libraryPreviewDecision(preview: OperationalLibraryPreviewResponse | null) {
+  if (!preview) return null;
+  const totals = summarizeLibraryPreviewTotals(preview.summary);
+  if (totals.conflicts > 0 || totals.errors > 0) {
+    return {
+      tone: "warning" as const,
+      title: "Review conflicts before install",
+      titleEs: "Revise los conflictos antes de instalar",
+      description: "Some pack sections need attention before this install is considered clean.",
+      descriptionEs: "Algunas secciones del pack necesitan revision antes de considerar limpia esta instalacion.",
+    };
+  }
+  if (totals.skipped > 0) {
+    return {
+      tone: "info" as const,
+      title: "Safe to install with duplicate skips",
+      titleEs: "Seguro de instalar con omisiones por duplicado",
+      description: "Existing matching records will be skipped instead of overwritten.",
+      descriptionEs: "Los registros existentes coincidentes se omitiran en lugar de sobrescribirse.",
+    };
+  }
+  return {
+    tone: "success" as const,
+    title: "Ready to install cleanly",
+    titleEs: "Listo para instalar sin conflictos",
+    description: "This preview found only net-new pack items.",
+    descriptionEs: "Esta vista previa solo encontro elementos nuevos del pack.",
+  };
+}
+
+function libraryPreviewAppliesToPack(preview: OperationalLibraryPreviewResponse | null, pack: OperationalLibraryPack | null) {
+  if (!preview || !pack) return false;
+  return preview.pack.packKey === pack.packKey && preview.pack.version === pack.version;
+}
+
+function libraryPreviewBucketTone(summary: { created: number; skipped: number; conflicts: number; errors: string[] }) {
+  if (summary.conflicts > 0 || summary.errors.length > 0) return "warning";
+  if (summary.skipped > 0) return "inactive";
+  if (summary.created > 0) return "active";
+  return "inactive";
+}
+
+function libraryPreviewBucketLabel(summary: { created: number; skipped: number; conflicts: number; errors: string[] }, isSpanish: boolean) {
+  if (summary.conflicts > 0 || summary.errors.length > 0) return isSpanish ? "Revisar" : "Review";
+  if (summary.skipped > 0) return isSpanish ? "Duplicados omitidos" : "Duplicate skips";
+  if (summary.created > 0) return isSpanish ? "Listo" : "Ready";
+  return isSpanish ? "Sin cambios" : "No changes";
+}
+
+function libraryPreviewGuidance(preview: OperationalLibraryPreviewResponse | null, isSpanish: boolean) {
+  if (!preview) return [];
+  const guidance: string[] = [];
+  const automation = preview.summary.automationTemplates;
+  const propertyTemplates = preview.summary.propertyTemplates;
+  const customFields = preview.summary.customFields;
+  const optionSets = preview.summary.optionSets;
+  if (automation?.conflicts || automation?.errors.length) {
+    guidance.push(isSpanish
+      ? "Revise las reglas de automatizacion con conflictos. Normalmente significa referencias de campos/opciones que no existen todavia o un alcance de propiedad no valido para el usuario actual."
+      : "Review automation-rule conflicts first. These usually mean missing field/option references or an invalid property scope for the current user.");
+  }
+  if (propertyTemplates?.conflicts || propertyTemplates?.errors.length) {
+    guidance.push(isSpanish
+      ? "Revise las plantillas de propiedad con conflicto. Normalmente significa que el manifiesto no usa el formato/version compatible esperado."
+      : "Review conflicting property templates. These usually mean the manifest format/version is not compatible.");
+  }
+  if ((customFields?.skipped ?? 0) > 0 || (optionSets?.skipped ?? 0) > 0) {
+    guidance.push(isSpanish
+      ? "Las omisiones por duplicado son seguras: MakeReadyOS conservara los campos u opciones existentes y solo agregara lo que falte."
+      : "Duplicate skips are safe: MakeReadyOS will keep existing fields/options and only add what is missing.");
+  }
+  if (!guidance.length && Object.values(preview.summary).some((bucket) => bucket.created > 0)) {
+    guidance.push(isSpanish
+      ? "La vista previa se ve limpia. La instalacion deberia agregar solo elementos nuevos del pack."
+      : "This preview looks clean. Install should add only net-new pack items.");
+  }
+  return guidance;
+}
+
+function remediateLibraryError(error: string, isSpanish: boolean) {
+  const normalized = error.toLowerCase();
+  if (normalized.includes("manager has no accessible property scope")) {
+    return isSpanish
+      ? "Abra o importe este pack con una propiedad accesible seleccionada, o use una cuenta ADMIN si la regla debe permanecer global."
+      : "Open or import this pack with an accessible property in scope, or use an ADMIN account if the rule must stay global.";
+  }
+  if (normalized.includes("selected property was not found")) {
+    return isSpanish
+      ? "Actualice la regla o plantilla para apuntar a una propiedad valida en esta instancia antes de instalar."
+      : "Update the rule or template to target a valid property in this instance before installing.";
+  }
+  if (normalized.includes("one or more selected custom fields are unavailable")) {
+    return isSpanish
+      ? "Instale o cree primero los campos personalizados requeridos, o edite la automatizacion del pack para usar campos existentes."
+      : "Install or create the required custom fields first, or edit the pack automation to use fields that already exist.";
+  }
+  if (normalized.includes("unsupported property template manifest")) {
+    return isSpanish
+      ? "Reexporte la plantilla con el formato actual `makereadyos.propertyTemplate` version 1 antes de volver a importarla."
+      : "Re-export the template using the current `makereadyos.propertyTemplate` version 1 format before importing again.";
+  }
+  return isSpanish
+    ? "Revise la referencia nombrada en este error y confirme que el campo, opcion, alcance de propiedad o manifiesto exista en esta instancia."
+    : "Review the named reference in this error and confirm the field, option, property scope, or manifest exists in this instance.";
+}
+
+function classifyLibraryError(error: string) {
+  const normalized = error.toLowerCase();
+  if (normalized.includes("manager has no accessible property scope")) return "scope";
+  if (normalized.includes("selected property was not found")) return "property";
+  if (normalized.includes("one or more selected custom fields are unavailable")) return "customFields";
+  if (normalized.includes("unsupported property template manifest")) return "manifest";
+  return "generic";
+}
+
+function libraryRemediationPlan(preview: OperationalLibraryPreviewResponse | null, isSpanish: boolean) {
+  if (!preview) return [];
+  const entries = Object.entries(preview.summary)
+    .filter(([, summary]) => summary.conflicts > 0 || summary.errors.length > 0)
+    .map(([bucket, summary]) => ({ bucket, summary }));
+  if (!entries.length) return [];
+
+  return entries.map(({ bucket, summary }) => {
+    const counts = new Map<string, number>();
+    for (const entry of summary.errors) {
+      const key = classifyLibraryError(entry);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const steps: string[] = [];
+    if ((counts.get("customFields") ?? 0) > 0) {
+      steps.push(isSpanish
+        ? "Cree o instale primero los campos personalizados faltantes."
+        : "Create or install the missing custom fields first.");
+    }
+    if ((counts.get("scope") ?? 0) > 0) {
+      steps.push(isSpanish
+        ? "Vuelva a previsualizar el pack con una propiedad accesible en alcance, o use una cuenta ADMIN si debe quedar global."
+        : "Preview the pack again with an accessible property in scope, or use an ADMIN account if it must stay global.");
+    }
+    if ((counts.get("property") ?? 0) > 0) {
+      steps.push(isSpanish
+        ? "Actualice la referencia de propiedad del manifiesto para que apunte a una propiedad existente en esta instancia."
+        : "Update the manifest property reference so it points at an existing property in this instance.");
+    }
+    if ((counts.get("manifest") ?? 0) > 0) {
+      steps.push(isSpanish
+        ? "Reexporte la plantilla con el formato/version compatible actual antes de volver a importarla."
+        : "Re-export the template with the current supported format/version before importing again.");
+    }
+    if (!steps.length && summary.conflicts > 0) {
+      steps.push(isSpanish
+        ? "Revise las claves estables mostradas en el mapeo. Los conflictos suelen significar referencias cruzadas ya ocupadas o nombres reutilizados con otra estructura."
+        : "Review the stable keys shown in the mapping. Conflicts usually mean cross-record references already claimed or reused names with a different structure.");
+    }
+    if (!steps.length) {
+      steps.push(isSpanish
+        ? "Revise los errores detallados de esta sección y confirme que todas las referencias nombradas existan en esta instancia."
+        : "Review this section's detailed errors and confirm that every named reference exists in this instance.");
+    }
+
+    const issueCount = summary.conflicts + summary.errors.length;
+    return {
+      bucket,
+      title: isSpanish
+        ? `${humanize(bucket)}: ${issueCount} bloqueo${issueCount === 1 ? "" : "s"}`
+        : `${humanize(bucket)}: ${issueCount} blocking issue${issueCount === 1 ? "" : "s"}`,
+      steps,
+    };
+  });
 }
 
 function triggerLabel(value: AutomationTriggerType, isSpanish: boolean) {
@@ -537,31 +834,78 @@ const defaultTemplateInclude: PropertyTemplateInclude = {
   planningDefaults: false,
 };
 
-export function AutomationPanel({ role, language = "en", properties, customFields, rules, templates, libraryPacks, propertyTemplates, libraryPreview, templatePreview, runs, preview, loading, previewLoading, message, error, onCreate, onInstallTemplate, onPreviewLibraryPack, onInstallLibraryPack, onPreviewPropertyTemplate, onCreatePropertyTemplate, onApplyPropertyTemplate, onArchivePropertyTemplate, onUpdate, onToggle, onArchive, onPreviewStored, onPreviewDraft, onRunNow, onSelectRule }: Props) {
+export function AutomationPanel({ role, language = "en", properties, customFields, rules, templates, libraryPacks, propertyTemplates, libraryPreview, templatePreview, runs, preview, loading, previewLoading, message, error, onCreate, onInstallTemplate, onPreviewLibraryPack, onInstallLibraryPack, onPreviewPropertyTemplate, onCreatePropertyTemplate, onApplyPropertyTemplate, onArchivePropertyTemplate, onRestorePropertyTemplate, onDeletePropertyTemplate, onUpdate, onToggle, onArchive, onPreviewStored, onPreviewDraft, onRunNow, onSelectRule }: Props) {
   const isSpanish = language === "es";
   const [selectedId, setSelectedId] = useState(() => rules[0]?.id ?? "");
   const [creating, setCreating] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<AutomationRule | null>(null);
+  const [deleteTemplateTarget, setDeleteTemplateTarget] = useState<PropertyTemplate | null>(null);
   const [draft, setDraft] = useState<Draft>(() => emptyDraft(role, properties));
   const [templateCategory, setTemplateCategory] = useState("All");
   const [templatePropertyId, setTemplatePropertyId] = useState(() => role === "MANAGER" ? properties[0]?.id ?? "" : "");
   const [enableTemplateOnInstall, setEnableTemplateOnInstall] = useState(false);
   const [libraryImportText, setLibraryImportText] = useState("");
+  const [libraryWizardMode, setLibraryWizardMode] = useState<"bundled" | "imported">("bundled");
+  const [selectedLibraryPackKey, setSelectedLibraryPackKey] = useState(() => libraryPacks[0]?.packKey ?? "");
+  const [libraryDetailKey, setLibraryDetailKey] = useState(() => libraryPacks[0]?.packKey ?? "");
   const [templateDraft, setTemplateDraft] = useState({ propertyId: properties[0]?.id ?? "", name: "", description: "", category: "Make Ready", notes: "" });
   const [templateInclude, setTemplateInclude] = useState<PropertyTemplateInclude>(defaultTemplateInclude);
   const [applyTarget, setApplyTarget] = useState({ templateId: "", propertyId: properties[0]?.id ?? "", newName: "", newCode: "", createNew: false, enableAutomations: false });
   const [validationCopyMessage, setValidationCopyMessage] = useState("");
+  const [showLibraryInstallConfirm, setShowLibraryInstallConfirm] = useState(false);
   const selected = rules.find((rule) => rule.id === selectedId) ?? rules[0] ?? null;
   const canEditSelected = role === "ADMIN" || Boolean(selected?.propertyId);
   const incompleteCondition = draft.conditions.some((condition) => !noValueOperators.includes(condition.operator) && !condition.value.trim());
   const categories = ["All", ...Array.from(new Set(templates.map((template) => template.category)))];
   const visibleTemplates = templateCategory === "All" ? templates : templates.filter((template) => template.category === templateCategory);
+  const activePropertyTemplates = useMemo(() => propertyTemplates.filter((template) => !template.isArchived), [propertyTemplates]);
+  const archivedPropertyTemplates = useMemo(() => propertyTemplates.filter((template) => template.isArchived), [propertyTemplates]);
   const templateScopeId = templatePropertyId || null;
   const assignmentValidationActive = Boolean(preview?.assignmentSummary || ruleHasLeastLoadedAssignment(selected) || draftHasLeastLoadedAssignment(draft) || runs.some(runHasAssignmentDiagnostics));
   const assignmentValidationNotes = useMemo(
     () => buildAssignmentValidationNotes(preview?.assignmentSummary ?? null, runs, isSpanish),
     [isSpanish, preview?.assignmentSummary, runs],
   );
+  const selectedLibraryPack = libraryPacks.find((pack) => pack.packKey === selectedLibraryPackKey) ?? libraryPacks[0] ?? null;
+  const libraryDetailPack = libraryPacks.find((pack) => pack.packKey === libraryDetailKey) ?? selectedLibraryPack;
+  const parsedLibraryImport = useMemo(() => {
+    if (!libraryImportText.trim()) return { pack: null as OperationalLibraryPack | null, error: "" };
+    try {
+      const parsed = JSON.parse(libraryImportText);
+      if (!isOperationalLibraryPack(parsed)) {
+        return { pack: null as OperationalLibraryPack | null, error: isSpanish ? "El JSON no coincide con el formato makereadyos.libraryPack." : "JSON does not match the makereadyos.libraryPack format." };
+      }
+      return { pack: parsed, error: "" };
+    } catch {
+      return { pack: null as OperationalLibraryPack | null, error: isSpanish ? "JSON de pack de biblioteca invalido." : "Invalid library pack JSON." };
+    }
+  }, [isSpanish, libraryImportText]);
+  const activeLibraryPack = libraryWizardMode === "bundled" ? selectedLibraryPack : parsedLibraryImport.pack;
+  const activeLibraryGroups = activeLibraryPack ? packItemGroups(activeLibraryPack) : [];
+  const activeLibraryInput = activeLibraryPack
+    ? (libraryWizardMode === "bundled" ? { packKey: activeLibraryPack.packKey } : { pack: activeLibraryPack })
+    : null;
+  const activeLibraryPreview = useMemo(
+    () => (libraryPreviewAppliesToPack(libraryPreview, activeLibraryPack) ? libraryPreview : null),
+    [activeLibraryPack, libraryPreview],
+  );
+  const libraryPreviewTotals = useMemo(
+    () => (activeLibraryPreview ? summarizeLibraryPreviewTotals(activeLibraryPreview.summary) : null),
+    [activeLibraryPreview],
+  );
+  const libraryPreviewStatus = useMemo(
+    () => libraryPreviewDecision(activeLibraryPreview),
+    [activeLibraryPreview],
+  );
+  const libraryPreviewSteps = useMemo(
+    () => libraryPreviewGuidance(activeLibraryPreview, isSpanish),
+    [activeLibraryPreview, isSpanish],
+  );
+  const libraryPreviewPlan = useMemo(
+    () => libraryRemediationPlan(activeLibraryPreview, isSpanish),
+    [activeLibraryPreview, isSpanish],
+  );
+  const needsFreshLibraryPreview = Boolean(activeLibraryInput && !activeLibraryPreview);
 
   useEffect(() => {
     if (creating) return;
@@ -569,6 +913,20 @@ export function AutomationPanel({ role, language = "en", properties, customField
       setDraft(toDraft(selected));
     }
   }, [creating, selected, selectedId]);
+
+  useEffect(() => {
+    if (!libraryPacks.length) {
+      setSelectedLibraryPackKey("");
+      setLibraryDetailKey("");
+      return;
+    }
+    if (!selectedLibraryPackKey || !libraryPacks.some((pack) => pack.packKey === selectedLibraryPackKey)) {
+      setSelectedLibraryPackKey(libraryPacks[0]?.packKey ?? "");
+    }
+    if (!libraryDetailKey || !libraryPacks.some((pack) => pack.packKey === libraryDetailKey)) {
+      setLibraryDetailKey(libraryPacks[0]?.packKey ?? "");
+    }
+  }, [libraryDetailKey, libraryPacks, selectedLibraryPackKey]);
 
   const chooseRule = (rule: AutomationRule) => {
     setCreating(false);
@@ -718,55 +1076,260 @@ export function AutomationPanel({ role, language = "en", properties, customField
                     </div>
                   ) : null}
                   <div className="automation-template-actions">
-                    <button className="button button-secondary" type="button" data-testid={`library-pack-preview-${pack.packKey}`} disabled={loading} onClick={() => void onPreviewLibraryPack({ packKey: pack.packKey })}>{isSpanish ? "Vista previa del pack" : "Preview Pack"}</button>
-                    <button className="button button-primary" type="button" data-testid={`library-pack-install-${pack.packKey}`} disabled={loading} onClick={() => void onInstallLibraryPack({ packKey: pack.packKey })}>{isSpanish ? "Instalar pack" : "Install Pack"}</button>
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      data-testid={`library-pack-use-${pack.packKey}`}
+                      onClick={() => {
+                        setLibraryWizardMode("bundled");
+                        setSelectedLibraryPackKey(pack.packKey);
+                      }}
+                    >{isSpanish ? "Usar en asistente" : "Use In Wizard"}</button>
+                    <button
+                      className="button button-primary"
+                      type="button"
+                      data-testid={`library-pack-details-${pack.packKey}`}
+                      onClick={() => setLibraryDetailKey(pack.packKey)}
+                    >{isSpanish ? "Ver detalles" : "View Details"}</button>
                   </div>
                 </article>
               );
             })}
           </div>
         )}
-        <div className="library-import" data-testid="library-import">
-          <label className="span-full">{isSpanish ? "Importar JSON de pack de biblioteca" : "Import library pack JSON"}
-            <textarea
-              data-testid="library-import-json"
-              value={libraryImportText}
-              placeholder='{"format":"makereadyos.libraryPack","version":1,...}'
-              onChange={(event) => setLibraryImportText(event.target.value)}
-            />
-          </label>
-          <div className="automation-template-actions">
-            <button
-              className="button button-secondary"
-              type="button"
-              data-testid="library-import-preview"
-              disabled={loading || !libraryImportText.trim()}
-              onClick={() => {
-                try {
-                  const pack = JSON.parse(libraryImportText);
-                  void onPreviewLibraryPack({ pack });
-                } catch {
-                  window.alert(isSpanish ? "JSON de pack de biblioteca invalido." : "Invalid library pack JSON.");
-                }
-              }}
-            >{isSpanish ? "Vista previa del JSON importado" : "Preview Imported JSON"}</button>
-            <button
-              className="button button-primary"
-              type="button"
-              data-testid="library-import-install"
-              disabled={loading || !libraryImportText.trim()}
-              onClick={() => {
-                try {
-                  const pack = JSON.parse(libraryImportText);
-                  void onInstallLibraryPack({ pack });
-                } catch {
-                  window.alert(isSpanish ? "JSON de pack de biblioteca invalido." : "Invalid library pack JSON.");
-                }
-              }}
-            >{isSpanish ? "Instalar JSON importado" : "Install Imported JSON"}</button>
+        <div className="library-wizard" data-testid="library-import">
+          <div className="library-wizard-step">
+            <div className="admin-section-head">
+              <div>
+                <p className="eyebrow">{isSpanish ? "Paso 1" : "Step 1"}</p>
+                <h3>{isSpanish ? "Elegir origen del pack" : "Choose Pack Source"}</h3>
+              </div>
+            </div>
+            <div className="library-source-toggle">
+              <button type="button" className={libraryWizardMode === "bundled" ? "button button-primary" : "button button-secondary"} onClick={() => setLibraryWizardMode("bundled")}>{isSpanish ? "Pack integrado" : "Bundled Pack"}</button>
+              <button type="button" className={libraryWizardMode === "imported" ? "button button-primary" : "button button-secondary"} onClick={() => setLibraryWizardMode("imported")}>{isSpanish ? "JSON importado" : "Imported JSON"}</button>
+            </div>
+            {libraryWizardMode === "bundled" ? (
+              <label>{isSpanish ? "Pack" : "Pack"}
+                <select value={selectedLibraryPackKey} onChange={(event) => setSelectedLibraryPackKey(event.target.value)} data-testid="library-wizard-pack-select">
+                  {libraryPacks.map((pack) => <option key={pack.packKey} value={pack.packKey}>{pack.name} ({pack.category ?? (isSpanish ? "Biblioteca" : "Library")})</option>)}
+                </select>
+              </label>
+            ) : (
+              <label className="span-full">{isSpanish ? "Pegar JSON del pack" : "Paste pack JSON"}
+                <textarea
+                  data-testid="library-import-json"
+                  value={libraryImportText}
+                  placeholder='{"format":"makereadyos.libraryPack","version":1,...}'
+                  onChange={(event) => setLibraryImportText(event.target.value)}
+                />
+              </label>
+            )}
+            {libraryWizardMode === "imported" && parsedLibraryImport.error ? <p className="inline-error">{parsedLibraryImport.error}</p> : null}
+          </div>
+          <div className="library-wizard-step">
+            <div className="admin-section-head">
+              <div>
+                <p className="eyebrow">{isSpanish ? "Paso 2" : "Step 2"}</p>
+                <h3>{isSpanish ? "Revisar contenido y mapeo" : "Review Contents And Mapping"}</h3>
+              </div>
+            </div>
+            {!activeLibraryPack ? (
+              <StatusState title={isSpanish ? "Elige un pack primero" : "Choose a pack first"} description={isSpanish ? "Selecciona un pack integrado o pega un JSON valido para revisar campos, opciones y artefactos instalables." : "Select a bundled pack or paste valid JSON to review fields, options, and installable artifacts."} tone="subtle" />
+            ) : (
+              <>
+                <div className="library-pack-summary">
+                  <strong>{activeLibraryPack.name}</strong>
+                  <span>{activeLibraryPack.category ?? (isSpanish ? "Biblioteca" : "Library")} · v{activeLibraryPack.version}</span>
+                  {activeLibraryPack.description ? <p>{activeLibraryPack.description}</p> : null}
+                </div>
+                <div className="template-check-grid">
+                  {activeLibraryGroups.map(([section, value]) => (
+                    <div key={section} className="automation-item">
+                      <button type="button">
+                        <strong>{humanize(section)}</strong>
+                        <small>{Array.isArray(value) ? value.length : 0} {isSpanish ? "elementos" : "items"}</small>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="library-mapping-grid" data-testid="library-mapping-grid">
+                  {activeLibraryGroups.map(([section, value]) => (
+                    <article key={section} className="library-mapping-card">
+                      <strong>{humanize(section)}</strong>
+                      <small>{isSpanish ? "Lo que se instalara y la clave estable usada para evitar duplicados" : "What will install and the stable key used to avoid duplicates"}</small>
+                      <div className="library-mapping-list">
+                        {(value as unknown[]).slice(0, 6).map((entry, index) => {
+                          const described = describePackEntry(section, entry);
+                          return (
+                            <div key={`${section}-${index}`} className="library-mapping-row">
+                              <span>{described.primary}</span>
+                              {described.target ? <code>{described.target}</code> : null}
+                              {described.detail ? <small>{described.detail}</small> : null}
+                            </div>
+                          );
+                        })}
+                        {(value as unknown[]).length > 6 ? <small>{isSpanish ? `+${(value as unknown[]).length - 6} mas` : `+${(value as unknown[]).length - 6} more`}</small> : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                {activeLibraryPack.setupNotes?.length ? (
+                  <div className="automation-template-requirement">
+                    <strong>{isSpanish ? "Checklist de configuracion" : "Setup checklist"}</strong>
+                    {activeLibraryPack.setupNotes.map((note) => <span key={note}>{note}</span>)}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+          <div className="library-wizard-step">
+            <div className="admin-section-head">
+              <div>
+                <p className="eyebrow">{isSpanish ? "Paso 3" : "Step 3"}</p>
+                <h3>{isSpanish ? "Vista previa e instalacion" : "Preview And Install"}</h3>
+              </div>
+            </div>
+            <p className="subtitle">{isSpanish ? "Haz una vista previa primero para validar el paquete. La instalacion sigue siendo segura ante duplicados y no ejecuta codigo." : "Preview first to validate the pack. Install remains duplicate-safe and never executes code."}</p>
+            {needsFreshLibraryPreview ? (
+              <div className="admin-message warning">
+                <strong>{isSpanish ? "Ejecute una vista previa para este pack antes de instalar" : "Run a preview for this pack before installing"}</strong>
+                <span>{isSpanish ? "La instalacion ahora exige una vista previa actual del pack seleccionado para evitar continuar con validacion desactualizada." : "Install now requires a current preview for the selected pack so you do not proceed with stale validation."}</span>
+              </div>
+            ) : null}
+            <div className="automation-template-actions">
+              <button
+                className="button button-secondary"
+                type="button"
+                data-testid="library-import-preview"
+                disabled={loading || !activeLibraryInput}
+                onClick={() => activeLibraryInput && void onPreviewLibraryPack(activeLibraryInput)}
+              >{isSpanish ? "Vista previa del pack" : "Preview Pack"}</button>
+              <button
+                className="button button-primary"
+                type="button"
+                data-testid="library-import-install"
+                disabled={loading || !activeLibraryInput || needsFreshLibraryPreview}
+                onClick={() => {
+                  if (!activeLibraryInput) return;
+                  if (libraryPreviewStatus?.tone === "warning") {
+                    setShowLibraryInstallConfirm(true);
+                    return;
+                  }
+                  void onInstallLibraryPack(activeLibraryInput);
+                }}
+              >{libraryPreviewStatus?.tone === "warning" ? (isSpanish ? "Instalar con revision" : "Install With Review") : (isSpanish ? "Instalar pack" : "Install Pack")}</button>
+            </div>
+            {activeLibraryPreview ? (
+              <div className="library-preview" data-testid="library-preview-summary">
+                {libraryPreviewStatus ? (
+                  <div className={`admin-message ${libraryPreviewStatus.tone === "warning" ? "warning" : "success"}`}>
+                    <strong>{isSpanish ? libraryPreviewStatus.titleEs : libraryPreviewStatus.title}</strong>
+                    <span>{isSpanish ? libraryPreviewStatus.descriptionEs : libraryPreviewStatus.description}</span>
+                  </div>
+                ) : null}
+                <div className="library-preview-header">
+                  <strong>{activeLibraryPreview.pack.name}</strong>
+                  <span>{activeLibraryPreview.pack.category ?? (isSpanish ? "Biblioteca" : "Library")} · v{activeLibraryPreview.pack.version}</span>
+                </div>
+                <div className="unit-import-preview">
+                  <span><strong>{libraryPreviewTotals?.created ?? 0}</strong> {isSpanish ? "por crear" : "to create"}</span>
+                  <span><strong>{libraryPreviewTotals?.skipped ?? 0}</strong> {isSpanish ? "por omitir" : "to skip"}</span>
+                  <span><strong>{libraryPreviewTotals?.conflicts ?? 0}</strong> {isSpanish ? "conflictos" : "conflicts"}</span>
+                  <span><strong>{libraryPreviewTotals?.errors ?? 0}</strong> {isSpanish ? "errores" : "errors"}</span>
+                </div>
+                <div className="library-preview-grid">
+                  {Object.entries(activeLibraryPreview.summary).map(([bucket, summary]) => (
+                    <article key={bucket} className="library-preview-card">
+                      <div className="library-preview-card-head">
+                        <strong>{humanize(bucket)}</strong>
+                        <span className={`status-chip ${libraryPreviewBucketTone(summary)}`}>{libraryPreviewBucketLabel(summary, isSpanish)}</span>
+                      </div>
+                      <div className="library-preview-card-stats">
+                        <span>{summary.created} {isSpanish ? "crear" : "create"}</span>
+                        <span>{summary.skipped} {isSpanish ? "omitir" : "skip"}</span>
+                        <span>{summary.conflicts} {isSpanish ? "conflicto" : "conflict"}</span>
+                      </div>
+                      {summary.errors.length ? (
+                        <ul className="compact-list">
+                          {summary.errors.slice(0, 4).map((entry) => <li key={entry}>{entry}{" "}<span className="muted">{remediateLibraryError(entry, isSpanish)}</span></li>)}
+                          {summary.errors.length > 4 ? <li>{isSpanish ? `+${summary.errors.length - 4} errores mas` : `+${summary.errors.length - 4} more errors`}</li> : null}
+                        </ul>
+                      ) : (
+                        <small>{isSpanish ? "Sin errores de validacion." : "No validation errors."}</small>
+                      )}
+                    </article>
+                  ))}
+                </div>
+                {activeLibraryPreview.warnings.length ? (
+                  <div className="admin-message warning">
+                    <strong>{isSpanish ? "Advertencias" : "Warnings"}</strong>
+                    <ul className="compact-list">
+                      {activeLibraryPreview.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                    </ul>
+                  </div>
+                ) : null}
+                {libraryPreviewPlan.length ? (
+                  <div className="admin-message warning">
+                    <strong>{isSpanish ? "Plan de corrección" : "Remediation plan"}</strong>
+                    <div className="compact-list">
+                      {libraryPreviewPlan.map((entry) => (
+                        <div key={entry.title}>
+                          <strong>{entry.title}</strong>
+                          <ul className="compact-list">
+                            {entry.steps.map((step) => <li key={`${entry.title}-${step}`}>{step}</li>)}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {libraryPreviewSteps.length ? (
+                  <div className={`admin-message ${libraryPreviewStatus?.tone === "warning" ? "warning" : "success"}`}>
+                    <strong>{isSpanish ? "Que revisar" : "What to review"}</strong>
+                    <ul className="compact-list">
+                      {libraryPreviewSteps.map((step) => <li key={step}>{step}</li>)}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
-        {libraryPreview ? <pre className="library-preview" data-testid="library-preview-summary">{libraryPreview}</pre> : null}
+        {libraryDetailPack ? (
+          <div className="library-installed-detail" data-testid="library-installed-detail">
+            <div className="admin-section-head">
+              <div>
+                <p className="eyebrow">{isSpanish ? "Pack instalado" : "Installed Pack"}</p>
+                <h3>{libraryDetailPack.name}</h3>
+              </div>
+              <span className={`status-chip ${libraryDetailPack.installed ? "active" : "inactive"}`}>{libraryDetailPack.installed ? (isSpanish ? "Instalado" : "Installed") : (isSpanish ? "Sin instalar" : "Not installed")}</span>
+            </div>
+            <div className="automation-template-meta">
+              <span>{libraryDetailPack.category ?? (isSpanish ? "Biblioteca" : "Library")} · v{libraryDetailPack.version}</span>
+              <span>{libraryDetailPack.installedAt ? `${isSpanish ? "Instalado" : "Installed"} ${formatDateDisplay(libraryDetailPack.installedAt)}` : (isSpanish ? "Aun no instalado" : "Not installed yet")}</span>
+            </div>
+            {libraryDetailPack.installedItems?.length ? (
+              <div className="library-installed-list">
+                {libraryDetailPack.installedItems.map((item) => {
+                  const described = describeInstalledPackItem(libraryDetailPack, item);
+                  return (
+                    <div key={item.id} className="library-installed-row">
+                      <div>
+                        <strong>{described.primary}</strong>
+                        <small>{described.secondary}</small>
+                      </div>
+                      <code>{described.key}</code>
+                      <small>{item.status.toLowerCase()}</small>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="automation-template-note">{isSpanish ? "Este pack aun no ha creado artefactos instalados en esta instancia." : "This pack has not created installed artifacts on this instance yet."}</p>
+            )}
+          </div>
+        ) : null}
       </section>
 
       <section id="property-template-library-section" className="automation-templates span-full" data-testid="property-template-library">
@@ -776,7 +1339,7 @@ export function AutomationPanel({ role, language = "en", properties, customField
             <h2>{isSpanish ? "Configuraciones reutilizables del tablero" : "Reusable Board Setups"}</h2>
           </div>
         </header>
-        <p className="subtitle">{isSpanish ? "Las plantillas solo copian configuracion reutilizable. No clonan unidades, items de make-ready, comentarios, adjuntos, historial, usuarios, tokens ni sesiones." : "Templates copy reusable configuration only. They do not clone units, make-ready items, comments, attachments, history, users, tokens, or sessions."}</p>
+        <p className="subtitle">{isSpanish ? "Las plantillas solo copian configuración reutilizable. No clonan unidades, items de make-ready, comentarios, adjuntos, historial, usuarios, tokens ni sesiones." : "Templates copy reusable configuration only. They do not clone units, make-ready items, comments, attachments, history, users, tokens, or sessions."}</p>
         <div className="library-import template-quick-create" data-testid="property-template-create">
           <label>{isSpanish ? "Propiedad origen" : "Source property"}
             <select data-testid="property-template-source" value={templateDraft.propertyId} onChange={(event) => setTemplateDraft((current) => ({ ...current, propertyId: event.target.value }))}>
@@ -784,12 +1347,12 @@ export function AutomationPanel({ role, language = "en", properties, customField
             </select>
           </label>
           <label>{isSpanish ? "Nombre de la plantilla" : "Template name"}
-            <input data-testid="property-template-name" value={templateDraft.name} onChange={(event) => setTemplateDraft((current) => ({ ...current, name: event.target.value }))} placeholder={isSpanish ? "Configuracion estandar de Make Ready" : "Standard Make Ready Setup"} />
+            <input data-testid="property-template-name" value={templateDraft.name} onChange={(event) => setTemplateDraft((current) => ({ ...current, name: event.target.value }))} placeholder={isSpanish ? "Configuración estándar de Make Ready" : "Standard Make Ready Setup"} />
           </label>
           <label>{isSpanish ? "Categoria" : "Category"}
             <input data-testid="property-template-category" value={templateDraft.category} onChange={(event) => setTemplateDraft((current) => ({ ...current, category: event.target.value }))} />
           </label>
-          <label className="span-full">{isSpanish ? "Descripcion" : "Description"}
+          <label className="span-full">{isSpanish ? "Descripción" : "Description"}
             <textarea data-testid="property-template-description" value={templateDraft.description} onChange={(event) => setTemplateDraft((current) => ({ ...current, description: event.target.value }))} placeholder={isSpanish ? "Secciones, etiquetas, campos, vistas, programaciones, listas y automatizaciones deshabilitadas reutilizables." : "Reusable sections, labels, fields, views, schedules, checklists, and disabled automations."} />
           </label>
           <div className="span-full template-check-grid">
@@ -823,24 +1386,24 @@ export function AutomationPanel({ role, language = "en", properties, customField
           </div>
         </div>
 
-        {propertyTemplates.length === 0 ? (
+        {activePropertyTemplates.length === 0 ? (
           <StatusState title={isSpanish ? "No hay plantillas de propiedad" : "No property templates"} description={isSpanish ? "Guarda una configuracion de una propiedad existente para reutilizarla despues." : "Save a setup from an existing property to reuse it later."} tone="subtle" />
         ) : (
           <div className="automation-template-grid">
-            {propertyTemplates.map((template) => (
+            {activePropertyTemplates.map((template) => (
               <article className="automation-template" key={template.id} data-testid={`property-template-${template.id}`}>
                 <div className="automation-template-head">
                   <span className="automation-template-category">{template.category ?? (isSpanish ? "Plantilla de propiedad" : "Property Template")}</span>
                   <span className="status-chip inactive">v{template.version}</span>
                 </div>
                 <h3>{template.name}</h3>
-                <p>{template.description ?? (isSpanish ? "Configuracion reutilizable de propiedad de MakeReadyOS." : "Reusable MakeReadyOS property setup.")}</p>
+                <p>{template.description ?? (isSpanish ? "Configuración reutilizable de propiedad de MakeReadyOS." : "Reusable MakeReadyOS property setup.")}</p>
                 <div className="automation-template-meta">
                   <span>{isSpanish ? "Origen" : "Source"} {template.sourcePropertyCode ?? (isSpanish ? "biblioteca" : "library")}</span>
                   <span>{Object.values(template.counts ?? {}).reduce((sum, count) => sum + count, 0)} {isSpanish ? "registros de configuracion" : "config records"}</span>
                 </div>
                 <p className="automation-template-note">
-                  {Object.entries(template.counts ?? {}).filter(([, count]) => count > 0).slice(0, 5).map(([key, count]) => `${count} ${humanize(key)}`).join(" · ") || (isSpanish ? "Sin registros de configuracion" : "No config records")}
+                  {Object.entries(template.counts ?? {}).filter(([, count]) => count > 0).slice(0, 5).map(([key, count]) => `${count} ${humanize(key)}`).join(" · ") || (isSpanish ? "Sin registros de configuración" : "No config records")}
                 </p>
                 <div className="automation-template-actions">
                   <button className="button button-secondary" type="button" data-testid={`property-template-select-${template.id}`} onClick={() => setApplyTarget((current) => ({ ...current, templateId: template.id }))}>{isSpanish ? "Seleccionar" : "Select"}</button>
@@ -855,7 +1418,7 @@ export function AutomationPanel({ role, language = "en", properties, customField
           <label>{isSpanish ? "Plantilla" : "Template"}
             <select data-testid="property-template-apply-template" value={applyTarget.templateId} onChange={(event) => setApplyTarget((current) => ({ ...current, templateId: event.target.value }))}>
               <option value="">{isSpanish ? "Elegir plantilla" : "Choose template"}</option>
-              {propertyTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+              {activePropertyTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
             </select>
           </label>
           <label className="toggle-row">
@@ -894,7 +1457,7 @@ export function AutomationPanel({ role, language = "en", properties, customField
                 newProperty: applyTarget.createNew ? { name: applyTarget.newName, code: applyTarget.newCode } : null,
                 enableAutomations: applyTarget.enableAutomations,
               })}
-            >{isSpanish ? "Aplicacion en seco" : "Dry Run Apply"}</button>
+            >{isSpanish ? "Aplicación en seco" : "Dry Run Apply"}</button>
             <button
               className="button button-primary"
               type="button"
@@ -910,13 +1473,49 @@ export function AutomationPanel({ role, language = "en", properties, customField
           </div>
         </div>
         {templatePreview ? <pre className="library-preview" data-testid="property-template-preview-summary">{templatePreview}</pre> : null}
+        {archivedPropertyTemplates.length > 0 ? (
+          <div className="automation-archived-group" data-testid="property-template-archive-list">
+            <div className="admin-section-head">
+              <div>
+                <p className="eyebrow">{isSpanish ? "Archivadas" : "Archived"}</p>
+                <h3>{isSpanish ? "Plantillas archivadas" : "Archived templates"}</h3>
+              </div>
+              <span className="status-chip inactive">{archivedPropertyTemplates.length}</span>
+            </div>
+            <p className="automation-template-note">
+              {isSpanish
+                ? "Las plantillas archivadas se ocultan de la biblioteca activa. Restaurar las devuelve al flujo normal; eliminar las borra de forma permanente."
+                : "Archived templates stay out of the active library. Restore brings them back; Delete permanently removes them."}
+            </p>
+            <div className="automation-template-grid">
+              {archivedPropertyTemplates.map((template) => (
+                <article className="automation-template" key={template.id} data-testid={`property-template-archived-${template.id}`}>
+                  <div className="automation-template-head">
+                    <span className="automation-template-category">{template.category ?? (isSpanish ? "Plantilla de propiedad" : "Property Template")}</span>
+                    <span className="status-chip inactive">{isSpanish ? "Archivada" : "Archived"}</span>
+                  </div>
+                  <h3>{template.name}</h3>
+                  <p>{template.description ?? (isSpanish ? "Configuración reutilizable de propiedad de MakeReadyOS." : "Reusable MakeReadyOS property setup.")}</p>
+                  <div className="automation-template-meta">
+                    <span>{isSpanish ? "Origen" : "Source"} {template.sourcePropertyCode ?? (isSpanish ? "biblioteca" : "library")}</span>
+                    <span>{Object.values(template.counts ?? {}).reduce((sum, count) => sum + count, 0)} {isSpanish ? "registros de configuración" : "config records"}</span>
+                  </div>
+                  <div className="automation-template-actions">
+                    <button className="button button-secondary" type="button" data-testid={`property-template-restore-${template.id}`} disabled={loading} onClick={() => void onRestorePropertyTemplate(template.id)}>{isSpanish ? "Restaurar" : "Restore"}</button>
+                    <button className="button button-danger" type="button" data-testid={`property-template-delete-${template.id}`} disabled={loading} onClick={() => setDeleteTemplateTarget(template)}>{isSpanish ? "Eliminar" : "Delete"}</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section id="automation-rules-section" className="automation-rule-list">
         <header className="admin-section-head">
           <div>
             <p className="eyebrow">{isSpanish ? "Reglas estructuradas" : "Structured Rules"}</p>
-            <h2>Automations</h2>
+            <h2>{isSpanish ? "Automatizaciones" : "Automations"}</h2>
           </div>
           <button className="button button-primary" type="button" data-testid="automation-new" onClick={() => {
             setCreating(true);
@@ -934,9 +1533,9 @@ export function AutomationPanel({ role, language = "en", properties, customField
               <div className={selected?.id === rule.id && !creating ? "automation-item active" : "automation-item"} key={rule.id}>
                 <button type="button" data-testid={`automation-item-${rule.id}`} onClick={() => chooseRule(rule)}>
                   <strong>{rule.name}</strong>
-                  <small>{humanize(rule.triggerType)} · {rule.property?.code ?? (isSpanish ? "Global" : "Global")}</small>
+                  <small>{triggerLabel(rule.triggerType, isSpanish)} · {rule.property?.code ?? (isSpanish ? "Global" : "Global")}</small>
                 </button>
-                <label className="toggle-row" title={role === "MANAGER" && !rule.propertyId ? (isSpanish ? "Las reglas globales son controladas por administracion" : "Global rules are admin-controlled") : (isSpanish ? "Habilitar regla de automatizacion" : "Enable automation rule")}>
+                <label className="toggle-row" title={role === "MANAGER" && !rule.propertyId ? (isSpanish ? "Las reglas globales son controladas por administración" : "Global rules are admin-controlled") : (isSpanish ? "Habilitar regla de automatización" : "Enable automation rule")}>
                   <input
                     data-testid={`automation-toggle-${rule.id}`}
                     type="checkbox"
@@ -954,7 +1553,7 @@ export function AutomationPanel({ role, language = "en", properties, customField
 
       <section id="automation-editor-section" className="automation-editor">
         <header className="admin-section-head">
-          <h3>{creating ? (isSpanish ? "Crear regla" : "Create Rule") : selected ? (isSpanish ? "Editar regla" : "Edit Rule") : (isSpanish ? "Configuracion de regla" : "Rule Setup")}</h3>
+          <h3>{creating ? (isSpanish ? "Crear regla" : "Create Rule") : selected ? (isSpanish ? "Editar regla" : "Edit Rule") : (isSpanish ? "Configuración de regla" : "Rule Setup")}</h3>
           {!creating && selected ? (
             <div className="automation-editor-actions">
               <button
@@ -987,7 +1586,7 @@ export function AutomationPanel({ role, language = "en", properties, customField
             {!canEditSelected && !creating ? <div className="admin-message warning span-full">{isSpanish ? "Esta regla global es visible para gerentes pero solo puede cambiarla un administrador." : "This global rule is visible to managers but can only be changed by an admin."}</div> : null}
             <label>{isSpanish ? "Nombre de la regla" : "Rule name"}<input data-testid="automation-name" value={draft.name} disabled={!creating && !canEditSelected} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
             <label>{isSpanish ? "Disparador" : "Trigger"}<select data-testid="automation-trigger" value={draft.triggerType} disabled={!creating && !canEditSelected} onChange={(event) => setDraft((current) => ({ ...current, triggerType: event.target.value as AutomationTriggerType }))}>{triggers.map((trigger) => <option key={trigger} value={trigger}>{triggerLabel(trigger, isSpanish)}</option>)}</select></label>
-            <label className="span-full">{isSpanish ? "Descripcion" : "Description"}<input data-testid="automation-description" value={draft.description} disabled={!creating && !canEditSelected} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /></label>
+            <label className="span-full">{isSpanish ? "Descripción" : "Description"}<input data-testid="automation-description" value={draft.description} disabled={!creating && !canEditSelected} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /></label>
             <label>{isSpanish ? "Alcance de propiedad" : "Property scope"}
               <select data-testid="automation-property" value={draft.propertyId} disabled={role === "MANAGER" || (!creating && !canEditSelected)} onChange={(event) => setDraft((current) => ({ ...current, propertyId: event.target.value }))}>
                 {role === "ADMIN" ? <option value="">{isSpanish ? "Global - todas las propiedades" : "Global - all properties"}</option> : null}
@@ -1326,6 +1925,25 @@ export function AutomationPanel({ role, language = "en", properties, customField
         )}
       </section>
       <ConfirmDialog
+        open={showLibraryInstallConfirm && Boolean(activeLibraryInput)}
+        language={isSpanish ? "es" : "en"}
+        title={isSpanish ? "Instalar pack con conflictos" : "Install pack with conflicts"}
+        description={
+          isSpanish
+            ? "La vista previa encontro conflictos o errores en algunas secciones. MakeReadyOS omitira o bloqueara solo esos registros, pero el resto del pack puede instalarse. Continue solo si ya reviso los conflictos mostrados arriba."
+            : "This preview found conflicts or validation errors in some sections. MakeReadyOS will skip or block only those records, but the rest of the pack can still install. Continue only if you already reviewed the conflicts shown above."
+        }
+        confirmLabel={isSpanish ? "Instalar de todos modos" : "Install Anyway"}
+        tone="danger"
+        busy={loading}
+        onClose={() => setShowLibraryInstallConfirm(false)}
+        onConfirm={async () => {
+          if (!activeLibraryInput) return;
+          await onInstallLibraryPack(activeLibraryInput);
+          setShowLibraryInstallConfirm(false);
+        }}
+      />
+      <ConfirmDialog
         open={Boolean(archiveTarget)}
         language={isSpanish ? "es" : "en"}
         title={isSpanish ? "Archivar regla de automatizacion" : "Archive automation rule"}
@@ -1340,6 +1958,23 @@ export function AutomationPanel({ role, language = "en", properties, customField
           setArchiveTarget(null);
           setSelectedId("");
           onSelectRule();
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(deleteTemplateTarget)}
+        language={isSpanish ? "es" : "en"}
+        title={isSpanish ? "Eliminar plantilla archivada" : "Delete archived template"}
+        description={isSpanish
+          ? `Eliminar permanentemente ${deleteTemplateTarget?.name ?? "esta plantilla"}? Solo las plantillas ya archivadas pueden borrarse y esta accion no se puede deshacer.`
+          : `Permanently delete ${deleteTemplateTarget?.name ?? "this template"}? Only archived templates can be deleted and this action cannot be undone.`}
+        confirmLabel={isSpanish ? "Eliminar plantilla" : "Delete Template"}
+        tone="danger"
+        busy={loading}
+        onClose={() => setDeleteTemplateTarget(null)}
+        onConfirm={async () => {
+          if (!deleteTemplateTarget) return;
+          await onDeletePropertyTemplate(deleteTemplateTarget.id);
+          setDeleteTemplateTarget(null);
         }}
       />
     </div>

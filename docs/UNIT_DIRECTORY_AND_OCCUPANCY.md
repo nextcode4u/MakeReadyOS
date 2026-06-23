@@ -52,7 +52,7 @@ Property Maps reuse the same directory metadata. When building data exists, the 
 
 ## Paste/File Import
 
-The Setup workspace supports lightweight paste or local-file import for unit directories and availability reports. Comma-delimited and tab-delimited data are supported, including quoted CSV values. An existing property must be selected before import; the preview shows the target property so rows cannot silently land in the wrong property. Existing units are updated by property + unit number. New units are created. The import is merge-style and does not delete units missing from the pasted report.
+The Setup workspace supports lightweight paste or local-file import for unit directories and availability reports. Comma-delimited, semicolon-delimited, and tab-delimited data are supported, including quoted CSV values. An existing property must be selected before import; the preview shows the target property so rows cannot silently land in the wrong property. Existing units are updated by property + unit number. New units are created. The import is merge-style and does not delete units missing from the pasted report.
 
 Use the two import boxes for different jobs:
 
@@ -61,7 +61,9 @@ Use the two import boxes for different jobs:
 
 Occupied mode depends on the permanent unit directory. Availability reports commonly omit fully occupied units, so importing only an availability report will not populate the occupied directory list. Import the full unit directory first when occupancy visibility and occupancy percentage matter.
 
-Sparse files are supported. A row may include only unit number, floor plan, and square footage. When updating an existing unit, MakeReadyOS only changes fields that are present in the import row; missing columns do not wipe existing building, area, status, budgeted, or occupancy data.
+Sparse files are supported. A row may include only unit number, floor plan, and square footage. When updating an existing unit, MakeReadyOS only changes fields that are present in the import row; missing columns do not wipe existing building, area, status, budgeted, or occupancy data. Browser parsing now also ignores obvious blank-unit summary/header noise such as occupancy summaries or floor-plan summary rows and shows those skips in the preview instead of failing the import.
+
+The browser-side parser now also tolerates more real export shapes before the data reaches the API. Combined `building/unit` columns such as `12-3405` or `12 / 3405` are split automatically when no separate unit column exists, broader common header aliases like `reportdt`, `asofdt`, `printdate`, `moveoutdt`, and `applieddt` are recognized, semicolon-separated spreadsheet exports are detected automatically, and imported dates are normalized into `YYYY-MM-DD` form when possible.
 
 When a row contains a floor-plan value, MakeReadyOS treats that value as the report code/type, not necessarily the friendly marketing name. For example, an imported `B1` code may later be renamed in Setup to display as `B1 - Arlington` while the stable code remains `B1` for future imports. Imported bedroom, bathroom, and square-foot values are attached to the managed floor plan and then linked back to the unit. If the managed floor plan already exists, imports fill only missing floor-plan metadata; they do not overwrite manually curated floor-plan values.
 
@@ -73,7 +75,7 @@ unit,building,area,floor,floorPlan,beds,baths,sqft,occupancyStatus,budgeted
 102,1,North,1,A1,1,1,720,NTV LEASED,yes
 ```
 
-Useful aliases include `unit number`, `apartment`, `building number`, `bldg`, `unit type`, `floor plan code`, `square feet`, `availability status`, `unit status`, `include in occupancy`, and `occupancy eligible`.
+Useful aliases include `unit number`, `unit #`, `apartment`, `building number`, `bldg`, `unit type`, `unit plan`, `floor plan code`, `square feet`, `availability status`, `avail status`, `unit status`, `include in occupancy`, `included in occupancy`, and `occupancy eligible`.
 
 Floor-plan imports should use the property report code in the `floorPlan` column. After import, edit the managed floor plan in Setup if the property uses a separate friendly name. Keep the code stable unless the source report changes, because future imports match managed floor plans by code.
 
@@ -107,7 +109,7 @@ Availability reports may include section headers that carry important meaning. T
 - NTV leased
 - Down
 
-Availability rows may include unit, floor plan, square footage, move-out or expected vacate date, days vacant, scheduled make-ready date, scheduled move-in date, preleased/applicant text, application date, notes/comments, hold flags, and amenity lines. Amenity lines and hold markers should be reviewed in the import preview instead of blindly appended to unit notes.
+Availability rows may include unit, floor plan, square footage, move-out or expected vacate date, days vacant, scheduled make-ready date, scheduled move-in date, preleased/applicant text, application date, notes/comments, hold flags, and amenity lines. Blank-unit heading/amenity noise rows are now filtered during browser parsing and shown in the preview so they do not break the import or get appended into unit notes.
 
 When an availability report has a generic `MoveOut` column, MakeReadyOS routes that date by status: NTV not leased/NTV leased rows use it as `NTV / Expected Vacate`, while already-vacant rows use it as `Vacated`. `Make Ready` maps to the make-ready date. `Date Applied` is preserved as source context in notes because it is an application date, not a move-in date.
 
@@ -180,6 +182,13 @@ Recommended rules:
 - Use `UNKNOWN` for unclear occupancy only when the source explicitly has an unknown state; otherwise leave the status blank and update it later.
 - Save as `.csv` or copy the table directly into the paste box.
 
+The in-app directory importer now also ships quick presets for four common starting shapes:
+
+- `Full`: separate unit, building, area, floor, plan, square-footage, occupancy, and budgeted columns
+- `Building + unit`: combined `buildingUnit` style exports such as `1-101`
+- `Yardi-style`: common exports with `Unit #`, `Building`, `Floor`, `Unit Type`, `Bedrooms`, `Bathrooms`, `Sq Ft`, `Status`, and `Occupancy Eligible`
+- `Minimal`: sparse unit + plan + square-footage style extracts
+
 ## Converting An Availability Report To CSV
 
 Availability reports should preserve the source section/status as a column because the section often defines the operational status:
@@ -196,6 +205,16 @@ Use availability import in two different ways:
 - Initial availability import: creates or updates units and creates active make-ready turns for non-occupied operational statuses.
 - Recurring availability import: compares the new report to existing active turns by property + unit. The preview warns when applicant, status, dates, or days vacant differ. Provided report values update the active turn; omitted report fields do not wipe existing local values.
 - Stale-report failsafe: if the incoming report would overwrite newer or more advanced local board values, MakeReadyOS blocks the import and returns the conflicting units for review until an operator explicitly overrides the report.
+- Generic move-out routing: when a source export only supplies one move-out style column, MakeReadyOS now routes it into `moveOutDate` for notice/NTV statuses and into `vacatedDate` for already-vacant statuses so the turn timeline stays closer to the real report intent.
+
+Large recurring imports no longer collapse changed-unit review into a partial summary. The browser preview keeps the full changed-unit list and the full blocked-conflict list visible in unit order, and both lists can be copied out in one action for reconciliation with RealPage, Yardi, or supervisor handoff. That same preview path now auto-detects comma, semicolon, or tab separators so spreadsheet exports do not need manual delimiter cleanup first.
+
+The in-app availability importer now also ships quick presets for four common starting shapes:
+
+- `Full`: MakeReadyOS-native availability CSV with all major fields present
+- `RealPage-style`: combined `bldgUnit`, `MoveOut`, `Days Vacant`, `Make Ready`, `Scheduled Move-In`, `Preleased Name`, and `Report Date` columns
+- `Yardi-style`: common exports with `Unit #`, `Unit Type`, `Avail Status`, `Vacate`, `Days Vacant`, `Ready Dt`, `Future Resident`, `Apply Date`, and `As Of Date`
+- `Compact`: small operational exports with only unit, status, move-out, days vacant, and report date
 
 If using an AI assistant or another conversion tool, give it instructions like:
 
@@ -221,8 +240,10 @@ Rules:
 - Use moveInDate only when a future move-in date is shown.
 - Include the availability report generated/as-of date in reportDate for every row when the source report shows it.
 - RealPage-style columns usually mean: report generated/as-of date -> reportDate; MoveOut -> moveOutDate for NTV rows or vacatedDate for already-vacant rows; Days Vacant -> daysVacant; Make Ready -> makeReadyDate; Date Applied -> notes/source context unless it is clearly the application date for the applicant; Scheduled Move-In -> moveInDate; Preleased Name -> applicant.
+- Yardi-style columns can also be normalized when they are unambiguous: Unit #/Unit No -> unit; Unit Type/Unit Plan -> floorPlan; Avail Status -> availabilityStatus; Vacate -> moveOutDate for NTV rows or vacatedDate for already-vacant rows; Ready Dt/Market Ready -> makeReadyDate; Future Resident -> applicant; Apply Date -> dateApplied; As Of Date -> reportDate.
 - If the source has a grouped Preleased header with columns Lease Rent, Lease Signed, Name, and Comments, use the Name value as applicant.
 - If an applicant name wraps onto the next line, join the wrapped line into the same applicant value. Example: "Weger, Kameron" on the unit row plus "Ross" on the next line becomes applicant "Weger, Kameron Ross".
+- MakeReadyOS now also collapses orphan continuation rows during browser parsing when a converted CSV/PDF/XLSX export leaves the unit blank and places only the wrapped applicant/preleased name on the next line.
 - Do not put applicant names into notes. Applicant/preleased names belong only in the applicant column.
 - Keep dates as YYYY-MM-DD if possible. MM/DD/YYYY is also acceptable.
 - Leave unknown columns blank.

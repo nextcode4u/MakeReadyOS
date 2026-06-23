@@ -52,6 +52,8 @@ export function VendorsPanel({
     const matchesTrade = !tradeFilter || vendor.trade === tradeFilter;
     return matchesQuery && matchesTrade;
   });
+  const activeVendors = useMemo(() => filteredVendors.filter((vendor) => vendor.isActive), [filteredVendors]);
+  const archivedVendors = useMemo(() => filteredVendors.filter((vendor) => !vendor.isActive), [filteredVendors]);
   const itemOptions = items.filter((item) => !item.isArchived).slice(0, 200);
   const unitOptions = useMemo(() => itemOptions.map((item) => ({
     id: item.id,
@@ -105,11 +107,11 @@ export function VendorsPanel({
             });
             setVendorDraft((current) => ({ ...current, name: "", phone: "", email: "", notes: "" }));
           }}>
-            <h3>{isSpanish ? "Agregar proveedor rapido" : "Quick Add Vendor"}</h3>
+            <h3>{isSpanish ? "Agregar proveedor rápido" : "Quick Add Vendor"}</h3>
             <input data-testid="vendor-create-name" value={vendorDraft.name} onChange={(event) => setVendorDraft((current) => ({ ...current, name: event.target.value }))} placeholder={isSpanish ? "Nombre de la empresa" : "Company name"} required />
-            <input data-testid="vendor-create-trade" value={vendorDraft.trade} onChange={(event) => setVendorDraft((current) => ({ ...current, trade: event.target.value }))} placeholder={isSpanish ? "Oficio/categoria" : "Trade/category"} required />
-            <input value={vendorDraft.phone} onChange={(event) => setVendorDraft((current) => ({ ...current, phone: event.target.value }))} placeholder={isSpanish ? "Telefono" : "Phone"} />
-            <input value={vendorDraft.email} onChange={(event) => setVendorDraft((current) => ({ ...current, email: event.target.value }))} placeholder="Email" />
+            <input data-testid="vendor-create-trade" value={vendorDraft.trade} onChange={(event) => setVendorDraft((current) => ({ ...current, trade: event.target.value }))} placeholder={isSpanish ? "Oficio/categoría" : "Trade/category"} required />
+            <input value={vendorDraft.phone} onChange={(event) => setVendorDraft((current) => ({ ...current, phone: event.target.value }))} placeholder={isSpanish ? "Teléfono" : "Phone"} />
+            <input value={vendorDraft.email} onChange={(event) => setVendorDraft((current) => ({ ...current, email: event.target.value }))} placeholder={isSpanish ? "Correo" : "Email"} />
             <textarea value={vendorDraft.notes} onChange={(event) => setVendorDraft((current) => ({ ...current, notes: event.target.value }))} placeholder={isSpanish ? "Notas" : "Notes"} />
             <div className="checkbox-row wrap">
               {properties.map((property) => (
@@ -152,7 +154,7 @@ export function VendorsPanel({
             <label>{isSpanish ? "Programado" : "Scheduled"}<input type="date" value={assignmentDraft.scheduledDate} onChange={(event) => setAssignmentDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></label>
             <label>{isSpanish ? "Vence" : "Due"}<input type="date" value={assignmentDraft.dueDate} onChange={(event) => setAssignmentDraft((current) => ({ ...current, dueDate: event.target.value }))} /></label>
             <textarea value={assignmentDraft.notes} onChange={(event) => setAssignmentDraft((current) => ({ ...current, notes: event.target.value }))} placeholder={isSpanish ? "Notas de trabajo" : "Work notes"} />
-            <button data-testid="vendor-assignment-create-submit" className="button button-primary" disabled={!assignmentDraft.vendorId || !assignmentDraft.itemId}>{isSpanish ? "Crear asignacion" : "Create Assignment"}</button>
+            <button data-testid="vendor-assignment-create-submit" className="button button-primary" disabled={!assignmentDraft.vendorId || !assignmentDraft.itemId}>{isSpanish ? "Crear asignación" : "Create Assignment"}</button>
           </form> : null}
         </div>
       ) : null}
@@ -160,19 +162,51 @@ export function VendorsPanel({
       <div className="operations-grid two">
         <div className="operations-card">
           <h3>{isSpanish ? "Directorio de proveedores" : "Vendor Directory"}</h3>
-          {filteredVendors.length === 0 ? <p className="muted">{isSpanish ? "Ningun proveedor coincide con los filtros actuales." : "No vendors match the current filters."}</p> : filteredVendors.map((vendor) => (
-            <article key={vendor.id} className={`vendor-row ${vendor.isActive ? "" : "is-archived"}`}>
-              <div>
-                <strong>{vendor.name}</strong>
-                <small>{vendor.trade}{vendor.isPreferred ? (isSpanish ? " / Preferido" : " / Preferred") : ""}</small>
-                <small>{vendor.serviceAreas.length ? vendor.serviceAreas.map((area) => area.property.code).join(", ") : (isSpanish ? "Todas las propiedades" : "All properties")}</small>
+          {filteredVendors.length === 0 ? <p className="muted">{isSpanish ? "Ningún proveedor coincide con los filtros actuales." : "No vendors match the current filters."}</p> : (
+            <>
+              <div className="stack gap-sm">
+                <div className="section-header">
+                  <strong>{isSpanish ? "Proveedores activos" : "Active Vendors"}</strong>
+                  <span className="muted">{activeVendors.length}</span>
+                </div>
+                {activeVendors.length === 0 ? <p className="muted">{isSpanish ? "No hay proveedores activos con estos filtros." : "No active vendors match these filters."}</p> : activeVendors.map((vendor) => (
+                  <article key={vendor.id} className="vendor-row">
+                    <div>
+                      <strong>{vendor.name}</strong>
+                      <small>{vendor.trade}{vendor.isPreferred ? (isSpanish ? " / Preferido" : " / Preferred") : ""}</small>
+                      <small>{vendor.serviceAreas.length ? vendor.serviceAreas.map((area) => area.property.code).join(", ") : (isSpanish ? "Todas las propiedades" : "All properties")}</small>
+                    </div>
+                    <div className="row-actions">
+                      {vendor.phone && <a href={`tel:${vendor.phone}`}>{vendor.phone}</a>}
+                      {canManageDirectory ? <button className="button button-secondary" data-testid={`vendor-archive-${vendor.id}`} onClick={() => void onArchiveVendor(vendor.id, false)}>{isSpanish ? "Archivar" : "Archive"}</button> : null}
+                    </div>
+                  </article>
+                ))}
               </div>
-              <div className="row-actions">
-                {vendor.phone && <a href={`tel:${vendor.phone}`}>{vendor.phone}</a>}
-                {canManageDirectory && <button className="button button-secondary" data-testid={`vendor-${vendor.isActive ? "archive" : "restore"}-${vendor.id}`} onClick={() => void onArchiveVendor(vendor.id, !vendor.isActive)}>{vendor.isActive ? (isSpanish ? "Archivar" : "Archive") : (isSpanish ? "Restaurar" : "Restore")}</button>}
-              </div>
-            </article>
-          ))}
+
+              {archivedVendors.length > 0 ? (
+                <div className="stack gap-sm" style={{ marginTop: 16 }}>
+                  <div className="section-header">
+                    <strong>{isSpanish ? "Proveedores archivados" : "Archived Vendors"}</strong>
+                    <span className="muted">{archivedVendors.length}</span>
+                  </div>
+                  {archivedVendors.map((vendor) => (
+                    <article key={vendor.id} className="vendor-row is-archived">
+                      <div>
+                        <strong>{vendor.name}</strong>
+                        <small>{vendor.trade}{vendor.isPreferred ? (isSpanish ? " / Preferido" : " / Preferred") : ""}</small>
+                        <small>{vendor.serviceAreas.length ? vendor.serviceAreas.map((area) => area.property.code).join(", ") : (isSpanish ? "Todas las propiedades" : "All properties")}</small>
+                      </div>
+                      <div className="row-actions">
+                        {vendor.phone && <a href={`tel:${vendor.phone}`}>{vendor.phone}</a>}
+                        {canManageDirectory ? <button className="button button-secondary" data-testid={`vendor-restore-${vendor.id}`} onClick={() => void onArchiveVendor(vendor.id, true)}>{isSpanish ? "Restaurar" : "Restore"}</button> : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
 
         <div className="operations-card">

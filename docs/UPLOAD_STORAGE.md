@@ -124,14 +124,26 @@ Verify existing attachments and property maps open before deleting any old stora
 
 Database backups are not enough for deployments with photos or maps.
 
-Use both:
+Use the combined snapshot helper:
+
+```bash
+./backup-all.sh
+```
+
+Or run the individual helpers when you need to inspect one half separately:
 
 ```bash
 ./backup-db.sh
 ./backup-uploads.sh
 ```
 
-Restore both:
+Restore both together:
+
+```bash
+./restore-all.sh backups/makereadyos-db-YYYYMMDD-HHMMSS.dump backups/makereadyos-uploads-YYYYMMDD-HHMMSS.tgz
+```
+
+Or restore the pieces separately:
 
 ```bash
 ./restore-db.sh backups/makereadyos-db-YYYYMMDD-HHMMSS.dump
@@ -142,7 +154,7 @@ Inspection-gallery ZIP exports are for per-unit evidence packets. They are not f
 
 ## Optional Off-Host Backup Examples
 
-Use these only after local `./backup-db.sh` and `./backup-uploads.sh` are already working. Keep the local backup first so disaster recovery does not depend on a network target being reachable during an outage.
+Use these only after local `./backup-all.sh` is already working. Keep the local backup first so disaster recovery does not depend on a network target being reachable during an outage.
 
 Rsync copy to a mounted NAS or another Linux host:
 
@@ -162,7 +174,7 @@ restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
 
 Recommended pattern:
 
-- Run `./backup-db.sh` and `./backup-uploads.sh` first.
+- Run `./backup-all.sh` first.
 - Sync the resulting `backups/` directory off-host on a schedule.
 - Mirror live `uploads/` only when the storage target and bandwidth are reliable enough for large photo trees.
 - Rehearse restore from the off-host copy before depending on it for production recovery.

@@ -42,6 +42,7 @@ import {
   itemCommentInputSchema,
   attachmentPatchSchema,
   chargePriceSheetCreateSchema,
+  chargePriceSheetImportSchema,
   chargePriceSheetPatchSchema,
   checklistTemplateInputSchema,
 } from "../routes/collaboration.js";
@@ -192,6 +193,7 @@ const zodSchemas: Record<string, ZodTypeAny> = {
   AttachmentPatchRequest: attachmentPatchSchema,
   ChargePriceSheetCreateRequest: chargePriceSheetCreateSchema,
   ChargePriceSheetPatchRequest: chargePriceSheetPatchSchema,
+  ChargePriceSheetImportRequest: chargePriceSheetImportSchema,
   ChecklistTemplateCreateRequest: checklistTemplateInputSchema,
   AutomationCreateRequest: automationCreateSchema,
   AutomationInstallTemplateRequest: automationInstallTemplateSchema,
@@ -1215,6 +1217,23 @@ const generatedResponseSchemas = {
   CalendarEventsResponse: envelope("events", arrayOf(ref("CalendarEvent"))),
   ChargePriceSheetItemsResponse: envelope("items", arrayOf(ref("ChargePriceSheetItem"))),
   ChargePriceSheetItemResponse: envelope("item", ref("ChargePriceSheetItem")),
+  ChargePriceSheetImportResponse: {
+    type: "object",
+    required: ["summary"],
+    properties: {
+      summary: {
+        type: "object",
+        required: ["created", "updated", "skipped", "errors", "processed"],
+        properties: {
+          created: { type: "integer" },
+          updated: { type: "integer" },
+          skipped: { type: "integer" },
+          processed: { type: "integer" },
+          errors: arrayOf({ type: "string" }),
+        },
+      },
+    },
+  },
   MyWorkResponse: ref("MyWork"),
   PlanningSummaryResponse: ref("PlanningSummary"),
   PlanningCapacitiesResponse: envelope("capacities", arrayOf(ref("PlanningCapacity"))),
@@ -3590,11 +3609,50 @@ export const openApiDocument = {
         summary: "Download charge/evidence report CSV",
         description: "Downloads the same charge/evidence line items as CSV for review, sharing, or external spreadsheet analysis. This is evidence/estimate metadata, not accounting.",
         security: [{ cookieSession: [] }, { bearerApiToken: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "groupBy", in: "query", schema: { type: "string", enum: ["category"] } },
+        ],
         responses: {
           "200": {
             description: "Charge/evidence report CSV.",
             content: { "text/csv": { schema: { type: "string", format: "binary" } } },
+          },
+        },
+      },
+    },
+    "/api/make-ready-items/{id}/charge-report.html": {
+      get: {
+        tags: ["Comments And Attachments"],
+        summary: "Printable HTML charge/evidence summary",
+        description: "Returns a printable HTML summary of charge-candidate files and markup pins for manager review or handoff. This is evidence/estimate metadata, not accounting.",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "groupBy", in: "query", schema: { type: "string", enum: ["category"] } },
+        ],
+        responses: {
+          "200": {
+            description: "Printable HTML charge/evidence summary.",
+            content: { "text/html": { schema: { type: "string" } } },
+          },
+        },
+      },
+    },
+    "/api/make-ready-items/{id}/charge-report.pdf": {
+      get: {
+        tags: ["Comments And Attachments"],
+        summary: "Printable PDF charge/evidence summary",
+        description: "Returns a PDF summary of charge-candidate files and markup pins for manager review or handoff. This is evidence/estimate metadata, not accounting.",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "groupBy", in: "query", schema: { type: "string", enum: ["category"] } },
+        ],
+        responses: {
+          "200": {
+            description: "Printable PDF charge/evidence summary.",
+            content: { "application/pdf": { schema: { type: "string", format: "binary" } } },
           },
         },
       },
@@ -3664,6 +3722,22 @@ export const openApiDocument = {
           content: { "application/json": { schema: ref("ChargePriceSheetCreateRequest") } },
         },
         responses: { "201": { description: "Price-sheet item created.", ...json(ref("ChargePriceSheetItemResponse")) }, "403": { $ref: "#/components/responses/Forbidden" } },
+      },
+    },
+    "/api/charge-price-sheet-items/import": {
+      post: {
+        tags: ["Comments And Attachments"],
+        summary: "Bulk import charge/evidence price-sheet items",
+        description: "Imports charge/evidence estimate items for one property from pasted CSV or tab-delimited rows. Existing rows can optionally be updated by name.",
+        security: [{ cookieSession: [] }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: ref("ChargePriceSheetImportRequest") } },
+        },
+        responses: {
+          "200": { description: "Import summary.", ...json(ref("ChargePriceSheetImportResponse")) },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
       },
     },
     "/api/checklist-templates": {

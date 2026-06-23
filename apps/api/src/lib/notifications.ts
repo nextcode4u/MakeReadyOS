@@ -21,6 +21,15 @@ export const notificationCategories = [
 
 type NotificationCategory = (typeof notificationCategories)[number];
 
+function isWithinQuietHours(now: Date, startMinute: number, endMinute: number) {
+  if (startMinute === endMinute) return false;
+  const minuteOfDay = now.getHours() * 60 + now.getMinutes();
+  if (startMinute < endMinute) {
+    return minuteOfDay >= startMinute && minuteOfDay < endMinute;
+  }
+  return minuteOfDay >= startMinute || minuteOfDay < endMinute;
+}
+
 export async function assignedStaffUserId(assignedTech: string | null | undefined) {
   if (!assignedTech) return null;
   const user = await prisma.user.findFirst({
@@ -43,9 +52,27 @@ export async function createNotification(input: {
   message: string;
   dedupeKey?: string | null;
 }) {
-  const preference = await prisma.notificationPreference.findUnique({
-    where: { userId_category: { userId: input.userId, category: input.category } },
-  });
+  const [settings, preferences] = await Promise.all([
+    prisma.userNotificationSettings.findUnique({
+      where: { userId: input.userId },
+    }),
+    prisma.notificationPreference.findMany({
+      where: {
+        userId: input.userId,
+        category: input.category,
+        OR: input.propertyId
+          ? [{ scopeKey: `PROPERTY:${input.propertyId}` }, { scopeKey: "GLOBAL" }]
+          : [{ scopeKey: "GLOBAL" }],
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+  if (settings?.quietHoursEnabled && isWithinQuietHours(new Date(), settings.quietHoursStartMinute, settings.quietHoursEndMinute)) {
+    return null;
+  }
+  const preference = input.propertyId
+    ? preferences.find((entry) => entry.propertyId === input.propertyId) ?? preferences.find((entry) => entry.scopeKey === "GLOBAL")
+    : preferences.find((entry) => entry.scopeKey === "GLOBAL");
   if (preference && !preference.enabled) return null;
 
   const data = {

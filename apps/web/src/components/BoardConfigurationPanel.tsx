@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BoardColumnDefinition, BoardSection, CustomField, FloorPlan, LabelDefinition, Property, ScheduleTrack, UserLanguage } from "../lib/api";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { LabelPill } from "./LabelPill";
 import { StatusState } from "./StatusState";
 
@@ -81,14 +82,19 @@ export function BoardConfigurationPanel({
   const [newOption, setNewOption] = useState({ value: "", color: "#46d39c", textColor: "#06291c" });
   const [selectedOptionId, setSelectedOptionId] = useState("");
   const [optionDraft, setOptionDraft] = useState({ value: "", color: "#46d39c", textColor: "#06291c" });
+  const [pendingOptionArchive, setPendingOptionArchive] = useState<LabelDefinition | null>(null);
   const fieldOptions = useMemo(() => options.filter((option) => option.fieldKey === fieldKey), [fieldKey, options]);
   const selectedOption = fieldOptions.find((option) => option.id === selectedOptionId) ?? null;
+  const activeOptionCount = fieldOptions.filter((option) => !option.isArchived).length;
+  const archivedOptionCount = fieldOptions.filter((option) => option.isArchived).length;
 
   const [propertyId, setPropertyId] = useState(properties[0]?.id ?? "");
   const [newPlan, setNewPlan] = useState({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
   const [selectedPlanId, setSelectedPlanId] = useState("");
   const [planDraft, setPlanDraft] = useState({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
   const propertyPlans = floorPlans.filter((plan) => plan.propertyId === propertyId);
+  const activePropertyPlans = propertyPlans.filter((plan) => plan.isActive);
+  const archivedPropertyPlans = propertyPlans.filter((plan) => !plan.isActive);
   const selectedPlan = propertyPlans.find((plan) => plan.id === selectedPlanId) ?? null;
   const [selectedColumnKey, setSelectedColumnKey] = useState("vacatedDate");
   const [columnLabel, setColumnLabel] = useState("");
@@ -97,6 +103,8 @@ export function BoardConfigurationPanel({
   const [newTrack, setNewTrack] = useState(blankTrack);
   const [selectedTrackId, setSelectedTrackId] = useState("");
   const selectedTrack = scheduleTracks.find((track) => track.id === selectedTrackId) ?? null;
+  const activeScheduleTracks = scheduleTracks.filter((track) => !track.isArchived);
+  const archivedScheduleTracks = scheduleTracks.filter((track) => track.isArchived);
   const [trackDraft, setTrackDraft] = useState({ sourceField: "", displayName: "", colorBasis: "NEUTRAL" as ScheduleTrack["colorBasis"], colorSourceField: null as string | null, fixedColor: "#58a6de", groupingMode: "NONE" as ScheduleTrack["groupingMode"], visibilityFilter: null as ScheduleTrack["visibilityFilter"], overdueEnabled: true, moveInSoonEnabled: true, isEnabled: true });
   const configuredSources = new Set(scheduleTracks.map((track) => track.sourceField));
   const scheduleVisibleSections = useMemo(
@@ -282,6 +290,107 @@ export function BoardConfigurationPanel({
       isArchived: false,
     });
   };
+  const scheduleSourceLabel = (key: string | null | undefined) => {
+    if (!key) return isSpanish ? "No configurado" : "Not configured";
+    return scheduleSources.find((source) => source.key === key)?.label ?? `${key} ${isSpanish ? "(campo faltante)" : "(missing field)"}`;
+  };
+  const scheduleColorSourceLabel = (key: string | null | undefined) => {
+    if (!key) return isSpanish ? "No configurado" : "Not configured";
+    return scheduleColorSources.find((source) => source.key === key)?.label ?? `${key} ${isSpanish ? "(campo faltante)" : "(missing field)"}`;
+  };
+  const scheduleColorBasisLabel = (basis: ScheduleTrack["colorBasis"]) => {
+    switch (basis) {
+      case "STATUS":
+        return isSpanish ? "Colores de estado" : "Status colors";
+      case "SCOPE":
+        return isSpanish ? "Colores de alcance" : "Scope colors";
+      case "FIELD":
+        return isSpanish ? "Colores de campo" : "Field colors";
+      case "FIXED":
+        return isSpanish ? "Color fijo" : "Fixed color";
+      default:
+        return isSpanish ? "Neutro" : "Neutral";
+    }
+  };
+  const scheduleGroupingLabel = (grouping: ScheduleTrack["groupingMode"]) => {
+    switch (grouping) {
+      case "PROPERTY":
+        return isSpanish ? "Agrupar por propiedad" : "Group by property";
+      case "BOARD_GROUP":
+        return isSpanish ? "Agrupar por sección del tablero" : "Group by board section";
+      default:
+        return isSpanish ? "Carril único" : "Single lane";
+    }
+  };
+  const scheduleVisibilityLabel = (visibilityFilter: ScheduleTrack["visibilityFilter"] | null | undefined) => {
+    const boardGroups = visibilityFilter?.boardGroups ?? [];
+    if (boardGroups.length === 0) {
+      return isSpanish ? "Todas las secciones activas" : "All active sections";
+    }
+    return isSpanish ? `${boardGroups.length} secciones seleccionadas` : `${boardGroups.length} selected sections`;
+  };
+  const createTrackGuidance = [
+    isSpanish
+      ? "Cada campo de fecha solo puede impulsar un carril activo. Si necesita otra vista, edite el carril existente en lugar de duplicarlo."
+      : "Each date field can drive only one active track. If you need a different view, edit the existing track instead of duplicating it.",
+    isSpanish
+      ? "Los nuevos carriles empiezan simples: sin agrupación, visibles en todas las secciones y con alertas activas. Ajuste agrupación/visibilidad después de guardarlo."
+      : "New tracks start simple: no grouping, visible across all sections, and with risk cues enabled. Adjust grouping/visibility after saving.",
+    isSpanish
+      ? "Estado usa colores de ciclo de vida; alcance usa colores de alcance; campo usa otro select administrado; fijo bloquea un solo color."
+      : "Status uses lifecycle colors; Scope uses scope colors; Field uses another managed select field; Fixed locks one color.",
+  ];
+  const createTrackWarnings: string[] = [];
+  if (newTrack.sourceField && configuredSources.has(newTrack.sourceField)) {
+    createTrackWarnings.push(isSpanish ? "Ese campo de fecha ya está asignado a otro carril." : "That date field is already assigned to another track.");
+  }
+  if (newTrack.colorBasis === "FIELD" && !newTrack.colorSourceField) {
+    createTrackWarnings.push(isSpanish ? "Seleccione un campo de color antes de guardar este carril." : "Select a color field before saving this track.");
+  }
+  const editTrackWarnings: string[] = [];
+  const duplicateTrack = selectedTrack
+    ? scheduleTracks.find((track) => track.id !== selectedTrack.id && track.sourceField === trackDraft.sourceField)
+    : null;
+  if (duplicateTrack) {
+    editTrackWarnings.push(
+      isSpanish
+        ? `La fuente ${scheduleSourceLabel(trackDraft.sourceField)} ya la usa ${duplicateTrack.displayName}. Cambie la fuente o consolide ese carril.`
+        : `${scheduleSourceLabel(trackDraft.sourceField)} is already used by ${duplicateTrack.displayName}. Change the source or consolidate that track.`,
+    );
+  }
+  if (trackDraft.colorBasis === "FIELD" && !trackDraft.colorSourceField) {
+    editTrackWarnings.push(isSpanish ? "El modo de color por campo requiere seleccionar un campo administrado." : "Field color mode requires a managed color field selection.");
+  }
+  if (trackDraft.groupingMode === "BOARD_GROUP" && (trackDraft.visibilityFilter?.boardGroups?.length ?? 0) === 0) {
+    editTrackWarnings.push(
+      isSpanish
+        ? "Agrupar por sección sin filtro visible mostrará todas las secciones activas. Seleccione solo las secciones que realmente deban aparecer."
+        : "Board-section grouping without a visible filter will show every active section. Select only the sections that should actually appear.",
+    );
+  }
+  if (!trackDraft.isEnabled) {
+    editTrackWarnings.push(isSpanish ? "Este carril está deshabilitado y no aparecerá en calendarios activos hasta volver a activarlo." : "This track is disabled and will not appear on active calendars until you enable it again.");
+  }
+  if (selectedTrack?.isArchived) {
+    editTrackWarnings.push(isSpanish ? "Este carril está archivado. Restaurarlo vuelve a mostrarlo en la configuración operativa." : "This track is archived. Restore it to bring it back into the live operational setup.");
+  }
+  const editTrackGuidance = [
+    isSpanish
+      ? `${scheduleGroupingLabel(trackDraft.groupingMode)}. ${trackDraft.groupingMode === "BOARD_GROUP" ? scheduleVisibilityLabel(trackDraft.visibilityFilter) : trackDraft.groupingMode === "PROPERTY" ? "Una columna/línea por propiedad." : "Todos los eventos comparten una sola línea."}`
+      : `${scheduleGroupingLabel(trackDraft.groupingMode)}. ${trackDraft.groupingMode === "BOARD_GROUP" ? scheduleVisibilityLabel(trackDraft.visibilityFilter) : trackDraft.groupingMode === "PROPERTY" ? "One lane per property." : "All events share one lane."}`,
+    isSpanish
+      ? `Base de color: ${scheduleColorBasisLabel(trackDraft.colorBasis)}${trackDraft.colorBasis === "FIELD" ? ` (${scheduleColorSourceLabel(trackDraft.colorSourceField)})` : ""}.`
+      : `Color basis: ${scheduleColorBasisLabel(trackDraft.colorBasis)}${trackDraft.colorBasis === "FIELD" ? ` (${scheduleColorSourceLabel(trackDraft.colorSourceField)})` : ""}.`,
+    isSpanish
+      ? `${trackDraft.overdueEnabled ? "Los vencidos se resaltarán." : "Los vencidos no se resaltarán."} ${trackDraft.moveInSoonEnabled ? "Los próximos move-ins también se resaltarán." : "Move-in-soon cues are off."}`
+      : `${trackDraft.overdueEnabled ? "Overdue work will be highlighted." : "Overdue highlighting is off."} ${trackDraft.moveInSoonEnabled ? "Move-in-soon cues are also on." : "Move-in-soon cues are off."}`,
+  ];
+  const availableEditSources = selectedTrack && !scheduleSources.some((source) => source.key === selectedTrack.sourceField)
+    ? [{ key: selectedTrack.sourceField, label: scheduleSourceLabel(selectedTrack.sourceField) }, ...scheduleSources]
+    : scheduleSources;
+  const availableEditColorSources = trackDraft.colorSourceField && !scheduleColorSources.some((source) => source.key === trackDraft.colorSourceField)
+    ? [{ key: trackDraft.colorSourceField, label: scheduleColorSourceLabel(trackDraft.colorSourceField) }, ...scheduleColorSources]
+    : scheduleColorSources;
 
   return (
     <section className="operations-grid config-grid" data-testid="board-configuration-panel">
@@ -349,6 +458,16 @@ export function BoardConfigurationPanel({
           <input data-testid="option-create-color" type="color" value={newOption.color} onChange={(event) => setNewOption((current) => ({ ...current, color: event.target.value }))} aria-label={isSpanish ? "Color de fondo de la opción" : "Option background color"} />
           <button data-testid="option-create-submit" className="button button-primary" disabled={loading}>{isSpanish ? "Agregar" : "Add"}</button>
         </form>
+        <div className="option-summary" data-testid="board-option-summary">
+          <span className="status-chip active">{isSpanish ? `${activeOptionCount} activas` : `${activeOptionCount} active`}</span>
+          <span className="status-chip inactive">{isSpanish ? `${archivedOptionCount} archivadas` : `${archivedOptionCount} archived`}</span>
+          {newOption.value.trim() ? <LabelPill value={newOption.value.trim()} label={{ color: newOption.color, textColor: newOption.textColor } as LabelDefinition} /> : null}
+        </div>
+        <p className="helper-copy span-full">
+          {isSpanish
+            ? "Las opciones archivadas siguen visibles en filas historicas, pero ya no aparecen como seleccionables para operadores."
+            : "Archived options stay visible on historical rows, but they no longer appear as selectable choices for operators."}
+        </p>
         <div className="option-list">
           {fieldOptions.map((option, index) => (
             <div className="option-row" key={option.id}>
@@ -364,9 +483,20 @@ export function BoardConfigurationPanel({
           <div className="editor-block option-editor">
             <label>{isSpanish ? "Etiqueta" : "Label"}<input data-testid="option-edit-value" value={optionDraft.value} onChange={(event) => setOptionDraft((current) => ({ ...current, value: event.target.value }))} /></label>
             <label>{isSpanish ? "Color" : "Color"}<input data-testid="option-edit-color" type="color" value={optionDraft.color} onChange={(event) => setOptionDraft((current) => ({ ...current, color: event.target.value }))} /></label>
+            <div className="option-summary span-full">
+              <LabelPill value={optionDraft.value || selectedOption.value} label={{ color: optionDraft.color, textColor: selectedOption.textColor } as LabelDefinition} muted={selectedOption.isArchived} />
+              <span className={`option-state-badge ${selectedOption.isArchived ? "archived" : "active"}`}>
+                {selectedOption.isArchived ? (isSpanish ? "Solo historial" : "Historical only") : (isSpanish ? "Seleccionable" : "Selectable")}
+              </span>
+            </div>
+            <p className="helper-copy span-full">
+              {selectedOption.isArchived
+                ? (isSpanish ? "Restaurar vuelve a mostrar esta opcion en listas y celdas editables." : "Restore makes this option selectable again in lists and editable cells.")
+                : (isSpanish ? "Archivar conserva el valor en registros existentes y lo retira de nuevas selecciones." : "Archive keeps the value on existing records and removes it from new selections.")}
+            </p>
             <div className="admin-actions span-full">
               <button data-testid="option-save" className="button button-primary" onClick={() => void onUpdateOption(selectedOption.id, optionDraft)}>{isSpanish ? "Guardar" : "Save"}</button>
-              <button data-testid={selectedOption.isArchived ? "option-restore" : "option-archive"} className="button button-secondary" onClick={() => void onArchiveOption(selectedOption.id, Boolean(selectedOption.isArchived))}>
+              <button data-testid={selectedOption.isArchived ? "option-restore" : "option-archive"} className="button button-secondary" onClick={() => setPendingOptionArchive(selectedOption)}>
                 {selectedOption.isArchived ? (isSpanish ? "Restaurar" : "Restore") : (isSpanish ? "Archivar" : "Archive")}
               </button>
             </div>
@@ -405,12 +535,34 @@ export function BoardConfigurationPanel({
           <button data-testid="floor-plan-create-submit" className="button button-primary span-full" disabled={loading || !propertyId}>{isSpanish ? "Agregar plano" : "Add Floor Plan"}</button>
         </form>
         <div className="record-list">
-          {propertyPlans.length === 0 ? <StatusState title={isSpanish ? "No hay planos configurados" : "No configured floor plans"} description={isSpanish ? "El texto heredado sigue siendo válido hasta que se asigne una unidad." : "Legacy text remains valid until a unit is mapped."} tone="subtle" /> : propertyPlans.map((plan) => (
-            <button key={plan.id} type="button" data-testid={`floor-plan-row-${plan.code.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className={selectedPlanId === plan.id ? "record-row selected" : "record-row"} onClick={() => setSelectedPlanId(plan.id)}>
-              <span><strong>{plan.code}</strong>{plan.name !== plan.code ? ` ${plan.name}` : ""}{plan.squareFeet ? ` ${plan.squareFeet} ${isSpanish ? "pies²" : "sq ft"}` : isSpanish ? " Sin metraje" : " No square footage"}</span>
-              <span className={plan.isActive ? "status-chip active" : "status-chip inactive"}>{plan.isActive ? (isSpanish ? "Activo" : "Active") : (isSpanish ? "Archivado" : "Archived")}</span>
-            </button>
-          ))}
+          {propertyPlans.length === 0 ? <StatusState title={isSpanish ? "No hay planos configurados" : "No configured floor plans"} description={isSpanish ? "El texto heredado sigue siendo válido hasta que se asigne una unidad." : "Legacy text remains valid until a unit is mapped."} tone="subtle" /> : (
+            <>
+              <div className="section-header">
+                <strong>{isSpanish ? "Planos activos" : "Active floor plans"}</strong>
+                <span className="muted">{activePropertyPlans.length}</span>
+              </div>
+              {activePropertyPlans.map((plan) => (
+                <button key={plan.id} type="button" data-testid={`floor-plan-row-${plan.code.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className={selectedPlanId === plan.id ? "record-row selected" : "record-row"} onClick={() => setSelectedPlanId(plan.id)}>
+                  <span><strong>{plan.code}</strong>{plan.name !== plan.code ? ` ${plan.name}` : ""}{plan.squareFeet ? ` ${plan.squareFeet} ${isSpanish ? "pies²" : "sq ft"}` : isSpanish ? " Sin metraje" : " No square footage"}</span>
+                  <span className="status-chip active">{isSpanish ? "Activo" : "Active"}</span>
+                </button>
+              ))}
+              {archivedPropertyPlans.length > 0 ? (
+                <>
+                  <div className="section-header" style={{ marginTop: 12 }}>
+                    <strong>{isSpanish ? "Planos archivados" : "Archived floor plans"}</strong>
+                    <span className="muted">{archivedPropertyPlans.length}</span>
+                  </div>
+                  {archivedPropertyPlans.map((plan) => (
+                    <button key={plan.id} type="button" data-testid={`floor-plan-row-${plan.code.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className={selectedPlanId === plan.id ? "record-row selected" : "record-row"} onClick={() => setSelectedPlanId(plan.id)}>
+                      <span><strong>{plan.code}</strong>{plan.name !== plan.code ? ` ${plan.name}` : ""}{plan.squareFeet ? ` ${plan.squareFeet} ${isSpanish ? "pies²" : "sq ft"}` : isSpanish ? " Sin metraje" : " No square footage"}</span>
+                      <span className="status-chip inactive">{isSpanish ? "Archivado" : "Archived"}</span>
+                    </button>
+                  ))}
+                </>
+              ) : null}
+            </>
+          )}
         </div>
         {selectedPlan ? (
           <div className="editor-block">
@@ -427,6 +579,23 @@ export function BoardConfigurationPanel({
           </div>
         ) : null}
       </article>
+
+      <ConfirmDialog
+        open={Boolean(pendingOptionArchive)}
+        language={isSpanish ? "es" : "en"}
+        title={pendingOptionArchive?.isArchived ? (isSpanish ? "Restaurar opcion" : "Restore option") : (isSpanish ? "Archivar opcion" : "Archive option")}
+        description={pendingOptionArchive?.isArchived
+          ? `${isSpanish ? "Restaurar" : "Restore"} ${pendingOptionArchive?.value ?? (isSpanish ? "esta opcion" : "this option")}? ${isSpanish ? "Volvera a aparecer en listas, celdas editables y configuraciones operativas." : "It will appear again in lists, editable cells, and operational setup."}`
+          : `${isSpanish ? "Archivar" : "Archive"} ${pendingOptionArchive?.value ?? (isSpanish ? "esta opcion" : "this option")}? ${isSpanish ? "Los registros existentes conservaran el valor, pero los operadores ya no podran seleccionarlo en nuevas actualizaciones." : "Existing records keep the value, but operators will not be able to select it for new updates."}`}
+        confirmLabel={pendingOptionArchive?.isArchived ? (isSpanish ? "Restaurar opcion" : "Restore option") : (isSpanish ? "Archivar opcion" : "Archive option")}
+        tone={pendingOptionArchive?.isArchived ? "default" : "danger"}
+        onClose={() => setPendingOptionArchive(null)}
+        onConfirm={async () => {
+          if (!pendingOptionArchive) return;
+          await onArchiveOption(pendingOptionArchive.id, Boolean(pendingOptionArchive.isArchived));
+          setPendingOptionArchive(null);
+        }}
+      />
 
       <article className="operations-card" data-testid="column-label-management">
         <div className="admin-section-head">
@@ -499,23 +668,63 @@ export function BoardConfigurationPanel({
           {newTrack.colorBasis === "FIXED" ? <input data-testid="schedule-track-create-color" type="color" value={newTrack.fixedColor} onChange={(event) => setNewTrack((current) => ({ ...current, fixedColor: event.target.value }))} /> : null}
           <button data-testid="schedule-track-create-submit" className="button button-primary" disabled={!newTrack.sourceField || !newTrack.displayName.trim()}>{isSpanish ? "Agregar carril" : "Add Track"}</button>
         </form>
+        <div className="schedule-track-guidance" data-testid="schedule-track-create-guidance">
+          <div className="schedule-track-guidance-card">
+            <strong>{isSpanish ? "Nuevo carril" : "New track"}</strong>
+            <div className="option-summary">
+              <span className="status-chip active">{newTrack.sourceField ? scheduleSourceLabel(newTrack.sourceField) : (isSpanish ? "Elija fecha" : "Choose date")}</span>
+              <span className="status-chip inactive">{scheduleColorBasisLabel(newTrack.colorBasis)}</span>
+              {newTrack.colorBasis === "FIELD" && newTrack.colorSourceField ? <span className="status-chip inactive">{scheduleColorSourceLabel(newTrack.colorSourceField)}</span> : null}
+            </div>
+            <ul className="schedule-track-hint-list">
+              {createTrackGuidance.map((note) => <li key={note}>{note}</li>)}
+            </ul>
+          </div>
+          {createTrackWarnings.length ? (
+            <div className="schedule-track-warning" data-testid="schedule-track-create-warning">
+              <strong>{isSpanish ? "Revise antes de guardar" : "Review before saving"}</strong>
+              <ul className="schedule-track-hint-list">
+                {createTrackWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+              </ul>
+            </div>
+          ) : null}
+        </div>
         <div className="option-list">
-          {scheduleTracks.map((track, index) => (
+          <div className="section-header">
+            <strong>{isSpanish ? "Carriles activos" : "Active tracks"}</strong>
+            <span className="muted">{activeScheduleTracks.length}</span>
+          </div>
+          {activeScheduleTracks.map((track, index) => (
             <div className="schedule-track-row" key={track.id}>
               <button data-testid={`schedule-track-row-${track.sourceField.replace(/[^a-zA-Z0-9]+/g, "-")}`} className="option-pick" onClick={() => setSelectedTrackId(track.id)}>
-                <strong>{track.displayName}</strong><small>{track.sourceField} / {track.colorBasis}{track.isArchived ? " / Archived" : track.isEnabled ? "" : " / Disabled"}</small>
+                <strong>{track.displayName}</strong><small>{track.sourceField} / {track.colorBasis}{track.isEnabled ? "" : " / Disabled"}</small>
               </button>
               <button className="icon-button" aria-label={isSpanish ? "Mover carril hacia arriba" : "Move track up"} disabled={index === 0} onClick={() => void moveTrack(track.id, -1)}>↑</button>
-              <button className="icon-button" aria-label={isSpanish ? "Mover carril hacia abajo" : "Move track down"} disabled={index === scheduleTracks.length - 1} onClick={() => void moveTrack(track.id, 1)}>↓</button>
+              <button className="icon-button" aria-label={isSpanish ? "Mover carril hacia abajo" : "Move track down"} disabled={index === activeScheduleTracks.length - 1} onClick={() => void moveTrack(track.id, 1)}>↓</button>
             </div>
           ))}
+          {archivedScheduleTracks.length > 0 ? (
+            <>
+              <div className="section-header" style={{ marginTop: 12 }}>
+                <strong>{isSpanish ? "Carriles archivados" : "Archived tracks"}</strong>
+                <span className="muted">{archivedScheduleTracks.length}</span>
+              </div>
+              {archivedScheduleTracks.map((track) => (
+                <div className="schedule-track-row" key={track.id}>
+                  <button data-testid={`schedule-track-row-${track.sourceField.replace(/[^a-zA-Z0-9]+/g, "-")}`} className="option-pick" onClick={() => setSelectedTrackId(track.id)}>
+                    <strong>{track.displayName}</strong><small>{track.sourceField} / {track.colorBasis} / Archived</small>
+                  </button>
+                </div>
+              ))}
+            </>
+          ) : null}
         </div>
         {selectedTrack ? (
           <div className="editor-block">
-            <label>{isSpanish ? "Fuente de fecha" : "Date source"}<select data-testid="schedule-track-edit-source" value={trackDraft.sourceField} onChange={(event) => setTrackDraft((current) => ({ ...current, sourceField: event.target.value }))}>{scheduleSources.filter((source) => source.key === selectedTrack.sourceField || !configuredSources.has(source.key)).map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}</select></label>
+            <label>{isSpanish ? "Fuente de fecha" : "Date source"}<select data-testid="schedule-track-edit-source" value={trackDraft.sourceField} onChange={(event) => setTrackDraft((current) => ({ ...current, sourceField: event.target.value }))}>{availableEditSources.filter((source) => source.key === selectedTrack.sourceField || !configuredSources.has(source.key)).map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}</select></label>
             <label>{isSpanish ? "Nombre" : "Name"}<input data-testid="schedule-track-edit-name" value={trackDraft.displayName} onChange={(event) => setTrackDraft((current) => ({ ...current, displayName: event.target.value }))} /></label>
             <label>{isSpanish ? "Colores" : "Colors"}<select data-testid="schedule-track-edit-basis" value={trackDraft.colorBasis} onChange={(event) => setTrackDraft((current) => ({ ...current, colorBasis: event.target.value as ScheduleTrack["colorBasis"] }))}><option value="STATUS">{isSpanish ? "Color por estado" : "Status color"}</option><option value="SCOPE">{isSpanish ? "Color por alcance" : "Scope color"}</option><option value="FIELD">{isSpanish ? "Color del campo seleccionado" : "Selected field color"}</option><option value="FIXED">{isSpanish ? "Color fijo" : "Fixed color"}</option><option value="NEUTRAL">{isSpanish ? "Neutro" : "Neutral"}</option></select></label>
-            {trackDraft.colorBasis === "FIELD" ? <label>{isSpanish ? "Campo de color" : "Color field"}<select data-testid="schedule-track-edit-color-source" value={trackDraft.colorSourceField ?? ""} onChange={(event) => setTrackDraft((current) => ({ ...current, colorSourceField: event.target.value || null }))}>{scheduleColorSources.map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}</select></label> : null}
+            {trackDraft.colorBasis === "FIELD" ? <label>{isSpanish ? "Campo de color" : "Color field"}<select data-testid="schedule-track-edit-color-source" value={trackDraft.colorSourceField ?? ""} onChange={(event) => setTrackDraft((current) => ({ ...current, colorSourceField: event.target.value || null }))}>{availableEditColorSources.map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}</select></label> : null}
             {trackDraft.colorBasis === "FIXED" ? <label>{isSpanish ? "Color fijo" : "Fixed color"}<input data-testid="schedule-track-edit-color" type="color" value={trackDraft.fixedColor} onChange={(event) => setTrackDraft((current) => ({ ...current, fixedColor: event.target.value }))} /></label> : null}
             <label>{isSpanish ? "Agrupación" : "Grouping"}<select data-testid="schedule-track-edit-grouping" value={trackDraft.groupingMode} onChange={(event) => setTrackDraft((current) => ({ ...current, groupingMode: event.target.value as ScheduleTrack["groupingMode"] }))}><option value="NONE">{isSpanish ? "Sin agrupación" : "No grouping"}</option><option value="PROPERTY">{isSpanish ? "Propiedad" : "Property"}</option><option value="BOARD_GROUP">{isSpanish ? "Sección del tablero" : "Board section"}</option></select></label>
             <label className="span-full">{isSpanish ? "Secciones visibles" : "Visible sections"}
@@ -538,6 +747,28 @@ export function BoardConfigurationPanel({
             <label className="toggle-row"><input data-testid="schedule-track-edit-overdue" type="checkbox" checked={trackDraft.overdueEnabled} onChange={(event) => setTrackDraft((current) => ({ ...current, overdueEnabled: event.target.checked }))} /> {isSpanish ? "Marcar vencidos" : "Flag overdue"}</label>
             <label className="toggle-row"><input data-testid="schedule-track-edit-soon" type="checkbox" checked={trackDraft.moveInSoonEnabled} onChange={(event) => setTrackDraft((current) => ({ ...current, moveInSoonEnabled: event.target.checked }))} /> {isSpanish ? "Marcar próximo move-in" : "Flag move-in soon"}</label>
             <label className="toggle-row"><input data-testid="schedule-track-edit-enabled" type="checkbox" checked={trackDraft.isEnabled} onChange={(event) => setTrackDraft((current) => ({ ...current, isEnabled: event.target.checked }))} /> {isSpanish ? "Habilitado" : "Enabled"}</label>
+            <div className="schedule-track-guidance span-full" data-testid="schedule-track-edit-guidance">
+              <div className="schedule-track-guidance-card">
+                <strong>{isSpanish ? "Resumen operativo" : "Operational summary"}</strong>
+                <div className="option-summary">
+                  <span className="status-chip active">{scheduleSourceLabel(trackDraft.sourceField)}</span>
+                  <span className="status-chip inactive">{scheduleColorBasisLabel(trackDraft.colorBasis)}</span>
+                  <span className="status-chip inactive">{scheduleGroupingLabel(trackDraft.groupingMode)}</span>
+                  <span className="status-chip inactive">{scheduleVisibilityLabel(trackDraft.visibilityFilter)}</span>
+                </div>
+                <ul className="schedule-track-hint-list">
+                  {editTrackGuidance.map((note) => <li key={note}>{note}</li>)}
+                </ul>
+              </div>
+              {editTrackWarnings.length ? (
+                <div className="schedule-track-warning" data-testid="schedule-track-edit-warning">
+                  <strong>{isSpanish ? "Conflictos o alcance a revisar" : "Conflicts or scope to review"}</strong>
+                  <ul className="schedule-track-hint-list">
+                    {editTrackWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
             <button data-testid="schedule-track-save" className="button button-primary span-full" onClick={() => void onUpdateScheduleTrack(selectedTrack.id, { ...trackDraft, colorSourceField: trackDraft.colorBasis === "FIELD" ? trackDraft.colorSourceField : null, fixedColor: trackDraft.colorBasis === "FIXED" ? trackDraft.fixedColor : null })}>{isSpanish ? "Guardar carril" : "Save Track"}</button>
             <button data-testid={selectedTrack.isArchived ? "schedule-track-restore" : "schedule-track-archive"} className="button button-secondary span-full" onClick={() => void onArchiveScheduleTrack(selectedTrack.id, selectedTrack.isArchived)}>{selectedTrack.isArchived ? (isSpanish ? "Restaurar carril" : "Restore Track") : (isSpanish ? "Archivar carril" : "Archive Track")}</button>
           </div>

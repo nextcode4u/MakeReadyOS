@@ -222,7 +222,7 @@ export function ActivityPanel({ onSessionExpired, language = "en" }: Props) {
         ) : reportQuery.data ? (
           <>
             <div className="daily-report-summary">
-              {(["totalChanges", "markedReady", "availability", "archived", "created", "updated", "exception"] as const).map((key) => (
+              {(["totalChanges", "markedReady", "availability", "archived", "restored", "created", "updated", "exception"] as const).map((key) => (
                 <div key={key} className={`daily-report-stat daily-report-stat-${key}`}>
                   <strong>{reportQuery.data.summary[key]}</strong>
                   <span>{reportCategoryLabel(key, isSpanish)}</span>
@@ -290,7 +290,12 @@ export function ActivityPanel({ onSessionExpired, language = "en" }: Props) {
                     <td className="activity-time">{formatDateTime(entry.createdAt)}</td>
                     <td>{entry.actor?.fullName ?? (isSpanish ? "Sistema / desconocido" : "System / unknown")}</td>
                     <td><span className="activity-action">{titleCase(entry.action)}</span></td>
-                    <td>{titleCase(entry.entityType)}</td>
+                    <td>
+                      <div className="activity-entity-cell">
+                        <strong>{entry.entityLabel}</strong>
+                        <small>{titleCase(entry.entityType)}</small>
+                      </div>
+                    </td>
                     <td>{entry.description}</td>
                     <td>{entry.property ? `${entry.property.code}${entry.unitNumber ? ` / ${entry.unitNumber}` : ""}` : "-"}</td>
                   </tr>

@@ -54,6 +54,25 @@ Confirm:
 - Sticky table columns do not show translucent bleed while scrolling.
 - Disabled states still look intentionally disabled instead of broken.
 
+## Contrast And Focus Pass
+
+Check `Default`, `Dark`, `Light`, `Eye-Strain`, and `Dyslexia` on at least:
+
+- Login
+- Make Ready table
+- Dashboard
+- Pest Control
+- Lease Compliance
+- Admin
+
+Confirm:
+
+- Focus rings are fully visible and not clipped by adjacent chrome.
+- Error, warning, success, and muted helper text stay readable on their panel backgrounds.
+- Icon-only buttons remain legible in both dark and light themes.
+- Hover and active states remain distinguishable without relying only on color.
+- Pills, badges, and status chips still pass a quick squint test from arm's length on laptop and phone widths.
+
 ## Density Pass
 
 Verify both normal and compact mode on:
@@ -118,3 +137,12 @@ When a pass finds issues, capture:
 - Exact control or panel
 - Screenshot
 - Whether the issue is blocking, polish, or follow-up
+
+## Release Gate
+
+Before tagging or pushing a release candidate:
+
+1. Run the visual capture lane.
+2. Walk the manual theme pass and contrast/focus pass.
+3. Spot-check phone width on the main operational modules.
+4. Log any regressions into `reference/WORKING_TODO.md` or `docs/UX_DEBT.md` with the affected workspace and mode.

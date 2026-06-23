@@ -41,6 +41,8 @@ type Props = {
   onOpenNotifications: () => void;
   onOpenCommandPalette: () => void;
   onOpenOnboarding: () => void;
+  onApplyBasicMode: () => void;
+  onOpenShortcutHelp: () => void;
   onLogout: () => Promise<void>;
 };
 
@@ -77,6 +79,8 @@ export function FilterBar({
   onOpenNotifications,
   onOpenCommandPalette,
   onOpenOnboarding,
+  onApplyBasicMode,
+  onOpenShortcutHelp,
   onLogout,
 }: Props) {
   const [isMobileLayout, setIsMobileLayout] = useState(() => isTouchMobileViewport());
@@ -293,6 +297,14 @@ export function FilterBar({
                 {t(language, "nav.guide")}
               </button>
             ) : null}
+            {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
+              <button type="button" className="button button-secondary" data-testid="basic-board-mode" onClick={onApplyBasicMode}>
+                {language === "es" ? "Modo basico" : "Basic board"}
+              </button>
+            ) : null}
+            <button type="button" className="button button-secondary" data-testid="shortcut-help-open" onClick={onOpenShortcutHelp}>
+              {language === "es" ? "Atajos" : "Shortcuts"}
+            </button>
             <label className="compact-toggle" title="Reduce spacing to show more board rows">
               <input
                 data-testid="compact-mode-toggle"
@@ -415,6 +427,14 @@ export function FilterBar({
             {t(language, "nav.guide")}
           </button>
         ) : null}
+        {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
+          <button type="button" className="button button-secondary" data-testid="basic-board-mode" onClick={onApplyBasicMode}>
+            {language === "es" ? "Modo basico" : "Basic board"}
+          </button>
+        ) : null}
+        <button type="button" className="button button-secondary" data-testid="shortcut-help-open" onClick={onOpenShortcutHelp}>
+          {language === "es" ? "Atajos" : "Shortcuts"}
+        </button>
         <label className="compact-toggle" title="Reduce spacing to show more board rows">
           <input
             data-testid="compact-mode-toggle"

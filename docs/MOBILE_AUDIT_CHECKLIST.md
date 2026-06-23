@@ -28,6 +28,14 @@ This lane currently verifies:
 Recent findings already fixed in source:
 
 - Searchable unit pickers now close on touch/pointer outside press instead of only desktop `mousedown`, which was causing sticky dropdown behavior on phones.
+- Pest Control now uses explicit `Mark Treated`, `Set Follow Up`, and `Close Without Follow Up` actions in the issue detail flow, so treated-date capture is visible and operators do not have to infer follow-up behavior from a single overloaded close button.
+
+Current targeted hotspots to keep checking during every phone pass:
+
+- Lease Compliance: expanded issue cards should stay dense enough that operators can scan multiple active issues before opening full detail controls.
+- Offline quick capture: verify Lease Compliance and Pest Control can still find the intended unit while offline, show queued/pending state immediately, and keep queued photos clearly tied to the created record until confirmed sync.
+- Property Maps: validate upload/create/select flows without requiring manual refreshes, especially after the first map is added or when switching properties.
+- Workspace parity: when import/reconciliation workflows surface external-system differences, confirm the full change list is visible and the operator is clearly warned before overwriting MakeReadyOS state.
 
 It does not replace the real-phone audit. Use it to catch regressions before the manual pass.
 

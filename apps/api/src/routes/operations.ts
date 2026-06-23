@@ -390,9 +390,13 @@ function buildAvailabilityConflict(existingTurn: {
     unitNumber: existingTurn.unitNumber,
     updatedAt: existingTurn.updatedAt.toISOString(),
     reportDate: reportDate?.toISOString() ?? null,
+    conflictKind: localReadyRegression ? "LOCAL_AHEAD_READY" : "LOCAL_NEWER",
     reason: localReadyRegression
       ? "Local board is already ahead of the availability report. Review before allowing the report to move this turn backward."
       : "This availability report appears older than the latest local board edits for this turn.",
+    recommendedAction: localReadyRegression
+      ? "Confirm the source system has been updated to match MakeReadyOS before importing. Override only if the report is truly correct and the local board should move backward."
+      : "Review the newer local board edits before importing. Override only if the report should replace the latest local changes.",
     fieldChanges,
   };
 }

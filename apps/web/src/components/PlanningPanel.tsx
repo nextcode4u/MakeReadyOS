@@ -50,6 +50,8 @@ export function PlanningPanel({ data, properties, items, propertyId, language = 
     acc[key].push(block);
     return acc;
   }, {}) ?? {}, [data?.blocks]);
+  const activeBlocks = useMemo(() => data?.blocks.filter((block) => block.status === "PLANNED" || block.status === "IN_PROGRESS") ?? [], [data?.blocks]);
+  const closedBlocks = useMemo(() => data?.blocks.filter((block) => block.status === "DONE" || block.status === "CANCELED") ?? [], [data?.blocks]);
   if (loading) return <StatusState title={isSpanish ? "Cargando planificacion" : "Loading planning"} description={isSpanish ? "Reuniendo trabajo programado, brechas de cobertura y riesgo de move-in." : "Gathering scheduled work, coverage gaps, and move-in risk."} />;
   if (error || !data) return <StatusState title={isSpanish ? "Planificacion no disponible" : "Planning unavailable"} description={isSpanish ? "Actualiza para volver a cargar la planificacion de carga de trabajo." : "Refresh to reload workload planning."} tone="error" />;
   return (
@@ -122,19 +124,48 @@ export function PlanningPanel({ data, properties, items, propertyId, language = 
       </section>
       <section className="planning-blocks">
         <h3>{isSpanish ? "Trabajo planificado" : "Planned Work"}</h3>
-        {data.blocks.length === 0 ? <p className="empty-copy">{isSpanish ? "No hay bloques de trabajo planificados para esta ventana de fechas." : "No work blocks are planned for this date window."}</p> : data.blocks.map((block) => (
-          <article key={block.id} className="planning-card" data-testid={`planning-block-${block.id}`}>
-            <button type="button" onClick={() => onOpenItem(block.itemId)}><strong>{displayUnitNumber(block.property.code, block.item.unitNumber)}</strong></button>
-            <span>{block.category} / {block.assignedUser.fullName}</span>
-            <span>{block.plannedDate.slice(0, 10)} / {block.status}</span>
-            <select value={block.status} onChange={(event) => onUpdateBlock(block.id, { status: event.target.value as WorkAssignmentBlock["status"] })}>
-              <option value="PLANNED">{isSpanish ? "Planificado" : "Planned"}</option>
-              <option value="IN_PROGRESS">{isSpanish ? "En progreso" : "In progress"}</option>
-              <option value="DONE">{isSpanish ? "Hecho" : "Done"}</option>
-              <option value="CANCELED">{isSpanish ? "Cancelado" : "Canceled"}</option>
-            </select>
-          </article>
-        ))}
+        {data.blocks.length === 0 ? <p className="empty-copy">{isSpanish ? "No hay bloques de trabajo planificados para esta ventana de fechas." : "No work blocks are planned for this date window."}</p> : (
+          <>
+            <div className="section-header">
+              <strong>{isSpanish ? "Bloques activos" : "Active blocks"}</strong>
+              <span className="muted">{activeBlocks.length}</span>
+            </div>
+            {activeBlocks.length === 0 ? <p className="empty-copy">{isSpanish ? "No hay bloques activos en esta ventana." : "No active work blocks in this window."}</p> : activeBlocks.map((block) => (
+              <article key={block.id} className="planning-card" data-testid={`planning-block-${block.id}`}>
+                <button type="button" onClick={() => onOpenItem(block.itemId)}><strong>{displayUnitNumber(block.property.code, block.item.unitNumber)}</strong></button>
+                <span>{block.category} / {block.assignedUser.fullName}</span>
+                <span>{block.plannedDate.slice(0, 10)} / {block.status}</span>
+                <select value={block.status} onChange={(event) => onUpdateBlock(block.id, { status: event.target.value as WorkAssignmentBlock["status"] })}>
+                  <option value="PLANNED">{isSpanish ? "Planificado" : "Planned"}</option>
+                  <option value="IN_PROGRESS">{isSpanish ? "En progreso" : "In progress"}</option>
+                  <option value="DONE">{isSpanish ? "Hecho" : "Done"}</option>
+                  <option value="CANCELED">{isSpanish ? "Cancelado" : "Canceled"}</option>
+                </select>
+              </article>
+            ))}
+            {closedBlocks.length > 0 ? (
+              <div className="stack gap-sm" style={{ marginTop: 16 }}>
+                <div className="section-header">
+                  <strong>{isSpanish ? "Bloques cerrados" : "Closed blocks"}</strong>
+                  <span className="muted">{closedBlocks.length}</span>
+                </div>
+                {closedBlocks.map((block) => (
+                  <article key={block.id} className="planning-card" data-testid={`planning-block-${block.id}`}>
+                    <button type="button" onClick={() => onOpenItem(block.itemId)}><strong>{displayUnitNumber(block.property.code, block.item.unitNumber)}</strong></button>
+                    <span>{block.category} / {block.assignedUser.fullName}</span>
+                    <span>{block.plannedDate.slice(0, 10)} / {block.status}</span>
+                    <select value={block.status} onChange={(event) => onUpdateBlock(block.id, { status: event.target.value as WorkAssignmentBlock["status"] })}>
+                      <option value="PLANNED">{isSpanish ? "Planificado" : "Planned"}</option>
+                      <option value="IN_PROGRESS">{isSpanish ? "En progreso" : "In progress"}</option>
+                      <option value="DONE">{isSpanish ? "Hecho" : "Done"}</option>
+                      <option value="CANCELED">{isSpanish ? "Cancelado" : "Canceled"}</option>
+                    </select>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+          </>
+        )}
       </section>
       <section className="planning-blocks">
         <h3>{isSpanish ? "Bandeja de trabajo no programado" : "Unscheduled Work Bucket"}</h3>
