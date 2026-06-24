@@ -371,7 +371,7 @@ function buildAvailabilityConflict(existingTurn: {
     fieldChanges.push(change);
     blockingFieldChanges.push(change);
   }
-  if (row.daysVacant !== undefined && row.daysVacant !== null && Number(row.daysVacant) !== Number(existingTurn.daysVacant ?? 0)) {
+  if (row.daysVacant !== undefined && row.daysVacant !== null && Math.abs(Number(row.daysVacant) - Number(existingTurn.daysVacant ?? 0)) > 1) {
     fieldChanges.push(`Days vacant: ${Number(existingTurn.daysVacant ?? 0)} -> ${Number(row.daysVacant)}`);
   }
   if (fieldChanges.length === 0) return null;

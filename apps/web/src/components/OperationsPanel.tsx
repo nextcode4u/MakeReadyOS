@@ -309,6 +309,11 @@ function isReadyLikeOccupancy(value: string | null | undefined) {
   return raw.includes("READY") && !raw.includes("NOT READY");
 }
 
+function isMeaningfulDaysVacantDifference(currentValue: number | null | undefined, importedValue: number | null | undefined) {
+  if (importedValue === undefined || importedValue === null) return false;
+  return Math.abs(Number(importedValue) - Number(currentValue ?? 0)) > 1;
+}
+
 function isDoneLikeMakeReadyStatus(value: string | null | undefined) {
   const raw = String(value ?? "").trim().toUpperCase();
   return raw === "DONE" || raw === "YES" || raw === "GOOD";
@@ -1150,7 +1155,7 @@ export function OperationsPanel({
         if (hasImportedValue(row.vacatedDate) && normalizePreviewDate(row.vacatedDate) !== normalizePreviewDate(turn.vacatedDate)) changedFields.push(`Vacated: ${normalizePreviewDate(turn.vacatedDate) || "blank"} -> ${normalizePreviewDate(row.vacatedDate)}`);
         if (hasImportedValue(row.makeReadyDate) && normalizePreviewDate(row.makeReadyDate) !== normalizePreviewDate(turn.makeReadyDate)) changedFields.push(`Make ready: ${normalizePreviewDate(turn.makeReadyDate) || "blank"} -> ${normalizePreviewDate(row.makeReadyDate)}`);
         if (hasImportedValue(row.moveInDate) && normalizePreviewDate(row.moveInDate) !== normalizePreviewDate(turn.moveInDate)) changedFields.push(`Move-in: ${normalizePreviewDate(turn.moveInDate) || "blank"} -> ${normalizePreviewDate(row.moveInDate)}`);
-        if (row.daysVacant !== undefined && row.daysVacant !== null && Number(row.daysVacant) !== Number(turn.daysVacant ?? 0)) changedFields.push(`Days vacant: ${turn.daysVacant ?? 0} -> ${row.daysVacant}`);
+        if (isMeaningfulDaysVacantDifference(turn.daysVacant, row.daysVacant)) changedFields.push(`Days vacant: ${turn.daysVacant ?? 0} -> ${row.daysVacant}`);
         return changedFields.length > 0 ? [{ unit: row.number, fields: changedFields }] : [];
       });
       const parityAlerts = parsed.flatMap((row) => {
