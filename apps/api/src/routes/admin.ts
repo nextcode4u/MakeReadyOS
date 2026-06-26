@@ -36,7 +36,7 @@ export const adminCreateUserSchema = z.object({
 
 export const adminUpdateUserSchema = z.object({
   fullName: z.string().trim().min(2).max(120).optional(),
-  username: usernameSchema.optional(),
+  username: z.string().trim().min(3).max(120).optional(),
   email: optionalEmailSchema,
   role: editableRoles.optional(),
   language: languageSchema.optional(),
@@ -543,7 +543,11 @@ export async function adminRoutes(app: FastifyInstance) {
       return { message: "User not found" };
     }
 
-    const nextUsername = payload.username?.toLowerCase();
+    const rawNextUsername = payload.username?.trim();
+    const nextUsername = rawNextUsername?.toLowerCase();
+    if (nextUsername && nextUsername !== existing.username) {
+      usernameSchema.parse(rawNextUsername);
+    }
     if (nextUsername && nextUsername !== existing.username) {
       const duplicate = await prisma.user.findUnique({ where: { username: nextUsername } });
       if (duplicate) {
