@@ -133,6 +133,7 @@ function IssueCard({
   issue,
   canEdit,
   canNotice,
+  units,
   users,
   language,
   onSave,
@@ -148,6 +149,7 @@ function IssueCard({
   issue: LeaseComplianceIssue;
   canEdit: boolean;
   canNotice: boolean;
+  units: Unit[];
   users: Array<{ id: string; fullName: string; role: UserRole }>;
   language: UserLanguage;
   onSave: (id: string, input: Partial<Parameters<typeof createLeaseComplianceIssue>[0]>) => void;
@@ -170,6 +172,10 @@ function IssueCard({
     label: `${user.fullName} / ${user.role}`,
     keywords: [user.fullName, user.role],
   })), [users]);
+  const selectedUnit = useMemo(
+    () => units.find((entry) => entry.id === issue.unitId) ?? null,
+    [issue.unitId, units],
+  );
   const activeNoticeActions = noticeActions.filter((entry) => {
     if (issue.noticeStage === "Violation Needed") return false;
     if (entry.value === "RESIDENT_NOTIFIED") return issue.noticeStage === "None";
@@ -178,6 +184,9 @@ function IssueCard({
     if (entry.value === "NOTICE_3_SENT") return ["2nd Notice", "1st Notice", "Resident Notified", "None"].includes(issue.noticeStage);
     return true;
   });
+  const compactNoticeActions = canNotice && issue.status !== "Resolved" && issue.status !== "Archived"
+    ? activeNoticeActions
+    : [];
 
   return (
     <article className={`pool-card lease-issue-card ${issue.managerReviewRequired ? "pm-task-card" : ""}`} data-testid={`lease-issue-${issue.id}`}>
@@ -193,6 +202,23 @@ function IssueCard({
             {issue.assignedUserName ? <span>{issue.assignedUserName}</span> : null}
           </span>
           {issue.description ? <p className="lease-issue-description">{issue.description}</p> : null}
+          {compactNoticeActions.length ? (
+            <div className="lease-issue-actions lease-issue-actions-inline">
+              {compactNoticeActions.map((entry) => (
+                <button
+                  key={entry.value}
+                  className="button button-secondary button-xs"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onNotice(issue.id, entry.value);
+                  }}
+                >
+                  {noticeActionLabel(entry.value, language)}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
         <div className="compact-issue-summary-side">
           {issue.photos[0] ? (
@@ -287,6 +313,35 @@ function IssueCard({
             <div className="issue-detail-side">
               {canEdit ? (
                 <div className="lease-issue-edit-grid">
+                  <label>{t(language, "lease.unit")}
+                    <UnitSearchSelect
+                      units={units}
+                      value={issue.unitId ?? ""}
+                      onChange={(unitId) => {
+                        const nextUnit = units.find((entry) => entry.id === unitId) ?? null;
+                        onSave(issue.id, {
+                          unitId: unitId || null,
+                          building: unitId ? (nextUnit?.building ?? issue.building) : issue.building,
+                        });
+                      }}
+                      placeholder={t(language, "lease.searchUnit")}
+                      emptyLabel={t(language, "lease.areaExteriorOnly")}
+                    />
+                  </label>
+                  <label>{t(language, "lease.building")}
+                    <input
+                      value={issue.building ?? selectedUnit?.building ?? ""}
+                      onChange={(event) => onSave(issue.id, { building: event.target.value || null })}
+                      placeholder={t(language, "lease.buildingPlaceholder")}
+                    />
+                  </label>
+                  <label>{t(language, "lease.area")}
+                    <input
+                      value={issue.area ?? ""}
+                      onChange={(event) => onSave(issue.id, { area: event.target.value || null })}
+                      placeholder={t(language, "lease.areaPlaceholder")}
+                    />
+                  </label>
                   <label>{t(language, "admin.status")}
                     <select value={issue.status} onChange={(event) => onSave(issue.id, { status: event.target.value as LeaseComplianceStatus })}>
                       {statuses.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
@@ -406,6 +461,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
     issueTypeName: string;
     building: string;
     area: string;
+    queuedPhotoCount: number;
   } | null>(null);
   const [queuedLeaseJobs, setQueuedLeaseJobs] = useState<OfflineSyncJobSummary[]>([]);
   const [queueSyncing, setQueueSyncing] = useState(false);
@@ -585,7 +641,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
     return issues
       .filter((issue) => {
         if (issue.isArchived) return false;
-        if (quickAddUnitId && issue.unitId === quickAddUnitId) return true;
+        if (quickAddUnitId) return issue.unitId === quickAddUnitId;
         return exactLocationMatch(issue);
       })
       .sort((left, right) => {
@@ -682,6 +738,13 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
     }));
   }
 
+  async function queueLeaseEvidence(issueId: string, files: File[]) {
+    if (!files.length) return;
+    await enqueueLeaseUpload(issueId, propertyId || undefined, files.map((file) => ({ file })));
+    await refreshQueuedLeaseJobs();
+    void syncQueuedLeaseJobs();
+  }
+
   async function markIssueStillApplies(issue: LeaseComplianceIssue) {
     const persistSummary = [
       quickAddDraft.description.trim(),
@@ -691,15 +754,15 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
     if (quickAddDraft.description.trim()) {
       await addNoteMutation.mutateAsync({ id: issue.id, body: quickAddDraft.description.trim() });
     }
-    for (const file of quickAddPhotos) {
-      await uploadMutation.mutateAsync({ issueId: issue.id, file });
-    }
+    const queuedPhotoCount = quickAddPhotos.length;
+    await queueLeaseEvidence(issue.id, quickAddPhotos);
     setLastCreatedIssue({
       id: issue.id,
       label: issue.unit?.number ?? issue.area ?? issue.building ?? "Area",
       issueTypeName: issue.issueTypeName,
       building: issue.building ?? "",
       area: issue.area ?? "",
+      queuedPhotoCount,
     });
     setQuickAddPhotos([]);
     setQuickAddDraft((current) => ({
@@ -777,20 +840,17 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
         isEmergency: created.issue.priority === "Critical",
       }).then(() => queryClient.invalidateQueries({ queryKey: ["property-map-pins"] })).catch(() => undefined);
     }
-    if (quickAddPhotos.length) {
-      for (const file of quickAddPhotos) {
-        // Preserve the fast field workflow: create the issue first, then attach selected evidence as initial photos.
-        await uploadMutation.mutateAsync({ issueId: created.issue.id, file });
-      }
-    }
+    const queuedPhotoCount = quickAddPhotos.length;
+    await queueLeaseEvidence(created.issue.id, quickAddPhotos);
     setLastCreatedIssue({
       id: created.issue.id,
       label: created.issue.unit?.number ?? created.issue.area ?? created.issue.building ?? "Area",
       issueTypeName: created.issue.issueTypeName,
       building: created.issue.building ?? "",
       area: created.issue.area ?? "",
+      queuedPhotoCount,
     });
-    setQuickAddUnitId("");
+    if (mode !== "keep-walking") setQuickAddUnitId("");
     setQuickAddPhotos([]);
     if (mode === "keep-walking") {
       setQuickAddDraft((current) => ({
@@ -977,7 +1037,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
                 </div>
                 <div className="lease-repeat-card-body">
                   <span className="eyebrow">{t(language, "lease.existingIssueFound")}</span>
-                  <h3>{selectedQuickAddUnit?.number ?? latestMatchingQuickIssue.area ?? latestMatchingQuickIssue.building ?? t(language, "lease.unitFallback")} / {latestMatchingQuickIssue.issueTypeName}</h3>
+                  <h3>{latestMatchingQuickIssue.unit?.number ?? latestMatchingQuickIssue.area ?? latestMatchingQuickIssue.building ?? t(language, "lease.unitFallback")} / {latestMatchingQuickIssue.issueTypeName}</h3>
                   <p>
                     {t(language, "lease.lastReported")} {formatDate(latestMatchingQuickIssue.createdAt)}
                     {latestMatchingQuickIssue.description ? ` / ${latestMatchingQuickIssue.description}` : ""}
@@ -992,7 +1052,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
                     <button
                       className="button button-primary"
                       type="button"
-                      disabled={persistMutation.isPending || addNoteMutation.isPending || uploadMutation.isPending}
+                      disabled={persistMutation.isPending || addNoteMutation.isPending}
                       onClick={() => void markIssueStillApplies(latestMatchingQuickIssue)}
                     >
                       {t(language, "lease.stillApplies")}
@@ -1025,7 +1085,13 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
                 {lastCreatedIssue ? (
                   <div className="lease-grounds-feedback">
                     <strong>{t(language, "lease.savedIssue").replace("{label}", lastCreatedIssue.label).replace("{issueType}", lastCreatedIssue.issueTypeName)}</strong>
-                    <span>{t(language, "lease.readyNextExterior")}</span>
+                    <span>
+                      {lastCreatedIssue.queuedPhotoCount > 0
+                        ? (language === "es"
+                            ? `${t(language, "lease.readyNextExterior")} ${lastCreatedIssue.queuedPhotoCount} foto(s) siguen sincronizándose en segundo plano.`
+                            : `${t(language, "lease.readyNextExterior")} ${lastCreatedIssue.queuedPhotoCount} photo(s) are still syncing in the background.`)
+                        : t(language, "lease.readyNextExterior")}
+                    </span>
                     {(lastCreatedIssue.building || lastCreatedIssue.area) ? (
                       <button
                         className="button button-secondary"
@@ -1096,9 +1162,14 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
                   onChange={(value) => {
                     setQuickAddUnitId(value);
                     if (!value) return;
+                    const selectedUnit = propertyUnits.find((unit) => unit.id === value) ?? null;
                     const nextIssue = issues
                       .filter((issue) => issue.unitId === value && !issue.isArchived)
                       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
+                    setQuickAddDraft((current) => ({
+                      ...current,
+                      building: selectedUnit?.building ?? current.building,
+                    }));
                     if (nextIssue) {
                       applyIssueTemplate(nextIssue);
                       setShowAdvancedQuickCapture(false);
@@ -1173,12 +1244,12 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
               </>
             ) : null}
             <div className="pool-entry-actions">
-              <button data-testid="lease-quick-capture-submit" className="button button-primary" type="submit" disabled={createIssueMutation.isPending || uploadMutation.isPending || !canSubmitQuickIssue}>{t(language, "lease.createIssue")}</button>
+              <button data-testid="lease-quick-capture-submit" className="button button-primary" type="submit" disabled={createIssueMutation.isPending || !canSubmitQuickIssue}>{t(language, "lease.createIssue")}</button>
               {tab === "grounds" ? (
                 <button
                   className="button button-secondary"
                   type="button"
-                  disabled={createIssueMutation.isPending || uploadMutation.isPending || !canSubmitQuickIssue}
+                  disabled={createIssueMutation.isPending || !canSubmitQuickIssue}
                   onClick={() => void createQuickIssue("keep-walking")}
                 >
                   {t(language, "lease.createKeepWalking")}
@@ -1257,6 +1328,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
                     issue={issue}
                     canEdit={permissions.edit}
                     canNotice={permissions.notice}
+                    units={propertyUnits}
                     users={assignableUsers}
                     language={language}
                     onSave={(id, input) => updateIssueMutation.mutate({ id, input })}

@@ -12140,6 +12140,10 @@ textarea {
   justify-content: flex-start;
 }
 
+.lease-issue-actions-inline {
+  margin-top: 0.45rem;
+}
+
 .lease-issue-actions-dense {
   align-items: center;
   border-top: 1px solid var(--line);
