@@ -61,6 +61,8 @@ Use the two import boxes for different jobs:
 
 Occupied mode depends on the permanent unit directory. Availability reports commonly omit fully occupied units, so importing only an availability report will not populate the occupied directory list. Import the full unit directory first when occupancy visibility and occupancy percentage matter.
 
+When the unit directory marks a unit as `OCCUPIED` but an active make-ready turn still exists for that same unit, the Setup workspace now surfaces that mismatch directly in `Archive / Occupied Units -> Occupied`. The reconciliation panel lists every occupied-directory unit that still has an active board turn and provides per-unit plus bulk archive actions so teams can clear units that have already moved in without manually hunting across the board.
+
 Sparse files are supported. A row may include only unit number, floor plan, and square footage. When updating an existing unit, MakeReadyOS only changes fields that are present in the import row; missing columns do not wipe existing building, area, status, budgeted, or occupancy data. Browser parsing now also ignores obvious blank-unit summary/header noise such as occupancy summaries or floor-plan summary rows and shows those skips in the preview instead of failing the import.
 
 The browser-side parser now also tolerates more real export shapes before the data reaches the API. Combined `building/unit` columns such as `12-3405` or `12 / 3405` are split automatically when no separate unit column exists, broader common header aliases like `reportdt`, `asofdt`, `printdate`, `moveoutdt`, and `applieddt` are recognized, semicolon-separated spreadsheet exports are detected automatically, and imported dates are normalized into `YYYY-MM-DD` form when possible.

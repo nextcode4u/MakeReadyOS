@@ -603,6 +603,8 @@ export function OperationsPanel({
   const [turnHistoryDateStart, setTurnHistoryDateStart] = useState("");
   const [turnHistoryDateEnd, setTurnHistoryDateEnd] = useState("");
   const [historyInspectorUnitId, setHistoryInspectorUnitId] = useState("");
+  const [occupiedReconciliationBusy, setOccupiedReconciliationBusy] = useState(false);
+  const [occupiedReconciliationMessage, setOccupiedReconciliationMessage] = useState("");
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget>(null);
   const [propertyDraft, setPropertyDraft] = useState({ name: "", code: "", occupancyGoalPercent: "" });
   const [newProperty, setNewProperty] = useState({ name: "", code: "", occupancyGoalPercent: "" });
@@ -794,6 +796,10 @@ export function OperationsPanel({
     return units
       .filter((unit) => (!selectedPropertyId || unit.propertyId === selectedPropertyId) && unit.occupancyStatus === "OCCUPIED")
       .filter((unit) => {
+        if (!turnHistoryUnitFilter) return true;
+        return unit.id === turnHistoryUnitFilter || unit.number === turnHistoryUnitFilter;
+      })
+      .filter((unit) => {
         if (!query) return true;
         return [
           unit.number,
@@ -808,7 +814,26 @@ export function OperationsPanel({
           .some((value) => String(value).toLowerCase().includes(query));
       })
       .sort((left, right) => left.property.code.localeCompare(right.property.code) || left.number.localeCompare(right.number, undefined, { numeric: true }));
-  }, [selectedPropertyId, turnArchiveMode, turnHistorySearch, units]);
+  }, [selectedPropertyId, turnArchiveMode, turnHistorySearch, turnHistoryUnitFilter, units]);
+  const turnsByUnit = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      const key = `${item.propertyId}|${item.unitId ?? item.unitNumber}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [items]);
+  const occupiedTurnConflicts = useMemo(
+    () => occupiedDirectoryRows
+      .map((unit) => {
+        const activeTurn = existingActiveTurnsByUnitId.get(unit.id) ?? null;
+        if (!activeTurn) return null;
+        const turnCount = turnsByUnit.get(`${unit.propertyId}|${unit.id}`) ?? turnsByUnit.get(`${unit.propertyId}|${unit.number}`) ?? 0;
+        return { unit, activeTurn, turnCount };
+      })
+      .filter((entry): entry is { unit: Unit; activeTurn: MakeReadyItem; turnCount: number } => Boolean(entry)),
+    [existingActiveTurnsByUnitId, occupiedDirectoryRows, turnsByUnit],
+  );
   const visibleHistoryCount = turnArchiveMode === "occupied" ? occupiedDirectoryRows.length : visibleItems.length;
   const hasTurnHistoryFilters = Boolean(
     turnHistoryUnitFilter
@@ -818,14 +843,6 @@ export function OperationsPanel({
     || turnHistoryDateStart
     || turnHistoryDateEnd,
   );
-  const turnsByUnit = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const item of items) {
-      const key = `${item.propertyId}|${item.unitId ?? item.unitNumber}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    return counts;
-  }, [items]);
   const unitHistoryQuery = useQuery({
     queryKey: ["operations-unit-history", historyInspectorUnitId],
     queryFn: () => getUnitHistory(historyInspectorUnitId),
@@ -901,6 +918,39 @@ export function OperationsPanel({
 
   const chooseItemUnit = (unitId: string) => {
     setNewItem((current) => ({ ...current, unitId }));
+  };
+
+  const archiveOccupiedConflict = async (entry: { unit: Unit; activeTurn: MakeReadyItem }) => {
+    setOccupiedReconciliationBusy(true);
+    setOccupiedReconciliationMessage("");
+    try {
+      await onArchiveItem(entry.activeTurn.id, false);
+      setOccupiedReconciliationMessage(
+        isSpanish
+          ? `Se archivo la rotacion activa de ${entry.unit.number} porque el directorio ya la marca como ocupada.`
+          : `Archived the active turn for ${entry.unit.number} because the directory already marks it occupied.`,
+      );
+    } finally {
+      setOccupiedReconciliationBusy(false);
+    }
+  };
+
+  const archiveAllOccupiedConflicts = async () => {
+    if (!occupiedTurnConflicts.length) return;
+    setOccupiedReconciliationBusy(true);
+    setOccupiedReconciliationMessage("");
+    try {
+      for (const entry of occupiedTurnConflicts) {
+        await onArchiveItem(entry.activeTurn.id, false);
+      }
+      setOccupiedReconciliationMessage(
+        isSpanish
+          ? `Se archivaron ${occupiedTurnConflicts.length} rotacion(es) activas que el directorio ya marca como ocupadas.`
+          : `Archived ${occupiedTurnConflicts.length} active turn(s) already marked occupied in the directory.`,
+      );
+    } finally {
+      setOccupiedReconciliationBusy(false);
+    }
   };
 
   const createItem = async () => {
@@ -1989,6 +2039,57 @@ export function OperationsPanel({
             <span><strong>{occupiedCount}</strong> {isSpanish ? "unidades ocupadas en directorio" : "occupied directory units"}</span>
             <span><strong>{visibleHistoryCount}</strong> {isSpanish ? "mostradas" : "shown"}</span>
           </div>
+          {turnArchiveMode === "occupied" && occupiedTurnConflicts.length ? (
+            <div className="admin-message warning" data-testid="occupied-reconciliation-panel">
+              <strong>
+                {occupiedTurnConflicts.length}{" "}
+                {isSpanish
+                  ? `unidad${occupiedTurnConflicts.length === 1 ? "" : "es"} ocupada${occupiedTurnConflicts.length === 1 ? "" : "s"} todavia ${occupiedTurnConflicts.length === 1 ? "tiene" : "tienen"} una rotacion activa en el tablero.`
+                  : `occupied unit${occupiedTurnConflicts.length === 1 ? "" : "s"} still ${occupiedTurnConflicts.length === 1 ? "has" : "have"} an active board turn.`}
+              </strong>
+              <div className="unit-import-actions">
+                <span className="helper-copy">
+                  {isSpanish
+                    ? "Use esto para limpiar unidades ya ocupadas en RealPage/Yardi que siguen visibles en MakeReadyOS."
+                    : "Use this to clear units already occupied in RealPage/Yardi that still remain visible in MakeReadyOS."}
+                </span>
+                <button
+                  type="button"
+                  className="button button-danger"
+                  disabled={loading || occupiedReconciliationBusy}
+                  onClick={() => void archiveAllOccupiedConflicts()}
+                >
+                  {isSpanish ? "Archivar todas las rotaciones activas visibles" : "Archive All Visible Active Turns"}
+                </button>
+              </div>
+              <ul className="compact-list import-review-list">
+                {occupiedTurnConflicts.map(({ unit, activeTurn, turnCount }) => (
+                  <li key={unit.id}>
+                    <strong>{unit.number}</strong>:{" "}
+                    {isSpanish
+                      ? `el directorio indica Ocupada, pero el tablero aun muestra ${displayGroup(activeTurn.boardGroup)} / ${activeTurn.vacancyStatus || activeTurn.makeReadyStatus || "Activa"}.`
+                      : `directory says Occupied, but the board still shows ${displayGroup(activeTurn.boardGroup)} / ${activeTurn.vacancyStatus || activeTurn.makeReadyStatus || "Active"}.`}{" "}
+                    {isSpanish ? "Rotaciones previas" : "Prior turns"}: {turnCount}.{" "}
+                    {activeTurn.moveInDate ? `${isSpanish ? "Mudanza" : "Move-in"}: ${activeTurn.moveInDate.slice(0, 10)}. ` : ""}
+                    <button type="button" className="button button-secondary" onClick={() => onOpenItem(activeTurn.id)}>
+                      {isSpanish ? "Abrir rotacion" : "Open turn"}
+                    </button>{" "}
+                    <button
+                      type="button"
+                      className="button button-danger"
+                      disabled={loading || occupiedReconciliationBusy}
+                      onClick={() => void archiveOccupiedConflict({ unit, activeTurn })}
+                    >
+                      {isSpanish ? "Archivar rotacion" : "Archive turn"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {turnArchiveMode === "occupied" && occupiedReconciliationMessage ? (
+            <div className="admin-message success">{occupiedReconciliationMessage}</div>
+          ) : null}
           <div className="turn-list">
             {turnArchiveMode === "occupied" ? (
               occupiedDirectoryRows.length === 0 ? (
@@ -2045,6 +2146,16 @@ export function OperationsPanel({
                     >
                       {activeTurn ? (isSpanish ? "Abrir activa" : "Open active") : (isSpanish ? "Iniciar rotación" : "Start turn")}
                     </button>
+                    {activeTurn ? (
+                      <button
+                        type="button"
+                        className="button button-danger"
+                        disabled={loading || occupiedReconciliationBusy}
+                        onClick={() => void archiveOccupiedConflict({ unit, activeTurn })}
+                      >
+                        {isSpanish ? "Archivar rotación" : "Archive turn"}
+                      </button>
+                    ) : null}
                   </div>
                 );
               })
