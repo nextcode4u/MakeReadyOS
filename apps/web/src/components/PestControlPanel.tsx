@@ -65,6 +65,44 @@ function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString() : "-";
 }
 
+function queueStatusSummary(jobs: OfflineSyncJobSummary[], language: UserLanguage) {
+  const blocked = jobs.filter((job) => job.status === "blocked");
+  const retrying = jobs.filter((job) => job.status === "retrying");
+  const pending = jobs.filter((job) => job.status === "pending");
+  const earliestRetry = retrying
+    .map((job) => job.nextRetryAt)
+    .filter((value): value is string => Boolean(value))
+    .sort()[0] ?? null;
+  if (blocked.length) {
+    return {
+      title: language === "es"
+        ? `${blocked.length} captura(s)/archivo(s) requieren revisión`
+        : `${blocked.length} pest capture(s)/upload(s) need review`,
+      detail: language === "es"
+        ? "Al menos una solicitud falló por un error del servidor o validación y no seguirá reintentándose sola."
+        : "At least one request hit a server or validation error and will not keep retrying automatically.",
+    };
+  }
+  if (retrying.length) {
+    return {
+      title: language === "es"
+        ? `${retrying.length} captura(s)/archivo(s) volverán a intentarse`
+        : `${retrying.length} pest capture(s)/upload(s) will retry automatically`,
+      detail: language === "es"
+        ? `La próxima reintento automático será ${earliestRetry ? new Date(earliestRetry).toLocaleTimeString() : "pronto"}.`
+        : `Next automatic retry ${earliestRetry ? `at ${new Date(earliestRetry).toLocaleTimeString()}` : "is due soon"}.`,
+    };
+  }
+  return {
+    title: language === "es"
+      ? `${pending.length} captura(s)/archivo(s) de plagas pendientes de sincronización`
+      : `${pending.length} pest capture(s)/upload(s) pending sync`,
+    detail: language === "es"
+      ? "Las capturas y fotos guardadas sin conexión permanecen en este navegador hasta que la solicitud y sus archivos queden confirmados en el servidor."
+      : "Offline captures and photos stay in this browser until the request and its files are confirmed on the server.",
+  };
+}
+
 function normalizePestMatchValue(value?: string | null) {
   return (value ?? "").trim().toLowerCase();
 }
@@ -730,16 +768,15 @@ export function PestControlPanel({ properties, units, users, userRole, language,
           {queuedPestJobs.length ? (
             <div className="pool-card projects-sync-banner" style={{ marginBottom: 12 }}>
               <div className="projects-sync-copy">
-                <strong>
-                  {language === "es"
-                    ? `${queuedPestJobs.length} captura(s)/archivo(s) de plagas pendientes de sincronización`
-                    : `${queuedPestJobs.length} pest capture(s)/upload(s) pending sync`}
-                </strong>
-                <span className="muted">
-                  {language === "es"
-                    ? "Las capturas y fotos guardadas sin conexión permanecen en este navegador hasta que la solicitud y sus archivos queden confirmados en el servidor."
-                    : "Offline captures and photos stay in this browser until the request and its files are confirmed on the server."}
-                </span>
+                {(() => {
+                  const summary = queueStatusSummary(queuedPestJobs, language);
+                  return (
+                    <>
+                      <strong>{summary.title}</strong>
+                      <span className="muted">{summary.detail}</span>
+                    </>
+                  );
+                })()}
               </div>
               <div className="pool-entry-actions">
                 <button className="button button-secondary" type="button" onClick={() => void refreshQueuedPestJobs()} disabled={queueSyncing}>

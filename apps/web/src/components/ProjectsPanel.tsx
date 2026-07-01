@@ -91,6 +91,32 @@ function formatCurrency(value: number | null | undefined) {
   return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
 }
 
+function queuedCaptureStatusSummary(captures: QueuedProjectCaptureSummary[]) {
+  const blocked = captures.filter((capture) => capture.status === "blocked");
+  const retrying = captures.filter((capture) => capture.status === "retrying");
+  const pending = captures.filter((capture) => capture.status === "pending");
+  const earliestRetry = retrying
+    .map((capture) => capture.nextRetryAt)
+    .filter((value): value is string => Boolean(value))
+    .sort()[0] ?? null;
+  if (blocked.length) {
+    return {
+      title: `${blocked.length} offline project ${blocked.length === 1 ? "capture" : "captures"} need review`,
+      detail: "At least one queued project hit a server or validation error and will not keep retrying automatically.",
+    };
+  }
+  if (retrying.length) {
+    return {
+      title: `${retrying.length} offline project ${retrying.length === 1 ? "capture" : "captures"} will retry automatically`,
+      detail: `Next automatic retry ${earliestRetry ? `at ${new Date(earliestRetry).toLocaleTimeString()}` : "is due soon"}.`,
+    };
+  }
+  return {
+    title: `${pending.length} offline project ${pending.length === 1 ? "capture" : "captures"} pending sync`,
+    detail: `${captures[0]?.title ?? "Queued records"} are stored in this browser until the API is reachable.`,
+  };
+}
+
 function toneForAging(daysOpen: number | null | undefined) {
   if (daysOpen === null || daysOpen === undefined) return "";
   if (daysOpen > 180) return "risk-critical";
@@ -1331,13 +1357,15 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
       {queuedCaptures.length ? (
         <div className="pool-card projects-sync-banner">
           <div className="projects-sync-copy">
-            <strong>{queuedCaptures.length} offline project {queuedCaptures.length === 1 ? "capture" : "captures"} pending sync</strong>
-            <span className="muted">
-              {queuedCaptures[0].title}
-              {queuedCaptures.length > 1 ? ` and ${queuedCaptures.length - 1} more` : ""}
-              {" "}
-              are stored in this browser until the API is reachable.
-            </span>
+            {(() => {
+              const summary = queuedCaptureStatusSummary(queuedCaptures);
+              return (
+                <>
+                  <strong>{summary.title}</strong>
+                  <span className="muted">{summary.detail}</span>
+                </>
+              );
+            })()}
           </div>
           <div className="pool-entry-actions">
             <button className="button button-secondary" type="button" onClick={() => void refreshOfflineQueue()} disabled={queueSyncing}>Refresh Queue</button>

@@ -6,6 +6,8 @@ import {
   createRefrigerantFinalRecovery,
   createRefrigerantRecovery,
   createRefrigerantType,
+  deleteRefrigerantCylinder,
+  deleteRefrigerantType,
   dismissRefrigerantLeakFlag,
   getRefrigerantCylinders,
   getRefrigerantHistory,
@@ -183,6 +185,32 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
     },
   });
 
+  const deleteTypeMutation = useMutation({
+    mutationFn: deleteRefrigerantType,
+    onSuccess: async () => {
+      setMessage(language === "es" ? "Tipo eliminado." : "Type deleted.");
+      setError("");
+      await invalidate();
+    },
+    onError: (err) => {
+      setMessage("");
+      setError(err instanceof Error ? err.message : t(language, "refrigerant.actionFailed"));
+    },
+  });
+
+  const deleteCylinderMutation = useMutation({
+    mutationFn: deleteRefrigerantCylinder,
+    onSuccess: async () => {
+      setMessage(language === "es" ? "Cilindro eliminado." : "Cylinder deleted.");
+      setError("");
+      await invalidate();
+    },
+    onError: (err) => {
+      setMessage("");
+      setError(err instanceof Error ? err.message : t(language, "refrigerant.actionFailed"));
+    },
+  });
+
   const submitType = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -341,6 +369,7 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
             types={types}
             onCreate={submitType}
             onToggle={(id, isActive) => runMutation.mutate(() => updateRefrigerantType(id, { isActive }))}
+            onDelete={(id) => deleteTypeMutation.mutate(id)}
             loading={runMutation.isPending}
           />
           <HistoryList language={language} transactions={overviewQuery.data?.recent ?? []} />
@@ -356,6 +385,7 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
           tanks={virginTanks}
           onCreate={submitCylinder}
           onUpdate={(id, input) => runMutation.mutate(() => updateRefrigerantCylinder(id, input))}
+          onDelete={(id) => deleteCylinderMutation.mutate(id)}
           onFinalRecovery={submitFinalRecovery}
           recoveryTanks={[...cleanRecoveryTanks, ...dirtyRecoveryTanks].filter((tank) => tank.status === "ACTIVE")}
           loading={runMutation.isPending}
@@ -373,6 +403,7 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
           units={units}
           onCreate={submitCylinder}
           onUpdate={(id, input) => runMutation.mutate(() => updateRefrigerantCylinder(id, input))}
+          onDelete={(id) => deleteCylinderMutation.mutate(id)}
           onRecovery={(event) => submitRecovery(event, "CLEAN")}
           loading={runMutation.isPending}
           resetVersion={formResetVersion}
@@ -390,6 +421,7 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
           units={units}
           onCreate={submitCylinder}
           onUpdate={(id, input) => runMutation.mutate(() => updateRefrigerantCylinder(id, input))}
+          onDelete={(id) => deleteCylinderMutation.mutate(id)}
           onRecovery={(event) => submitRecovery(event, "DIRTY")}
           loading={runMutation.isPending}
           resetVersion={formResetVersion}
@@ -449,12 +481,13 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
   );
 }
 
-function RefrigerantTypesCard({ language, canAdmin, types, onCreate, onToggle, loading }: {
+function RefrigerantTypesCard({ language, canAdmin, types, onCreate, onToggle, onDelete, loading }: {
   language: UserLanguage;
   canAdmin: boolean;
   types: RefrigerantType[];
   onCreate: (event: FormEvent<HTMLFormElement>) => void;
   onToggle: (id: string, isActive: boolean) => void;
+  onDelete: (id: string) => void;
   loading: boolean;
 }) {
   const activeTypes = types.filter((type) => type.isActive);
@@ -498,9 +531,27 @@ function RefrigerantTypesCard({ language, canAdmin, types, onCreate, onToggle, l
                 <span>{type.notes || t(language, "refrigerant.noNotes")}</span>
                 <span className="status-pill muted-pill">{t(language, "refrigerant.inactive")}</span>
                 {canAdmin ? (
-                  <button type="button" className="button button-secondary" onClick={() => onToggle(type.id, true)} disabled={loading}>
-                    {t(language, "refrigerant.reactivate")}
-                  </button>
+                  <div className="button-cluster">
+                    <button type="button" className="button button-secondary" onClick={() => onToggle(type.id, true)} disabled={loading}>
+                      {t(language, "refrigerant.reactivate")}
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-danger"
+                      onClick={() => {
+                        const confirmed = window.confirm(
+                          language === "es"
+                            ? `Eliminar permanentemente ${type.name}? Solo los tipos inactivos sin cilindros ni historial pueden borrarse.`
+                            : `Permanently delete ${type.name}? Only inactive types without cylinders or history can be deleted.`
+                        );
+                        if (!confirmed) return;
+                        onDelete(type.id);
+                      }}
+                      disabled={loading}
+                    >
+                      {language === "es" ? "Eliminar permanente" : "Delete Permanently"}
+                    </button>
+                  </div>
                 ) : null}
               </div>
             ))}
@@ -748,7 +799,7 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
   );
 }
 
-function TankWorkspace({ title, language, canEdit, canAdmin, category, types, tanks, properties = [], units = [], recoveryTanks = [], onCreate, onUpdate, onRecovery, onFinalRecovery, loading, resetVersion = 0 }: {
+function TankWorkspace({ title, language, canEdit, canAdmin, category, types, tanks, properties = [], units = [], recoveryTanks = [], onCreate, onUpdate, onDelete, onRecovery, onFinalRecovery, loading, resetVersion = 0 }: {
   title: string;
   language: UserLanguage;
   canEdit: boolean;
@@ -761,6 +812,7 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
   recoveryTanks?: RefrigerantCylinder[];
   onCreate: (event: FormEvent<HTMLFormElement>, category: RefrigerantCylinder["category"]) => void;
   onUpdate: (id: string, input: Partial<{ status: RefrigerantCylinder["status"]; dispositionNotes: string | null; finalRecoveryCompleted: boolean }>) => void;
+  onDelete: (id: string) => void;
   onRecovery?: (event: FormEvent<HTMLFormElement>) => void;
   onFinalRecovery?: (event: FormEvent<HTMLFormElement>) => void;
   loading: boolean;
@@ -853,6 +905,21 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
                 {canEdit ? (
                   <div className="button-cluster">
                     <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "ACTIVE" })}>{t(language, "refrigerant.restore")}</button>
+                    <button
+                      type="button"
+                      className="button button-danger"
+                      onClick={() => {
+                        const confirmed = window.confirm(
+                          language === "es"
+                            ? `Eliminar permanentemente ${tank.identifier}? Solo los cilindros archivados sin historial pueden borrarse.`
+                            : `Permanently delete ${tank.identifier}? Only archived cylinders without transaction history can be deleted.`
+                        );
+                        if (!confirmed) return;
+                        onDelete(tank.id);
+                      }}
+                    >
+                      {language === "es" ? "Eliminar permanente" : "Delete Permanently"}
+                    </button>
                   </div>
                 ) : null}
               </div>

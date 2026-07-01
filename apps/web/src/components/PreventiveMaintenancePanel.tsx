@@ -1,8 +1,9 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   completePreventiveMaintenanceTask,
   createPreventiveMaintenanceTemplate,
+  deletePreventiveMaintenanceTemplate,
   getPreventiveMaintenanceCalendar,
   getPreventiveMaintenanceHistory,
   getPreventiveMaintenanceOverview,
@@ -26,7 +27,7 @@ import {
   type UserLanguage,
   type UserRole,
 } from "../lib/api";
-import { enqueuePmComplete, enqueuePmSkip, enqueuePmUpload } from "../lib/offlineSync";
+import { enqueuePmComplete, enqueuePmSkip, enqueuePmUpload, getOfflineSyncEventName, listOfflineSyncJobs, syncOfflineJobs, type OfflineSyncJobSummary } from "../lib/offlineSync";
 import { t } from "../lib/i18n";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
@@ -114,6 +115,35 @@ function calendarRange(mode: CalendarMode, anchor: string) {
   const from = new Date(base.getFullYear(), base.getMonth(), 1);
   const to = new Date(base.getFullYear(), base.getMonth() + 1, 0);
   return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+}
+
+function pmQueueStatusSummary(jobs: OfflineSyncJobSummary[], language: UserLanguage) {
+  const blocked = jobs.filter((job) => job.status === "blocked");
+  const retrying = jobs.filter((job) => job.status === "retrying");
+  const pending = jobs.filter((job) => job.status === "pending");
+  const earliestRetry = retrying.map((job) => job.nextRetryAt).filter((value): value is string => Boolean(value)).sort()[0] ?? null;
+  if (blocked.length) {
+    return {
+      title: language === "es" ? `${blocked.length} tarea(s)/archivo(s) PM requieren revisión` : `${blocked.length} PM task(s)/upload(s) need review`,
+      detail: language === "es"
+        ? "Al menos una tarea o archivo falló por un error del servidor o validación y no seguirá reintentándose solo."
+        : "At least one PM task or upload hit a server or validation error and will not keep retrying automatically.",
+    };
+  }
+  if (retrying.length) {
+    return {
+      title: language === "es" ? `${retrying.length} tarea(s)/archivo(s) PM volverán a intentarse` : `${retrying.length} PM task(s)/upload(s) will retry automatically`,
+      detail: language === "es"
+        ? `El próximo reintento automático será ${earliestRetry ? new Date(earliestRetry).toLocaleTimeString() : "pronto"}.`
+        : `Next automatic retry ${earliestRetry ? `at ${new Date(earliestRetry).toLocaleTimeString()}` : "is due soon"}.`,
+    };
+  }
+  return {
+    title: language === "es" ? `${pending.length} tarea(s)/archivo(s) PM pendientes de sincronización` : `${pending.length} PM task(s)/upload(s) pending sync`,
+    detail: language === "es"
+      ? "Las tareas y archivos PM guardados sin conexión permanecen en este navegador hasta que el servidor los confirme."
+      : "Offline PM actions and uploads stay in this browser until the server confirms them.",
+  };
 }
 
 function TaskCard({
@@ -231,6 +261,8 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   const [taskQuery, setTaskQuery] = useState("");
   const [taskFocus, setTaskFocus] = useState<TaskFocus>("all");
   const [historyQuery, setHistoryQuery] = useState("");
+  const [queuedPmJobs, setQueuedPmJobs] = useState<OfflineSyncJobSummary[]>([]);
+  const [queueSyncing, setQueueSyncing] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [templateDraft, setTemplateDraft] = useState(templateDraftState);
   const canEdit = userRole === "ADMIN" || userRole === "MANAGER" || userRole === "TECH" || userRole === "CLEANER";
@@ -302,6 +334,17 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
     onSuccess: () => {
       setEditingTemplateId(null);
       setTemplateDraft(templateDraftState());
+      void invalidate();
+    },
+  });
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: deletePreventiveMaintenanceTemplate,
+    onSuccess: () => {
+      if (editingTemplateId) {
+        setEditingTemplateId(null);
+        setTemplateDraft(templateDraftState());
+      }
       void invalidate();
     },
   });
@@ -404,6 +447,40 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
     }, {});
   }, [calendarTasks]);
 
+  const refreshQueuedPmJobs = async () => {
+    const jobs = await listOfflineSyncJobs();
+    setQueuedPmJobs(jobs.filter((job) => job.module === "pm" && (job.kind === "pmComplete" || job.kind === "pmSkip" || job.kind === "pmUpload")));
+  };
+
+  const syncQueuedPmJobs = async () => {
+    if (queueSyncing || (typeof navigator !== "undefined" && !navigator.onLine)) return;
+    setQueueSyncing(true);
+    try {
+      await syncOfflineJobs();
+      await invalidate();
+      await refreshQueuedPmJobs();
+    } finally {
+      setQueueSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshQueuedPmJobs();
+  }, []);
+
+  useEffect(() => {
+    const queueEventName = getOfflineSyncEventName();
+    const refresh = () => {
+      void refreshQueuedPmJobs();
+    };
+    window.addEventListener(queueEventName, refresh as EventListener);
+    window.addEventListener("online", refresh);
+    return () => {
+      window.removeEventListener(queueEventName, refresh as EventListener);
+      window.removeEventListener("online", refresh);
+    };
+  }, []);
+
   if (!propertyId) {
     return <StatusState title={t(language, "pm.noPropertiesTitle")} description={t(language, "pm.noPropertiesCopy")} />;
   }
@@ -448,6 +525,30 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
           </button>
         ))}
       </div>
+
+      {queuedPmJobs.length ? (
+        <div className="pool-card projects-sync-banner" style={{ marginBottom: 12 }}>
+          <div className="projects-sync-copy">
+            {(() => {
+              const summary = pmQueueStatusSummary(queuedPmJobs, language);
+              return (
+                <>
+                  <strong>{summary.title}</strong>
+                  <span className="muted">{summary.detail}</span>
+                </>
+              );
+            })()}
+          </div>
+          <div className="pool-entry-actions">
+            <button className="button button-secondary" type="button" onClick={() => void refreshQueuedPmJobs()} disabled={queueSyncing}>
+              {language === "es" ? "Actualizar cola" : "Refresh Queue"}
+            </button>
+            <button className="button button-primary" type="button" onClick={() => void syncQueuedPmJobs()} disabled={queueSyncing || (typeof navigator !== "undefined" && !navigator.onLine)}>
+              {queueSyncing ? (language === "es" ? "Sincronizando..." : "Syncing...") : (language === "es" ? "Sincronizar ahora" : "Sync Now")}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {tab === "dashboard" ? (
         <>
@@ -692,7 +793,27 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
                       <strong>{template.name}</strong>
                       <span>{template.category} / {template.frequency} / {assignmentLabel(template)} / {language === "es" ? "archivada" : "archived"}</span>
                     </div>
-                    {canAdmin ? <button type="button" className="button button-secondary" onClick={() => updatePreventiveMaintenanceTemplate(template.id, { isArchived: false }).then(() => invalidate())}>{language === "es" ? "Restaurar" : "Restore"}</button> : null}
+                    {canAdmin ? (
+                      <div className="pool-entry-actions">
+                        <button type="button" className="button button-secondary" onClick={() => updatePreventiveMaintenanceTemplate(template.id, { isArchived: false }).then(() => invalidate())}>{language === "es" ? "Restaurar" : "Restore"}</button>
+                        <button
+                          type="button"
+                          className="button button-danger"
+                          disabled={deleteTemplateMutation.isPending}
+                          onClick={() => {
+                            const confirmed = window.confirm(
+                              language === "es"
+                                ? `Eliminar permanentemente ${template.name}? Solo las plantillas archivadas sin historial de tareas pueden borrarse.`
+                                : `Permanently delete ${template.name}? Only archived templates without task history can be deleted.`
+                            );
+                            if (!confirmed) return;
+                            deleteTemplateMutation.mutate(template.id);
+                          }}
+                        >
+                          {language === "es" ? "Eliminar permanente" : "Delete Permanently"}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>

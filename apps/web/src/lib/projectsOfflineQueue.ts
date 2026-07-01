@@ -89,6 +89,8 @@ export type QueuedProjectCaptureSummary = {
   title: string;
   kind: QueueJob["kind"];
   fileCount: number;
+  status: "pending" | "retrying" | "blocked";
+  nextRetryAt: string | null;
 };
 
 function isProjectJob(job: OfflineSyncJob) {
@@ -145,6 +147,18 @@ function mapSharedJob(job: OfflineSyncJob): QueuedProjectCapture {
   };
 }
 
+function sharedJobStatus(job: OfflineSyncJob): QueuedProjectCaptureSummary["status"] {
+  if (job.lastErrorStatus && job.lastErrorStatus !== 0) return "blocked";
+  if (job.lastErrorStatus === 0 && job.lastAttemptAt) return "retrying";
+  return "pending";
+}
+
+function sharedJobNextRetryAt(job: OfflineSyncJob) {
+  return job.lastErrorStatus === 0 && job.lastAttemptAt
+    ? new Date(new Date(job.lastAttemptAt).getTime() + [0, 5000, 15000, 30000, 60000][Math.min(Math.max(job.attemptCount, 0), 4)]).toISOString()
+    : null;
+}
+
 export async function listQueuedProjectCaptures() {
   const jobs = await getOfflineSyncJobs();
   return jobs
@@ -158,6 +172,8 @@ export async function listQueuedProjectCaptures() {
           title: job.payload.input.title,
           kind: "createRecord" as const,
           fileCount: job.payload.files.length,
+          status: sharedJobStatus(job),
+          nextRetryAt: sharedJobNextRetryAt(job),
         };
       }
       if (!isProjectUploadJob(job)) {
@@ -170,6 +186,8 @@ export async function listQueuedProjectCaptures() {
         title: job.payload.recordTitle,
         kind: "uploadAttachments" as const,
         fileCount: job.payload.files.length,
+        status: sharedJobStatus(job),
+        nextRetryAt: sharedJobNextRetryAt(job),
       };
     });
 }

@@ -196,12 +196,16 @@ export function itemMatchesStructuredFilters(
   customFields: CustomField[],
   now = new Date(),
 ) {
+  const unitIsPhysicallyOccupied = item.unit?.occupancyStatus === "OCCUPIED"
+    || item.unit?.occupancyStatus === "NTV"
+    || item.unit?.occupancyStatus === "NTV NOT LEASED"
+    || item.unit?.occupancyStatus === "NTV_LEASED"
+    || item.unit?.occupancyStatus === "NTV LEASED";
   if (filters.archiveState === "active" && item.isArchived) return false;
   if (filters.archiveState === "archived" && !item.isArchived) return false;
   if (filters.archiveState === "occupied") {
-    const unitIsOccupied = item.unit?.occupancyStatus === "OCCUPIED";
     const itemLooksOccupied = item.vacancyStatus === "OCCUPIED";
-    if (!unitIsOccupied && !itemLooksOccupied) return false;
+    if (!unitIsPhysicallyOccupied && !itemLooksOccupied) return false;
   }
   if (filters.vacancyStatus === "__ntv__") {
     if (!item.vacancyStatus?.startsWith("NTV")) return false;

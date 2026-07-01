@@ -335,6 +335,29 @@ export async function refrigerantRoutes(app: FastifyInstance) {
     return { type };
   });
 
+  app.delete("/refrigerant/types/:id", async (request, reply) => {
+    if (!requireRefrigerantAccess(request, reply, "admin")) return;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.refrigerantType.findUnique({
+      where: { id },
+      include: {
+        cylinders: { select: { id: true }, take: 1 },
+        transactions: { select: { id: true }, take: 1 },
+        leakFlags: { select: { id: true }, take: 1 },
+      },
+    });
+    if (!existing) return reply.code(404).send({ message: "Refrigerant type not found" });
+    if (existing.isActive) {
+      return reply.code(409).send({ message: "Deactivate the refrigerant type before permanently deleting it" });
+    }
+    if (existing.cylinders.length || existing.transactions.length || existing.leakFlags.length) {
+      return reply.code(409).send({ message: "Cannot permanently delete a refrigerant type that is already referenced by cylinders, history, or leak flags" });
+    }
+    await prisma.refrigerantType.delete({ where: { id } });
+    await writeAuditLog({ request, actorUserId: request.currentUser!.id, entityType: "REFRIGERANT_TYPE", entityId: existing.id, action: "REFRIGERANT_TYPE_DELETED", message: `Deleted refrigerant type ${existing.name}` });
+    return { ok: true };
+  });
+
   app.get("/refrigerant/cylinders", async (request, reply) => {
     if (!requireRefrigerantAccess(request, reply, "view")) return;
     const query = z.object({
@@ -412,6 +435,28 @@ export async function refrigerantRoutes(app: FastifyInstance) {
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, entityType: "REFRIGERANT_CYLINDER", entityId: cylinder.id, action: "REFRIGERANT_CYLINDER_UPDATED", message: `Updated cylinder ${cylinder.identifier}` });
     return { cylinder: { ...cylinder, fillPercent: fillPercent(cylinder.tankSize, cylinder.currentWeight) } };
+  });
+
+  app.delete("/refrigerant/cylinders/:id", async (request, reply) => {
+    if (!requireRefrigerantAccess(request, reply, "edit")) return;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.refrigerantCylinder.findUnique({
+      where: { id },
+      include: {
+        sourceTransactions: { select: { id: true }, take: 1 },
+        recoveryTransactions: { select: { id: true }, take: 1 },
+      },
+    });
+    if (!existing) return reply.code(404).send({ message: "Cylinder not found" });
+    if (existing.status !== "ARCHIVED") {
+      return reply.code(409).send({ message: "Archive the cylinder before permanently deleting it" });
+    }
+    if (existing.sourceTransactions.length || existing.recoveryTransactions.length) {
+      return reply.code(409).send({ message: "Cannot permanently delete a cylinder that is already referenced by refrigerant history" });
+    }
+    await prisma.refrigerantCylinder.delete({ where: { id } });
+    await writeAuditLog({ request, actorUserId: request.currentUser!.id, entityType: "REFRIGERANT_CYLINDER", entityId: existing.id, action: "REFRIGERANT_CYLINDER_DELETED", message: `Deleted cylinder ${existing.identifier}` });
+    return { ok: true };
   });
 
   async function createTransaction(request: FastifyRequest, reply: FastifyReply, transactionType: (typeof transactionTypes)[number]) {

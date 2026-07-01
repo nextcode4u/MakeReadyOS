@@ -420,7 +420,7 @@ const generatedResponseSchemas = {
   DashboardSummaryResponse: ref("DashboardSummary"),
   AnalyticsSummaryResponse: {
     type: "object",
-    required: ["generatedAt", "metrics", "riskByLevel", "riskByCategory", "propertyComparison", "trends", "recurringProblemUnits", "recentCompletedTurns"],
+    required: ["generatedAt", "metrics", "riskByLevel", "riskByCategory", "propertyComparison", "trends", "slaMissByScope", "technicianThroughput", "vendorThroughput", "recurringProblemUnits", "recentCompletedTurns"],
     properties: {
       generatedAt: { type: "string", format: "date-time" },
       metrics: {
@@ -455,6 +455,9 @@ const generatedResponseSchemas = {
         },
       },
       trends: arrayOf(ref("AnalyticsTrendEntry")),
+      slaMissByScope: arrayOf(ref("AnalyticsSlaMissByScope")),
+      technicianThroughput: arrayOf(ref("AnalyticsTechnicianThroughput")),
+      vendorThroughput: arrayOf(ref("AnalyticsVendorThroughput")),
       recurringProblemUnits: arrayOf(ref("AnalyticsRecurringProblemUnit")),
       recentCompletedTurns: arrayOf(ref("AnalyticsRecentCompletedTurn")),
     },
@@ -2623,6 +2626,13 @@ export const openApiDocument = {
           unitNumber: { type: "string" },
           property: ref("Property"),
           turnCount: { type: "integer" },
+          activeTurnCount: { type: "integer" },
+          completedTurnCount: { type: "integer" },
+          currentItemId: { type: ["string", "null"] },
+          lastActivityAt: { type: "string", format: "date-time" },
+          latestCompletedAt: { type: ["string", "null"], format: "date-time" },
+          averageTurnDuration: { type: ["integer", "null"] },
+          averageChecklistCompletionPercent: { type: "integer" },
           score: { type: "integer" },
           signals: {
             type: "object",
@@ -2635,6 +2645,42 @@ export const openApiDocument = {
               highRiskTurns: { type: "integer" },
             },
           },
+        },
+      },
+      AnalyticsTechnicianThroughput: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          name: { type: "string" },
+          activeCount: { type: "integer" },
+          overdueCount: { type: "integer" },
+          highRiskCount: { type: "integer" },
+          completedTurns: { type: "integer" },
+          averageTurnDuration: { type: ["integer", "null"] },
+          averageChecklistCompletionPercent: { type: "integer" },
+        },
+      },
+      AnalyticsSlaMissByScope: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          scopeLevel: { type: "string" },
+          missCount: { type: "integer" },
+          averageLateDays: { type: "integer" },
+          worstLateDays: { type: "integer" },
+        },
+      },
+      AnalyticsVendorThroughput: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          vendorId: { type: "string" },
+          vendorName: { type: "string" },
+          trade: { type: "string" },
+          activeAssignments: { type: "integer" },
+          overdueAssignments: { type: "integer" },
+          completedAssignments: { type: "integer" },
+          averageCompletionDays: { type: ["integer", "null"] },
         },
       },
       AnalyticsRecentCompletedTurn: {

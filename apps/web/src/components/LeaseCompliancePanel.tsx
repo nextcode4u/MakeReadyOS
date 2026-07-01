@@ -76,6 +76,44 @@ function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString() : "-";
 }
 
+function queueStatusSummary(jobs: OfflineSyncJobSummary[], language: UserLanguage) {
+  const blocked = jobs.filter((job) => job.status === "blocked");
+  const retrying = jobs.filter((job) => job.status === "retrying");
+  const pending = jobs.filter((job) => job.status === "pending");
+  const earliestRetry = retrying
+    .map((job) => job.nextRetryAt)
+    .filter((value): value is string => Boolean(value))
+    .sort()[0] ?? null;
+  if (blocked.length) {
+    return {
+      title: language === "es"
+        ? `${blocked.length} captura(s)/archivo(s) requieren revisión`
+        : `${blocked.length} lease capture(s)/upload(s) need review`,
+      detail: language === "es"
+        ? "Al menos una captura falló por un error del servidor o validación y no seguirá reintentándose sola."
+        : "At least one capture hit a server or validation error and will not keep retrying automatically.",
+    };
+  }
+  if (retrying.length) {
+    return {
+      title: language === "es"
+        ? `${retrying.length} captura(s)/archivo(s) volverán a intentarse`
+        : `${retrying.length} lease capture(s)/upload(s) will retry automatically`,
+      detail: language === "es"
+        ? `La próxima reintento automático será ${earliestRetry ? new Date(earliestRetry).toLocaleTimeString() : "pronto"}.`
+        : `Next automatic retry ${earliestRetry ? `at ${new Date(earliestRetry).toLocaleTimeString()}` : "is due soon"}.`,
+    };
+  }
+  return {
+    title: language === "es"
+      ? `${pending.length} captura(s)/archivo(s) pendientes de sincronización`
+      : `${pending.length} lease capture(s)/upload(s) pending sync`,
+    detail: language === "es"
+      ? "Las capturas y fotos guardadas sin conexión permanecen en este navegador hasta que la incidencia y sus archivos queden confirmados en el servidor."
+      : "Offline captures and photos stay in this browser until the issue and its files are confirmed on the server.",
+  };
+}
+
 function daysOpen(issue: LeaseComplianceIssue) {
   return Math.max(0, Math.floor((Date.now() - new Date(issue.createdAt).getTime()) / 86400000));
 }
@@ -187,6 +225,7 @@ function IssueCard({
   const compactNoticeActions = canNotice && issue.status !== "Resolved" && issue.status !== "Archived"
     ? activeNoticeActions
     : [];
+  const canResolve = canEdit && issue.status !== "Resolved" && issue.status !== "Archived";
 
   return (
     <article className={`pool-card lease-issue-card ${issue.managerReviewRequired ? "pm-task-card" : ""}`} data-testid={`lease-issue-${issue.id}`}>
@@ -217,6 +256,21 @@ function IssueCard({
                   {noticeActionLabel(entry.value, language)}
                 </button>
               ))}
+            </div>
+          ) : null}
+          {canResolve ? (
+            <div className="lease-issue-actions lease-issue-actions-inline">
+              <button
+                className="button button-secondary button-xs"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onResolve(issue.id, resolutionNotes.trim() || (language === "es" ? "Resuelto desde la lista de incidencias." : "Resolved from issue list."));
+                  setResolutionNotes("");
+                }}
+              >
+                {t(language, "lease.markResolved")}
+              </button>
             </div>
           ) : null}
         </div>
@@ -776,6 +830,17 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
     if (uploadInputRef.current) uploadInputRef.current.value = "";
   }
 
+  async function resolveIssueFromQuickCapture(issue: LeaseComplianceIssue) {
+    const resolutionSummary = [
+      quickAddDraft.description.trim(),
+      quickAddDraft.locationNotes.trim(),
+    ].filter(Boolean).join(" / ") || (language === "es" ? "Resuelto desde captura rápida." : "Resolved from quick capture.");
+    await resolveMutation.mutateAsync({ id: issue.id, resolutionNotes: resolutionSummary });
+    setQuickAddPhotos([]);
+    if (captureInputRef.current) captureInputRef.current.value = "";
+    if (uploadInputRef.current) uploadInputRef.current.value = "";
+  }
+
   async function createQuickIssue(mode: "create" | "keep-walking" = "create") {
     const quickIssueInput = {
       propertyId,
@@ -931,16 +996,15 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
           {queuedLeaseJobs.length ? (
             <div className="pool-card projects-sync-banner" style={{ marginBottom: 12 }}>
               <div className="projects-sync-copy">
-                <strong>
-                  {language === "es"
-                    ? `${queuedLeaseJobs.length} captura(s)/archivo(s) de cumplimiento pendientes de sincronización`
-                    : `${queuedLeaseJobs.length} lease capture(s)/upload(s) pending sync`}
-                </strong>
-                <span className="muted">
-                  {language === "es"
-                    ? "Las capturas y fotos guardadas sin conexión permanecen en este navegador hasta que la incidencia y sus archivos queden confirmados en el servidor."
-                    : "Offline captures and photos stay in this browser until the issue and its files are confirmed on the server."}
-                </span>
+                {(() => {
+                  const summary = queueStatusSummary(queuedLeaseJobs, language);
+                  return (
+                    <>
+                      <strong>{summary.title}</strong>
+                      <span className="muted">{summary.detail}</span>
+                    </>
+                  );
+                })()}
               </div>
               <div className="pool-entry-actions">
                 <button className="button button-secondary" type="button" onClick={() => void refreshQueuedLeaseJobs()} disabled={queueSyncing}>
@@ -1021,56 +1085,70 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
                 })}
               </div>
             ) : null}
-            {latestMatchingQuickIssue ? (
-              <section className="lease-repeat-card" data-testid="lease-repeat-card">
-                <div className="lease-repeat-card-media">
-                  {latestMatchingQuickIssue.photos[0] ? (
-                    <a href={leaseComplianceIssuePhotoDownloadUrl(latestMatchingQuickIssue.photos[0].id)} target="_blank" rel="noreferrer">
-                      <img
-                        src={leaseComplianceIssuePhotoDownloadUrl(latestMatchingQuickIssue.photos[0].id)}
-                        alt={`${latestMatchingQuickIssue.issueTypeName} evidence`}
-                      />
-                    </a>
-                  ) : (
-                    <div className="lease-repeat-card-placeholder">{t(language, "lease.noPriorPhoto")}</div>
-                  )}
-                </div>
-                <div className="lease-repeat-card-body">
-                  <span className="eyebrow">{t(language, "lease.existingIssueFound")}</span>
-                  <h3>{latestMatchingQuickIssue.unit?.number ?? latestMatchingQuickIssue.area ?? latestMatchingQuickIssue.building ?? t(language, "lease.unitFallback")} / {latestMatchingQuickIssue.issueTypeName}</h3>
-                  <p>
-                    {t(language, "lease.lastReported")} {formatDate(latestMatchingQuickIssue.createdAt)}
-                    {latestMatchingQuickIssue.description ? ` / ${latestMatchingQuickIssue.description}` : ""}
-                  </p>
-                  <div className="pool-reading-stack">
-                    <span>{latestMatchingQuickIssue.status}</span>
-                    <span>{latestMatchingQuickIssue.noticeStage}</span>
-                    <span>{t(language, "lease.persistedCount").replace("{count}", String(latestMatchingQuickIssue.persistenceCount))}</span>
-                    {matchingQuickIssues.length > 1 ? <span>{t(language, "lease.relatedIssues").replace("{count}", String(matchingQuickIssues.length))}</span> : null}
-                  </div>
-                  <div className="pool-entry-actions lease-repeat-card-actions">
-                    <button
-                      className="button button-primary"
-                      type="button"
-                      disabled={persistMutation.isPending || addNoteMutation.isPending}
-                      onClick={() => void markIssueStillApplies(latestMatchingQuickIssue)}
-                    >
-                      {t(language, "lease.stillApplies")}
-                    </button>
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      onClick={() => {
-                        applyIssueTemplate(latestMatchingQuickIssue);
-                        setShowAdvancedQuickCapture(true);
-                        window.setTimeout(() => descriptionInputRef.current?.focus(), 0);
-                      }}
-                    >
-                      {t(language, "lease.reportNewIssue")}
-                    </button>
-                  </div>
-                </div>
-              </section>
+            {matchingQuickIssues.length ? (
+              <div className="lease-repeat-card-list">
+                {matchingQuickIssues.map((matchingIssue, index) => (
+                  <section className="lease-repeat-card" data-testid="lease-repeat-card" key={matchingIssue.id}>
+                    <div className="lease-repeat-card-media">
+                      {matchingIssue.photos[0] ? (
+                        <a href={leaseComplianceIssuePhotoDownloadUrl(matchingIssue.photos[0].id)} target="_blank" rel="noreferrer">
+                          <img
+                            src={leaseComplianceIssuePhotoDownloadUrl(matchingIssue.photos[0].id)}
+                            alt={`${matchingIssue.issueTypeName} evidence`}
+                          />
+                        </a>
+                      ) : (
+                        <div className="lease-repeat-card-placeholder">{t(language, "lease.noPriorPhoto")}</div>
+                      )}
+                    </div>
+                    <div className="lease-repeat-card-body">
+                      <span className="eyebrow">
+                        {index === 0 ? t(language, "lease.existingIssueFound") : (language === "es" ? "Otro problema abierto en esta unidad" : "Another open issue on this unit")}
+                      </span>
+                      <h3>{matchingIssue.unit?.number ?? matchingIssue.area ?? matchingIssue.building ?? t(language, "lease.unitFallback")} / {matchingIssue.issueTypeName}</h3>
+                      <p>
+                        {t(language, "lease.lastReported")} {formatDate(matchingIssue.createdAt)}
+                        {matchingIssue.description ? ` / ${matchingIssue.description}` : ""}
+                      </p>
+                      <div className="pool-reading-stack">
+                        <span>{matchingIssue.status}</span>
+                        <span>{matchingIssue.noticeStage}</span>
+                        <span>{t(language, "lease.persistedCount").replace("{count}", String(matchingIssue.persistenceCount))}</span>
+                        {matchingIssue.assignedUserName ? <span>{matchingIssue.assignedUserName}</span> : null}
+                      </div>
+                      <div className="pool-entry-actions lease-repeat-card-actions">
+                        <button
+                          className="button button-primary"
+                          type="button"
+                          disabled={persistMutation.isPending || addNoteMutation.isPending}
+                          onClick={() => void markIssueStillApplies(matchingIssue)}
+                        >
+                          {t(language, "lease.stillApplies")}
+                        </button>
+                        <button
+                          className="button button-secondary"
+                          type="button"
+                          disabled={resolveMutation.isPending}
+                          onClick={() => void resolveIssueFromQuickCapture(matchingIssue)}
+                        >
+                          {t(language, "lease.markResolved")}
+                        </button>
+                        <button
+                          className="button button-secondary"
+                          type="button"
+                          onClick={() => {
+                            applyIssueTemplate(matchingIssue);
+                            setShowAdvancedQuickCapture(true);
+                            window.setTimeout(() => descriptionInputRef.current?.focus(), 0);
+                          }}
+                        >
+                          {t(language, "lease.reportNewIssue")}
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+                ))}
+              </div>
             ) : null}
             {tab === "grounds" ? (
               <div className="lease-grounds-capture">

@@ -115,7 +115,7 @@ export const availabilityImportRowSchema = unitImportRowSchema.extend({
       return Number.isFinite(parsed) ? parsed : undefined;
     }
     return undefined;
-  }, z.number().int().min(0).max(10000).optional()),
+  }, z.number().int().min(-10000).max(10000).optional()),
   makeReadyDate: z.string().trim().max(30).optional().nullable(),
   moveInDate: z.string().trim().max(30).optional().nullable(),
   reportDate: z.string().trim().max(30).optional().nullable(),
@@ -285,6 +285,12 @@ function stripAvailabilityImportNotes(notes: string | null | undefined) {
   return cleaned || null;
 }
 
+function sanitizeImportedTextCell(value: string | null | undefined) {
+  const trimmed = `${value ?? ""}`.trim();
+  if (!trimmed || /^(n\/a|na|none|null|no data|\(blank\)|blank|-|—)$/i.test(trimmed)) return null;
+  return trimmed;
+}
+
 function normalizeDateString(value: Date | string | null | undefined) {
   if (!value) return "";
   const date = value instanceof Date ? value : parseOptionalDate(value);
@@ -299,6 +305,44 @@ function isDoneLikeStatus(value: string | null | undefined) {
 function isReadyAvailabilityStatus(value: string | null | undefined) {
   const normalized = String(value ?? "").trim().toUpperCase();
   return Boolean(normalized && normalized.includes("READY") && !normalized.includes("NOT READY"));
+}
+
+function normalizeImportedDaysVacant(value: number | null | undefined, occupancyStatus: string) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return undefined;
+  if (value < 0) {
+    const normalizedStatus = String(occupancyStatus).trim().toUpperCase();
+    if (normalizedStatus.includes("NTV") || normalizedStatus === "OCCUPIED") return undefined;
+    return 0;
+  }
+  return Math.round(value);
+}
+
+function sanitizeUnitImportRow<T extends {
+  floorPlan?: string | null;
+  building?: string | null;
+  area?: string | null;
+  floor?: string | null;
+}>(row: T): T {
+  return {
+    ...row,
+    floorPlan: sanitizeImportedTextCell(row.floorPlan) ?? undefined,
+    building: sanitizeImportedTextCell(row.building) ?? undefined,
+    area: sanitizeImportedTextCell(row.area) ?? undefined,
+    floor: sanitizeImportedTextCell(row.floor) ?? undefined,
+  };
+}
+
+function sanitizeAvailabilityImportRow(row: z.infer<typeof availabilityImportRowSchema>) {
+  const cleaned = sanitizeUnitImportRow(row);
+  const status = normalizeAvailabilityStatus(cleaned);
+  return {
+    ...cleaned,
+    availabilityStatus: sanitizeImportedTextCell(cleaned.availabilityStatus) ?? undefined,
+    applicant: sanitizeImportedTextCell(cleaned.applicant) ?? undefined,
+    makeReadyStatus: sanitizeImportedTextCell(cleaned.makeReadyStatus) ?? undefined,
+    scopeLevel: sanitizeImportedTextCell(cleaned.scopeLevel) ?? undefined,
+    daysVacant: normalizeImportedDaysVacant(cleaned.daysVacant, status),
+  };
 }
 
 function buildAvailabilityConflict(existingTurn: {
@@ -1041,7 +1085,8 @@ export async function operationsRoutes(app: FastifyInstance) {
     const updatedUnitIds: string[] = [];
     const seen = new Set<string>();
     const sanitizedRows = payload.units.flatMap((row, index) => {
-      const number = row.number.trim();
+      const cleanedRow = sanitizeUnitImportRow(row);
+      const number = cleanedRow.number.trim();
       const key = number.toUpperCase();
       if (seen.has(key)) {
         summary.skipped += 1;
@@ -1049,7 +1094,7 @@ export async function operationsRoutes(app: FastifyInstance) {
         return [];
       }
       seen.add(key);
-      return [{ ...row, number }];
+      return [{ ...cleanedRow, number }];
     });
 
     await prisma.$transaction(async (tx) => {
@@ -1195,7 +1240,8 @@ export async function operationsRoutes(app: FastifyInstance) {
     }> = [];
     const seen = new Set<string>();
     const sanitizedRows = payload.rows.flatMap((row, index) => {
-      const number = row.number.trim();
+      const cleanedRow = sanitizeAvailabilityImportRow(row);
+      const number = cleanedRow.number.trim();
       const key = number.toUpperCase();
       if (seen.has(key)) {
         summary.skipped += 1;
@@ -1203,7 +1249,7 @@ export async function operationsRoutes(app: FastifyInstance) {
         return [];
       }
       seen.add(key);
-      return [{ ...row, number }];
+      return [{ ...cleanedRow, number }];
     });
 
     const boardSections = await prisma.boardSection.findMany({

@@ -178,6 +178,8 @@ export type OfflineSyncJobSummary = {
   module: "make-ready" | "projects" | "lease-compliance" | "pest" | "pool" | "pm";
   title: string;
   fileCount: number;
+  status: "pending" | "retrying" | "blocked";
+  nextRetryAt: string | null;
 };
 
 export type OfflineQueueState = {
@@ -187,6 +189,7 @@ export type OfflineQueueState = {
 
 let syncing = false;
 let syncPromise: Promise<{ processed: number; synced: number; remaining: number }> | null = null;
+const retryDelaysMs = [0, 5000, 15000, 30000, 60000];
 
 function queueUnavailable() {
   return typeof indexedDB === "undefined";
@@ -372,6 +375,12 @@ function jobFileCount(payload: OfflineSyncJobPayload) {
 }
 
 function summarize(job: OfflineSyncJob): OfflineSyncJobSummary {
+  const retrying = job.lastErrorStatus === 0 && Boolean(job.lastAttemptAt);
+  const blocked = Boolean(job.lastErrorStatus) && job.lastErrorStatus !== 0;
+  const delayIndex = Math.min(Math.max(job.attemptCount, 0), retryDelaysMs.length - 1);
+  const nextRetryAt = retrying && job.lastAttemptAt
+    ? new Date(new Date(job.lastAttemptAt).getTime() + retryDelaysMs[delayIndex]).toISOString()
+    : null;
   return {
     id: job.id,
     createdAt: job.createdAt,
@@ -384,6 +393,8 @@ function summarize(job: OfflineSyncJob): OfflineSyncJobSummary {
     module: jobModule(job.payload),
     title: jobTitle(job.payload),
     fileCount: jobFileCount(job.payload),
+    status: blocked ? "blocked" : retrying ? "retrying" : "pending",
+    nextRetryAt,
   };
 }
 
@@ -403,6 +414,20 @@ function buildJob(payload: OfflineSyncJobPayload): OfflineSyncJob {
 
 function isNetworkError(error: unknown) {
   return error instanceof ApiError && error.status === 0;
+}
+
+function automaticRetryDelayMs(job: OfflineSyncJob) {
+  const delayIndex = Math.min(Math.max(job.attemptCount, 0), retryDelaysMs.length - 1);
+  return retryDelaysMs[delayIndex];
+}
+
+function shouldAttemptAutomaticSync(job: OfflineSyncJob, now = Date.now()) {
+  if (job.lastErrorStatus && job.lastErrorStatus !== 0) return false;
+  if (job.lastErrorStatus === 0 && job.lastAttemptAt) {
+    const nextRetryAt = new Date(job.lastAttemptAt).getTime() + automaticRetryDelayMs(job);
+    return now >= nextRetryAt;
+  }
+  return true;
 }
 
 async function updateFailedJob(job: OfflineSyncJob, error: unknown) {
@@ -561,7 +586,11 @@ export async function syncOfflineJobs() {
       let processed = 0;
       let syncedCount = 0;
       const jobs = await getOfflineSyncJobs();
+      const now = Date.now();
       for (const job of jobs) {
+        if (!shouldAttemptAutomaticSync(job, now)) {
+          continue;
+        }
         try {
           await syncJob(job);
           await withStore("readwrite", (store) => deleteJob(store, job.id));

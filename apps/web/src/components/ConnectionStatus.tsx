@@ -7,6 +7,7 @@ type Props = {
   degraded: boolean;
   lastIssueAt: string | null;
   pendingSyncCount: number;
+  retryingCount: number;
   blockedCount: number;
   conflictCount: number;
   syncing: boolean;
@@ -15,7 +16,7 @@ type Props = {
   onReviewQueue: () => void;
 };
 
-export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCount, blockedCount, conflictCount, syncing, language, onRetry, onReviewQueue }: Props) {
+export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCount, retryingCount, blockedCount, conflictCount, syncing, language, onRetry, onReviewQueue }: Props) {
   if (online && !degraded && pendingSyncCount === 0) {
     return null;
   }
@@ -24,6 +25,8 @@ export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCou
     ? conflictCount > 0
       ? t(language, "connection.syncConflicts")
       : t(language, "connection.syncBlocked")
+    : retryingCount > 0 && online
+    ? t(language, "connection.syncRetrying")
     : pendingSyncCount > 0 && online
     ? syncing ? t(language, "connection.syncingOfflineChanges") : t(language, "connection.offlineChangesPending")
     : online ? t(language, "connection.connectionUnstable") : t(language, "connection.offline");
@@ -31,6 +34,8 @@ export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCou
     ? conflictCount > 0
       ? t(language, "connection.syncConflictsDescription").replace("{count}", String(blockedCount))
       : t(language, "connection.syncBlockedDescription").replace("{count}", String(blockedCount))
+    : retryingCount > 0
+    ? t(language, "connection.syncRetryingDescription").replace("{count}", String(retryingCount))
     : pendingSyncCount > 0
     ? pendingSyncCount === 1
       ? t(language, "connection.pendingSingle")

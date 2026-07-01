@@ -29,6 +29,53 @@ const defaultSafetyItems = [
   "Pump/filter area checked",
 ];
 
+const defaultPoolChemicals: Array<{
+  name: string;
+  category: typeof chemicalCategories[number];
+  unit: typeof chemicalUnits[number];
+  concentrationPercent?: number | null;
+  notes?: string | null;
+}> = [
+  {
+    name: "Chlorine Tabs",
+    category: "CHLORINE",
+    unit: "TABLETS",
+    notes: "Starter default for routine sanitizer additions.",
+  },
+  {
+    name: "Liquid Chlorine",
+    category: "CHLORINE",
+    unit: "GALLONS",
+    concentrationPercent: 12.5,
+    notes: "Starter default for liquid sanitizer dosing.",
+  },
+  {
+    name: "pH Up",
+    category: "PH_UP",
+    unit: "POUNDS",
+  },
+  {
+    name: "Muriatic Acid",
+    category: "PH_DOWN",
+    unit: "QUARTS",
+  },
+  {
+    name: "Alkalinity Up",
+    category: "ALKALINITY_UP",
+    unit: "POUNDS",
+  },
+  {
+    name: "Stabilizer",
+    category: "STABILIZER",
+    unit: "POUNDS",
+  },
+  {
+    name: "Calcium Hardness Increaser",
+    category: "CALCIUM_HARDNESS",
+    unit: "POUNDS",
+  },
+];
+
 const defaultTargets = {
   POOL: {
     phMin: 7.2,
@@ -260,6 +307,40 @@ async function notifyMissingPoolLogs(input: { propertyId: string; facilities: Ar
   })));
 }
 
+async function ensureDefaultPoolChemicals(propertyIds: string[], userId?: string | null) {
+  if (!propertyIds.length) return;
+  const existing = await prisma.poolChemical.findMany({
+    where: { propertyId: { in: propertyIds } },
+    select: { propertyId: true, name: true },
+  });
+  const existingByProperty = new Map<string, Set<string>>();
+  existing.forEach((chemical) => {
+    const bucket = existingByProperty.get(chemical.propertyId) ?? new Set<string>();
+    bucket.add(chemical.name.trim().toLowerCase());
+    existingByProperty.set(chemical.propertyId, bucket);
+  });
+  const rows = propertyIds.flatMap((propertyId) => {
+    const existingNames = existingByProperty.get(propertyId) ?? new Set<string>();
+    return defaultPoolChemicals
+      .filter((chemical) => !existingNames.has(chemical.name.trim().toLowerCase()))
+      .map((chemical) => ({
+        propertyId,
+        name: chemical.name,
+        category: chemical.category,
+        unit: chemical.unit,
+        concentrationPercent: chemical.concentrationPercent ?? null,
+        notes: chemical.notes ?? null,
+        createdById: userId ?? null,
+        updatedById: userId ?? null,
+      }));
+  });
+  if (!rows.length) return;
+  await prisma.poolChemical.createMany({
+    data: rows,
+    skipDuplicates: true,
+  });
+}
+
 export const poolFacilitySchema = z.object({
   propertyId: z.string().min(1),
   name: z.string().min(1),
@@ -325,6 +406,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
     const query = z.object({ propertyId: z.string().optional() }).parse(request.query);
     const propertyIds = query.propertyId ? [query.propertyId] : allowed;
     if (query.propertyId) await assertPropertyAccess(request, query.propertyId);
+    await ensureDefaultPoolChemicals(propertyIds, request.currentUser?.id ?? null);
     const todayStart = dateOnly();
     const todayEnd = endOfDay();
 
@@ -347,8 +429,18 @@ export async function poolLogRoutes(app: FastifyInstance) {
     const loggedFacilityIds = new Set(entriesToday.map((entry) => entry.facilityId));
     const safetyFailures = entriesToday.flatMap((entry) => entry.safetyChecks.filter((check) => check.value === "FAIL").map((check) => ({ entryId: entry.id, facilityName: entry.facility.name, label: check.label, notes: check.notes })));
     const chemistryIssues = entriesToday.flatMap((entry) => {
-      const evaluation = entry.evaluationJson as { issues?: unknown[] } | null;
-      return (evaluation?.issues ?? []).map((issue) => ({ entryId: entry.id, facilityName: entry.facility.name, issue }));
+      const evaluation = entry.evaluationJson as {
+        issues?: unknown[];
+        recommendations?: string[];
+        dosage?: Array<{ chemicalCategory: string; chemicalName?: string; amount?: number; unit?: string; message: string; missing?: string[] }>;
+      } | null;
+      return (evaluation?.issues ?? []).map((issue) => ({
+        entryId: entry.id,
+        facilityName: entry.facility.name,
+        issue,
+        recommendations: evaluation?.recommendations ?? [],
+        dosage: evaluation?.dosage ?? [],
+      }));
     });
     const usageToday = entriesToday.flatMap((entry) => entry.chemicalAdditions);
     const missingFacilities = facilities.filter((facility) => !loggedFacilityIds.has(facility.id));
@@ -407,6 +499,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
       data: { ...input, createdById: request.currentUser?.id, updatedById: request.currentUser?.id },
       include: { property: true },
     });
+    await ensureDefaultPoolChemicals([facility.propertyId], request.currentUser?.id ?? null);
     await writeAuditLog({ request, propertyId: facility.propertyId, entityType: "PoolFacility", entityId: facility.id, action: "Pool Facility Created", message: `Created pool/spa ${facility.name}` });
     reply.code(201);
     return { facility };
@@ -426,12 +519,34 @@ export async function poolLogRoutes(app: FastifyInstance) {
     return { facility };
   });
 
+  app.delete("/pool/facilities/:id", async (request, reply) => {
+    const access = roleAccess(request.currentUser?.role ?? "VIEWER");
+    if (!access.manage) throw Object.assign(new Error("Only admins and managers can manage pool/spa setup"), { statusCode: 403 });
+    const params = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.poolFacility.findUnique({
+      where: { id: params.id },
+      include: { entries: { select: { id: true }, take: 1 } },
+    });
+    if (!existing) throw Object.assign(new Error("Pool/spa not found"), { statusCode: 404 });
+    await assertPropertyAccess(request, existing.propertyId);
+    if (existing.isActive) {
+      return reply.code(409).send({ message: "Archive the pool/spa before permanently deleting it" });
+    }
+    if (existing.entries.length) {
+      return reply.code(409).send({ message: "Cannot permanently delete a pool/spa that already has log history" });
+    }
+    await prisma.poolFacility.delete({ where: { id: params.id } });
+    await writeAuditLog({ request, propertyId: existing.propertyId, entityType: "PoolFacility", entityId: existing.id, action: "Pool Facility Deleted", message: `Deleted pool/spa ${existing.name}` });
+    return { ok: true };
+  });
+
   app.get("/pool/chemicals", async (request) => {
     const access = roleAccess(request.currentUser?.role ?? "VIEWER");
     if (!access.view) throw Object.assign(new Error("Pool chemical access denied"), { statusCode: 403 });
     const query = z.object({ propertyId: z.string().optional(), includeArchived: z.coerce.boolean().optional() }).parse(request.query);
     if (query.propertyId) await assertPropertyAccess(request, query.propertyId);
     const allowed = await allowedPropertyIds(request);
+    await ensureDefaultPoolChemicals(query.propertyId ? [query.propertyId] : allowed, request.currentUser?.id ?? null);
     const chemicals = await prisma.poolChemical.findMany({
       where: {
         propertyId: query.propertyId ?? { in: allowed },
@@ -466,6 +581,27 @@ export async function poolLogRoutes(app: FastifyInstance) {
     const chemical = await prisma.poolChemical.update({ where: { id: params.id }, data: { ...input, updatedById: request.currentUser?.id }, include: { property: true } });
     await writeAuditLog({ request, propertyId: chemical.propertyId, entityType: "PoolChemical", entityId: chemical.id, action: "Pool Chemical Updated", message: `Updated pool chemical ${chemical.name}` });
     return { chemical };
+  });
+
+  app.delete("/pool/chemicals/:id", async (request, reply) => {
+    const access = roleAccess(request.currentUser?.role ?? "VIEWER");
+    if (!access.manage) throw Object.assign(new Error("Only admins and managers can manage pool chemical library"), { statusCode: 403 });
+    const params = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.poolChemical.findUnique({
+      where: { id: params.id },
+      include: { additions: { select: { id: true }, take: 1 } },
+    });
+    if (!existing) throw Object.assign(new Error("Pool chemical not found"), { statusCode: 404 });
+    await assertPropertyAccess(request, existing.propertyId);
+    if (existing.isActive) {
+      return reply.code(409).send({ message: "Archive the chemical before permanently deleting it" });
+    }
+    if (existing.additions.length) {
+      return reply.code(409).send({ message: "Cannot permanently delete a pool chemical that is already referenced by log history" });
+    }
+    await prisma.poolChemical.delete({ where: { id: params.id } });
+    await writeAuditLog({ request, propertyId: existing.propertyId, entityType: "PoolChemical", entityId: existing.id, action: "Pool Chemical Deleted", message: `Deleted pool chemical ${existing.name}` });
+    return { ok: true };
   });
 
   app.get("/pool/entries", async (request) => {

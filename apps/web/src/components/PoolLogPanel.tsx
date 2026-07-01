@@ -1,9 +1,11 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createPoolChemical,
   createPoolFacility,
   createPoolLogEntry,
+  deletePoolChemical,
+  deletePoolFacility,
   getPoolChemicals,
   getPoolEntries,
   getPoolFacilities,
@@ -21,7 +23,7 @@ import {
   type Property,
   type UserRole,
 } from "../lib/api";
-import { enqueuePoolCreate, enqueuePoolUpload } from "../lib/offlineSync";
+import { enqueuePoolCreate, enqueuePoolUpload, getOfflineSyncEventName, listOfflineSyncJobs, syncOfflineJobs, type OfflineSyncJobSummary } from "../lib/offlineSync";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { StatusState } from "./StatusState";
 import { openProjectCreate } from "../lib/projectNavigation";
@@ -102,6 +104,23 @@ function formatPoolChemicalAmount(amount: number, unit: PoolChemical["unit"]) {
   return `${amount % 1 === 0 ? amount.toFixed(0) : amount.toFixed(2).replace(/\.?0+$/, "")} ${unit.toLowerCase()}`;
 }
 
+function formatPoolDosageMessage(
+  dosage: { chemicalCategory: string; chemicalName?: string; amount?: number; unit?: string; message: string; missing?: string[] },
+  language: string,
+) {
+  if (dosage.amount && dosage.unit) {
+    return dosage.chemicalName
+      ? `${dosage.chemicalName}: ${formatPoolChemicalAmount(dosage.amount, dosage.unit as PoolChemical["unit"])}`
+      : dosage.message;
+  }
+  if (dosage.missing?.length) {
+    return language === "es"
+      ? `${dosage.message} Falta: ${dosage.missing.join(", ")}.`
+      : `${dosage.message} Missing: ${dosage.missing.join(", ")}.`;
+  }
+  return dosage.message;
+}
+
 function poolTypeLabel(type: PoolFacility["type"], language: string) {
   const english: Record<PoolFacility["type"], string> = {
     POOL: "Pool",
@@ -120,10 +139,41 @@ function poolTypeLabel(type: PoolFacility["type"], language: string) {
   return (language === "es" ? spanish : english)[type];
 }
 
+function poolQueueStatusSummary(jobs: OfflineSyncJobSummary[], language: string) {
+  const blocked = jobs.filter((job) => job.status === "blocked");
+  const retrying = jobs.filter((job) => job.status === "retrying");
+  const pending = jobs.filter((job) => job.status === "pending");
+  const earliestRetry = retrying.map((job) => job.nextRetryAt).filter((value): value is string => Boolean(value)).sort()[0] ?? null;
+  if (blocked.length) {
+    return {
+      title: language === "es" ? `${blocked.length} registro(s)/archivo(s) requieren revisión` : `${blocked.length} pool log item(s)/upload(s) need review`,
+      detail: language === "es"
+        ? "Al menos un registro o archivo falló por un error del servidor o validación y no seguirá reintentándose solo."
+        : "At least one log or upload hit a server or validation error and will not keep retrying automatically.",
+    };
+  }
+  if (retrying.length) {
+    return {
+      title: language === "es" ? `${retrying.length} registro(s)/archivo(s) volverán a intentarse` : `${retrying.length} pool log item(s)/upload(s) will retry automatically`,
+      detail: language === "es"
+        ? `El próximo reintento automático será ${earliestRetry ? new Date(earliestRetry).toLocaleTimeString() : "pronto"}.`
+        : `Next automatic retry ${earliestRetry ? `at ${new Date(earliestRetry).toLocaleTimeString()}` : "is due soon"}.`,
+    };
+  }
+  return {
+    title: language === "es" ? `${pending.length} registro(s)/archivo(s) pendientes de sincronización` : `${pending.length} pool log item(s)/upload(s) pending sync`,
+    detail: language === "es"
+      ? "Los registros y archivos guardados sin conexión permanecen en este navegador hasta que el servidor los confirme."
+      : "Offline entries and uploads stay in this browser until the server confirms them.",
+  };
+}
+
 function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: PoolLogEntry; canEdit: boolean; onUpload: (entryId: string, files: FileList | null) => void; language?: string }) {
   const isSpanish = language === "es";
   const evaluation = entry.evaluationJson;
   const needsFollowUp = evaluation?.status === "REVIEW" || entry.safetyChecks.some((check) => check.value === "FAIL");
+  const recommendationLines = evaluation?.recommendations ?? [];
+  const dosageLines = evaluation?.dosage ?? [];
   return (
     <div className="pool-history-row" data-testid="pool-history-row">
       <div>
@@ -142,6 +192,22 @@ function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: Po
         ) : null}
       </div>
       <span className={`status-pill ${evaluation?.status === "REVIEW" ? "risk-high" : ""}`}>{evaluation?.status ?? "Logged"}</span>
+      {recommendationLines.length || dosageLines.length ? (
+        <div className="pool-reading-stack" style={{ alignItems: "flex-start" }}>
+          {dosageLines.length ? (
+            <span className="muted">
+              <strong>{isSpanish ? "Agregar/corregir:" : "Add/correct:"}</strong>{" "}
+              {dosageLines.map((line) => formatPoolDosageMessage(line, language)).join("; ")}
+            </span>
+          ) : null}
+          {recommendationLines.length ? (
+            <span className="muted">
+              <strong>{isSpanish ? "Acción:" : "Action:"}</strong>{" "}
+              {recommendationLines.join("; ")}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       <div className="pool-entry-actions">
         {canEdit ? (
           <button
@@ -154,6 +220,12 @@ function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: Po
               title: `${entry.facility.name} follow-up`,
               description: [
                 `Pool log follow-up from ${new Date(entry.logDate).toLocaleDateString()}${entry.logTime ? ` ${entry.logTime}` : ""}.`,
+                dosageLines.length
+                  ? `${isSpanish ? "Agregar/corregir" : "Add/correct"}: ${dosageLines.map((line) => formatPoolDosageMessage(line, language)).join("; ")}`
+                  : "",
+                recommendationLines.length
+                  ? `${isSpanish ? "Acción" : "Action"}: ${recommendationLines.join("; ")}`
+                  : "",
                 entry.notes ?? "",
               ].filter(Boolean).join("\n\n"),
               sourceRecordType: "POOL_LOG_ENTRY",
@@ -236,6 +308,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
   const [selectedChemicalId, setSelectedChemicalId] = useState("");
   const [chemicalAmountPounds, setChemicalAmountPounds] = useState("");
   const [chemicalAmountOunces, setChemicalAmountOunces] = useState("");
+  const [queuedPoolJobs, setQueuedPoolJobs] = useState<OfflineSyncJobSummary[]>([]);
+  const [queueSyncing, setQueueSyncing] = useState(false);
   const selectedChemical = selectedChemicalId ? activeChemicalsById.get(selectedChemicalId) ?? null : null;
   const workflowEntry = historyQuery.data?.entries[0] ?? overviewQuery.data?.recentEntries?.[0] ?? null;
   const workflowFacilityName = workflowEntry?.facility?.name ?? activeFacilities[0]?.name ?? null;
@@ -264,12 +338,20 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updatePoolFacility>[1] }) => updatePoolFacility(id, data),
     onSuccess: invalidate,
   });
+  const facilityDeleteMutation = useMutation({
+    mutationFn: deletePoolFacility,
+    onSuccess: invalidate,
+  });
   const chemicalCreateMutation = useMutation({
     mutationFn: createPoolChemical,
     onSuccess: invalidate,
   });
   const chemicalUpdateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updatePoolChemical>[1] }) => updatePoolChemical(id, data),
+    onSuccess: invalidate,
+  });
+  const chemicalDeleteMutation = useMutation({
+    mutationFn: deletePoolChemical,
     onSuccess: invalidate,
   });
   const entryCreateMutation = useMutation({
@@ -294,7 +376,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
   async function submitFacility(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!propertyId) return;
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     await facilityCreateMutation.mutateAsync({
       propertyId,
       name: String(formData.get("name") ?? "").trim(),
@@ -303,13 +386,14 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
       surfaceType: String(formData.get("surfaceType") ?? "").trim() || null,
       notes: String(formData.get("notes") ?? "").trim() || null,
     });
-    event.currentTarget.reset();
+    form.reset();
   }
 
   async function submitChemical(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!propertyId) return;
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     await chemicalCreateMutation.mutateAsync({
       propertyId,
       name: String(formData.get("name") ?? "").trim(),
@@ -318,13 +402,14 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
       unit: String(formData.get("unit") ?? "POUNDS") as PoolChemical["unit"],
       notes: String(formData.get("notes") ?? "").trim() || null,
     });
-    event.currentTarget.reset();
+    form.reset();
   }
 
   async function submitDailyLog(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!propertyId) return;
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     const facilityId = String(formData.get("facilityId") ?? "");
     const chemicalId = String(formData.get("chemicalId") ?? "");
     const chemical = chemicalId ? activeChemicalsById.get(chemicalId) : null;
@@ -376,7 +461,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
       }
       await enqueuePoolCreate(entryInput);
     }
-    event.currentTarget.reset();
+    form.reset();
     setSelectedChemicalId("");
     setChemicalAmountPounds("");
     setChemicalAmountOunces("");
@@ -388,6 +473,40 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
       void attachmentUploadMutation.mutateAsync({ entryId, file });
     });
   }
+
+  const refreshQueuedPoolJobs = async () => {
+    const jobs = await listOfflineSyncJobs();
+    setQueuedPoolJobs(jobs.filter((job) => job.module === "pool" && (job.kind === "poolCreate" || job.kind === "poolUpload")));
+  };
+
+  const syncQueuedPoolJobs = async () => {
+    if (queueSyncing || (typeof navigator !== "undefined" && !navigator.onLine)) return;
+    setQueueSyncing(true);
+    try {
+      await syncOfflineJobs();
+      await invalidate();
+      await refreshQueuedPoolJobs();
+    } finally {
+      setQueueSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshQueuedPoolJobs();
+  }, []);
+
+  useEffect(() => {
+    const queueEventName = getOfflineSyncEventName();
+    const refresh = () => {
+      void refreshQueuedPoolJobs();
+    };
+    window.addEventListener(queueEventName, refresh as EventListener);
+    window.addEventListener("online", refresh);
+    return () => {
+      window.removeEventListener(queueEventName, refresh as EventListener);
+      window.removeEventListener("online", refresh);
+    };
+  }, []);
 
   return (
     <section className="pool-panel module-panel" data-testid="pool-log-panel">
@@ -418,6 +537,30 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
           </button>
         ))}
       </div>
+
+      {queuedPoolJobs.length ? (
+        <div className="pool-card projects-sync-banner" style={{ marginBottom: 12 }}>
+          <div className="projects-sync-copy">
+            {(() => {
+              const summary = poolQueueStatusSummary(queuedPoolJobs, language);
+              return (
+                <>
+                  <strong>{summary.title}</strong>
+                  <span className="muted">{summary.detail}</span>
+                </>
+              );
+            })()}
+          </div>
+          <div className="pool-entry-actions">
+            <button className="button button-secondary" type="button" onClick={() => void refreshQueuedPoolJobs()} disabled={queueSyncing}>
+              {isSpanish ? "Actualizar cola" : "Refresh Queue"}
+            </button>
+            <button className="button button-primary" type="button" onClick={() => void syncQueuedPoolJobs()} disabled={queueSyncing || (typeof navigator !== "undefined" && !navigator.onLine)}>
+              {queueSyncing ? (isSpanish ? "Sincronizando..." : "Syncing...") : (isSpanish ? "Sincronizar ahora" : "Sync Now")}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {overviewQuery.isLoading ? (
         <StatusState title={isSpanish ? "Cargando registro de piscina" : "Loading pool log"} description={isSpanish ? "Cargando piscinas, químicos y lecturas de hoy." : "Fetching pools, chemicals, and today’s readings."} />
@@ -454,6 +597,16 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                 <div className="pool-row warning" key={`${issue.entryId}-${index}`}>
                   <strong>{issue.facilityName}</strong>
                   <span>{typeof issue.issue === "object" && issue.issue && "message" in issue.issue ? String((issue.issue as { message: unknown }).message) : (isSpanish ? "La química necesita revisión" : "Chemistry needs review")}</span>
+                  {issue.dosage?.length ? (
+                    <span className="muted">
+                      {isSpanish ? "Corrección:" : "Correction:"} {issue.dosage.map((line) => formatPoolDosageMessage(line, language)).join("; ")}
+                    </span>
+                  ) : null}
+                  {issue.recommendations?.length ? (
+                    <span className="muted">
+                      {isSpanish ? "Acción:" : "Action:"} {issue.recommendations.join("; ")}
+                    </span>
+                  ) : null}
                 </div>
               )) : null}
               {!overviewQuery.data?.safetyFailures.length && !overviewQuery.data?.chemistryIssues.length ? <p className="muted">{isSpanish ? "No hay elementos de seguridad o química para revisar hoy." : "No safety or chemistry review items today."}</p> : null}
@@ -627,7 +780,27 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                       <strong>{facility.name}</strong>
                       <span>{poolTypeLabel(facility.type, language)} / {facility.capacityGallons ? `${facility.capacityGallons.toLocaleString()} gal` : (isSpanish ? "capacidad faltante" : "capacity missing")} / {isSpanish ? "archivado" : "archived"}</span>
                     </div>
-                    {canManage ? <button type="button" onClick={() => facilityUpdateMutation.mutate({ id: facility.id, data: { isActive: true } })}>{isSpanish ? "Restaurar" : "Restore"}</button> : null}
+                    {canManage ? (
+                      <div className="pool-entry-actions">
+                        <button type="button" onClick={() => facilityUpdateMutation.mutate({ id: facility.id, data: { isActive: true } })}>{isSpanish ? "Restaurar" : "Restore"}</button>
+                        <button
+                          type="button"
+                          className="button button-danger"
+                          disabled={facilityDeleteMutation.isPending}
+                          onClick={() => {
+                            const confirmed = window.confirm(
+                              isSpanish
+                                ? `Eliminar permanentemente ${facility.name}? Solo las piscinas/spas archivados sin historial pueden borrarse.`
+                                : `Permanently delete ${facility.name}? Only archived pools/spas without log history can be deleted.`
+                            );
+                            if (!confirmed) return;
+                            facilityDeleteMutation.mutate(facility.id);
+                          }}
+                        >
+                          {isSpanish ? "Eliminar permanente" : "Delete Permanently"}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -668,7 +841,27 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                       <strong>{chemical.name}</strong>
                       <span>{chemical.category.replace(/_/g, " ")} / {chemical.concentrationPercent ? `${chemical.concentrationPercent}%` : (isSpanish ? "concentración faltante" : "concentration missing")} / {chemical.unit} / {isSpanish ? "archivado" : "archived"}</span>
                     </div>
-                    {canManage ? <button type="button" onClick={() => chemicalUpdateMutation.mutate({ id: chemical.id, data: { isActive: true } })}>{isSpanish ? "Restaurar" : "Restore"}</button> : null}
+                    {canManage ? (
+                      <div className="pool-entry-actions">
+                        <button type="button" onClick={() => chemicalUpdateMutation.mutate({ id: chemical.id, data: { isActive: true } })}>{isSpanish ? "Restaurar" : "Restore"}</button>
+                        <button
+                          type="button"
+                          className="button button-danger"
+                          disabled={chemicalDeleteMutation.isPending}
+                          onClick={() => {
+                            const confirmed = window.confirm(
+                              isSpanish
+                                ? `Eliminar permanentemente ${chemical.name}? Solo los químicos archivados sin historial pueden borrarse.`
+                                : `Permanently delete ${chemical.name}? Only archived chemicals without log history can be deleted.`
+                            );
+                            if (!confirmed) return;
+                            chemicalDeleteMutation.mutate(chemical.id);
+                          }}
+                        >
+                          {isSpanish ? "Eliminar permanente" : "Delete Permanently"}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>

@@ -573,6 +573,34 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
     return { template };
   });
 
+  app.delete("/pm/templates/:id", async (request, reply) => {
+    if (!requirePmAccess(request, reply, "edit")) return;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.preventiveMaintenanceTemplate.findUnique({
+      where: { id },
+      include: { tasks: { select: { id: true }, take: 1 } },
+    });
+    if (!existing) throw Object.assign(new Error("PM template not found"), { statusCode: 404 });
+    await assertPropertyAccess(request, existing.propertyId);
+    if (!existing.isArchived) {
+      return reply.code(409).send({ message: "Archive the PM template before permanently deleting it" });
+    }
+    if (existing.tasks.length) {
+      return reply.code(409).send({ message: "Cannot permanently delete a PM template that already has task history" });
+    }
+    await prisma.preventiveMaintenanceTemplate.delete({ where: { id } });
+    await writeAuditLog({
+      request,
+      actorUserId: request.currentUser!.id,
+      propertyId: existing.propertyId,
+      entityType: "PM_TEMPLATE",
+      entityId: existing.id,
+      action: "PM_TEMPLATE_DELETED",
+      message: `Deleted PM template ${existing.name}`,
+    });
+    return { ok: true };
+  });
+
   app.get("/pm/tasks", async (request, reply) => {
     if (!requirePmAccess(request, reply, "view")) return;
     const query = preventiveMaintenanceTaskQuerySchema.parse(request.query);

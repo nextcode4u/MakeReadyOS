@@ -109,6 +109,14 @@ function columnClassName(key: string, custom = false) {
 
 const OCCUPIED_GROUP_PREFIX = "OCCUPIED_DIRECTORY:";
 
+function isPhysicallyOccupiedStatus(value: string | null | undefined) {
+  return value === "OCCUPIED"
+    || value === "NTV"
+    || value === "NTV NOT LEASED"
+    || value === "NTV_LEASED"
+    || value === "NTV LEASED";
+}
+
 function occupiedGroupKey(propertyId: string) {
   return `${OCCUPIED_GROUP_PREFIX}${propertyId}`;
 }
@@ -203,7 +211,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
     if (archiveState !== "occupied") return [];
     const query = searchText.trim().toLowerCase();
     return units
-      .filter((unit) => unit.isActive && unit.occupancyStatus === "OCCUPIED" && allowedPropertyIds.has(unit.propertyId))
+      .filter((unit) => unit.isActive && isPhysicallyOccupiedStatus(unit.occupancyStatus) && allowedPropertyIds.has(unit.propertyId))
       .filter((unit) => {
         if (!query) return true;
         return [unit.number, unit.floorPlan ?? "", unit.floorPlanRecord?.code ?? "", unit.floorPlanRecord?.name ?? "", unit.building ?? "", unit.area ?? "", unit.property.code]

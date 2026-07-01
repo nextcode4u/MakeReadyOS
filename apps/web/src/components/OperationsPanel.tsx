@@ -243,6 +243,179 @@ function detectDelimitedInput(line: string): "," | "\t" | ";" {
   return ",";
 }
 
+function csvCell(value: string | number | null | undefined) {
+  const text = value == null ? "" : String(value);
+  if (!/[",\n]/.test(text)) return text;
+  return `"${text.replace(/"/g, "\"\"")}"`;
+}
+
+function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function xmlElementName(node: Element | null | undefined) {
+  return node?.localName?.toLowerCase() ?? node?.nodeName?.replace(/^.*:/, "").toLowerCase() ?? "";
+}
+
+function xmlAttributeValue(node: Element, name: string) {
+  const normalized = name.toLowerCase();
+  for (const attribute of Array.from(node.attributes)) {
+    const attributeName = attribute.localName?.toLowerCase() ?? attribute.name.replace(/^.*:/, "").toLowerCase();
+    if (attributeName === normalized) return attribute.value;
+  }
+  return "";
+}
+
+function xmlChildText(node: Element, name: string) {
+  const normalized = name.toLowerCase();
+  for (const child of Array.from(node.children)) {
+    if (xmlElementName(child) === normalized) return child.textContent?.trim() ?? "";
+  }
+  return "";
+}
+
+function normalizeXmlSpreadsheetDate(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10);
+  return normalizePreviewDate(trimmed);
+}
+
+function cleanXmlReportValue(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || /^(n\/a|na|none|null|no data|\(blank\)|blank|-|—)$/i.test(trimmed)) return "";
+  return trimmed;
+}
+
+function cleanImportedTextCell(value: string | null | undefined) {
+  const trimmed = `${value ?? ""}`.trim();
+  if (!trimmed || /^(n\/a|na|none|null|no data|\(blank\)|blank|-|—)$/i.test(trimmed)) return "";
+  return trimmed;
+}
+
+function inferAllUnitsOccupancy(row: Element): Unit["occupancyStatus"] {
+  const fpCode = xmlAttributeValue(row, "fpcode").toLowerCase();
+  const fpName = xmlAttributeValue(row, "fpname").toLowerCase();
+  const unitNumber = xmlAttributeValue(row, "unitnumber").toLowerCase();
+  const madeReady = xmlAttributeValue(row, "MadeReady").trim().toUpperCase() === "Y";
+  const vac = xmlAttributeValue(row, "vac") === "1";
+  const vacLeased = xmlAttributeValue(row, "vacLeased") === "1";
+  const occPreLeased = xmlAttributeValue(row, "occPreLeased") === "1";
+  const occOnNotice = xmlAttributeValue(row, "occOnNotice") === "1";
+  const offlineDown = xmlAttributeValue(row, "offlineDown") === "1";
+  const offlineAdmin = xmlAttributeValue(row, "offlineAdmin") === "1";
+  const modelLike = [fpCode, fpName, unitNumber].some((value) => value.includes("model"));
+  const adminLike = offlineAdmin || [fpCode, fpName, unitNumber].some((value) => ["office", "admin", "corporate", "employee"].some((token) => value.includes(token)));
+  if (offlineDown) return "DOWN";
+  if (modelLike) return "MODEL";
+  if (vac) {
+    if (vacLeased) return madeReady ? "VACANT LEASED READY" : "VACANT LEASED NOT READY";
+    return madeReady ? "VACANT NOT LEASED READY" : "VACANT NOT LEASED NOT READY";
+  }
+  if (occOnNotice) {
+    return occPreLeased || Boolean(xmlAttributeValue(row, "pendRes_leaID")) ? "NTV LEASED" : "NTV NOT LEASED";
+  }
+  if (adminLike) return "UNKNOWN";
+  return "OCCUPIED";
+}
+
+function convertAvailabilityXmlToCsv(input: string) {
+  const parser = new DOMParser();
+  const document = parser.parseFromString(input, "application/xml");
+  if (document.querySelector("parsererror")) return null;
+  const leaseVariance = Array.from(document.getElementsByTagName("*")).find((node) => xmlElementName(node) === "leasevariance");
+  if (!leaseVariance) return null;
+  const settingsRow = Array.from(document.getElementsByTagName("*")).find((node) => xmlElementName(node) === "settings")
+    ?.querySelector("row");
+  const reportDate = normalizeXmlSpreadsheetDate(
+    settingsRow ? (xmlAttributeValue(settingsRow, "PropertyDate") || xmlAttributeValue(settingsRow, "RunDate")) : "",
+  );
+  const rows = Array.from(leaseVariance.children).filter((node) => xmlElementName(node) === "row");
+  const header = ["unit", "floorPlan", "sqft", "availabilityStatus", "vacancyStatus", "moveOutDate", "vacatedDate", "daysVacant", "makeReadyDate", "moveInDate", "applicant", "reportDate", "dateApplied", "building", "area", "floor"];
+  const csvRows = rows.flatMap((row) => {
+    const sectionType = xmlChildText(row, "SectionType").toUpperCase();
+    const unit = cleanXmlReportValue(xmlChildText(row, "UnitNumber_Display") || xmlChildText(row, "UnitNumber"));
+    const status = cleanXmlReportValue(xmlChildText(row, "Status"));
+    if (!unit || !status || sectionType !== "DETAIL") return [];
+    const normalizedStatus = normalizeOccupancy(status);
+    const rawMoveOut = normalizeXmlSpreadsheetDate(xmlChildText(row, "MoveOut"));
+    const rawMoveIn = normalizeXmlSpreadsheetDate(xmlChildText(row, "MoveIn"));
+    const makeReady = normalizeXmlSpreadsheetDate(xmlChildText(row, "MakeReady"));
+    const dateApplied = normalizeXmlSpreadsheetDate(xmlChildText(row, "Applied"));
+    const building = cleanXmlReportValue(xmlChildText(row, "bldgNumber"));
+    const floor = cleanXmlReportValue(xmlChildText(row, "UnitFloorNumber"));
+    const applicant = cleanXmlReportValue(xmlChildText(row, "NewreshBillingName") || xmlChildText(row, "reshBillingName")).replace(/^Vacant - pending resident:\s*/i, "");
+    const moveOutDate = normalizedStatus.includes("NTV") ? rawMoveOut : "";
+    const vacatedDate = normalizedStatus.includes("VACANT") && !normalizedStatus.includes("NTV") ? rawMoveOut : "";
+    return [[
+      unit,
+      cleanXmlReportValue(xmlChildText(row, "fpCode")),
+      cleanXmlReportValue(xmlChildText(row, "unitRentSqFtCount")),
+      status,
+      normalizedStatus,
+      moveOutDate,
+      vacatedDate,
+      cleanXmlReportValue(xmlChildText(row, "DaysVacant")),
+      makeReady,
+      rawMoveIn,
+      applicant,
+      reportDate,
+      dateApplied,
+      building,
+      "",
+      floor,
+    ]];
+  });
+  return [header, ...csvRows].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n");
+}
+
+function convertUnitDirectoryXmlToCsv(input: string) {
+  const parser = new DOMParser();
+  const document = parser.parseFromString(input, "application/xml");
+  if (document.querySelector("parsererror")) return null;
+  const allUnitsReport = Array.from(document.getElementsByTagName("*")).find((node) => xmlElementName(node) === "allunitsreport");
+  if (!allUnitsReport) return null;
+  const detail = Array.from(allUnitsReport.children).find((node) => xmlElementName(node) === "detail");
+  if (!detail) return null;
+  const rows = Array.from(detail.children).filter((node) => xmlElementName(node) === "row");
+  const header = ["unit", "building", "area", "floor", "floorPlan", "beds", "baths", "sqft", "occupancyStatus", "budgeted"];
+  const csvRows = rows.flatMap((row) => {
+    const unit = cleanXmlReportValue(xmlAttributeValue(row, "unitnumber"));
+    if (!unit) return [];
+    const fpCode = cleanXmlReportValue(xmlAttributeValue(row, "fpcode"));
+    const fpName = cleanXmlReportValue(xmlAttributeValue(row, "fpname"));
+    const offlineAdmin = xmlAttributeValue(row, "offlineAdmin") === "1";
+    const budgeted = [fpCode, fpName, unit].some((value) => /office|admin|corporate|employee|model/i.test(value)) || offlineAdmin ? "no" : "yes";
+    return [[
+      unit,
+      cleanXmlReportValue(xmlAttributeValue(row, "bldgnumber")),
+      "",
+      "",
+      fpCode || fpName,
+      "",
+      "",
+      cleanXmlReportValue(xmlAttributeValue(row, "unitrentsqftcount")),
+      inferAllUnitsOccupancy(row),
+      budgeted,
+    ]];
+  });
+  return [header, ...csvRows].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n");
+}
+
+function normalizeImportSourceText(input: string, mode: "availability" | "unitDirectory") {
+  const trimmed = input.trim();
+  if (!trimmed.startsWith("<")) return input;
+  if (mode === "availability") return convertAvailabilityXmlToCsv(trimmed) ?? input;
+  return convertUnitDirectoryXmlToCsv(trimmed) ?? input;
+}
+
 function splitDelimitedLine(line: string, delimiter: "," | "\t" | ";") {
   const cells: string[] = [];
   let current = "";
@@ -304,6 +477,14 @@ function normalizeOccupancy(value: string): Unit["occupancyStatus"] {
   return "OCCUPIED";
 }
 
+function isPhysicallyOccupiedStatus(value: string | null | undefined) {
+  return value === "OCCUPIED"
+    || value === "NTV"
+    || value === "NTV NOT LEASED"
+    || value === "NTV_LEASED"
+    || value === "NTV LEASED";
+}
+
 function isReadyLikeOccupancy(value: string | null | undefined) {
   const raw = String(value ?? "").toUpperCase();
   return raw.includes("READY") && !raw.includes("NOT READY");
@@ -355,6 +536,16 @@ function normalizePreviewDate(value: string | null | undefined) {
 function normalizeImportedDate(value: string | null | undefined) {
   const normalized = normalizePreviewDate(value);
   return normalized || undefined;
+}
+
+function normalizeImportedDaysVacant(value: number | null, occupancyStatus: string) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return undefined;
+  if (value < 0) {
+    const normalizedStatus = normalizeOccupancy(occupancyStatus);
+    if (normalizedStatus.includes("NTV") || normalizedStatus === "OCCUPIED") return undefined;
+    return 0;
+  }
+  return Math.round(value);
 }
 
 function splitCombinedBuildingUnit(value: string) {
@@ -746,7 +937,7 @@ export function OperationsPanel({
       .filter((item) => !selectedPropertyId || item.propertyId === selectedPropertyId)
       .filter((item) => {
         if (turnArchiveMode === "archived") return item.isArchived;
-        if (turnArchiveMode === "occupied") return item.unit?.occupancyStatus === "OCCUPIED" || item.vacancyStatus === "OCCUPIED";
+        if (turnArchiveMode === "occupied") return isPhysicallyOccupiedStatus(item.unit?.occupancyStatus) || item.vacancyStatus === "OCCUPIED";
         if (turnArchiveMode === "all") return true;
         return !item.isArchived;
       })
@@ -794,7 +985,7 @@ export function OperationsPanel({
     if (turnArchiveMode !== "occupied") return [];
     const query = turnHistorySearch.trim().toLowerCase();
     return units
-      .filter((unit) => (!selectedPropertyId || unit.propertyId === selectedPropertyId) && unit.occupancyStatus === "OCCUPIED")
+      .filter((unit) => (!selectedPropertyId || unit.propertyId === selectedPropertyId) && isPhysicallyOccupiedStatus(unit.occupancyStatus))
       .filter((unit) => {
         if (!turnHistoryUnitFilter) return true;
         return unit.id === turnHistoryUnitFilter || unit.number === turnHistoryUnitFilter;
@@ -848,6 +1039,79 @@ export function OperationsPanel({
     queryFn: () => getUnitHistory(historyInspectorUnitId),
     enabled: Boolean(historyInspectorUnitId),
   });
+  const unitHistorySummary = useMemo(() => {
+    const history = unitHistoryQuery.data;
+    if (!history) return null;
+    const turns = history.turns;
+    const currentTurn = turns.find((turn) => turn.current) ?? null;
+    const completedTurns = turns.filter((turn) => !turn.current && turn.completedAt);
+    const averageTurnDuration = completedTurns.length
+      ? Math.round((completedTurns.reduce((sum, turn) => sum + (turn.turnDuration ?? 0), 0) / completedTurns.length) * 10) / 10
+      : null;
+    const averageChecklistCompletion = turns.length
+      ? Math.round(turns.reduce((sum, turn) => sum + turn.checklistCompletionPercent, 0) / turns.length)
+      : 0;
+    const sourceCounts = history.events.reduce<Record<string, number>>((acc, entry) => {
+      const key = entry.source || "unknown";
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+    const typeCounts = history.events.reduce<Record<string, number>>((acc, entry) => {
+      const key = entry.type || "UNKNOWN";
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+    const latestEvent = history.events[0] ?? null;
+    const latestCompletedTurn = completedTurns
+      .sort((left, right) => new Date(right.completedAt ?? 0).getTime() - new Date(left.completedAt ?? 0).getTime())[0] ?? null;
+    const turnsCsv = [
+      ["item_id", "current", "created_at", "vacated_date", "make_ready_date", "move_in_date", "completed_at", "days_vacant", "turn_duration", "risk_level", "assigned_tech", "vendor_work_count", "checklist_completion_percent"],
+      ...turns.map((turn) => [
+        turn.itemId,
+        turn.current ? "yes" : "no",
+        turn.createdAt,
+        turn.vacatedDate ?? "",
+        turn.makeReadyDate ?? "",
+        turn.moveInDate ?? "",
+        turn.completedAt ?? "",
+        turn.daysVacant,
+        turn.turnDuration ?? "",
+        turn.riskLevel,
+        turn.assignedTech ?? "",
+        turn.vendorWorkCount,
+        turn.checklistCompletionPercent,
+      ]),
+    ].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n");
+    const eventsCsv = [
+      ["occurred_at", "type", "source", "title", "description"],
+      ...history.events.map((entry) => [
+        entry.occurredAt,
+        entry.type,
+        entry.source,
+        entry.title,
+        entry.description,
+      ]),
+    ].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n");
+    return {
+      currentTurn,
+      completedTurnsCount: completedTurns.length,
+      averageTurnDuration,
+      averageChecklistCompletion,
+      latestEvent,
+      latestCompletedTurn,
+      sourceCounts: Object.entries(sourceCounts).sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0])),
+      typeCounts: Object.entries(typeCounts).sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0])),
+      turnsCsv,
+      eventsCsv,
+      exportJson: {
+        exportedAt: new Date().toISOString(),
+        unit: history.unit,
+        recurringSignals: history.recurringSignals,
+        turns: history.turns,
+        events: history.events,
+      },
+    };
+  }, [unitHistoryQuery.data]);
 
   useEffect(() => {
     if (!selectedProperty) return;
@@ -975,7 +1239,8 @@ export function OperationsPanel({
   };
 
   const buildUnitDirectoryPreviewRows = () => {
-    const rows = unitImportText.split(/\r?\n/).map((row) => row.trim()).filter(Boolean);
+    const normalizedText = normalizeImportSourceText(unitImportText, "unitDirectory");
+    const rows = normalizedText.split(/\r?\n/).map((row) => row.trim()).filter(Boolean);
     if (rows.length === 0) throw new Error(language === "es" ? "Pegue filas CSV antes de importar." : "Paste CSV rows before importing.");
     const delimiter = detectDelimitedInput(rows[0]);
     const firstCells = splitDelimitedLine(rows[0], delimiter).map(normalizeHeader);
@@ -1001,10 +1266,10 @@ export function OperationsPanel({
       const beds = parseNumberCell(valueAt(cells, ["beds", "bed", "bedrooms"]));
       const baths = parseNumberCell(valueAt(cells, ["baths", "bath", "bathrooms"]));
       const imported: UnitImportInput = { number };
-      const floorPlan = valueAt(cells, ["floorplan", "floorplancode", "plancode", "plan", "planname", "unittype", "unittypename", "unitplan"]);
-      const building = valueAt(cells, ["building", "buildingnumber", "bldg", "bldgno", "buildingname", "bldg#"]) || splitUnit.building;
-      const area = valueAt(cells, ["area", "phase", "zone", "section", "propertyarea"]);
-      const floor = valueAt(cells, ["floor", "level"]);
+      const floorPlan = cleanImportedTextCell(valueAt(cells, ["floorplan", "floorplancode", "plancode", "plan", "planname", "unittype", "unittypename", "unitplan"]));
+      const building = cleanImportedTextCell(valueAt(cells, ["building", "buildingnumber", "bldg", "bldgno", "buildingname", "bldg#"])) || cleanImportedTextCell(splitUnit.building);
+      const area = cleanImportedTextCell(valueAt(cells, ["area", "phase", "zone", "section", "propertyarea"]));
+      const floor = cleanImportedTextCell(valueAt(cells, ["floor", "level"]));
       const occupancy = valueAt(cells, ["occupancystatus", "availabilitystatus", "availability", "occupancy", "status", "statusdescription", "unitstatus", "currentstatus", "availstatus"]);
       const budgeted = valueAt(cells, ["budgeted", "isbudgeted", "includeinoccupancy", "occupancyeligible", "budget", "includedinoccupancy"]);
       if (floorPlan) imported.floorPlan = floorPlan;
@@ -1030,7 +1295,8 @@ export function OperationsPanel({
   };
 
   const buildAvailabilityImportPreviewRows = () => {
-    const rows = availabilityImportText.split(/\r?\n/).map((row) => row.trim()).filter(Boolean);
+    const normalizedText = normalizeImportSourceText(availabilityImportText, "availability");
+    const rows = normalizedText.split(/\r?\n/).map((row) => row.trim()).filter(Boolean);
     if (rows.length === 0) throw new Error(language === "es" ? "Pegue filas CSV de disponibilidad antes de importar." : "Paste availability CSV rows before importing.");
     const delimiter = detectDelimitedInput(rows[0]);
     const firstCells = splitDelimitedLine(rows[0], delimiter).map(normalizeHeader);
@@ -1051,15 +1317,15 @@ export function OperationsPanel({
       const number = explicitNumber || splitUnit.unit;
       if (!number) throw new Error(language === "es" ? "Cada fila de disponibilidad necesita un número de unidad." : "Every availability row needs a unit number.");
       const imported: AvailabilityImportInput = { number };
-      const floorPlan = valueAt(cells, ["floorplan", "floorplancode", "plancode", "plan", "planname", "unittype", "unittypename", "floorplantype", "unitplan"]);
-      const availabilityStatus = valueAt(cells, ["availabilitystatus", "availability", "availabilitysection", "reportsection", "section", "status", "statusdescription", "unitstatus", "currentstatus", "unitavailability", "availstatus", "unitavailabilitystatus", "unitavailstatus", "rentalstatus"]);
-      const vacancyStatus = valueAt(cells, ["vacancystatus", "operationalstatus", "occupancystatus", "occupancy"]);
+      const floorPlan = cleanImportedTextCell(valueAt(cells, ["floorplan", "floorplancode", "plancode", "plan", "planname", "unittype", "unittypename", "floorplantype", "unitplan"]));
+      const availabilityStatus = cleanImportedTextCell(valueAt(cells, ["availabilitystatus", "availability", "availabilitysection", "reportsection", "section", "status", "statusdescription", "unitstatus", "currentstatus", "unitavailability", "availstatus", "unitavailabilitystatus", "unitavailstatus", "rentalstatus"]));
+      const vacancyStatus = cleanImportedTextCell(valueAt(cells, ["vacancystatus", "operationalstatus", "occupancystatus", "occupancy"]));
       const sqft = parseNumberCell(valueAt(cells, ["sqft", "squarefeet", "squarefootage", "rentablesqft", "unitsqft"]));
       const beds = parseNumberCell(valueAt(cells, ["beds", "bed", "bedrooms"]));
       const baths = parseNumberCell(valueAt(cells, ["baths", "bath", "bathrooms"]));
-      const building = valueAt(cells, ["building", "buildingnumber", "bldg", "bldgno", "buildingname"]) || splitUnit.building;
-      const area = valueAt(cells, ["area", "phase", "zone", "section", "propertyarea"]);
-      const floor = valueAt(cells, ["floor", "level"]);
+      const building = cleanImportedTextCell(valueAt(cells, ["building", "buildingnumber", "bldg", "bldgno", "buildingname"])) || cleanImportedTextCell(splitUnit.building);
+      const area = cleanImportedTextCell(valueAt(cells, ["area", "phase", "zone", "section", "propertyarea"]));
+      const floor = cleanImportedTextCell(valueAt(cells, ["floor", "level"]));
       const rawMoveOutDate = normalizeImportedDate(valueAt(cells, ["moveoutdate", "moveout", "expectedmoveout", "ntvdate", "noticedate", "noticedt", "noticegivendate", "expectedvacate", "expectedvacatedate", "vacate", "vacateon", "vacatedt", "moveoutdt"]));
       const rawVacatedDate = normalizeImportedDate(valueAt(cells, ["vacateddate", "vacated", "possessiondate", "actualvacate", "actualmoveout", "vacateddt", "actualmoveoutdate"]));
       const daysVacant = parseNumberCell(valueAt(cells, ["daysvacant", "vacantdays", "dayvacant", "daysempty", "daysvac", "daysvacantready"]));
@@ -1067,9 +1333,10 @@ export function OperationsPanel({
       const moveInDate = normalizeImportedDate(valueAt(cells, ["moveindate", "movein", "scheduledmovein", "scheduledmoveindate", "scheduledmoveindate", "scheduledmi", "schedmovein", "schedmi", "moveindt"]));
       const reportDate = normalizeImportedDate(valueAt(cells, ["reportdate", "reportgenerated", "reportgenerateddate", "generatedat", "generateddate", "rundate", "snapshotdate", "asof", "asofdate", "reportasof", "availabilitydate", "reportdt", "asofdt", "printdate", "asofdtm"]));
       const dateApplied = normalizeImportedDate(valueAt(cells, ["dateapplied", "applieddate", "applicationdate", "appdate", "applieddt", "applydate"]));
-      const applicant = valueAt(cells, ["applicant", "applicantname", "futureapplicant", "futureapplicantname", "futureresident", "futureresidentname", "preleased", "prelease", "preleasedname", "preleasedapplicant", "preleasedapplicantname", "preleasename", "leasedto", "leasename", "futuretenant", "futuretenantname", "prospect", "prospectname", "scheduledresident", "scheduledresidentname", "scheduledapplicant", "scheduledapplicantname", "residentname", "resident", "name"]);
+      const applicant = cleanImportedTextCell(valueAt(cells, ["applicant", "applicantname", "futureapplicant", "futureapplicantname", "futureresident", "futureresidentname", "preleased", "prelease", "preleasedname", "preleasedapplicant", "preleasedapplicantname", "preleasename", "leasedto", "leasename", "futuretenant", "futuretenantname", "prospect", "prospectname", "scheduledresident", "scheduledresidentname", "scheduledapplicant", "scheduledapplicantname", "residentname", "resident", "name"]));
       const notes = valueAt(cells, ["notes", "note", "comments", "comment", "memo", "remark", "remarks"]);
       const normalizedStatus = vacancyStatus ? normalizeOccupancy(vacancyStatus) : normalizeOccupancy(availabilityStatus);
+      const normalizedDaysVacant = normalizeImportedDaysVacant(daysVacant, normalizedStatus);
       const useMoveOutAsVacated = normalizedStatus.includes("VACANT") && !normalizedStatus.includes("NTV");
       const moveOutDate = useMoveOutAsVacated ? undefined : rawMoveOutDate;
       const vacatedDate = rawVacatedDate ?? (useMoveOutAsVacated ? rawMoveOutDate : undefined);
@@ -1089,7 +1356,7 @@ export function OperationsPanel({
       if (floor) imported.floor = floor;
       if (moveOutDate) imported.moveOutDate = moveOutDate;
       if (vacatedDate) imported.vacatedDate = vacatedDate;
-      if (daysVacant !== null) imported.daysVacant = Math.max(0, Math.round(daysVacant));
+      if (normalizedDaysVacant !== undefined) imported.daysVacant = normalizedDaysVacant;
       if (makeReadyDate) imported.makeReadyDate = makeReadyDate;
       if (moveInDate) imported.moveInDate = moveInDate;
       if (reportDate) imported.reportDate = reportDate;
@@ -1340,8 +1607,9 @@ export function OperationsPanel({
     acc[unit.occupancyStatus] = (acc[unit.occupancyStatus] ?? 0) + 1;
     return acc;
   }, {});
-  const occupiedCount = occupancyCounts.OCCUPIED ?? 0;
-  const occupancyPercent = unitsForProperty.length ? Math.round((occupiedCount / unitsForProperty.length) * 1000) / 10 : 0;
+  const budgetedUnitsForProperty = unitsForProperty.filter((unit) => unit.isBudgeted !== false);
+  const occupiedCount = budgetedUnitsForProperty.filter((unit) => isPhysicallyOccupiedStatus(unit.occupancyStatus)).length;
+  const occupancyPercent = budgetedUnitsForProperty.length ? Math.round((occupiedCount / budgetedUnitsForProperty.length) * 1000) / 10 : 0;
   const archivedTurns = items.filter((item) => item.isArchived && (!selectedPropertyId || item.propertyId === selectedPropertyId));
   const activeTurns = items.filter((item) => !item.isArchived && (!selectedPropertyId || item.propertyId === selectedPropertyId));
 
@@ -1418,7 +1686,7 @@ export function OperationsPanel({
               <div className="operations-mini-stats">
                 <span><strong>{occupancyPercent}%</strong> {isSpanish ? "ocupación actual" : "current occupancy"}</span>
                 <span><strong>{selectedProperty.occupancyGoalPercent ?? (isSpanish ? "Sin definir" : "Unset")}%</strong> {isSpanish ? "meta" : "goal"}</span>
-                <span><strong>{occupiedCount}</strong> {isSpanish ? "ocupadas" : "occupied"} / {unitsForProperty.length} {isSpanish ? "unidades" : "units"}</span>
+                <span><strong>{occupiedCount}</strong> {isSpanish ? "ocupadas" : "occupied"} / {budgetedUnitsForProperty.length} {isSpanish ? "unidades presupuestadas" : "budgeted units"}</span>
               </div>
               <div className="admin-actions">
                 <button data-testid="property-save" className="button button-primary" disabled={loading} onClick={() => void onUpdateProperty(selectedProperty.id, { name: propertyDraft.name, code: propertyDraft.code, occupancyGoalPercent: propertyDraft.occupancyGoalPercent ? Number(propertyDraft.occupancyGoalPercent) : null })}>{isSpanish ? "Guardar" : "Save"}</button>
@@ -1605,17 +1873,19 @@ export function OperationsPanel({
             </div>
           ) : null}
           <div className="editor-block unit-import-block">
-            <h4>{isSpanish ? "Pegar CSV de disponibilidad" : "Paste Availability CSV"}</h4>
-            <p className="helper-copy">{isSpanish ? "Use esto para reportes de disponibilidad como NTV, NTV arrendado, vacante arrendado, vacante listo, fuera de servicio y unidades modelo. Esto actualiza la ocupación de la unidad y crea o actualiza filas activas de make-ready para registros de disponibilidad no ocupados." : "Use this for availability snapshots such as NTV, NTV leased, vacant leased, vacant ready, down, and model units. This updates unit occupancy and creates or updates active make-ready table rows for non-occupied availability records."}</p>
+            <h4>{isSpanish ? "Pegar CSV/XML de disponibilidad" : "Paste Availability CSV / XML"}</h4>
+            <p className="helper-copy">{isSpanish ? "Use esto para reportes de disponibilidad como NTV, NTV arrendado, vacante arrendado, vacante listo, fuera de servicio y unidades modelo. Puede pegar CSV o cargar XML compatibles. Esto actualiza la ocupación de la unidad y crea o actualiza filas activas de make-ready para registros de disponibilidad no ocupados." : "Use this for availability snapshots such as NTV, NTV leased, vacant leased, vacant ready, down, and model units. You can paste CSV or upload supported XML exports here. This updates unit occupancy and creates or updates active make-ready table rows for non-occupied availability records."}</p>
             <div className="unit-import-actions">
               <input
                 data-testid="availability-import-file"
                 type="file"
-                accept=".csv,.txt,.tsv,text/csv,text/tab-separated-values,text/plain"
+                accept=".csv,.txt,.tsv,.xml,text/csv,text/tab-separated-values,text/plain,application/xml,text/xml"
                 onChange={(event) => {
                   const file = event.currentTarget.files?.[0];
                   if (!file) return;
-                  void file.text().then(setAvailabilityImportText).catch(() => setAvailabilityImportError(isSpanish ? "No se pudo leer ese archivo." : "Could not read that file."));
+                  void file.text()
+                    .then((text) => setAvailabilityImportText(normalizeImportSourceText(text, "availability")))
+                    .catch(() => setAvailabilityImportError(isSpanish ? "No se pudo leer ese archivo." : "Could not read that file."));
                 }}
               />
               <button type="button" className="button button-secondary" onClick={() => setAvailabilityImportText(availabilityImportSamples.standard)}>{isSpanish ? "Cargar ejemplo" : "Load sample"}</button>
@@ -1768,17 +2038,19 @@ export function OperationsPanel({
             <button data-testid="availability-import-submit" className="button button-primary" disabled={loading || !properties.length || !selectedPropertyId || !availabilityImportText.trim()} onClick={() => void importAvailabilityReport()}>{isSpanish ? "Importar disponibilidad y llenar tablero" : "Import Availability & Populate Board"}</button>
           </div>
           <div className="editor-block unit-import-block">
-            <h4>{isSpanish ? "Pegar CSV del directorio de unidades" : "Paste Unit Directory CSV"}</h4>
-            <p className="helper-copy">{isSpanish ? "Use esto solo para inventario permanente. Actualiza el estado ocupado/vacante del directorio, pero no crea filas activas de make-ready. Para poblar el tablero, use el CSV de disponibilidad de arriba." : "Use this for permanent inventory only. It updates occupied/vacant directory status but does not create active make-ready table rows. For board population, use Availability CSV above."}</p>
+            <h4>{isSpanish ? "Pegar CSV/XML del directorio de unidades" : "Paste Unit Directory CSV / XML"}</h4>
+            <p className="helper-copy">{isSpanish ? "Use esto solo para inventario permanente. Puede pegar CSV o cargar XML compatibles. Actualiza el estado ocupado/vacante del directorio, pero no crea filas activas de make-ready. Para poblar el tablero, use la importación de disponibilidad de arriba." : "Use this for permanent inventory only. You can paste CSV or upload supported XML exports here. It updates occupied/vacant directory status but does not create active make-ready table rows. For board population, use Availability import above."}</p>
             <div className="unit-import-actions">
               <input
                 data-testid="unit-import-file"
                 type="file"
-                accept=".csv,.txt,.tsv,text/csv,text/tab-separated-values,text/plain"
+                accept=".csv,.txt,.tsv,.xml,text/csv,text/tab-separated-values,text/plain,application/xml,text/xml"
                 onChange={(event) => {
                   const file = event.currentTarget.files?.[0];
                   if (!file) return;
-                  void file.text().then(setUnitImportText).catch(() => setUnitImportError(isSpanish ? "No se pudo leer ese archivo." : "Could not read that file."));
+                  void file.text()
+                    .then((text) => setUnitImportText(normalizeImportSourceText(text, "unitDirectory")))
+                    .catch(() => setUnitImportError(isSpanish ? "No se pudo leer ese archivo." : "Could not read that file."));
                 }}
               />
               <button type="button" className="button button-secondary" onClick={() => setUnitImportText(unitDirectoryImportSamples.standard)}>{isSpanish ? "Cargar ejemplo" : "Load sample"}</button>
@@ -2218,6 +2490,56 @@ export function OperationsPanel({
                     {historyInspectorUnit?.floorPlanRecord ? floorPlanLabel(historyInspectorUnit.floorPlanRecord) : historyInspectorUnit?.floorPlan || (isSpanish ? "Sin plano" : "No floor plan")}
                   </span>
                 </div>
+                {unitHistorySummary ? (
+                  <>
+                    <div className="unit-history-export-actions">
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => downloadBlob(`makereadyos-unit-history-${historyInspectorUnit?.property.code ?? "property"}-${historyInspectorUnit?.number ?? "unit"}-turns.csv`, new Blob([unitHistorySummary.turnsCsv], { type: "text/csv;charset=utf-8" }))}
+                      >
+                        {isSpanish ? "Exportar rotaciones CSV" : "Export Turns CSV"}
+                      </button>
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => downloadBlob(`makereadyos-unit-history-${historyInspectorUnit?.property.code ?? "property"}-${historyInspectorUnit?.number ?? "unit"}-events.csv`, new Blob([unitHistorySummary.eventsCsv], { type: "text/csv;charset=utf-8" }))}
+                      >
+                        {isSpanish ? "Exportar eventos CSV" : "Export Events CSV"}
+                      </button>
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => downloadBlob(`makereadyos-unit-history-${historyInspectorUnit?.property.code ?? "property"}-${historyInspectorUnit?.number ?? "unit"}.json`, new Blob([JSON.stringify(unitHistorySummary.exportJson, null, 2)], { type: "application/json" }))}
+                      >
+                        {isSpanish ? "Exportar JSON" : "Export JSON"}
+                      </button>
+                    </div>
+                    <div className="unit-history-detail-grid">
+                      <div className="unit-history-detail-card">
+                        <strong>{isSpanish ? "Resumen operativo" : "Operational Summary"}</strong>
+                        <span>{isSpanish ? "Rotación actual" : "Current turn"}: {unitHistorySummary.currentTurn ? (unitHistorySummary.currentTurn.riskLevel || (isSpanish ? "Activa" : "Active")) : (isSpanish ? "Ninguna" : "None")}</span>
+                        <span>{isSpanish ? "Rotaciones completadas" : "Completed turns"}: {unitHistorySummary.completedTurnsCount}</span>
+                        <span>{isSpanish ? "Duración prom." : "Avg duration"}: {unitHistorySummary.averageTurnDuration ?? "-"} {isSpanish ? "días" : "days"}</span>
+                        <span>{isSpanish ? "Checklist prom." : "Avg checklist"}: {unitHistorySummary.averageChecklistCompletion}%</span>
+                        <span>{isSpanish ? "Último evento" : "Latest event"}: {unitHistorySummary.latestEvent ? `${unitHistorySummary.latestEvent.title} / ${formatDateTime(unitHistorySummary.latestEvent.occurredAt)}` : (isSpanish ? "Sin eventos" : "No events")}</span>
+                        <span>{isSpanish ? "Última rotación completada" : "Latest completed turn"}: {unitHistorySummary.latestCompletedTurn?.completedAt ? formatDateTime(unitHistorySummary.latestCompletedTurn.completedAt) : "-"}</span>
+                      </div>
+                      <div className="unit-history-detail-card">
+                        <strong>{isSpanish ? "Fuentes de eventos" : "Event Sources"}</strong>
+                        {unitHistorySummary.sourceCounts.length ? unitHistorySummary.sourceCounts.slice(0, 6).map(([source, count]) => (
+                          <span key={source}>{source.replace(/_/g, " ")}: {count}</span>
+                        )) : <span>{isSpanish ? "Sin datos" : "No data"}</span>}
+                      </div>
+                      <div className="unit-history-detail-card">
+                        <strong>{isSpanish ? "Tipos de evento" : "Event Types"}</strong>
+                        {unitHistorySummary.typeCounts.length ? unitHistorySummary.typeCounts.slice(0, 6).map(([type, count]) => (
+                          <span key={type}>{type.replace(/_/g, " ")}: {count}</span>
+                        )) : <span>{isSpanish ? "Sin datos" : "No data"}</span>}
+                      </div>
+                    </div>
+                  </>
+                ) : null}
                 <div className="unit-history-turn-grid">
                   {unitHistoryQuery.data?.turns.map((turn) => (
                     <div key={turn.itemId} className={`unit-history-turn-card${turn.current ? " current" : ""}`}>

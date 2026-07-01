@@ -375,8 +375,73 @@ export type AnalyticsSummaryResponse = {
   riskByCategory: Record<string, number>;
   propertyComparison: Record<string, { active: number; overdue: number; highRisk: number; averageDaysVacant: number }>;
   trends: Array<{ date: string; property: Property; activeTurns: number; overdue: number; highRisk: number; averageDaysVacant: number; completedTurnsCount: number }>;
-  recurringProblemUnits: Array<{ unitId: string | null; unitNumber: string; property: Property; turnCount: number; score: number; signals: Record<string, number> }>;
+  slaMissByScope: Array<{
+    scopeLevel: string;
+    missCount: number;
+    averageLateDays: number;
+    worstLateDays: number;
+  }>;
+  technicianThroughput: Array<{
+    name: string;
+    activeCount: number;
+    overdueCount: number;
+    highRiskCount: number;
+    completedTurns: number;
+    averageTurnDuration: number | null;
+    averageChecklistCompletionPercent: number;
+  }>;
+  vendorThroughput: Array<{
+    vendorId: string;
+    vendorName: string;
+    trade: string;
+    activeAssignments: number;
+    overdueAssignments: number;
+    completedAssignments: number;
+    averageCompletionDays: number | null;
+  }>;
+  recurringProblemUnits: Array<{
+    unitId: string | null;
+    unitNumber: string;
+    property: Property;
+    turnCount: number;
+    activeTurnCount: number;
+    completedTurnCount: number;
+    currentItemId: string | null;
+    lastActivityAt: string;
+    latestCompletedAt: string | null;
+    averageTurnDuration: number | null;
+    averageChecklistCompletionPercent: number;
+    score: number;
+    signals: Record<string, number>;
+  }>;
   recentCompletedTurns: Array<{ itemId: string; unitNumber: string; property: Property; completedAt: string; turnDuration: number | null; daysVacant: number; riskLevel: string; assignedTech: string | null; vendorWorkCount: number; checklistCompletionPercent: number }>;
+};
+
+export type AnalyticsSnapshot = {
+  id: string;
+  propertyId: string;
+  property: Property;
+  date: string;
+  activeTurns: number;
+  vacant: number;
+  ntv: number;
+  ready: number;
+  down: number;
+  overdue: number;
+  highRisk: number;
+  averageDaysVacant: number;
+  moveInsNext7Days: number;
+  completedTurnsCount: number;
+};
+
+export type AnalyticsSnapshotsResponse = {
+  snapshots: AnalyticsSnapshot[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
 };
 
 export type UnitHistoryResponse = {
@@ -672,7 +737,13 @@ export type PoolOverviewResponse = {
   };
   missingFacilities: PoolFacility[];
   safetyFailures: Array<{ entryId: string; facilityName: string; label: string; notes: string | null }>;
-  chemistryIssues: Array<{ entryId: string; facilityName: string; issue: unknown }>;
+  chemistryIssues: Array<{
+    entryId: string;
+    facilityName: string;
+    issue: unknown;
+    recommendations?: string[];
+    dosage?: Array<{ chemicalCategory: string; chemicalName?: string; amount?: number; unit?: string; message: string; missing?: string[] }>;
+  }>;
   usageToday: PoolChemicalAddition[];
   recentEntries: PoolLogEntry[];
 };
@@ -2418,6 +2489,16 @@ export function getAnalyticsSummary(propertyId?: string) {
   return request<AnalyticsSummaryResponse>(`/analytics/summary${params}`);
 }
 
+export function getAnalyticsSnapshots(input?: { propertyId?: string; from?: string; to?: string; limit?: number; offset?: number }) {
+  const params = new URLSearchParams();
+  if (input?.propertyId) params.set("propertyId", input.propertyId);
+  if (input?.from) params.set("from", input.from);
+  if (input?.to) params.set("to", input.to);
+  if (typeof input?.limit === "number") params.set("limit", String(input.limit));
+  if (typeof input?.offset === "number") params.set("offset", String(input.offset));
+  return request<AnalyticsSnapshotsResponse>(`/analytics/snapshots${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
 export function runAnalyticsSnapshot(propertyId?: string) {
   const params = propertyId ? `?propertyId=${encodeURIComponent(propertyId)}` : "";
   return request<{ date: string; count: number; snapshots: unknown[] }>(`/analytics/snapshot/run${params}`, { method: "POST" });
@@ -4118,6 +4199,10 @@ export function updateRefrigerantType(id: string, input: Partial<{ name: string;
   return request<{ type: RefrigerantType }>(`/refrigerant/types/${id}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
+export function deleteRefrigerantType(id: string) {
+  return request<{ ok: true }>(`/refrigerant/types/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export function getRefrigerantCylinders(filters: { category?: RefrigerantCylinder["category"]; status?: RefrigerantCylinder["status"]; includeArchived?: boolean } = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
@@ -4145,6 +4230,10 @@ export function createRefrigerantCylinder(input: {
 
 export function updateRefrigerantCylinder(id: string, input: Partial<Parameters<typeof createRefrigerantCylinder>[0]> & { finalRecoveryCompleted?: boolean }) {
   return request<{ cylinder: RefrigerantCylinder }>(`/refrigerant/cylinders/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function deleteRefrigerantCylinder(id: string) {
+  return request<{ ok: true }>(`/refrigerant/cylinders/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export function getRefrigerantHistory(filters: { propertyId?: string; unitId?: string; unitNumber?: string; refrigerantTypeId?: string; transactionType?: RefrigerantTransaction["transactionType"]; from?: string; to?: string; limit?: number; offset?: number } = {}) {
@@ -4229,6 +4318,10 @@ export function updatePoolFacility(id: string, input: Partial<Parameters<typeof 
   return request<{ facility: PoolFacility }>(`/pool/facilities/${id}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
+export function deletePoolFacility(id: string) {
+  return request<{ ok: true }>(`/pool/facilities/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export function getPoolChemicals(filters: { propertyId?: string; includeArchived?: boolean } = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
@@ -4250,6 +4343,10 @@ export function createPoolChemical(input: {
 
 export function updatePoolChemical(id: string, input: Partial<Parameters<typeof createPoolChemical>[0]> & { isActive?: boolean }) {
   return request<{ chemical: PoolChemical }>(`/pool/chemicals/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function deletePoolChemical(id: string) {
+  return request<{ ok: true }>(`/pool/chemicals/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export function getPoolEntries(filters: { propertyId?: string; facilityId?: string; from?: string; to?: string; limit?: number; offset?: number } = {}) {
@@ -4356,6 +4453,10 @@ export function createPreventiveMaintenanceTemplate(input: {
 
 export function updatePreventiveMaintenanceTemplate(id: string, input: Partial<Parameters<typeof createPreventiveMaintenanceTemplate>[0]>) {
   return request<{ template: PreventiveMaintenanceTemplate }>(`/pm/templates/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function deletePreventiveMaintenanceTemplate(id: string) {
+  return request<{ ok: true }>(`/pm/templates/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export function getPreventiveMaintenanceTasks(filters: {

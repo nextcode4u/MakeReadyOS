@@ -52,7 +52,7 @@ Property Maps reuse the same directory metadata. When building data exists, the 
 
 ## Paste/File Import
 
-The Setup workspace supports lightweight paste or local-file import for unit directories and availability reports. Comma-delimited, semicolon-delimited, and tab-delimited data are supported, including quoted CSV values. An existing property must be selected before import; the preview shows the target property so rows cannot silently land in the wrong property. Existing units are updated by property + unit number. New units are created. The import is merge-style and does not delete units missing from the pasted report.
+The Setup workspace supports lightweight paste or local-file import for unit directories and availability reports. Comma-delimited, semicolon-delimited, and tab-delimited data are supported, including quoted CSV values. Direct XML import is also supported for the two common OneSite export shapes currently seen in live use: `LeaseVariance` availability exports and `AllUnitsReport` directory exports. An existing property must be selected before import; the preview shows the target property so rows cannot silently land in the wrong property. Existing units are updated by property + unit number. New units are created. The import is merge-style and does not delete units missing from the pasted report.
 
 Use the two import boxes for different jobs:
 
@@ -66,6 +66,8 @@ When the unit directory marks a unit as `OCCUPIED` but an active make-ready turn
 Sparse files are supported. A row may include only unit number, floor plan, and square footage. When updating an existing unit, MakeReadyOS only changes fields that are present in the import row; missing columns do not wipe existing building, area, status, budgeted, or occupancy data. Browser parsing now also ignores obvious blank-unit summary/header noise such as occupancy summaries or floor-plan summary rows and shows those skips in the preview instead of failing the import.
 
 The browser-side parser now also tolerates more real export shapes before the data reaches the API. Combined `building/unit` columns such as `12-3405` or `12 / 3405` are split automatically when no separate unit column exists, broader common header aliases like `reportdt`, `asofdt`, `printdate`, `moveoutdt`, and `applieddt` are recognized, semicolon-separated spreadsheet exports are detected automatically, and imported dates are normalized into `YYYY-MM-DD` form when possible.
+
+Import cleanup also strips obvious placeholder metadata values such as `N/A`, `None`, `null`, `(blank)`, or em-dash placeholders from building/area/floor/plan fields before preview and import, so source placeholders do not become real directory values. Negative `Days Vacant` values from future-notice/NTV availability reports are ignored instead of being treated like true vacancy aging.
 
 When a row contains a floor-plan value, MakeReadyOS treats that value as the report code/type, not necessarily the friendly marketing name. For example, an imported `B1` code may later be renamed in Setup to display as `B1 - Arlington` while the stable code remains `B1` for future imports. Imported bedroom, bathroom, and square-foot values are attached to the managed floor plan and then linked back to the unit. If the managed floor plan already exists, imports fill only missing floor-plan metadata; they do not overwrite manually curated floor-plan values.
 
@@ -81,7 +83,7 @@ Useful aliases include `unit number`, `unit #`, `apartment`, `building number`, 
 
 Floor-plan imports should use the property report code in the `floorPlan` column. After import, edit the managed floor plan in Setup if the property uses a separate friendly name. Keep the code stable unless the source report changes, because future imports match managed floor plans by code.
 
-The import preview shows target property, row count, expected new units, expected updates, budgeted-unit count, and status counts before writing. After import, Setup shows a last-import receipt with an undo action for units created by that import plus floor-plan create/update counts. Existing-unit updates and managed floor-plan metadata fills are intentionally not automatically rolled back yet because safe rollback requires storing row-level before snapshots. Budgeted units are used for occupancy percentage calculations, which lets properties exclude offices, models, non-revenue units, or other non-budgeted inventory.
+The import preview shows target property, row count, expected new units, expected updates, budgeted-unit count, and status counts before writing. After import, Setup shows a last-import receipt with an undo action for units created by that import plus floor-plan create/update counts. Existing-unit updates and managed floor-plan metadata fills are intentionally not automatically rolled back yet because safe rollback requires storing row-level before snapshots. Budgeted units are used for occupancy percentage calculations, which lets properties exclude offices, models, non-revenue units, or other non-budgeted inventory. Physical occupancy includes units that are still lived in, so `OCCUPIED`, `NTV NOT LEASED`, and `NTV LEASED` all count as occupied until the resident has actually moved out.
 
 ## Source Report Patterns
 
@@ -210,7 +212,7 @@ Use availability import in two different ways:
 - Stale-report failsafe: if the incoming report would overwrite newer or more advanced local board values, MakeReadyOS blocks the import and returns the conflicting units for review until an operator explicitly overrides the report.
 - Generic move-out routing: when a source export only supplies one move-out style column, MakeReadyOS now routes it into `moveOutDate` for notice/NTV statuses and into `vacatedDate` for already-vacant statuses so the turn timeline stays closer to the real report intent.
 
-Large recurring imports no longer collapse changed-unit review into a partial summary. The browser preview keeps the full changed-unit list and the full blocked-conflict list visible in unit order, and both lists can be copied out in one action for reconciliation with RealPage, Yardi, or supervisor handoff. That same preview path now auto-detects comma, semicolon, or tab separators so spreadsheet exports do not need manual delimiter cleanup first.
+Large recurring imports no longer collapse changed-unit review into a partial summary. The browser preview keeps the full changed-unit list and the full blocked-conflict list visible in unit order, and both lists can be copied out in one action for reconciliation with RealPage, Yardi, or supervisor handoff. That same preview path now auto-detects comma, semicolon, or tab separators so spreadsheet exports do not need manual delimiter cleanup first, and direct `.xml` uploads are normalized in the browser before preview/import when the file matches the supported OneSite availability or unit-directory export shapes.
 
 The in-app availability importer now also ships quick presets for five common starting shapes:
 
@@ -271,4 +273,4 @@ Recommended status mapping:
 
 ## Dashboard
 
-Dashboard occupancy cards show total units, occupied units, occupancy percentage, configured occupancy goal, vacant ready stock, and availability-report statuses. Ready-stock visibility helps teams understand whether they have units available for immediate move-in.
+Dashboard occupancy cards show total budgeted units, physically occupied units, occupancy percentage, configured occupancy goal, vacant ready stock, and availability-report statuses. NTV units still count toward occupancy until they become truly vacant, while non-budgeted units such as offices or models stay out of the occupancy denominator. Ready-stock visibility helps teams understand whether they have units available for immediate move-in.

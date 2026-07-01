@@ -101,6 +101,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       .filter((item) => item.unitId && sectionType.get(`${item.propertyId}:${item.boardGroup}`) === "DOWN")
       .map((item) => item.unitId as string));
     const hasAnyStatus = (value: string | null, statuses: string[]) => Boolean(value && statuses.includes(value));
+    const isPhysicallyOccupiedStatus = (value: string | null) => Boolean(value && ["OCCUPIED", "NTV", "NTV NOT LEASED", "NTV_LEASED", "NTV LEASED"].includes(value));
     const vacantStatuses = ["VACANT", "VACANT_NOT_LEASED", "VACANT_READY", "VACANT NOT LEASED READY", "VACANT NOT LEASED NOT READY"];
     const vacantLeasedStatuses = ["VACANT LEASED", "VACANT_LEASED", "VACANT LEASED READY", "VACANT LEASED NOT READY"];
     const readyStockStatuses = ["VACANT_READY", "VACANT NOT LEASED READY", "VACANT LEASED READY"];
@@ -137,7 +138,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       for (const reason of entry.risk.riskReasons) acc[reason.category] = (acc[reason.category] ?? 0) + 1;
       return acc;
     }, {});
-    const occupiedUnits = directoryUnits.filter((unit) => unit.occupancyStatus === "OCCUPIED").length;
+    const occupiedUnits = directoryUnits.filter((unit) => isPhysicallyOccupiedStatus(unit.occupancyStatus)).length;
     const directoryVacantReady = directoryUnits.filter((unit) => hasAnyStatus(unit.occupancyStatus, readyStockStatuses)).length;
     const directoryVacantLeased = directoryUnits.filter((unit) => hasAnyStatus(unit.occupancyStatus, vacantLeasedStatuses)).length;
     const directoryNtv = directoryUnits.filter((unit) => unit.occupancyStatus === "NTV" || unit.occupancyStatus === "NTV NOT LEASED").length;

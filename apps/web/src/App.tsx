@@ -182,7 +182,7 @@ import {
   type PropertyMap,
 } from "./lib/api";
 import { configuredScheduleTracks, kanbanGroupOptions, labelMap, normalizeVisibleColumns, tableColumnPresets, visibleColumnOptions } from "./lib/board";
-import { clockModeStorageKey, type ClockMode } from "./lib/dateTime";
+import { clockModeStorageKey, formatTime, type ClockMode } from "./lib/dateTime";
 import { t, tWithVars } from "./lib/i18n";
 import { customFieldFilterChipLabel, customOperatorsByType, defaultCustomFilterFor, defaultStructuredFilters, itemMatchesStructuredFilters, normalizeCustomFieldFilters, type CustomFieldFilter, type StructuredFilters } from "./lib/structuredFilters";
 import { openWikiRecordEventName, type OpenWikiRecordRequest } from "./lib/wikiNavigation";
@@ -677,6 +677,7 @@ function App() {
   const [lastConnectionIssueAt, setLastConnectionIssueAt] = useState<string | null>(null);
   const [offlineQueuePendingCount, setOfflineQueuePendingCount] = useState(0);
   const [offlineQueueSyncing, setOfflineQueueSyncing] = useState(false);
+  const [offlineQueueJobs, setOfflineQueueJobs] = useState<OfflineSyncJobSummary[]>([]);
   const [offlineQueueBlockedJobs, setOfflineQueueBlockedJobs] = useState<OfflineSyncJobSummary[]>([]);
   const [offlineQueueReviewOpen, setOfflineQueueReviewOpen] = useState(false);
   const [selectedOfflineQueueJob, setSelectedOfflineQueueJob] = useState<OfflineSyncJob | null>(null);
@@ -769,6 +770,7 @@ function App() {
   const refreshOfflineQueueState = async () => {
     const [pendingCount, jobs] = await Promise.all([getOfflineSyncPendingCount(), listOfflineSyncJobs()]);
     setOfflineQueuePendingCount(pendingCount);
+    setOfflineQueueJobs(jobs);
     setOfflineQueueBlockedJobs(jobs.filter((job) => Boolean(job.lastErrorStatus) && job.lastErrorStatus !== 0));
   };
 
@@ -1297,6 +1299,10 @@ function App() {
     selectedOfflineQueueServerPoolEntry,
     selectedOfflineQueueServerProjectRecord,
   ]);
+  const offlineQueueRetryingJobs = useMemo(
+    () => offlineQueueJobs.filter((job) => job.status === "retrying"),
+    [offlineQueueJobs],
+  );
 
   useEffect(() => {
     const handleOpenProjectRecord = (event: Event) => {
@@ -3686,6 +3692,7 @@ function App() {
             degraded={apiDegraded}
             lastIssueAt={lastConnectionIssueAt}
             pendingSyncCount={offlineQueuePendingCount}
+            retryingCount={offlineQueueRetryingJobs.length}
             blockedCount={offlineQueueBlockedJobs.length}
             conflictCount={offlineQueueBlockedJobs.filter((job) => job.lastErrorStatus === 409).length}
             syncing={offlineQueueSyncing}
@@ -4718,46 +4725,72 @@ function App() {
           </>
         )}
       >
-        {!offlineQueueBlockedJobs.length ? (
+        {!offlineQueueBlockedJobs.length && !offlineQueueRetryingJobs.length ? (
           <p className="admin-message success">{t(currentUser.language, "offlineQueue.empty")}</p>
         ) : (
           <div className="offline-queue-review-list">
-            <p className="admin-message warning">
-              {t(currentUser.language, "offlineQueue.needsReview").replace("{count}", String(offlineQueueBlockedJobs.length))}
-            </p>
-            {offlineQueueBlockedJobs.map((job) => {
-              const conflict = job.lastErrorStatus === 409;
-              return (
-                <article key={job.id} className="admin-card offline-queue-review-card">
-                  <div className="drawer-section-title">
-                    <h3>{job.title}</h3>
-                    <span className={conflict ? "summary-alert" : "muted"}>{conflict ? t(currentUser.language, "offlineQueue.conflict") : `HTTP ${job.lastErrorStatus ?? t(currentUser.language, "offlineQueue.error")}`}</span>
-                  </div>
-                  <p><strong>{t(currentUser.language, "offlineQueue.module")}:</strong> {job.module}</p>
-                  <p><strong>{t(currentUser.language, "offlineQueue.attempts")}:</strong> {job.attemptCount}</p>
-                  <p><strong>{t(currentUser.language, "offlineQueue.lastError")}:</strong> {job.lastError ?? t(currentUser.language, "offlineQueue.unknownError")}</p>
-                  <p className="helper-copy">
-                    {conflict
-                      ? t(currentUser.language, "offlineQueue.conflictHelp")
-                      : t(currentUser.language, "offlineQueue.serverErrorHelp")}
-                  </p>
-                  <div className="drawer-actions">
-                    <button type="button" className="button button-secondary" onClick={() => void reviewOfflineQueueJob(job)}>
-                      {t(currentUser.language, "offlineQueue.reviewDetails")}
-                    </button>
-                    <button type="button" className="button button-secondary" onClick={() => void syncQueuedOfflineChanges()} disabled={offlineQueueSyncing || !isOnline}>
-                      {t(currentUser.language, "offlineQueue.retrySync")}
-                    </button>
-                    <button type="button" className="button button-secondary" onClick={() => void retrySingleOfflineQueueJob(job)} disabled={offlineQueueSyncing || !isOnline}>
-                      {t(currentUser.language, "offlineQueue.retryThis")}
-                    </button>
-                    <button type="button" className="button button-ghost danger" onClick={() => void discardOfflineQueueJob(job)}>
-                      {t(currentUser.language, "offlineQueue.discard")}
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
+            {offlineQueueBlockedJobs.length ? (
+              <>
+                <p className="admin-message warning">
+                  {t(currentUser.language, "offlineQueue.needsReview").replace("{count}", String(offlineQueueBlockedJobs.length))}
+                </p>
+                {offlineQueueBlockedJobs.map((job) => {
+                  const conflict = job.lastErrorStatus === 409;
+                  return (
+                    <article key={job.id} className="admin-card offline-queue-review-card">
+                      <div className="drawer-section-title">
+                        <h3>{job.title}</h3>
+                        <span className={conflict ? "summary-alert" : "muted"}>{conflict ? t(currentUser.language, "offlineQueue.conflict") : `HTTP ${job.lastErrorStatus ?? t(currentUser.language, "offlineQueue.error")}`}</span>
+                      </div>
+                      <p><strong>{t(currentUser.language, "offlineQueue.module")}:</strong> {job.module}</p>
+                      <p><strong>{t(currentUser.language, "offlineQueue.attempts")}:</strong> {job.attemptCount}</p>
+                      <p><strong>{t(currentUser.language, "offlineQueue.lastError")}:</strong> {job.lastError ?? t(currentUser.language, "offlineQueue.unknownError")}</p>
+                      <p className="helper-copy">
+                        {conflict
+                          ? t(currentUser.language, "offlineQueue.conflictHelp")
+                          : t(currentUser.language, "offlineQueue.serverErrorHelp")}
+                      </p>
+                      <div className="drawer-actions">
+                        <button type="button" className="button button-secondary" onClick={() => void reviewOfflineQueueJob(job)}>
+                          {t(currentUser.language, "offlineQueue.reviewDetails")}
+                        </button>
+                        <button type="button" className="button button-secondary" onClick={() => void syncQueuedOfflineChanges()} disabled={offlineQueueSyncing || !isOnline}>
+                          {t(currentUser.language, "offlineQueue.retrySync")}
+                        </button>
+                        <button type="button" className="button button-secondary" onClick={() => void retrySingleOfflineQueueJob(job)} disabled={offlineQueueSyncing || !isOnline}>
+                          {t(currentUser.language, "offlineQueue.retryThis")}
+                        </button>
+                        <button type="button" className="button button-ghost danger" onClick={() => void discardOfflineQueueJob(job)}>
+                          {t(currentUser.language, "offlineQueue.discard")}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </>
+            ) : (
+              <p className="admin-message">{t(currentUser.language, "offlineQueue.retryingOnly")}</p>
+            )}
+            {offlineQueueRetryingJobs.length ? (
+              <section className="admin-card offline-queue-review-card">
+                <div className="drawer-section-title">
+                  <h3>{t(currentUser.language, "offlineQueue.retryingNow").replace("{count}", String(offlineQueueRetryingJobs.length))}</h3>
+                </div>
+                <p className="helper-copy">{t(currentUser.language, "offlineQueue.retryingHelp")}</p>
+                <div className="offline-queue-change-list">
+                  {offlineQueueRetryingJobs.map((job) => (
+                    <div key={job.id} className="offline-queue-change-row">
+                      <strong>{job.title}</strong>
+                      <div>{t(currentUser.language, "offlineQueue.module")}: {job.module}</div>
+                      <div>{t(currentUser.language, "offlineQueue.attempts")}: {job.attemptCount}</div>
+                      <div>
+                        {t(currentUser.language, "offlineQueue.nextRetry")}: {job.nextRetryAt ? formatTime(job.nextRetryAt, clockMode, currentUser.language) : t(currentUser.language, "offlineQueue.pendingSync")}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
             <section className="admin-card offline-queue-review-card offline-queue-detail-card">
               <div className="drawer-section-title">
                 <h3>{t(currentUser.language, "offlineQueue.localChange")}</h3>
