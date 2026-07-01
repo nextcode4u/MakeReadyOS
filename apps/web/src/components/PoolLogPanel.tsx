@@ -121,6 +121,71 @@ function formatPoolDosageMessage(
   return dosage.message;
 }
 
+function poolChemicalCategoryActionLabel(category: string, language: string) {
+  const english: Record<string, string> = {
+    CHLORINE: "Add chlorine",
+    PH_UP: "Add pH Up",
+    PH_DOWN: "Add pH Down",
+    ALKALINITY_UP: "Add alkalinity increaser",
+    STABILIZER: "Add stabilizer",
+    CALCIUM_HARDNESS: "Add calcium hardness increaser",
+    OTHER: "Add chemical",
+  };
+  const spanish: Record<string, string> = {
+    CHLORINE: "Agregar cloro",
+    PH_UP: "Agregar elevador de pH",
+    PH_DOWN: "Agregar reductor de pH",
+    ALKALINITY_UP: "Agregar aumentador de alcalinidad",
+    STABILIZER: "Agregar estabilizador",
+    CALCIUM_HARDNESS: "Agregar aumentador de dureza de calcio",
+    OTHER: "Agregar químico",
+  };
+  return (language === "es" ? spanish : english)[category] ?? (language === "es" ? "Agregar químico" : "Add chemical");
+}
+
+function summarizePoolCorrection(
+  issue: { code?: string; message?: string } | null | undefined,
+  dosage: Array<{ chemicalCategory: string; chemicalName?: string; amount?: number; unit?: string; message: string; missing?: string[] }>,
+  recommendations: string[],
+  language: string,
+) {
+  const actions: string[] = [];
+  dosage.forEach((entry) => {
+    const label = poolChemicalCategoryActionLabel(entry.chemicalCategory, language);
+    if (!actions.includes(label)) actions.push(label);
+  });
+  const code = issue?.code ?? "";
+  if (code === "PH_LOW" && !actions.includes(language === "es" ? "Agregar elevador de pH" : "Add pH Up")) {
+    actions.push(language === "es" ? "Agregar elevador de pH" : "Add pH Up");
+  }
+  if (code === "PH_HIGH" && !actions.includes(language === "es" ? "Agregar reductor de pH" : "Add pH Down")) {
+    actions.push(language === "es" ? "Agregar reductor de pH" : "Add pH Down");
+  }
+  if (code === "TOTAL_ALKALINITY_HIGH") {
+    actions.push(language === "es" ? "Bajar alcalinidad" : "Lower alkalinity");
+  }
+  if (code === "TOTAL_ALKALINITY_LOW" && !actions.includes(language === "es" ? "Agregar aumentador de alcalinidad" : "Add alkalinity increaser")) {
+    actions.push(language === "es" ? "Agregar aumentador de alcalinidad" : "Add alkalinity increaser");
+  }
+  if (code === "WATER_CLOUDY") {
+    actions.push(language === "es" ? "Revisar filtración" : "Check filtration");
+  }
+  if (code === "ALGAE_PRESENT") {
+    actions.push(language === "es" ? "Tratar algas" : "Treat algae");
+  }
+  if (code === "COMBINED_CHLORINE_HIGH") {
+    actions.push(language === "es" ? "Revisar choque/sanitizante" : "Review shock/sanitizer");
+  }
+  if (!actions.length && recommendations.length) {
+    const first = recommendations[0];
+    if (/stabilizer/i.test(first)) actions.push(language === "es" ? "Agregar estabilizador" : "Add stabilizer");
+    else if (/sanitizer|chlorine/i.test(first)) actions.push(language === "es" ? "Agregar cloro" : "Add chlorine");
+    else if (/alkalinity/i.test(first)) actions.push(language === "es" ? "Bajar alcalinidad" : "Lower alkalinity");
+    else if (/filtration|circulation/i.test(first)) actions.push(language === "es" ? "Revisar filtración" : "Check filtration");
+  }
+  return [...new Set(actions)].slice(0, 3);
+}
+
 function poolTypeLabel(type: PoolFacility["type"], language: string) {
   const english: Record<PoolFacility["type"], string> = {
     POOL: "Pool",
@@ -174,6 +239,7 @@ function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: Po
   const needsFollowUp = evaluation?.status === "REVIEW" || entry.safetyChecks.some((check) => check.value === "FAIL");
   const recommendationLines = evaluation?.recommendations ?? [];
   const dosageLines = evaluation?.dosage ?? [];
+  const actionSummary = summarizePoolCorrection(evaluation?.issues?.[0], dosageLines, recommendationLines, language);
   return (
     <div className="pool-history-row" data-testid="pool-history-row">
       <div>
@@ -192,20 +258,12 @@ function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: Po
         ) : null}
       </div>
       <span className={`status-pill ${evaluation?.status === "REVIEW" ? "risk-high" : ""}`}>{evaluation?.status ?? "Logged"}</span>
-      {recommendationLines.length || dosageLines.length ? (
+      {actionSummary.length ? (
         <div className="pool-reading-stack" style={{ alignItems: "flex-start" }}>
-          {dosageLines.length ? (
-            <span className="muted">
-              <strong>{isSpanish ? "Agregar/corregir:" : "Add/correct:"}</strong>{" "}
-              {dosageLines.map((line) => formatPoolDosageMessage(line, language)).join("; ")}
-            </span>
-          ) : null}
-          {recommendationLines.length ? (
-            <span className="muted">
-              <strong>{isSpanish ? "Acción:" : "Action:"}</strong>{" "}
-              {recommendationLines.join("; ")}
-            </span>
-          ) : null}
+          <span className="muted">
+            <strong>{isSpanish ? "Siguiente paso:" : "Next step:"}</strong>{" "}
+            {actionSummary.join("; ")}
+          </span>
         </div>
       ) : null}
       <div className="pool-entry-actions">
@@ -220,11 +278,11 @@ function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: Po
               title: `${entry.facility.name} follow-up`,
               description: [
                 `Pool log follow-up from ${new Date(entry.logDate).toLocaleDateString()}${entry.logTime ? ` ${entry.logTime}` : ""}.`,
-                dosageLines.length
-                  ? `${isSpanish ? "Agregar/corregir" : "Add/correct"}: ${dosageLines.map((line) => formatPoolDosageMessage(line, language)).join("; ")}`
+                actionSummary.length
+                  ? `${isSpanish ? "Siguiente paso" : "Next step"}: ${actionSummary.join("; ")}`
                   : "",
-                recommendationLines.length
-                  ? `${isSpanish ? "Acción" : "Action"}: ${recommendationLines.join("; ")}`
+                dosageLines.length
+                  ? `${isSpanish ? "Detalle de dosificación" : "Dosage detail"}: ${dosageLines.map((line) => formatPoolDosageMessage(line, language)).join("; ")}`
                   : "",
                 entry.notes ?? "",
               ].filter(Boolean).join("\n\n"),
@@ -596,17 +654,14 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
               {overviewQuery.data?.chemistryIssues.length ? overviewQuery.data.chemistryIssues.slice(0, 8).map((issue, index) => (
                 <div className="pool-row warning" key={`${issue.entryId}-${index}`}>
                   <strong>{issue.facilityName}</strong>
-                  <span>{typeof issue.issue === "object" && issue.issue && "message" in issue.issue ? String((issue.issue as { message: unknown }).message) : (isSpanish ? "La química necesita revisión" : "Chemistry needs review")}</span>
-                  {issue.dosage?.length ? (
-                    <span className="muted">
-                      {isSpanish ? "Corrección:" : "Correction:"} {issue.dosage.map((line) => formatPoolDosageMessage(line, language)).join("; ")}
-                    </span>
-                  ) : null}
-                  {issue.recommendations?.length ? (
-                    <span className="muted">
-                      {isSpanish ? "Acción:" : "Action:"} {issue.recommendations.join("; ")}
-                    </span>
-                  ) : null}
+                  <span>
+                    {summarizePoolCorrection(
+                      typeof issue.issue === "object" && issue.issue ? issue.issue as { code?: string; message?: string } : null,
+                      issue.dosage ?? [],
+                      issue.recommendations ?? [],
+                      language,
+                    ).join("; ") || (isSpanish ? "Revisar química" : "Review chemistry")}
+                  </span>
                 </div>
               )) : null}
               {!overviewQuery.data?.safetyFailures.length && !overviewQuery.data?.chemistryIssues.length ? <p className="muted">{isSpanish ? "No hay elementos de seguridad o química para revisar hoy." : "No safety or chemistry review items today."}</p> : null}
