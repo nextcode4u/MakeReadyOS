@@ -172,6 +172,7 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
   const cylinders = cylindersQuery.data?.cylinders ?? [];
   const activeTypes = types.filter((type) => type.isActive);
   const virginTanks = cylinders.filter((cylinder) => cylinder.category === "VIRGIN");
+  const chargeSourceTanks = cylinders.filter((cylinder) => (cylinder.category === "VIRGIN" || cylinder.category === "CLEAN_RECOVERY") && cylinder.status === "ACTIVE");
   const activeVirginTanks = virginTanks.filter((cylinder) => cylinder.status === "ACTIVE");
   const cleanRecoveryTanks = cylinders.filter((cylinder) => cylinder.category === "CLEAN_RECOVERY");
   const dirtyRecoveryTanks = cylinders.filter((cylinder) => cylinder.category === "DIRTY_RECOVERY");
@@ -350,7 +351,7 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
                 title={t(language, "refrigerant.quickCharge")}
                 properties={properties}
                 units={units}
-                tanks={activeVirginTanks}
+                tanks={chargeSourceTanks}
                 recentUnitTransactions={recentUnitTransactions}
                 language={language}
                 onSubmit={submitCharge}
@@ -699,9 +700,9 @@ function QuickChargeForm({ title, properties, units, tanks, recentUnitTransactio
           ) : null}
         </div>
       ) : null}
-      <label>{t(language, "refrigerant.virginTank")}
+      <label>{t(language, "refrigerant.sourceTank")}
         <select name="sourceCylinderId" value={selectedSourceCylinderId} onChange={(event) => setSelectedSourceCylinderId(event.target.value)} required>
-          <option value="">{t(language, "refrigerant.selectActiveTank")}</option>
+          <option value="">{t(language, "refrigerant.selectChargeSourceTank")}</option>
           {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name} / {tankBalanceLabel(tank, language)}</option>)}
         </select>
       </label>

@@ -541,10 +541,30 @@ export async function refrigerantRoutes(app: FastifyInstance) {
       return reply.code(400).send({ message: transactionType.includes("RECOVERY") ? "Recovery end weight must be greater than or equal to start weight." : "Charge/final recovery end weight must be less than or equal to start weight." });
     }
     if ((transactionType === "VIRGIN_CHARGE" || transactionType === "FINAL_RECOVERY") && !input.sourceCylinderId) {
-      return reply.code(400).send({ message: "Select a source virgin tank." });
+      return reply.code(400).send({ message: transactionType === "VIRGIN_CHARGE" ? "Select a source tank." : "Select a source virgin tank." });
     }
     if ((transactionType === "CLEAN_RECOVERY" || transactionType === "DIRTY_RECOVERY" || transactionType === "FINAL_RECOVERY") && !input.recoveryCylinderId) {
       return reply.code(400).send({ message: "Select a recovery tank." });
+    }
+    if (input.sourceCylinderId) {
+      const source = await prisma.refrigerantCylinder.findUnique({ where: { id: input.sourceCylinderId } });
+      if (!source) {
+        return reply.code(404).send({ message: "Source tank not found." });
+      }
+      if (transactionType === "VIRGIN_CHARGE") {
+        if (source.status !== "ACTIVE") {
+          return reply.code(400).send({ message: "Source tank must be active." });
+        }
+        if (source.category !== "VIRGIN" && source.category !== "CLEAN_RECOVERY") {
+          return reply.code(400).send({ message: "Only virgin or clean recovery tanks can be used as charge sources." });
+        }
+        if (source.refrigerantTypeId !== input.refrigerantTypeId) {
+          return reply.code(400).send({ message: "Source tank refrigerant type must match the selected charge type." });
+        }
+      }
+      if (transactionType === "FINAL_RECOVERY" && source.category !== "VIRGIN") {
+        return reply.code(400).send({ message: "Final recovery source must be a virgin tank." });
+      }
     }
     if (input.recoveryCylinderId && (transactionType === "CLEAN_RECOVERY" || transactionType === "DIRTY_RECOVERY" || transactionType === "FINAL_RECOVERY")) {
       const recovery = await prisma.refrigerantCylinder.findUnique({ where: { id: input.recoveryCylinderId } });
