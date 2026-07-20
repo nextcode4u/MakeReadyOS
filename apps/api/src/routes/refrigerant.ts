@@ -24,6 +24,8 @@ export const refrigerantCylinderSchema = z.object({
   category: z.enum(cylinderCategories),
   tankSize: z.coerce.number().positive().max(10000),
   currentWeight: z.coerce.number().min(0).max(10000),
+  tareWeight: z.coerce.number().min(0).max(10000).nullable().optional(),
+  waterCapacity: z.coerce.number().min(0).max(10000).nullable().optional(),
   status: z.enum(cylinderStatuses).optional().default("ACTIVE"),
   notes: z.string().trim().max(2000).nullable().optional(),
   dispositionNotes: z.string().trim().max(2000).nullable().optional(),
@@ -100,6 +102,20 @@ function fillPercent(tankSize: number, currentWeight: number) {
   return Math.max(0, Math.round((currentWeight / tankSize) * 100));
 }
 
+function safeCapacityWeight(input: { category: string; tankSize: number }) {
+  if (input.category === "VIRGIN") return input.tankSize;
+  return input.tankSize * 0.8;
+}
+
+function cylinderMetrics<T extends { category: string; tankSize: number; currentWeight: number }>(cylinder: T) {
+  const safeCapacity = safeCapacityWeight(cylinder);
+  return {
+    safeCapacity,
+    fillPercent: fillPercent(safeCapacity, cylinder.currentWeight),
+    remainingCapacity: Math.max(0, Number((safeCapacity - cylinder.currentWeight).toFixed(2))),
+  };
+}
+
 function weightAmount(type: (typeof transactionTypes)[number], startWeight: number, endWeight: number) {
   if (type === "CLEAN_RECOVERY" || type === "DIRTY_RECOVERY") return endWeight - startWeight;
   return startWeight - endWeight;
@@ -131,7 +147,11 @@ async function refrigerantExportRows(report: "usage" | "recovery" | "cylinders" 
       status: tank.status,
       tankSize: tank.tankSize,
       currentWeight: tank.currentWeight,
-      fillPercent: fillPercent(tank.tankSize, tank.currentWeight),
+      safeCapacity: cylinderMetrics(tank).safeCapacity,
+      fillPercent: cylinderMetrics(tank).fillPercent,
+      remainingCapacity: cylinderMetrics(tank).remainingCapacity,
+      tareWeight: tank.tareWeight,
+      waterCapacity: tank.waterCapacity,
       finalRecoveryCompleted: tank.finalRecoveryCompleted,
       notes: tank.notes ?? "",
     }));
@@ -258,8 +278,13 @@ async function complianceIssues(propertyIds: string[] | null) {
       .filter((tank) => tank.category === "VIRGIN" && tank.status === "EMPTY_PENDING_RECOVERY" && !tank.finalRecoveryCompleted)
       .map((tank) => ({ severity: "HIGH", type: "VIRGIN_EMPTY_NOT_RECOVERED", message: `${tank.identifier} is empty pending final recovery.`, cylinderId: tank.id })),
     ...cylinders
-      .filter((tank) => tank.category !== "VIRGIN" && tank.status !== "ARCHIVED" && fillPercent(tank.tankSize, tank.currentWeight) >= 80)
-      .map((tank) => ({ severity: fillPercent(tank.tankSize, tank.currentWeight) >= 95 ? "CRITICAL" : fillPercent(tank.tankSize, tank.currentWeight) >= 90 ? "HIGH" : "MEDIUM", type: "RECOVERY_TANK_CAPACITY", message: `${tank.identifier} is ${fillPercent(tank.tankSize, tank.currentWeight)}% full.`, cylinderId: tank.id })),
+      .filter((tank) => tank.category !== "VIRGIN" && tank.status !== "ARCHIVED" && cylinderMetrics(tank).fillPercent >= 80)
+      .map((tank) => ({
+        severity: cylinderMetrics(tank).fillPercent >= 95 ? "CRITICAL" : cylinderMetrics(tank).fillPercent >= 90 ? "HIGH" : "MEDIUM",
+        type: "RECOVERY_TANK_CAPACITY",
+        message: `${tank.identifier} is ${cylinderMetrics(tank).fillPercent}% of its allowed recovery fill (${cylinderMetrics(tank).safeCapacity.toFixed(2)} lb max).`,
+        cylinderId: tank.id,
+      })),
     ...cylinders
       .filter((tank) => tank.category === "VIRGIN" && tank.status === "ARCHIVED" && !tank.finalRecoveryCompleted)
       .map((tank) => ({ severity: "CRITICAL", type: "ARCHIVED_WITHOUT_FINAL_RECOVERY", message: `${tank.identifier} is archived without final recovery.`, cylinderId: tank.id })),
@@ -293,8 +318,8 @@ export async function refrigerantRoutes(app: FastifyInstance) {
         return acc;
       }, {});
     const recoveryNearCapacity = cylinders
-      .filter((tank) => tank.category !== "VIRGIN" && tank.status !== "ARCHIVED" && fillPercent(tank.tankSize, tank.currentWeight) >= 80)
-      .map((tank) => ({ ...tank, fillPercent: fillPercent(tank.tankSize, tank.currentWeight) }));
+      .filter((tank) => tank.category !== "VIRGIN" && tank.status !== "ARCHIVED" && cylinderMetrics(tank).fillPercent >= 80)
+      .map((tank) => ({ ...tank, ...cylinderMetrics(tank) }));
     return {
       permissions: accessFor(request.currentUser!.role),
       types,
@@ -373,7 +398,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
       include: { refrigerantType: true },
       orderBy: [{ category: "asc" }, { status: "asc" }, { identifier: "asc" }],
     });
-    return { cylinders: cylinders.map((tank) => ({ ...tank, fillPercent: fillPercent(tank.tankSize, tank.currentWeight) })) };
+    return { cylinders: cylinders.map((tank) => ({ ...tank, ...cylinderMetrics(tank) })) };
   });
 
   app.post("/refrigerant/cylinders", async (request, reply) => {
@@ -393,6 +418,8 @@ export async function refrigerantRoutes(app: FastifyInstance) {
         category: input.category,
         tankSize: input.tankSize,
         currentWeight: input.currentWeight,
+        tareWeight: input.tareWeight ?? null,
+        waterCapacity: input.waterCapacity ?? null,
         status: input.status,
         notes: input.notes ?? null,
         dispositionNotes: input.dispositionNotes ?? null,
@@ -403,7 +430,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, entityType: "REFRIGERANT_CYLINDER", entityId: cylinder.id, action: "REFRIGERANT_CYLINDER_CREATED", message: `Created ${cylinder.category.toLowerCase().replace("_", " ")} cylinder ${cylinder.identifier}` });
     reply.code(201);
-    return { cylinder: { ...cylinder, fillPercent: fillPercent(cylinder.tankSize, cylinder.currentWeight) } };
+    return { cylinder: { ...cylinder, ...cylinderMetrics(cylinder) } };
   });
 
   app.patch("/refrigerant/cylinders/:id", async (request, reply) => {
@@ -424,6 +451,8 @@ export async function refrigerantRoutes(app: FastifyInstance) {
         category: input.category,
         tankSize: input.tankSize,
         currentWeight: input.currentWeight,
+        tareWeight: input.tareWeight,
+        waterCapacity: input.waterCapacity,
         status: input.status,
         notes: input.notes,
         dispositionNotes: input.dispositionNotes,
@@ -434,7 +463,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
       include: { refrigerantType: true },
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, entityType: "REFRIGERANT_CYLINDER", entityId: cylinder.id, action: "REFRIGERANT_CYLINDER_UPDATED", message: `Updated cylinder ${cylinder.identifier}` });
-    return { cylinder: { ...cylinder, fillPercent: fillPercent(cylinder.tankSize, cylinder.currentWeight) } };
+    return { cylinder: { ...cylinder, ...cylinderMetrics(cylinder) } };
   });
 
   app.delete("/refrigerant/cylinders/:id", async (request, reply) => {
@@ -472,6 +501,19 @@ export async function refrigerantRoutes(app: FastifyInstance) {
     }
     if ((transactionType === "CLEAN_RECOVERY" || transactionType === "DIRTY_RECOVERY" || transactionType === "FINAL_RECOVERY") && !input.recoveryCylinderId) {
       return reply.code(400).send({ message: "Select a recovery tank." });
+    }
+    if (input.recoveryCylinderId && (transactionType === "CLEAN_RECOVERY" || transactionType === "DIRTY_RECOVERY" || transactionType === "FINAL_RECOVERY")) {
+      const recovery = await prisma.refrigerantCylinder.findUnique({ where: { id: input.recoveryCylinderId } });
+      if (!recovery) {
+        return reply.code(404).send({ message: "Recovery tank not found." });
+      }
+      const projectedWeight = transactionType === "FINAL_RECOVERY"
+        ? recovery.currentWeight + amount
+        : input.endWeight;
+      const safeCapacity = safeCapacityWeight(recovery);
+      if (projectedWeight > safeCapacity) {
+        return reply.code(400).send({ message: `Recovery tank would exceed the 80% usable fill limit (${safeCapacity.toFixed(2)} lb max).` });
+      }
     }
     const transaction = await prisma.$transaction(async (tx) => {
       if (input.sourceCylinderId) {

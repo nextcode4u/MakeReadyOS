@@ -32,7 +32,7 @@ import { UnitSearchSelect } from "./UnitSearchSelect";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { StatusState } from "./StatusState";
 
-type RefrigerantTab = "overview" | "virgin" | "clean" | "dirty" | "history" | "exports";
+type RefrigerantTab = "overview" | "tanks" | "virgin" | "clean" | "dirty" | "history" | "exports";
 
 type Props = {
   properties: Property[];
@@ -94,8 +94,21 @@ function dateLabel(value: string | null | undefined, language: UserLanguage) {
   return new Date(value).toLocaleString();
 }
 
+function safeCapacity(cylinder: RefrigerantCylinder) {
+  return cylinder.safeCapacity ?? (cylinder.category === "VIRGIN" ? cylinder.tankSize : cylinder.tankSize * 0.8);
+}
+
+function remainingCapacity(cylinder: RefrigerantCylinder) {
+  return cylinder.remainingCapacity ?? Math.max(0, Number((safeCapacity(cylinder) - cylinder.currentWeight).toFixed(2)));
+}
+
+function tankBalanceLabel(cylinder: RefrigerantCylinder, language: UserLanguage) {
+  if (cylinder.category === "VIRGIN") return `${cylinder.currentWeight.toFixed(2)} lb ${t(language, "refrigerant.of")} ${cylinder.tankSize.toFixed(2)} lb`;
+  return `${cylinder.currentWeight.toFixed(2)} lb ${t(language, "refrigerant.of")} ${safeCapacity(cylinder).toFixed(2)} lb ${t(language, "refrigerant.usableMax")}`;
+}
+
 function CylinderStatusPill({ cylinder, language }: { cylinder: RefrigerantCylinder; language: UserLanguage }) {
-  const fill = cylinder.fillPercent ?? Math.round((cylinder.currentWeight / cylinder.tankSize) * 100);
+  const fill = cylinder.fillPercent ?? Math.round((cylinder.currentWeight / safeCapacity(cylinder)) * 100);
   const warn = cylinder.category !== "VIRGIN" && fill >= 80;
   return <span className={`status-pill ${warn ? "risk-critical" : ""}`}>{cylinder.status.replace(/_/g, " ")}{cylinder.category !== "VIRGIN" ? ` / ${fill}%` : ""}</span>;
 }
@@ -229,6 +242,8 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
       category,
       tankSize: numberValue(data.get("tankSize")),
       currentWeight: numberValue(data.get("currentWeight")),
+      tareWeight: String(data.get("tareWeight") ?? "").trim() ? numberValue(data.get("tareWeight")) : null,
+      waterCapacity: String(data.get("waterCapacity") ?? "").trim() ? numberValue(data.get("waterCapacity")) : null,
       notes: String(data.get("notes") ?? "").trim() || null,
       overrideActiveVirgin: data.get("overrideActiveVirgin") === "on",
     }));
@@ -293,6 +308,7 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
       <nav className="subtab-row" aria-label={t(language, "refrigerant.sections")}>
         {[
           ["overview", t(language, "refrigerant.tabOverview")],
+          ["tanks", t(language, "refrigerant.tabTanks")],
           ["virgin", t(language, "refrigerant.tabVirgin")],
           ["clean", t(language, "refrigerant.tabClean")],
           ["dirty", t(language, "refrigerant.tabDirty")],
@@ -374,6 +390,8 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
           />
           <HistoryList language={language} transactions={overviewQuery.data?.recent ?? []} />
         </>
+      ) : tab === "tanks" ? (
+        <TankInventoryPage language={language} cylinders={cylinders} />
       ) : tab === "virgin" ? (
         <TankWorkspace
           title={t(language, "refrigerant.tabVirgin")}
@@ -670,7 +688,7 @@ function QuickChargeForm({ title, properties, units, tanks, recentUnitTransactio
       <label>{t(language, "refrigerant.virginTank")}
         <select name="sourceCylinderId" value={selectedSourceCylinderId} onChange={(event) => setSelectedSourceCylinderId(event.target.value)} required>
           <option value="">{t(language, "refrigerant.selectActiveTank")}</option>
-          {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name} / {tank.currentWeight} lb</option>)}
+          {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name} / {tankBalanceLabel(tank, language)}</option>)}
         </select>
       </label>
       <div className="form-grid-two">
@@ -774,7 +792,7 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
       <label>{recoveryType === "DIRTY" ? t(language, "refrigerant.dirtyRecoveryTank") : t(language, "refrigerant.cleanRecoveryTank")}
         <select name="recoveryCylinderId" value={selectedRecoveryCylinderId} onChange={(event) => setSelectedRecoveryCylinderId(event.target.value)} required>
           <option value="">{t(language, "refrigerant.selectRecoveryTank")}</option>
-          {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name} / {tank.currentWeight} lb</option>)}
+          {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name} / {tankBalanceLabel(tank, language)}</option>)}
         </select>
       </label>
       <div className="form-grid-two">
@@ -835,6 +853,8 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
             </label>
             <TankSizeField language={language} />
             <label>{t(language, "refrigerant.currentWeight")} <input name="currentWeight" type="number" step="0.01" required /></label>
+            {category !== "VIRGIN" ? <label>{t(language, "refrigerant.tareWeight")} <input name="tareWeight" type="number" step="0.01" placeholder={t(language, "refrigerant.optionalLb")} /></label> : null}
+            {category !== "VIRGIN" ? <label>{t(language, "refrigerant.waterCapacity")} <input name="waterCapacity" type="number" step="0.01" placeholder={t(language, "refrigerant.optionalLb")} /></label> : null}
           </div>
           <label>{t(language, "refrigerant.notes")} <input name="notes" /></label>
           {category === "VIRGIN" && canAdmin ? <label className="toggle-row"><input name="overrideActiveVirgin" type="checkbox" />{t(language, "refrigerant.allowAnotherActiveVirgin")}</label> : null}
@@ -853,13 +873,13 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
             <label>{t(language, "refrigerant.emptyVirginTank")}
               <select name="sourceCylinderId" required>
                 <option value="">{t(language, "refrigerant.selectTank")}</option>
-                {tanks.filter((tank) => tank.status !== "ARCHIVED").map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name}</option>)}
+                {tanks.filter((tank) => tank.status !== "ARCHIVED").map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name} / {tankBalanceLabel(tank, language)}</option>)}
               </select>
             </label>
             <label>{t(language, "refrigerant.recoveryTank")}
               <select name="recoveryCylinderId" required>
                 <option value="">{t(language, "refrigerant.selectRecoveryTank")}</option>
-                {recoveryTanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name}</option>)}
+                {recoveryTanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.identifier} / {tank.refrigerantType.name} / {tankBalanceLabel(tank, language)}</option>)}
               </select>
             </label>
             <label>{t(language, "refrigerant.startWeight")} <input name="startWeight" type="number" step="0.01" required /></label>
@@ -876,7 +896,8 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
           <div className="refrigerant-tank-row" key={tank.id}>
             <div>
               <strong>{tank.identifier}</strong>
-              <span>{tank.refrigerantType.name} / {tank.currentWeight} lb of {tank.tankSize} lb</span>
+              <span>{tank.refrigerantType.name} / {tankBalanceLabel(tank, language)}</span>
+              {tank.category !== "VIRGIN" ? <small className="muted">{t(language, "refrigerant.remaining")}: {remainingCapacity(tank).toFixed(2)} lb{tank.tareWeight !== null ? ` / ${t(language, "refrigerant.tareShort")}: ${tank.tareWeight.toFixed(2)} lb` : ""}{tank.waterCapacity !== null ? ` / WC: ${tank.waterCapacity.toFixed(2)} lb` : ""}</small> : null}
             </div>
             <CylinderStatusPill cylinder={tank} language={language} />
             {canEdit ? (
@@ -899,7 +920,7 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
               <div className="refrigerant-tank-row" key={tank.id}>
                 <div>
                   <strong>{tank.identifier}</strong>
-                  <span>{tank.refrigerantType.name} / {tank.currentWeight} lb of {tank.tankSize} lb</span>
+                  <span>{tank.refrigerantType.name} / {tankBalanceLabel(tank, language)}</span>
                 </div>
                 <CylinderStatusPill cylinder={tank} language={language} />
                 {canEdit ? (
@@ -928,6 +949,52 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
         ) : null}
       </section>
     </>
+  );
+}
+
+function TankInventoryPage({ language, cylinders }: { language: UserLanguage; cylinders: RefrigerantCylinder[] }) {
+  const groups = [
+    {
+      key: "active-virgin",
+      title: t(language, "refrigerant.activeVirginInventory"),
+      cylinders: cylinders.filter((cylinder) => cylinder.category === "VIRGIN" && cylinder.status === "ACTIVE"),
+    },
+    {
+      key: "active-recovery",
+      title: t(language, "refrigerant.activeRecoveryInventory"),
+      cylinders: cylinders.filter((cylinder) => cylinder.category !== "VIRGIN" && cylinder.status === "ACTIVE"),
+    },
+    {
+      key: "pending-final",
+      title: t(language, "refrigerant.pendingFinalRecoveryInventory"),
+      cylinders: cylinders.filter((cylinder) => cylinder.category === "VIRGIN" && cylinder.status === "EMPTY_PENDING_RECOVERY"),
+    },
+    {
+      key: "archived",
+      title: t(language, "refrigerant.archivedTankInventory"),
+      cylinders: cylinders.filter((cylinder) => cylinder.status === "ARCHIVED"),
+    },
+  ];
+  return (
+    <section className="refrigerant-card">
+      <h2>{t(language, "refrigerant.tabTanks")}</h2>
+      <p className="muted">{t(language, "refrigerant.tanksCopy")}</p>
+      {groups.map((group) => (
+        <div key={group.key} className="refrigerant-type-list">
+          <h3>{group.title}</h3>
+          {group.cylinders.length ? group.cylinders.map((tank) => (
+            <div className="refrigerant-tank-row" key={tank.id}>
+              <div>
+                <strong>{tank.identifier}</strong>
+                <span>{tank.refrigerantType.name} / {categoryLabel[tank.category]} / {tankBalanceLabel(tank, language)}</span>
+                {tank.category !== "VIRGIN" ? <small className="muted">{t(language, "refrigerant.remaining")}: {remainingCapacity(tank).toFixed(2)} lb{tank.tareWeight !== null ? ` / ${t(language, "refrigerant.tareShort")}: ${tank.tareWeight.toFixed(2)} lb` : ""}{tank.waterCapacity !== null ? ` / WC: ${tank.waterCapacity.toFixed(2)} lb` : ""}</small> : null}
+              </div>
+              <CylinderStatusPill cylinder={tank} language={language} />
+            </div>
+          )) : <p className="muted">{t(language, "refrigerant.noTanksInInventory")}</p>}
+        </div>
+      ))}
+    </section>
   );
 }
 

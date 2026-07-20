@@ -32,6 +32,7 @@ Managers and admins can dismiss repeated-addition leak flags. Only admins can ad
 ## Workspace Tabs
 
 - `Overview`: summary cards, quick charge, quick recovery, compliance warnings, repeated additions, and recent activity.
+- `Tanks`: a combined inventory page for active virgin tanks, active recovery tanks, virgin tanks pending final recovery, and archived tanks.
 - `Virgin Tanks`: add/manage virgin cylinders, mark tanks empty, and record final recovery.
 - `Clean Recovery`: add/manage clean recovery cylinders and log clean recovery.
 - `Dirty Recovery`: add/manage dirty recovery cylinders and log dirty recovery.
@@ -44,7 +45,13 @@ Only one active virgin tank is allowed per refrigerant type by default. Managers
 
 Virgin tanks marked empty move to `Empty Pending Recovery`. A virgin tank cannot be safely archived until final recovery is recorded.
 
-Recovery tanks show capacity warnings at 80%, 90%, and 95% based on current weight divided by tank size.
+Recovery tanks now track additional stamped reference values for `TC/Tare` and `WC/Water Capacity`. Operational fill warnings use the usable recovery ceiling instead of the raw nominal tank size:
+
+```text
+usable recovery fill = tank size x 0.80
+```
+
+That keeps the workspace aligned with the field rule that recovery cylinders should only be filled to 80% of their usable refrigerant capacity, while still recording the stamped `TC/WC` values operators may need during inspection or reclaim handling.
 
 ## Weight Calculations
 
@@ -76,7 +83,7 @@ These flags generate in-app manager/admin notifications with dedupe protection a
 The overview highlights:
 
 - Empty virgin tanks that still need final recovery.
-- Recovery cylinders above 80%, 90%, or 95%.
+- Recovery cylinders above 80%, 90%, or 95% of allowed recovery fill.
 - Archived virgin tanks without final recovery.
 - Missing/invalid/negative weight records.
 - Repeated refrigerant additions.

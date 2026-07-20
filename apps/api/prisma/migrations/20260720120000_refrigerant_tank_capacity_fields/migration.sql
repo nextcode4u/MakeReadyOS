@@ -1,0 +1,3 @@
+ALTER TABLE "RefrigerantCylinder"
+ADD COLUMN "tareWeight" DOUBLE PRECISION,
+ADD COLUMN "waterCapacity" DOUBLE PRECISION;

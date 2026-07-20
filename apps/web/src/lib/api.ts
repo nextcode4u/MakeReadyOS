@@ -543,7 +543,11 @@ export type RefrigerantCylinder = {
   category: "VIRGIN" | "CLEAN_RECOVERY" | "DIRTY_RECOVERY";
   tankSize: number;
   currentWeight: number;
+  tareWeight: number | null;
+  waterCapacity: number | null;
+  safeCapacity?: number;
   fillPercent?: number;
+  remainingCapacity?: number;
   status: "ACTIVE" | "EMPTY_PENDING_RECOVERY" | "ARCHIVED";
   notes: string | null;
   dispositionNotes: string | null;
@@ -4220,6 +4224,8 @@ export function createRefrigerantCylinder(input: {
   category: RefrigerantCylinder["category"];
   tankSize: number;
   currentWeight: number;
+  tareWeight?: number | null;
+  waterCapacity?: number | null;
   status?: RefrigerantCylinder["status"];
   notes?: string | null;
   dispositionNotes?: string | null;

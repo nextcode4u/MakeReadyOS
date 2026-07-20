@@ -308,6 +308,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [mobileBatchModalOpen, setMobileBatchModalOpen] = useState(false);
+  const [confirmBatchArchiveOpen, setConfirmBatchArchiveOpen] = useState(false);
   const [addGroup, setAddGroup] = useState<string | null>(null);
   const [newItem, setNewItem] = useState({ propertyId: "", unitNumber: "", assignedTech: "", vacancyStatus: "VACANT NOT LEASED NOT READY", makeReadyStatus: "" });
   const [batchTech, setBatchTech] = useState("");
@@ -531,6 +532,11 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
     setMobileBatchModalOpen(false);
   };
 
+  const requestBatchArchive = () => {
+    if (selectedIds.length === 0) return;
+    setConfirmBatchArchiveOpen(true);
+  };
+
   const openOptionManager = (fieldKey: string, label: string, customField?: CustomField) => {
     setQuickOption({ value: "", color: "#58a6de" });
     const options = customField
@@ -662,7 +668,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const mobileBoardToolbar = canManageItems ? (
     <div className="mobile-board-toolbar" data-testid="mobile-board-toolbar" role="toolbar" aria-label={isSpanish ? "Herramientas moviles del tablero" : "Mobile board tools"}>
       <button type="button" className="button button-secondary" data-testid="mobile-board-select-all" onClick={toggleAllVisible}>
-        {allVisibleSelected ? (isSpanish ? "Limpiar visibles" : "Clear visible") : (isSpanish ? "Seleccionar visibles" : "Select visible")}
+        {allVisibleSelected ? (isSpanish ? "Limpiar visibles" : "Clear visible") : (isSpanish ? "Seleccionar todos visibles" : "Select all visible")}
       </button>
       <button type="button" className="button button-secondary" data-testid="mobile-board-bulk-open" disabled={selectedIds.length === 0} onClick={() => setMobileBatchModalOpen(true)}>
         {isSpanish ? `Items seleccionados (${selectedIds.length})` : `Selected items (${selectedIds.length})`}
@@ -696,7 +702,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
       {selectedIds.length > 0 && canManageItems ? (
         <div className="batch-action-bar desktop-batch-action-bar" data-testid="batch-action-bar" role="toolbar" aria-label={isSpanish ? "Acciones para elementos de make-ready seleccionados" : "Actions for selected make-ready items"}>
           <strong>{selectedIds.length} {isSpanish ? "seleccionados" : "selected"}</strong>
-          <button data-testid="batch-archive" className="button button-danger" onClick={() => void applyBatch({ action: "ARCHIVE", ids: selectedIds })}>{isSpanish ? "Archivar" : "Archive"}</button>
+          <button data-testid="batch-archive" className="button button-danger" onClick={requestBatchArchive}>{isSpanish ? "Archivar" : "Archive"}</button>
           {selectedItems.some((item) => item.isArchived) ? <button data-testid="batch-restore" className="button button-secondary" onClick={() => void applyBatch({ action: "RESTORE", ids: selectedIds })}>{isSpanish ? "Restaurar" : "Restore"}</button> : null}
           <select data-testid="batch-tech-select" value={batchTech} onChange={(event) => setBatchTech(event.target.value)}>
             <option value="">{isSpanish ? "Asignar tecnico..." : "Assign tech..."}</option>
@@ -1549,6 +1555,23 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
         }}
       />
       <ConfirmDialog
+        open={confirmBatchArchiveOpen}
+        language={isSpanish ? "es" : "en"}
+        title={isSpanish ? "Archivar items seleccionados?" : "Archive selected items?"}
+        description={
+          isSpanish
+            ? `Esto archivara ${selectedIds.length} item${selectedIds.length === 1 ? "" : "s"} de make-ready seleccionado${selectedIds.length === 1 ? "" : "s"}. Use esta accion solo cuando quiera sacar esos items de la vista activa.`
+            : `This will archive ${selectedIds.length} selected make-ready item${selectedIds.length === 1 ? "" : "s"}. Use this only when you want to remove those items from the active board view.`
+        }
+        confirmLabel={isSpanish ? "Archivar items" : "Archive items"}
+        tone="danger"
+        onClose={() => setConfirmBatchArchiveOpen(false)}
+        onConfirm={async () => {
+          setConfirmBatchArchiveOpen(false);
+          await applyBatch({ action: "ARCHIVE", ids: selectedIds });
+        }}
+      />
+      <ConfirmDialog
         open={Boolean(pendingGroupMove)}
         language={isSpanish ? "es" : "en"}
         title={isSpanish ? "Mover items seleccionados?" : "Move selected items?"}
@@ -1584,7 +1607,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
             <span>{isSpanish ? "Use acciones masivas sin volver al escritorio." : "Run bulk actions without falling back to the desktop table."}</span>
           </div>
           <div className="mobile-batch-grid">
-            <button type="button" className="button button-danger" onClick={() => void applyBatch({ action: "ARCHIVE", ids: selectedIds })}>
+            <button type="button" className="button button-danger" onClick={requestBatchArchive}>
               {isSpanish ? "Archivar seleccionados" : "Archive selected"}
             </button>
             {selectedItems.some((item) => item.isArchived) ? (
