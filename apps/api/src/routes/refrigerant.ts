@@ -104,7 +104,12 @@ function fillPercent(tankSize: number, currentWeight: number) {
 
 function safeCapacityWeight(input: { category: string; tankSize: number }) {
   if (input.category === "VIRGIN") return input.tankSize;
-  return input.tankSize * 0.8;
+  const effectiveCapacity = "tareWeight" in input && typeof input.tareWeight === "number" && input.tareWeight > 0
+    ? input.tareWeight
+    : "waterCapacity" in input && typeof input.waterCapacity === "number" && input.waterCapacity > 0
+      ? input.waterCapacity
+      : input.tankSize;
+  return effectiveCapacity * 0.8;
 }
 
 function cylinderMetrics<T extends { category: string; tankSize: number; currentWeight: number }>(cylinder: T) {

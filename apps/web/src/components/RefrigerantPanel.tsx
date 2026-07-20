@@ -28,6 +28,7 @@ import {
   type UserRole,
 } from "../lib/api";
 import { t, tWithVars } from "../lib/i18n";
+import { Modal } from "./Modal";
 import { UnitSearchSelect } from "./UnitSearchSelect";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { StatusState } from "./StatusState";
@@ -95,7 +96,14 @@ function dateLabel(value: string | null | undefined, language: UserLanguage) {
 }
 
 function safeCapacity(cylinder: RefrigerantCylinder) {
-  return cylinder.safeCapacity ?? (cylinder.category === "VIRGIN" ? cylinder.tankSize : cylinder.tankSize * 0.8);
+  if (cylinder.safeCapacity) return cylinder.safeCapacity;
+  if (cylinder.category === "VIRGIN") return cylinder.tankSize;
+  const effectiveCapacity = (typeof cylinder.tareWeight === "number" && cylinder.tareWeight > 0)
+    ? cylinder.tareWeight
+    : (typeof cylinder.waterCapacity === "number" && cylinder.waterCapacity > 0)
+      ? cylinder.waterCapacity
+      : cylinder.tankSize;
+  return effectiveCapacity * 0.8;
 }
 
 function remainingCapacity(cylinder: RefrigerantCylinder) {
@@ -829,7 +837,18 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
   units?: Unit[];
   recoveryTanks?: RefrigerantCylinder[];
   onCreate: (event: FormEvent<HTMLFormElement>, category: RefrigerantCylinder["category"]) => void;
-  onUpdate: (id: string, input: Partial<{ status: RefrigerantCylinder["status"]; dispositionNotes: string | null; finalRecoveryCompleted: boolean }>) => void;
+  onUpdate: (id: string, input: Partial<{
+    identifier: string;
+    refrigerantTypeId: string;
+    tankSize: number;
+    currentWeight: number;
+    tareWeight: number | null;
+    waterCapacity: number | null;
+    status: RefrigerantCylinder["status"];
+    notes: string | null;
+    dispositionNotes: string | null;
+    finalRecoveryCompleted: boolean;
+  }>) => void;
   onDelete: (id: string) => void;
   onRecovery?: (event: FormEvent<HTMLFormElement>) => void;
   onFinalRecovery?: (event: FormEvent<HTMLFormElement>) => void;
@@ -838,6 +857,7 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
 }) {
   const activeTanks = tanks.filter((tank) => tank.status !== "ARCHIVED");
   const archivedTanks = tanks.filter((tank) => tank.status === "ARCHIVED");
+  const [editingTank, setEditingTank] = useState<RefrigerantCylinder | null>(null);
   return (
     <>
       {canEdit ? (
@@ -902,6 +922,7 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
             <CylinderStatusPill cylinder={tank} language={language} />
             {canEdit ? (
               <div className="button-cluster">
+                {canAdmin ? <button type="button" className="button button-secondary" onClick={() => setEditingTank(tank)}>{t(language, "refrigerant.editTank")}</button> : null}
                 {tank.category === "VIRGIN" && tank.status === "ACTIVE" ? <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "EMPTY_PENDING_RECOVERY" })}>{t(language, "refrigerant.markEmpty")}</button> : null}
                 <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "ARCHIVED", dispositionNotes: tank.category === "VIRGIN" ? tank.dispositionNotes : "Archived from tank workspace." })}>{t(language, "refrigerant.archive")}</button>
               </div>
@@ -925,6 +946,7 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
                 <CylinderStatusPill cylinder={tank} language={language} />
                 {canEdit ? (
                   <div className="button-cluster">
+                    {canAdmin ? <button type="button" className="button button-secondary" onClick={() => setEditingTank(tank)}>{t(language, "refrigerant.editTank")}</button> : null}
                     <button type="button" className="button button-secondary" onClick={() => onUpdate(tank.id, { status: "ACTIVE" })}>{t(language, "refrigerant.restore")}</button>
                     <button
                       type="button"
@@ -948,6 +970,68 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
           </div>
         ) : null}
       </section>
+      <Modal
+        open={Boolean(editingTank)}
+        title={t(language, "refrigerant.editTankTitle")}
+        onClose={() => setEditingTank(null)}
+        testId="refrigerant-edit-tank-modal"
+        actions={editingTank ? (
+          <>
+            <button type="button" className="button button-secondary" onClick={() => setEditingTank(null)}>{t(language, "common.cancel")}</button>
+            <button
+              type="submit"
+              form="refrigerant-edit-tank-form"
+              className="button button-primary"
+              disabled={loading}
+            >
+              {t(language, "common.save")}
+            </button>
+          </>
+        ) : undefined}
+      >
+        {editingTank ? (
+          <form
+            id="refrigerant-edit-tank-form"
+            className="compact-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const data = new FormData(event.currentTarget);
+              onUpdate(editingTank.id, {
+                identifier: String(data.get("identifier") ?? "").trim(),
+                refrigerantTypeId: String(data.get("refrigerantTypeId") ?? ""),
+                tankSize: numberValue(data.get("tankSize")),
+                currentWeight: numberValue(data.get("currentWeight")),
+                tareWeight: String(data.get("tareWeight") ?? "").trim() ? numberValue(data.get("tareWeight")) : null,
+                waterCapacity: String(data.get("waterCapacity") ?? "").trim() ? numberValue(data.get("waterCapacity")) : null,
+                notes: String(data.get("notes") ?? "").trim() || null,
+                status: String(data.get("status") ?? editingTank.status) as RefrigerantCylinder["status"],
+              });
+              setEditingTank(null);
+            }}
+          >
+            <div className="form-grid-four">
+              <label>{t(language, "refrigerant.identifier")} <input name="identifier" defaultValue={editingTank.identifier} required /></label>
+              <label>{t(language, "refrigerant.type")}
+                <select name="refrigerantTypeId" defaultValue={editingTank.refrigerantTypeId} required>
+                  {types.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
+                </select>
+              </label>
+              <label>{t(language, "refrigerant.tankSize")} <input name="tankSize" type="number" step="0.01" min="0.01" defaultValue={editingTank.tankSize} required /></label>
+              <label>{t(language, "refrigerant.currentWeight")} <input name="currentWeight" type="number" step="0.01" min="0" defaultValue={editingTank.currentWeight} required /></label>
+              {editingTank.category !== "VIRGIN" ? <label>{t(language, "refrigerant.tareWeight")} <input name="tareWeight" type="number" step="0.01" min="0" defaultValue={editingTank.tareWeight ?? ""} /></label> : null}
+              {editingTank.category !== "VIRGIN" ? <label>{t(language, "refrigerant.waterCapacity")} <input name="waterCapacity" type="number" step="0.01" min="0" defaultValue={editingTank.waterCapacity ?? ""} /></label> : null}
+              <label>{t(language, "refrigerant.status")}
+                <select name="status" defaultValue={editingTank.status}>
+                  <option value="ACTIVE">{t(language, "refrigerant.active")}</option>
+                  <option value="EMPTY_PENDING_RECOVERY">{t(language, "refrigerant.emptyPendingRecovery")}</option>
+                  <option value="ARCHIVED">{t(language, "refrigerant.archive")}</option>
+                </select>
+              </label>
+            </div>
+            <label>{t(language, "refrigerant.notes")} <input name="notes" defaultValue={editingTank.notes ?? ""} /></label>
+          </form>
+        ) : null}
+      </Modal>
     </>
   );
 }
