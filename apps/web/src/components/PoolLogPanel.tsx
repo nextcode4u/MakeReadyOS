@@ -704,7 +704,10 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
             <fieldset className="pool-check-row">
               <legend>{isSpanish ? "Operaciones" : "Operations"}</legend>
               {["vacuumed", "backwashed", "skimmerCleaned", "pumpRunning", "filterOperating", "waterClear", "waterCloudy", "algaePresent"].map((name) => (
-                <label key={name} className="check-pill"><input name={name} type="checkbox" /> {name.replace(/([A-Z])/g, " $1")}</label>
+                <label key={name} className="pool-check-item">
+                  <span>{name.replace(/([A-Z])/g, " $1")}</span>
+                  <input name={name} type="checkbox" />
+                </label>
               ))}
             </fieldset>
             <fieldset className="pool-safety-grid">

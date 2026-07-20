@@ -6615,6 +6615,10 @@ textarea {
   width: min(calc(100vw - 2rem), 48rem);
 }
 
+.modal-panel[data-testid="refrigerant-edit-tank-modal"] {
+  width: min(calc(100vw - 2rem), 46rem);
+}
+
 .modal-header,
 .modal-actions {
   display: flex;
@@ -12180,9 +12184,29 @@ textarea {
 }
 
 .pool-check-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 0.45rem;
+}
+
+.pool-check-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.pool-check-item span {
+  min-width: 0;
+  text-transform: none;
+}
+
+.pool-check-item input[type="checkbox"] {
+  margin-left: auto;
 }
 
 .pool-check-row legend,
@@ -12874,6 +12898,10 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .pool-check-row {
+    grid-template-columns: 1fr;
+  }
+
   .pool-row,
   .pool-history-row {
     grid-template-columns: 1fr;
@@ -13133,6 +13161,26 @@ textarea {
   background: var(--panel-2);
 }
 
+.refrigerant-edit-form {
+  gap: 0.75rem;
+}
+
+.refrigerant-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.refrigerant-edit-grid label {
+  min-width: 0;
+}
+
+.refrigerant-edit-grid input,
+.refrigerant-edit-grid select {
+  width: 100%;
+  min-width: 0;
+}
+
 :root[data-theme="light"] .refrigerant-card,
 :root[data-theme="light"] .toolbar-card,
 :root[data-theme="light"] .refrigerant-panel .module-heading,
@@ -13164,6 +13212,7 @@ textarea {
   .refrigerant-quick-grid,
   .form-grid-two,
   .form-grid-four,
+  .refrigerant-edit-grid,
   .refrigerant-row,
   .refrigerant-tank-row {
     grid-template-columns: 1fr;

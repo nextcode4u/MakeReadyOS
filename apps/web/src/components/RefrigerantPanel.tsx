@@ -95,28 +95,34 @@ function dateLabel(value: string | null | undefined, language: UserLanguage) {
   return new Date(value).toLocaleString();
 }
 
+function recoveryLoadWeight(cylinder: RefrigerantCylinder) {
+  if (typeof cylinder.tareWeight === "number" && cylinder.tareWeight > 0) {
+    return Math.max(0, Number((cylinder.currentWeight - cylinder.tareWeight).toFixed(2)));
+  }
+  return cylinder.currentWeight;
+}
+
 function safeCapacity(cylinder: RefrigerantCylinder) {
   if (cylinder.safeCapacity) return cylinder.safeCapacity;
   if (cylinder.category === "VIRGIN") return cylinder.tankSize;
-  const effectiveCapacity = (typeof cylinder.tareWeight === "number" && cylinder.tareWeight > 0)
-    ? cylinder.tareWeight
-    : (typeof cylinder.waterCapacity === "number" && cylinder.waterCapacity > 0)
-      ? cylinder.waterCapacity
-      : cylinder.tankSize;
+  const effectiveCapacity = (typeof cylinder.waterCapacity === "number" && cylinder.waterCapacity > 0)
+    ? cylinder.waterCapacity
+    : cylinder.tankSize;
   return effectiveCapacity * 0.8;
 }
 
 function remainingCapacity(cylinder: RefrigerantCylinder) {
-  return cylinder.remainingCapacity ?? Math.max(0, Number((safeCapacity(cylinder) - cylinder.currentWeight).toFixed(2)));
+  return cylinder.remainingCapacity ?? Math.max(0, Number((safeCapacity(cylinder) - (cylinder.category === "VIRGIN" ? cylinder.currentWeight : recoveryLoadWeight(cylinder))).toFixed(2)));
 }
 
 function tankBalanceLabel(cylinder: RefrigerantCylinder, language: UserLanguage) {
   if (cylinder.category === "VIRGIN") return `${cylinder.currentWeight.toFixed(2)} lb ${t(language, "refrigerant.of")} ${cylinder.tankSize.toFixed(2)} lb`;
-  return `${cylinder.currentWeight.toFixed(2)} lb ${t(language, "refrigerant.of")} ${safeCapacity(cylinder).toFixed(2)} lb ${t(language, "refrigerant.usableMax")}`;
+  return `${recoveryLoadWeight(cylinder).toFixed(2)} lb ${t(language, "refrigerant.of")} ${safeCapacity(cylinder).toFixed(2)} lb ${t(language, "refrigerant.usableMax")}`;
 }
 
 function CylinderStatusPill({ cylinder, language }: { cylinder: RefrigerantCylinder; language: UserLanguage }) {
-  const fill = cylinder.fillPercent ?? Math.round((cylinder.currentWeight / safeCapacity(cylinder)) * 100);
+  const trackedWeight = cylinder.category === "VIRGIN" ? cylinder.currentWeight : recoveryLoadWeight(cylinder);
+  const fill = cylinder.fillPercent ?? Math.round((trackedWeight / safeCapacity(cylinder)) * 100);
   const warn = cylinder.category !== "VIRGIN" && fill >= 80;
   return <span className={`status-pill ${warn ? "risk-critical" : ""}`}>{cylinder.status.replace(/_/g, " ")}{cylinder.category !== "VIRGIN" ? ` / ${fill}%` : ""}</span>;
 }
@@ -872,7 +878,7 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
               </select>
             </label>
             <TankSizeField language={language} />
-            <label>{t(language, "refrigerant.currentWeight")} <input name="currentWeight" type="number" step="0.01" required /></label>
+            <label>{category === "VIRGIN" ? t(language, "refrigerant.currentWeight") : t(language, "refrigerant.currentTankWeight")} <input name="currentWeight" type="number" step="0.01" required /></label>
             {category !== "VIRGIN" ? <label>{t(language, "refrigerant.tareWeight")} <input name="tareWeight" type="number" step="0.01" placeholder={t(language, "refrigerant.optionalLb")} /></label> : null}
             {category !== "VIRGIN" ? <label>{t(language, "refrigerant.waterCapacity")} <input name="waterCapacity" type="number" step="0.01" placeholder={t(language, "refrigerant.optionalLb")} /></label> : null}
           </div>
@@ -992,7 +998,7 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
         {editingTank ? (
           <form
             id="refrigerant-edit-tank-form"
-            className="compact-form"
+            className="compact-form refrigerant-edit-form"
             onSubmit={(event) => {
               event.preventDefault();
               const data = new FormData(event.currentTarget);
@@ -1009,7 +1015,7 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
               setEditingTank(null);
             }}
           >
-            <div className="form-grid-four">
+            <div className="refrigerant-edit-grid">
               <label>{t(language, "refrigerant.identifier")} <input name="identifier" defaultValue={editingTank.identifier} required /></label>
               <label>{t(language, "refrigerant.type")}
                 <select name="refrigerantTypeId" defaultValue={editingTank.refrigerantTypeId} required>
@@ -1017,7 +1023,7 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
                 </select>
               </label>
               <label>{t(language, "refrigerant.tankSize")} <input name="tankSize" type="number" step="0.01" min="0.01" defaultValue={editingTank.tankSize} required /></label>
-              <label>{t(language, "refrigerant.currentWeight")} <input name="currentWeight" type="number" step="0.01" min="0" defaultValue={editingTank.currentWeight} required /></label>
+              <label>{editingTank.category === "VIRGIN" ? t(language, "refrigerant.currentWeight") : t(language, "refrigerant.currentTankWeight")} <input name="currentWeight" type="number" step="0.01" min="0" defaultValue={editingTank.currentWeight} required /></label>
               {editingTank.category !== "VIRGIN" ? <label>{t(language, "refrigerant.tareWeight")} <input name="tareWeight" type="number" step="0.01" min="0" defaultValue={editingTank.tareWeight ?? ""} /></label> : null}
               {editingTank.category !== "VIRGIN" ? <label>{t(language, "refrigerant.waterCapacity")} <input name="waterCapacity" type="number" step="0.01" min="0" defaultValue={editingTank.waterCapacity ?? ""} /></label> : null}
               <label>{t(language, "refrigerant.status")}

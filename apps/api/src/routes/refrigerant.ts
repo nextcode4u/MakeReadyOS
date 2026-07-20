@@ -102,22 +102,28 @@ function fillPercent(tankSize: number, currentWeight: number) {
   return Math.max(0, Math.round((currentWeight / tankSize) * 100));
 }
 
-function safeCapacityWeight(input: { category: string; tankSize: number }) {
+function recoveryGrossWeight(input: { currentWeight: number; tareWeight?: number | null }) {
+  if (typeof input.tareWeight === "number" && input.tareWeight > 0) {
+    return Math.max(0, Number((input.currentWeight - input.tareWeight).toFixed(2)));
+  }
+  return input.currentWeight;
+}
+
+function safeCapacityWeight(input: { category: string; tankSize: number; waterCapacity?: number | null }) {
   if (input.category === "VIRGIN") return input.tankSize;
-  const effectiveCapacity = "tareWeight" in input && typeof input.tareWeight === "number" && input.tareWeight > 0
-    ? input.tareWeight
-    : "waterCapacity" in input && typeof input.waterCapacity === "number" && input.waterCapacity > 0
-      ? input.waterCapacity
-      : input.tankSize;
+  const effectiveCapacity = typeof input.waterCapacity === "number" && input.waterCapacity > 0
+    ? input.waterCapacity
+    : input.tankSize;
   return effectiveCapacity * 0.8;
 }
 
-function cylinderMetrics<T extends { category: string; tankSize: number; currentWeight: number }>(cylinder: T) {
+function cylinderMetrics<T extends { category: string; tankSize: number; currentWeight: number; tareWeight?: number | null; waterCapacity?: number | null }>(cylinder: T) {
   const safeCapacity = safeCapacityWeight(cylinder);
+  const trackedWeight = cylinder.category === "VIRGIN" ? cylinder.currentWeight : recoveryGrossWeight(cylinder);
   return {
     safeCapacity,
-    fillPercent: fillPercent(safeCapacity, cylinder.currentWeight),
-    remainingCapacity: Math.max(0, Number((safeCapacity - cylinder.currentWeight).toFixed(2))),
+    fillPercent: fillPercent(safeCapacity, trackedWeight),
+    remainingCapacity: Math.max(0, Number((safeCapacity - trackedWeight).toFixed(2))),
   };
 }
 
@@ -516,7 +522,10 @@ export async function refrigerantRoutes(app: FastifyInstance) {
         ? recovery.currentWeight + amount
         : input.endWeight;
       const safeCapacity = safeCapacityWeight(recovery);
-      if (projectedWeight > safeCapacity) {
+      const projectedLoad = recovery.category === "VIRGIN"
+        ? projectedWeight
+        : recoveryGrossWeight({ currentWeight: projectedWeight, tareWeight: recovery.tareWeight });
+      if (projectedLoad > safeCapacity) {
         return reply.code(400).send({ message: `Recovery tank would exceed the 80% usable fill limit (${safeCapacity.toFixed(2)} lb max).` });
       }
     }
