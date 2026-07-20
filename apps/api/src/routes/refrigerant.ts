@@ -148,28 +148,51 @@ function htmlEscape(value: unknown) {
 }
 
 async function refrigerantExportRows(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit", propertyIds: string[] | null) {
+  const tankRow = (tank: {
+    identifier: string;
+    category: string;
+    status: string;
+    tankSize: number;
+    currentWeight: number;
+    tareWeight: number | null;
+    waterCapacity: number | null;
+    finalRecoveryCompleted: boolean;
+    notes: string | null;
+    refrigerantType: { name: string };
+  }) => ({
+    rowType: "CYLINDER",
+    identifier: tank.identifier,
+    type: tank.refrigerantType.name,
+    category: tank.category,
+    status: tank.status,
+    tankSize: tank.tankSize,
+    currentWeight: tank.currentWeight,
+    safeCapacity: cylinderMetrics(tank).safeCapacity,
+    fillPercent: cylinderMetrics(tank).fillPercent,
+    remainingCapacity: cylinderMetrics(tank).remainingCapacity,
+    tareWeight: tank.tareWeight,
+    waterCapacity: tank.waterCapacity,
+    finalRecoveryCompleted: tank.finalRecoveryCompleted,
+    notes: tank.notes ?? "",
+  });
   let rows: Array<Record<string, unknown>> = [];
   if (report === "cylinders") {
     const tanks = await prisma.refrigerantCylinder.findMany({ include: { refrigerantType: true }, orderBy: { identifier: "asc" } });
-    rows = tanks.map((tank) => ({
-      identifier: tank.identifier,
-      type: tank.refrigerantType.name,
-      category: tank.category,
-      status: tank.status,
-      tankSize: tank.tankSize,
-      currentWeight: tank.currentWeight,
-      safeCapacity: cylinderMetrics(tank).safeCapacity,
-      fillPercent: cylinderMetrics(tank).fillPercent,
-      remainingCapacity: cylinderMetrics(tank).remainingCapacity,
-      tareWeight: tank.tareWeight,
-      waterCapacity: tank.waterCapacity,
-      finalRecoveryCompleted: tank.finalRecoveryCompleted,
-      notes: tank.notes ?? "",
-    }));
+    rows = tanks.map(tankRow);
   } else if (report === "compliance") {
     const result = await complianceIssues(propertyIds);
-    rows = result.issues.map((issue) => ({ severity: issue.severity, type: issue.type, message: issue.message }));
+    rows = result.issues.map((issue) => ({ rowType: "COMPLIANCE_ISSUE", severity: issue.severity, type: issue.type, message: issue.message }));
   } else {
+    const includeRecoveryInventory = report === "recovery" || report === "fullAudit";
+    const includeCompliance = report === "fullAudit";
+    if (includeRecoveryInventory) {
+      const recoveryTanks = await prisma.refrigerantCylinder.findMany({
+        where: { category: { in: ["CLEAN_RECOVERY", "DIRTY_RECOVERY"] } },
+        include: { refrigerantType: true },
+        orderBy: [{ category: "asc" }, { identifier: "asc" }],
+      });
+      rows.push(...recoveryTanks.map(tankRow));
+    }
     const txWhere = {
       propertyId: propertyIds === null ? undefined : { in: propertyIds },
       transactionType: report === "usage" ? "VIRGIN_CHARGE" : report === "recovery" ? { in: ["CLEAN_RECOVERY", "DIRTY_RECOVERY", "FINAL_RECOVERY"] } : undefined,
@@ -179,7 +202,8 @@ async function refrigerantExportRows(report: "usage" | "recovery" | "cylinders" 
       include: { refrigerantType: true, sourceCylinder: true, recoveryCylinder: true },
       orderBy: { occurredAt: "desc" },
     });
-    rows = transactions.map((entry) => ({
+    rows.push(...transactions.map((entry) => ({
+      rowType: "TRANSACTION",
       date: entry.occurredAt.toISOString(),
       property: entry.propertyId ?? "",
       transactionType: entry.transactionType,
@@ -192,7 +216,16 @@ async function refrigerantExportRows(report: "usage" | "recovery" | "cylinders" 
       amount: entry.amount,
       user: entry.createdByName ?? "",
       notes: entry.notes ?? "",
-    }));
+    })));
+    if (includeCompliance) {
+      const result = await complianceIssues(propertyIds);
+      rows.push(...result.issues.map((issue) => ({
+        rowType: "COMPLIANCE_ISSUE",
+        severity: issue.severity,
+        type: issue.type,
+        message: issue.message,
+      })));
+    }
   }
   return rows;
 }
