@@ -787,7 +787,23 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   const isSpanish = language === "es";
   const isMobileCaptureViewport = isTouchMobileViewport();
 
+  function resetQuickCapture(nextPropertyId = propertyId) {
+    setCaptureFiles((current) => {
+      current.forEach((entry) => entry.previewUrl && URL.revokeObjectURL(entry.previewUrl));
+      return [];
+    });
+    setDraft(recordDraft(nextPropertyId));
+    setQuickCreateMode("recommendation");
+    setShowMoreDetails(false);
+    setLastCreatedRecord(null);
+    setLastCaptureOutcome(null);
+    setProjectUploadNotice(null);
+  }
+
   const openQuickCapture = (options?: { launchCamera?: boolean }) => {
+    if (lastCreatedRecord || lastCaptureOutcome) {
+      resetQuickCapture(propertyId);
+    }
     setQuickCaptureOpen(true);
     setPropertyWalkSummary(null);
     if (options?.launchCamera) {
@@ -909,19 +925,6 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ["projects"] });
     await queryClient.invalidateQueries({ queryKey: ["my-work"] });
-  };
-
-  const resetQuickCapture = (nextPropertyId = propertyId) => {
-    setCaptureFiles((current) => {
-      current.forEach((entry) => entry.previewUrl && URL.revokeObjectURL(entry.previewUrl));
-      return [];
-    });
-    setDraft(recordDraft(nextPropertyId));
-    setQuickCreateMode("recommendation");
-    setShowMoreDetails(false);
-    setLastCreatedRecord(null);
-    setLastCaptureOutcome(null);
-    setProjectUploadNotice(null);
   };
 
   const appendCaptureFiles = async (files: FileList | File[]) => {

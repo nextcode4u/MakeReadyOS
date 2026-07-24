@@ -102,7 +102,7 @@ function fillPercent(tankSize: number, currentWeight: number) {
   return Math.max(0, Math.round((currentWeight / tankSize) * 100));
 }
 
-function recoveryGrossWeight(input: { currentWeight: number; tareWeight?: number | null }) {
+function cylinderContentsWeight(input: { currentWeight: number; tareWeight?: number | null }) {
   if (typeof input.tareWeight === "number" && input.tareWeight > 0) {
     return Math.max(0, Number((input.currentWeight - input.tareWeight).toFixed(2)));
   }
@@ -119,12 +119,25 @@ function safeCapacityWeight(input: { category: string; tankSize: number; waterCa
 
 function cylinderMetrics<T extends { category: string; tankSize: number; currentWeight: number; tareWeight?: number | null; waterCapacity?: number | null }>(cylinder: T) {
   const safeCapacity = safeCapacityWeight(cylinder);
-  const trackedWeight = cylinder.category === "VIRGIN" ? cylinder.currentWeight : recoveryGrossWeight(cylinder);
+  const trackedWeight = cylinderContentsWeight(cylinder);
   return {
     safeCapacity,
     fillPercent: fillPercent(safeCapacity, trackedWeight),
     remainingCapacity: Math.max(0, Number((safeCapacity - trackedWeight).toFixed(2))),
   };
+}
+
+function inferredVirginTareWeight(input: { category: string; tankSize: number; currentWeight: number; tareWeight?: number | null }) {
+  if (input.category !== "VIRGIN") {
+    return input.tareWeight ?? null;
+  }
+  if (typeof input.tareWeight === "number" && input.tareWeight >= 0) {
+    return input.tareWeight;
+  }
+  if (input.currentWeight >= input.tankSize) {
+    return Number((input.currentWeight - input.tankSize).toFixed(2));
+  }
+  return null;
 }
 
 function weightAmount(type: (typeof transactionTypes)[number], startWeight: number, endWeight: number) {
@@ -322,6 +335,14 @@ async function complianceIssues(propertyIds: string[] | null) {
       .filter((tank) => tank.category === "VIRGIN" && tank.status === "EMPTY_PENDING_RECOVERY" && !tank.finalRecoveryCompleted)
       .map((tank) => ({ severity: "HIGH", type: "VIRGIN_EMPTY_NOT_RECOVERED", message: `${tank.identifier} is empty pending final recovery.`, cylinderId: tank.id })),
     ...cylinders
+      .filter((tank) => tank.category === "VIRGIN" && tank.status === "ACTIVE" && cylinderMetrics(tank).remainingCapacity <= Math.max(5, tank.tankSize * 0.2))
+      .map((tank) => ({
+        severity: cylinderMetrics(tank).remainingCapacity <= 2 ? "HIGH" : "MEDIUM",
+        type: "VIRGIN_TANK_LOW",
+        message: `${tank.identifier} is low with ${cylinderMetrics(tank).remainingCapacity.toFixed(2)} lb remaining out of ${tank.tankSize.toFixed(2)} lb.`,
+        cylinderId: tank.id,
+      })),
+    ...cylinders
       .filter((tank) => tank.category !== "VIRGIN" && tank.status !== "ARCHIVED" && cylinderMetrics(tank).fillPercent >= 80)
       .map((tank) => ({
         severity: cylinderMetrics(tank).fillPercent >= 95 ? "CRITICAL" : cylinderMetrics(tank).fillPercent >= 90 ? "HIGH" : "MEDIUM",
@@ -462,7 +483,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
         category: input.category,
         tankSize: input.tankSize,
         currentWeight: input.currentWeight,
-        tareWeight: input.tareWeight ?? null,
+        tareWeight: inferredVirginTareWeight(input),
         waterCapacity: input.waterCapacity ?? null,
         status: input.status,
         notes: input.notes ?? null,
@@ -487,6 +508,9 @@ export async function refrigerantRoutes(app: FastifyInstance) {
       return reply.code(400).send({ message: "Virgin tank cannot be archived until final recovery is completed." });
     }
     const archivedAt = input.status === "ARCHIVED" && existing.status !== "ARCHIVED" ? new Date() : input.status && input.status !== "ARCHIVED" ? null : undefined;
+    const nextCategory = input.category ?? existing.category;
+    const nextTankSize = input.tankSize ?? existing.tankSize;
+    const nextCurrentWeight = input.currentWeight ?? existing.currentWeight;
     const cylinder = await prisma.refrigerantCylinder.update({
       where: { id },
       data: {
@@ -495,7 +519,19 @@ export async function refrigerantRoutes(app: FastifyInstance) {
         category: input.category,
         tankSize: input.tankSize,
         currentWeight: input.currentWeight,
-        tareWeight: input.tareWeight,
+        tareWeight: input.tareWeight !== undefined
+          ? inferredVirginTareWeight({
+            category: nextCategory,
+            tankSize: nextTankSize,
+            currentWeight: nextCurrentWeight,
+            tareWeight: input.tareWeight,
+          })
+          : existing.tareWeight ?? inferredVirginTareWeight({
+            category: nextCategory,
+            tankSize: nextTankSize,
+            currentWeight: nextCurrentWeight,
+            tareWeight: null,
+          }),
         waterCapacity: input.waterCapacity,
         status: input.status,
         notes: input.notes,
@@ -577,7 +613,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
       const safeCapacity = safeCapacityWeight(recovery);
       const projectedLoad = recovery.category === "VIRGIN"
         ? projectedWeight
-        : recoveryGrossWeight({ currentWeight: projectedWeight, tareWeight: recovery.tareWeight });
+        : cylinderContentsWeight({ currentWeight: projectedWeight, tareWeight: recovery.tareWeight });
       if (projectedLoad > safeCapacity) {
         return reply.code(400).send({ message: `Recovery tank would exceed the 80% usable fill limit (${safeCapacity.toFixed(2)} lb max).` });
       }
