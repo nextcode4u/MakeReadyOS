@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { MakeReadyItem, PlanningResponse, Property, StaffOption, WorkAssignmentBlock } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
+import { todayInputValue } from "../lib/dateTime";
 import { StatusState } from "./StatusState";
 import { UnitSearchSelect } from "./UnitSearchSelect";
 
@@ -22,7 +23,7 @@ type Props = {
 const categories = ["Make Ready", "Cleaning", "Paint", "Flooring", "Pest", "Maintenance", "QC"];
 
 function todayInput() {
-  return new Date().toISOString().slice(0, 10);
+  return todayInputValue();
 }
 
 export function PlanningPanel({ data, properties, items, propertyId, language = "en", onPropertyChange, loading, error, canManage, onCreateBlock, onUpdateBlock, onOpenItem }: Props) {

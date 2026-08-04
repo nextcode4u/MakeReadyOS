@@ -1,5 +1,6 @@
 import { useState, type ChangeEvent } from "react";
 import { exportNativeBackup, importNativeBackup, type BackupImportSummary, type UserLanguage } from "../lib/api";
+import { localDateStamp } from "../lib/dateTime";
 
 type Props = {
   onImported: () => Promise<void>;
@@ -87,7 +88,7 @@ export function BackupTransferPanel({ onImported, language }: Props) {
       const objectUrl = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
       const link = document.createElement("a");
       link.href = objectUrl;
-      link.download = `makereadyos-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      link.download = `makereadyos-backup-${localDateStamp()}.json`;
       link.click();
       URL.revokeObjectURL(objectUrl);
       setMessage(isSpanish ? "Respaldo nativo exportado. Guarde el archivo JSON de forma segura." : "Native backup exported. Store the JSON file securely.");

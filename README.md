@@ -107,9 +107,9 @@ For recurring filter changes, seasonal routines, PM templates, task history, and
 ## Local Development
 
 ```bash
-npm install
-npm --prefix apps/api install
-npm --prefix apps/web install
+npm ci
+npm --prefix apps/api ci
+npm --prefix apps/web ci
 npm --prefix apps/api run db:migrate
 npm --prefix apps/api run seed
 npm run dev

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { LabelDefinition, ScheduleTrack, UserLanguage } from "../lib/api";
+import { todayInputValue } from "../lib/dateTime";
 import { LabelPill } from "./LabelPill";
 import { StatusState } from "./StatusState";
 
@@ -46,7 +47,7 @@ function buildMonthGrid(referenceDate: Date) {
 }
 
 function dateKey(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return todayInputValue(date);
 }
 
 function colorDescription(track: ScheduleTrack | undefined, isSpanish: boolean) {

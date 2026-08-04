@@ -14,7 +14,7 @@ type Props = {
   analyticsLoading: boolean;
   error: boolean;
   onOpenItem: (id: string) => void;
-  onDrillDown: (filter: { type: "kpi" | "vacancy" | "scope" | "tech" | "property" | "risk"; value: string }) => void;
+  onDrillDown: (filter: { type: "kpi" | "vacancy" | "scope" | "tech" | "property" | "risk" | "area"; value: string }) => void;
   onOpenPond: () => void;
   layout: "overview" | "focus";
   onLayoutChange: (layout: "overview" | "focus") => void;
@@ -69,7 +69,7 @@ function kpiLabels(isSpanish: boolean): Record<string, string> {
   };
 }
 
-function Breakdown({ title, data, type, onDrillDown }: { title: string; data: Record<string, number>; type: "tech" | "property"; onDrillDown: Props["onDrillDown"] }) {
+function Breakdown({ title, data, type, onDrillDown }: { title: string; data: Record<string, number>; type: "tech" | "property" | "area"; onDrillDown: Props["onDrillDown"] }) {
   const largest = Math.max(...Object.values(data), 1);
   const total = Math.max(Object.values(data).reduce((sum, value) => sum + value, 0), 1);
   return (
@@ -102,6 +102,13 @@ function downloadBlob(filename: string, blob: Blob) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+function localDateStamp(input = new Date()) {
+  const year = input.getFullYear();
+  const month = String(input.getMonth() + 1).padStart(2, "0");
+  const day = String(input.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function csvCell(value: string | number | null | undefined) {
   const text = value == null ? "" : String(value);
   if (!/[",\n]/.test(text)) return text;
@@ -111,6 +118,12 @@ function csvCell(value: string | number | null | undefined) {
 const analyticsWindowOptions = [7, 30, 90, 180] as const;
 const analyticsMetricOptions = ["overdue", "highRisk", "activeTurns", "averageDaysVacant", "completedTurnsCount"] as const;
 type AnalyticsComparisonMetric = typeof analyticsMetricOptions[number];
+const propertyComparisonSortOptions = ["active", "overdue", "highRisk", "averageDaysVacant"] as const;
+type PropertyComparisonSortMetric = typeof propertyComparisonSortOptions[number];
+const technicianSortOptions = ["completedTurns", "activeCount", "overdueCount", "averageTurnDuration"] as const;
+type TechnicianSortMetric = typeof technicianSortOptions[number];
+const vendorSortOptions = ["completedAssignments", "activeAssignments", "overdueAssignments", "averageCompletionDays"] as const;
+type VendorSortMetric = typeof vendorSortOptions[number];
 
 function addDays(input: Date, days: number) {
   const date = new Date(input);
@@ -149,6 +162,51 @@ function formatMetricDelta(metric: AnalyticsComparisonMetric, value: number, isS
   return `${sign}${formatted}`;
 }
 
+function propertyComparisonSortLabel(metric: PropertyComparisonSortMetric, isSpanish: boolean) {
+  switch (metric) {
+    case "active":
+      return isSpanish ? "Activas" : "Active";
+    case "overdue":
+      return isSpanish ? "Atrasadas" : "Overdue";
+    case "highRisk":
+      return isSpanish ? "Alto riesgo" : "High risk";
+    case "averageDaysVacant":
+      return isSpanish ? "Prom. dias vacante" : "Avg vacant days";
+    default:
+      return metric;
+  }
+}
+
+function technicianSortLabel(metric: TechnicianSortMetric, isSpanish: boolean) {
+  switch (metric) {
+    case "completedTurns":
+      return isSpanish ? "Cierres" : "Closed";
+    case "activeCount":
+      return isSpanish ? "Activas" : "Active";
+    case "overdueCount":
+      return isSpanish ? "Atrasadas" : "Overdue";
+    case "averageTurnDuration":
+      return isSpanish ? "Prom. dias" : "Avg days";
+    default:
+      return metric;
+  }
+}
+
+function vendorSortLabel(metric: VendorSortMetric, isSpanish: boolean) {
+  switch (metric) {
+    case "completedAssignments":
+      return isSpanish ? "Complet." : "Done";
+    case "activeAssignments":
+      return isSpanish ? "Abiertas" : "Open";
+    case "overdueAssignments":
+      return isSpanish ? "Atrasadas" : "Overdue";
+    case "averageCompletionDays":
+      return isSpanish ? "Prom. dias" : "Avg days";
+    default:
+      return metric;
+  }
+}
+
 function recurringSignalSummary(entry: AnalyticsSummaryResponse["recurringProblemUnits"][number], isSpanish: boolean) {
   const labels = [
     entry.signals.highRiskTurns ? `${entry.signals.highRiskTurns} ${isSpanish ? "alto riesgo" : "high risk"}` : null,
@@ -162,6 +220,20 @@ function recurringSignalSummary(entry: AnalyticsSummaryResponse["recurringProble
 
 function ThroughputSection({ data, isSpanish, onDrillDown }: { data: AnalyticsSummaryResponse; isSpanish: boolean; onDrillDown: Props["onDrillDown"] }) {
   if (!data.technicianThroughput.length && !data.vendorThroughput.length) return null;
+  const [technicianSort, setTechnicianSort] = useState<TechnicianSortMetric>("completedTurns");
+  const [vendorSort, setVendorSort] = useState<VendorSortMetric>("completedAssignments");
+  const technicianRows = [...data.technicianThroughput].sort((left, right) => {
+    const leftValue = left[technicianSort] ?? -1;
+    const rightValue = right[technicianSort] ?? -1;
+    if (rightValue !== leftValue) return rightValue - leftValue;
+    return right.completedTurns - left.completedTurns || right.activeCount - left.activeCount || left.name.localeCompare(right.name);
+  });
+  const vendorRows = [...data.vendorThroughput].sort((left, right) => {
+    const leftValue = left[vendorSort] ?? -1;
+    const rightValue = right[vendorSort] ?? -1;
+    if (rightValue !== leftValue) return rightValue - leftValue;
+    return right.completedAssignments - left.completedAssignments || right.activeAssignments - left.activeAssignments || left.vendorName.localeCompare(right.vendorName);
+  });
   return (
     <div className="analytics-throughput">
       <div className="drawer-section-title">
@@ -171,8 +243,18 @@ function ThroughputSection({ data, isSpanish, onDrillDown }: { data: AnalyticsSu
       <div className="analytics-throughput-grid">
         <section className="analytics-throughput-panel">
           <div className="drawer-section-title">
-            <h5>{isSpanish ? "Tecnicos" : "Technicians"}</h5>
-            <span className="muted">{isSpanish ? "Rotaciones cerradas y carga actual" : "Closed turns and current load"}</span>
+            <div>
+              <h5>{isSpanish ? "Tecnicos" : "Technicians"}</h5>
+              <span className="muted">{isSpanish ? "Rotaciones cerradas y carga actual" : "Closed turns and current load"}</span>
+            </div>
+            <label>
+              <span>{isSpanish ? "Ordenar por" : "Sort by"}</span>
+              <select value={technicianSort} onChange={(event) => setTechnicianSort(event.target.value as TechnicianSortMetric)}>
+                {technicianSortOptions.map((metric) => (
+                  <option key={metric} value={metric}>{technicianSortLabel(metric, isSpanish)}</option>
+                ))}
+              </select>
+            </label>
           </div>
           <div className="analytics-throughput-table">
             <div className="analytics-throughput-row analytics-throughput-head">
@@ -181,7 +263,7 @@ function ThroughputSection({ data, isSpanish, onDrillDown }: { data: AnalyticsSu
               <span>{isSpanish ? "Activas" : "Active"}</span>
               <span>{isSpanish ? "Prom. dias" : "Avg days"}</span>
             </div>
-            {data.technicianThroughput.slice(0, 8).map((entry) => (
+            {technicianRows.slice(0, 8).map((entry) => (
               <button key={entry.name} type="button" className="analytics-throughput-row analytics-throughput-action" onClick={() => onDrillDown({ type: "tech", value: entry.name })}>
                 <strong>{entry.name}</strong>
                 <span>{entry.completedTurns}</span>
@@ -193,8 +275,18 @@ function ThroughputSection({ data, isSpanish, onDrillDown }: { data: AnalyticsSu
         </section>
         <section className="analytics-throughput-panel">
           <div className="drawer-section-title">
-            <h5>{isSpanish ? "Proveedores" : "Vendors"}</h5>
-            <span className="muted">{isSpanish ? "Asignaciones completadas y abiertas" : "Completed and open assignments"}</span>
+            <div>
+              <h5>{isSpanish ? "Proveedores" : "Vendors"}</h5>
+              <span className="muted">{isSpanish ? "Asignaciones completadas y abiertas" : "Completed and open assignments"}</span>
+            </div>
+            <label>
+              <span>{isSpanish ? "Ordenar por" : "Sort by"}</span>
+              <select value={vendorSort} onChange={(event) => setVendorSort(event.target.value as VendorSortMetric)}>
+                {vendorSortOptions.map((metric) => (
+                  <option key={metric} value={metric}>{vendorSortLabel(metric, isSpanish)}</option>
+                ))}
+              </select>
+            </label>
           </div>
           <div className="analytics-throughput-table">
             <div className="analytics-throughput-row analytics-throughput-head">
@@ -203,7 +295,7 @@ function ThroughputSection({ data, isSpanish, onDrillDown }: { data: AnalyticsSu
               <span>{isSpanish ? "Abiertas" : "Open"}</span>
               <span>{isSpanish ? "Prom. dias" : "Avg days"}</span>
             </div>
-            {data.vendorThroughput.slice(0, 8).map((entry) => (
+            {vendorRows.slice(0, 8).map((entry) => (
               <div key={entry.vendorId} className="analytics-throughput-row">
                 <strong>{entry.vendorName}<small>{entry.trade}</small></strong>
                 <span>{entry.completedAssignments}</span>
@@ -298,6 +390,7 @@ function AnalyticsPanel({ data, loading, propertyId, language, onDrillDown, onOp
   const isSpanish = language === "es";
   const [comparisonWindowDays, setComparisonWindowDays] = useState<typeof analyticsWindowOptions[number]>(30);
   const [comparisonMetric, setComparisonMetric] = useState<AnalyticsComparisonMetric>("overdue");
+  const [propertyComparisonSort, setPropertyComparisonSort] = useState<PropertyComparisonSortMetric>("active");
   const snapshotsQuery = useQuery({
     queryKey: ["analytics", "snapshots", propertyId ?? "__all__"],
     queryFn: () => getAnalyticsSnapshots({ propertyId, limit: 180 }),
@@ -307,7 +400,11 @@ function AnalyticsPanel({ data, loading, propertyId, language, onDrillDown, onOp
   const trendTotal = Math.max(...data.trends.map((entry) => entry.highRisk + entry.overdue), 1);
   const propertyRows = Object.entries(data.propertyComparison)
     .map(([code, values]) => ({ code, ...values }))
-    .sort((left, right) => right.active - left.active || right.highRisk - left.highRisk || left.code.localeCompare(right.code));
+    .sort((left, right) => {
+      const delta = right[propertyComparisonSort] - left[propertyComparisonSort];
+      if (delta !== 0) return delta;
+      return right.active - left.active || right.highRisk - left.highRisk || left.code.localeCompare(right.code);
+    });
   const snapshots = snapshotsQuery.data?.snapshots ?? [];
   const comparisonSummary = useMemo(() => {
     if (!snapshots.length) return null;
@@ -383,6 +480,75 @@ function AnalyticsPanel({ data, loading, propertyId, language, onDrillDown, onOp
       snapshot.completedTurnsCount,
     ]),
   ].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n");
+  const analyticsOpsCsv = [
+    ["section", "property", "label", "value_1", "value_2", "value_3", "value_4", "notes"],
+    ...propertyRows.map((row) => ([
+      "property_comparison",
+      row.code,
+      row.code,
+      row.active,
+      row.overdue,
+      row.highRisk,
+      row.averageDaysVacant,
+      "",
+    ])),
+    ...data.slaMissByScope.map((entry) => ([
+      "sla_miss_by_scope",
+      "",
+      entry.scopeLevel,
+      entry.missCount,
+      entry.averageLateDays,
+      entry.worstLateDays,
+      "",
+      "",
+    ])),
+    ...data.technicianThroughput.map((entry) => ([
+      "technician_throughput",
+      "",
+      entry.name,
+      entry.completedTurns,
+      entry.activeCount,
+      entry.overdueCount,
+      entry.averageTurnDuration ?? "",
+      "",
+    ])),
+    ...data.vendorThroughput.map((entry) => ([
+      "vendor_throughput",
+      "",
+      entry.vendorName,
+      entry.completedAssignments,
+      entry.activeAssignments,
+      entry.overdueAssignments,
+      entry.averageCompletionDays ?? "",
+      entry.trade,
+    ])),
+    ...data.recurringProblemUnits.map((entry) => ([
+      "recurring_hotspot",
+      entry.property.code,
+      entry.unitNumber,
+      entry.turnCount,
+      entry.activeTurnCount,
+      entry.averageChecklistCompletionPercent,
+      entry.averageTurnDuration ?? "",
+      recurringSignalSummary(entry, false),
+    ])),
+  ].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n");
+  const comparisonCsv = comparisonSummary
+    ? [
+      ["property", "property_name", "metric", "window_days", "start_date", "latest_date", "start_value", "latest_value", "delta"],
+      ...comparisonSummary.rows.map((row) => ([
+        row.code,
+        row.propertyName,
+        comparisonMetric,
+        comparisonWindowDays,
+        row.startDate,
+        row.latestDate,
+        row.startValue,
+        row.latestValue,
+        row.delta,
+      ])),
+    ].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n")
+    : "";
   const summaryJson = {
     exportedAt: new Date().toISOString(),
     propertyId: propertyId ?? null,
@@ -404,6 +570,21 @@ function AnalyticsPanel({ data, loading, propertyId, language, onDrillDown, onOp
             disabled={!snapshots.length}
           >
             {isSpanish ? "Exportar CSV" : "Export CSV"}
+          </button>
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={() => downloadBlob(`makereadyos-analytics-${propertyId ? "property" : "portfolio"}-ops.csv`, new Blob([analyticsOpsCsv], { type: "text/csv;charset=utf-8" }))}
+          >
+            {isSpanish ? "Exportar ops CSV" : "Export Ops CSV"}
+          </button>
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={() => downloadBlob(`makereadyos-analytics-${propertyId ? "property" : "portfolio"}-${comparisonMetric}-${comparisonWindowDays}d.csv`, new Blob([comparisonCsv], { type: "text/csv;charset=utf-8" }))}
+            disabled={!comparisonSummary}
+          >
+            {isSpanish ? "Exportar comparacion CSV" : "Export Comparison CSV"}
           </button>
           <button
             type="button"
@@ -494,8 +675,18 @@ function AnalyticsPanel({ data, loading, propertyId, language, onDrillDown, onOp
       {propertyRows.length ? (
         <div className="analytics-property-table-wrap">
           <div className="drawer-section-title">
-            <h4>{isSpanish ? "Comparacion por propiedad" : "Property Comparison"}</h4>
-            <span className="muted">{isSpanish ? `${propertyRows.length} propiedades` : `${propertyRows.length} properties`}</span>
+            <div>
+              <h4>{isSpanish ? "Comparacion por propiedad" : "Property Comparison"}</h4>
+              <span className="muted">{isSpanish ? `${propertyRows.length} propiedades` : `${propertyRows.length} properties`}</span>
+            </div>
+            <label>
+              <span>{isSpanish ? "Ordenar por" : "Sort by"}</span>
+              <select value={propertyComparisonSort} onChange={(event) => setPropertyComparisonSort(event.target.value as PropertyComparisonSortMetric)}>
+                {propertyComparisonSortOptions.map((metric) => (
+                  <option key={metric} value={metric}>{propertyComparisonSortLabel(metric, isSpanish)}</option>
+                ))}
+              </select>
+            </label>
           </div>
           <div className="analytics-property-table">
             <div className="analytics-property-table-row analytics-property-table-head">
@@ -708,9 +899,62 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
   const labels = kpiLabels(isSpanish);
   if (loading) return <StatusState title={t(language, "dashboard.loading")} description={t(language, "dashboard.loadingCopy")} />;
   if (error || !data) return <StatusState title={t(language, "dashboard.unavailable")} description={t(language, "dashboard.unavailableCopy")} tone="error" />;
+  const exportDate = localDateStamp();
   const needsAttention = data.needsAttention ?? [];
   const recentStatusChanges = data.recentStatusChanges ?? [];
   const activeSessions = assignedWork?.activeSessions ?? [];
+  const assignedWorkCsv = [
+    ["section", "user", "role", "property", "title", "status", "priority", "due_date", "scheduled_date", "overdue", "session_started_at", "session_duration"],
+    ...activeSessions.map((session) => [
+      "active_session",
+      session.user.fullName,
+      session.user.role,
+      session.property.code,
+      session.title,
+      "IN_PROGRESS",
+      "",
+      "",
+      "",
+      "",
+      session.startedAt,
+      sessionDurationLabel(session.startedAt),
+    ]),
+    ...((assignedWork?.entries ?? []).map((entry) => [
+      "assignment",
+      entry.assignedUserName,
+      entry.role ?? "",
+      entry.property.code,
+      entry.title,
+      entry.status,
+      entry.priority ?? "",
+      entry.dueDate ?? "",
+      entry.scheduledDate ?? "",
+      entry.overdue ? "yes" : "no",
+      entry.activeSession?.startedAt ?? "",
+      entry.activeSession ? sessionDurationLabel(entry.activeSession.startedAt) : "",
+    ])),
+  ].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n");
+  const needsAttentionCsv = [
+    ["property", "unit", "risk_level", "risk_score", "reasons"],
+    ...needsAttention.map((item) => [
+      item.property.code,
+      item.unitNumber,
+      item.riskLevel ?? "",
+      item.riskScore ?? "",
+      item.reasons.join(" | "),
+    ]),
+  ].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n");
+  const recentStatusChangesCsv = [
+    ["property", "unit", "title", "detail", "source", "changed_at"],
+    ...recentStatusChanges.map((entry) => [
+      entry.property.code,
+      entry.unitNumber,
+      entry.title,
+      entry.detail,
+      entry.source,
+      entry.changedAt,
+    ]),
+  ].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n");
   return (
     <section className={`dashboard-shell dashboard-layout-${layout}`} data-testid="dashboard-panel">
       <header className="panel-heading">
@@ -738,14 +982,27 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
         <Donut title={isSpanish ? "Niveles de riesgo" : "Risk Levels"} data={data.riskByLevel} type="risk" onDrillDown={onDrillDown} />
         <Breakdown title={isSpanish ? "Carga asignada" : "Assigned Workload"} data={data.techWorkload} type="tech" onDrillDown={onDrillDown} />
         <Breakdown title={isSpanish ? "Comparacion por propiedad" : "Property Comparison"} data={data.propertyComparison} type="property" onDrillDown={onDrillDown} />
-        {Object.keys(data.downUnitsByArea ?? {}).length ? <Breakdown title={isSpanish ? "Unidades fuera de servicio por area" : "Down Units By Area"} data={data.downUnitsByArea} type="property" onDrillDown={onDrillDown} /> : null}
+        {Object.keys(data.downUnitsByArea ?? {}).length ? <Breakdown title={isSpanish ? "Unidades fuera de servicio por area" : "Down Units By Area"} data={data.downUnitsByArea} type="area" onDrillDown={onDrillDown} /> : null}
         {showAssignedWork ? (
           <section className="dashboard-chart dashboard-assigned-work-card" data-testid="dashboard-assigned-work-card">
             <div className="drawer-section-title">
-              <h3>{isSpanish ? "Trabajo asignado" : "Assigned Work"}</h3>
-              <button type="button" className="button button-secondary" onClick={onOpenAssignedWork}>
-                {isSpanish ? "Abrir" : "Open"}
-              </button>
+              <div>
+                <h3>{isSpanish ? "Trabajo asignado" : "Assigned Work"}</h3>
+              </div>
+              <div className="analytics-export-actions">
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  aria-label={isSpanish ? "Exportar trabajo asignado como CSV" : "Export assigned work as CSV"}
+                  onClick={() => downloadBlob(`makereadyos-assigned-work-${propertyId ? "property" : "portfolio"}-${exportDate}.csv`, new Blob([assignedWorkCsv], { type: "text/csv;charset=utf-8" }))}
+                  disabled={!assignedWork?.entries?.length && !activeSessions.length}
+                >
+                  {isSpanish ? "Exportar CSV" : "Export CSV"}
+                </button>
+                <button type="button" className="button button-secondary" onClick={onOpenAssignedWork}>
+                  {isSpanish ? "Abrir" : "Open"}
+                </button>
+              </div>
             </div>
             <div className="analytics-metrics">
               <span><strong>{assignedWork?.summary.totalAssignments ?? 0}</strong> {isSpanish ? "asignaciones" : "assignments"}</span>
@@ -786,7 +1043,18 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
         <button type="button" className="button button-primary" data-testid="dashboard-open-pond" onClick={onOpenPond}>{isSpanish ? "Abrir Frog Pond" : "Open Frog Pond"}</button>
       </section>
       <section className="attention-panel" data-testid="needs-attention-panel">
-        <h3>{t(language, "dashboard.needsAttention")}</h3>
+        <div className="drawer-section-title">
+          <h3>{t(language, "dashboard.needsAttention")}</h3>
+          <button
+            type="button"
+            className="button button-secondary"
+            aria-label={isSpanish ? "Exportar elementos que necesitan atención como CSV" : "Export needs attention as CSV"}
+            onClick={() => downloadBlob(`makereadyos-needs-attention-${propertyId ? "property" : "portfolio"}-${exportDate}.csv`, new Blob([needsAttentionCsv], { type: "text/csv;charset=utf-8" }))}
+            disabled={!needsAttention.length}
+          >
+            {isSpanish ? "Exportar CSV" : "Export CSV"}
+          </button>
+        </div>
         {needsAttention.length === 0 ? <p className="empty-copy">{t(language, "dashboard.needsAttentionEmpty")}</p> : (
           <div className="attention-list">
             {needsAttention.map((item) => (
@@ -800,8 +1068,21 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
         )}
       </section>
       <section className="attention-panel" data-testid="recent-status-changes-panel">
-        <h3>{t(language, "dashboard.recentStatusChanges")}</h3>
-        <p className="muted">{t(language, "dashboard.recentStatusChangesCopy")}</p>
+        <div className="drawer-section-title">
+          <div>
+            <h3>{t(language, "dashboard.recentStatusChanges")}</h3>
+            <p className="muted">{t(language, "dashboard.recentStatusChangesCopy")}</p>
+          </div>
+          <button
+            type="button"
+            className="button button-secondary"
+            aria-label={isSpanish ? "Exportar cambios recientes de estado como CSV" : "Export recent status changes as CSV"}
+            onClick={() => downloadBlob(`makereadyos-recent-status-changes-${propertyId ? "property" : "portfolio"}-${exportDate}.csv`, new Blob([recentStatusChangesCsv], { type: "text/csv;charset=utf-8" }))}
+            disabled={!recentStatusChanges.length}
+          >
+            {isSpanish ? "Exportar CSV" : "Export CSV"}
+          </button>
+        </div>
         {recentStatusChanges.length === 0 ? <p className="empty-copy">{t(language, "dashboard.recentStatusChangesEmpty")}</p> : (
           <div className="attention-list">
             {recentStatusChanges.map((entry) => (

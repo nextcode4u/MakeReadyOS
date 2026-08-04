@@ -40,6 +40,7 @@ import {
   type ProjectHistoryEntry,
   type UserRole,
 } from "../lib/api";
+import { formatDateDisplay, formatDateTime as sharedFormatDateTime, todayInputValue } from "../lib/dateTime";
 import {
   enqueueProjectAttachmentUpload,
   enqueueProjectCapture,
@@ -127,12 +128,12 @@ function toneForAging(daysOpen: number | null | undefined) {
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "-";
-  return new Date(value).toLocaleDateString();
+  return formatDateDisplay(value);
 }
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-";
-  return new Date(value).toLocaleString();
+  return sharedFormatDateTime(value);
 }
 
 function recordDraft(propertyId: string) {
@@ -237,7 +238,7 @@ function buildAutoProjectTitle(
 ) {
   const categoryName = categories.find((category) => category.id === draft.categoryId)?.name ?? "General";
   const location = [draft.building, draft.area].map((entry) => entry.trim()).filter(Boolean).join(" / ");
-  return `${categoryName} ${draft.recordType === "Recommendation" ? "Finding" : "Project"} - ${location || new Date().toLocaleDateString()}`;
+  return `${categoryName} ${draft.recordType === "Recommendation" ? "Finding" : "Project"} - ${location || todayInputValue()}`;
 }
 
 function hasQuickCaptureContent(draft: ReturnType<typeof recordDraft>, files: StagedCaptureFile[]) {

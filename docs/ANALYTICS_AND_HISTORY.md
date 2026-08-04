@@ -67,13 +67,17 @@ The dashboard now surfaces that data more directly instead of treating analytics
 - sortable property-comparison rows for active, overdue, high-risk, and average-vacant-day review
 - selectable 7 / 30 / 90 / 180 day comparison windows using fetched daily snapshots
 - metric-specific property delta review for overdue, high-risk, active turns, average vacant days, and completed turns
+- dashboard-side CSV export of the currently selected comparison metric/window so supervisors can hand off the exact start/current/delta table they are reviewing
 - scope-level ready-date miss rows that show which work scopes are missing target make-ready dates most often
 - recurring-hotspot cards that show cross-turn unit problem signals, active-vs-completed turn counts, checklist completion, average duration, and direct open/drill actions
-- technician throughput rows that show who is closing turns, who is carrying active backlog, and who is also holding overdue work
-- vendor throughput rows based on completed/open vendor assignments instead of only generic vendor-presence counts
+- technician throughput rows that show who is closing turns, who is carrying active backlog, and who is also holding overdue work, with in-panel sorting by closed turns, active load, overdue load, or average duration
+- vendor throughput rows based on completed/open vendor assignments instead of only generic vendor-presence counts, with in-panel sorting by completed work, open load, overdue load, or average completion days
 - recent completed-turn shortcuts that jump straight into the underlying record
 - dashboard-side CSV export of fetched daily snapshots
+- dashboard-side CSV export of the live ops drilldown tables (property comparison, SLA misses, technician throughput, vendor throughput, recurring hotspots)
 - dashboard-side JSON export of the current analytics summary plus fetched snapshot history
+- dashboard-side CSV export of the live `Needs Attention` and `Recent Status Changes` feeds so current supervisor action lists can be handed off without screenshots or manual copy/paste
+- dashboard-side CSV export of the Assigned Work widget so supervisors can hand off current assignments and live work sessions directly from the dashboard
 
 Property comparison average-vacant-day values are normalized per property instead of exposing summed day totals, so exported and in-app comparisons stay meaningful.
 

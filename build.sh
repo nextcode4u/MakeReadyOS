@@ -35,15 +35,15 @@ mkdir -p "$LOG_DIR"
   echo
 
   echo "Installing root dependencies"
-  npm install
+  npm ci
   echo
 
   echo "Installing API dependencies"
-  npm --prefix apps/api install
+  npm --prefix apps/api ci
   echo
 
   echo "Installing web dependencies"
-  npm --prefix apps/web install
+  npm --prefix apps/web ci
   echo
 
   echo "Generating Prisma client"

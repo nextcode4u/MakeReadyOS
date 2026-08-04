@@ -23,6 +23,7 @@ import {
   type Property,
   type UserRole,
 } from "../lib/api";
+import { todayInputValue } from "../lib/dateTime";
 import { enqueuePoolCreate, enqueuePoolUpload, getOfflineSyncEventName, listOfflineSyncJobs, syncOfflineJobs, type OfflineSyncJobSummary } from "../lib/offlineSync";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { StatusState } from "./StatusState";
@@ -58,7 +59,7 @@ const chemicalCategories: Array<{ value: PoolChemical["category"]; label: string
 const chemicalUnits: PoolChemical["unit"][] = ["POUNDS", "OUNCES", "GALLONS", "QUARTS", "TABLETS"];
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return todayInputValue();
 }
 
 function timeNow() {

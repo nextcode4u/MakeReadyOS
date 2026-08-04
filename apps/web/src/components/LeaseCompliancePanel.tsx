@@ -37,6 +37,7 @@ import {
   type UserLanguage,
   type UserRole,
 } from "../lib/api";
+import { formatDateTime } from "../lib/dateTime";
 import { enqueueLeaseCreate, enqueueLeaseUpload, getOfflineSyncEventName, listOfflineSyncJobs, syncOfflineJobs, type OfflineSyncJobSummary } from "../lib/offlineSync";
 import { t, tWithVars } from "../lib/i18n";
 import type { OpenLeaseQuickAddRequest, OpenLeaseWorkspaceRequest } from "../lib/leaseNavigation";
@@ -342,7 +343,7 @@ function IssueCard({
                   {issue.notes.slice(0, 4).map((entry) => (
                     <div key={entry.id} className="activity-entry">
                       <strong>{entry.authorName}</strong>
-                      <span>{new Date(entry.createdAt).toLocaleString()}</span>
+                      <span>{formatDateTime(entry.createdAt, undefined, language)}</span>
                       <p>{entry.body}</p>
                     </div>
                   ))}

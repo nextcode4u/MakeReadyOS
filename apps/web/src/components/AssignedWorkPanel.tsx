@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { AssignedWorkEntry, AssignedWorkResponse, CurrentUser } from "../lib/api";
+import { formatDateTime } from "../lib/dateTime";
 import { t, tWithVars } from "../lib/i18n";
 import { StatusState } from "./StatusState";
 
@@ -16,8 +17,8 @@ type Props = {
   onEndWork: (sessionId: string) => Promise<void>;
 };
 
-function startedLabel(value: string) {
-  return new Date(value).toLocaleString();
+function startedLabel(value: string, language: CurrentUser["language"]) {
+  return formatDateTime(value, undefined, language);
 }
 
 function durationLabel(startedAt: string) {
@@ -117,7 +118,7 @@ export function AssignedWorkPanel({ data, loading, error, currentUser, selectedU
                       </div>
                       <div className="my-work-progress">
                         {activeSession ? (
-                          <span>{language === "es" ? "Iniciado" : "Started"} {startedLabel(activeSession.startedAt)} / {durationLabel(activeSession.startedAt)}</span>
+                          <span>{language === "es" ? "Iniciado" : "Started"} {startedLabel(activeSession.startedAt, language)} / {durationLabel(activeSession.startedAt)}</span>
                         ) : (
                           <span>{language === "es" ? "Sin sesión activa" : "No active work session"}</span>
                         )}

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { CurrentUser, LabelDefinition, MyWorkResponse, StaffOption, WorkSessionSourceType } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
+import { formatDateTime } from "../lib/dateTime";
 import { t, tWithVars } from "../lib/i18n";
 import { openLeaseWorkspace } from "../lib/leaseNavigation";
 import { openPestWorkspace } from "../lib/pestNavigation";
@@ -26,6 +27,7 @@ type Props = {
 
 export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsByField, selectedUserId, onUserChange, onOpenItem, onRetry, onQuickStatusChange, onStartWork, onEndWork }: Props) {
   const language = currentUser.language;
+  const startedLabel = (value: string) => formatDateTime(value, undefined, language);
   const activeSessionBySourceKey = useMemo(
     () => new Map((data?.activeSessions ?? []).map((session) => [`${session.sourceType}:${session.sourceId}`, session] as const)),
     [data?.activeSessions],
@@ -115,7 +117,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                   {item.workAssignmentBlocks?.[0] ? <span>{tWithVars(language, "myWork.planned", { date: item.workAssignmentBlocks[0].plannedDate.slice(0, 10), category: item.workAssignmentBlocks[0].category })}</span> : null}
                 </div>
                 <div className="my-work-progress">
-                  <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${new Date(activeSession.startedAt).toLocaleString()}` : tWithVars(language, "myWork.checklist", { done: done.toString(), total: tasks.length.toString() })}</span>
+                  <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${startedLabel(activeSession.startedAt)}` : tWithVars(language, "myWork.checklist", { done: done.toString(), total: tasks.length.toString() })}</span>
                   <progress value={done} max={tasks.length || 1} />
                 </div>
                 <div className="my-work-actions">
@@ -162,7 +164,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                   {item.scheduledDate ? <span>{tWithVars(language, "myWork.scheduled", { date: item.scheduledDate.slice(0, 10) })}</span> : null}
                 </div>
                 <div className="my-work-progress">
-                  <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${new Date(activeSession.startedAt).toLocaleString()}` : tWithVars(language, "myWork.projectTasks", { done: done.toString(), total: item.tasks.length.toString() })}</span>
+                  <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${startedLabel(activeSession.startedAt)}` : tWithVars(language, "myWork.projectTasks", { done: done.toString(), total: item.tasks.length.toString() })}</span>
                   <progress value={done} max={item.tasks.length || 1} />
                 </div>
                 <div className="my-work-actions">
@@ -193,7 +195,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                   {item.treatmentDate ? <span>{tWithVars(language, "myWork.treatmentDate", { date: item.treatmentDate.slice(0, 10) })}</span> : null}
                 </div>
                 <div className="my-work-progress">
-                  <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${new Date(activeSession.startedAt).toLocaleString()}` : item.vendor?.vendorName ?? item.source}</span>
+                  <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${startedLabel(activeSession.startedAt)}` : item.vendor?.vendorName ?? item.source}</span>
                   <progress value={item.status === "Closed" ? 1 : item.status === "Treated" ? 0.8 : item.status === "Scheduled" ? 0.5 : 0.2} max={1} />
                 </div>
                 <div className="my-work-actions">
@@ -223,7 +225,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                   <span>{item.priority}</span>
                 </div>
                 <div className="my-work-progress">
-                  <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${new Date(activeSession.startedAt).toLocaleString()}` : tWithVars(language, "myWork.persistedCount", { count: item.persistenceCount.toString() })}</span>
+                  <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${startedLabel(activeSession.startedAt)}` : tWithVars(language, "myWork.persistedCount", { count: item.persistenceCount.toString() })}</span>
                   <progress value={item.status === "Resolved" ? 1 : item.noticeStage === "Violation Needed" ? 0.9 : item.noticeStage === "3rd Notice" ? 0.75 : item.noticeStage === "2nd Notice" ? 0.55 : item.noticeStage === "1st Notice" ? 0.35 : 0.15} max={1} />
                 </div>
                 <div className="my-work-actions">
@@ -251,7 +253,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                   <span>{tWithVars(language, "myWork.due", { date: task.dueDate.slice(0, 10) })}</span>
                 </div>
                 <div className="my-work-progress">
-                  <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${new Date(activeSession.startedAt).toLocaleString()}` : task.instructions || task.description || t(language, "myWork.noExtraNotes")}</span>
+                  <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${startedLabel(activeSession.startedAt)}` : task.instructions || task.description || t(language, "myWork.noExtraNotes")}</span>
                   <progress value={task.status === "COMPLETED" ? 1 : activeSession ? 0.6 : 0.2} max={1} />
                 </div>
                 <div className="my-work-actions">

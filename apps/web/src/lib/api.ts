@@ -3722,7 +3722,31 @@ export function getMakeReadyItems(filters: {
     value?: string | number | boolean | null;
     valueTo?: string | null;
   }>;
-  sortBy?: "boardGroup" | "unitNumber" | "moveInDate" | "makeReadyDate" | "vacatedDate" | "flooringDate" | "daysVacant" | "riskScore" | "riskLevel" | "assignedTech" | "updatedAt" | "createdAt";
+  sortBy?:
+    | "boardGroup"
+    | "itemName"
+    | "unitNumber"
+    | "floorPlan"
+    | "applicant"
+    | "scopeLevel"
+    | "vacancyStatus"
+    | "moveInDate"
+    | "moveOutDate"
+    | "makeReadyDate"
+    | "vacatedDate"
+    | "flooringDate"
+    | "daysVacant"
+    | "daysUntilMoveIn"
+    | "riskScore"
+    | "riskLevel"
+    | "overdue"
+    | "moveInSoon"
+    | "assignedTech"
+    | "makeReadyStatus"
+    | "completionStatus"
+    | "cleaningStatus"
+    | "updatedAt"
+    | "createdAt";
   sortDirection?: "asc" | "desc";
   updatedSince?: string;
   limit?: number;
@@ -4266,20 +4290,26 @@ export function dismissRefrigerantLeakFlag(id: string, notes: string) {
   return request<{ flag: RefrigerantLeakFlag }>(`/refrigerant/leak-flags/${id}/dismiss`, { method: "POST", body: JSON.stringify({ notes }) });
 }
 
-export function refrigerantExportCsvUrl(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit") {
-  return `${apiBaseUrl}/refrigerant/export.csv?report=${encodeURIComponent(report)}`;
+function refrigerantReportQuery(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit", propertyId?: string) {
+  const params = new URLSearchParams({ report });
+  if (propertyId) params.set("propertyId", propertyId);
+  return params.toString();
 }
 
-export function refrigerantExportExcelUrl(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit") {
-  return `${apiBaseUrl}/refrigerant/export.xls?report=${encodeURIComponent(report)}`;
+export function refrigerantExportCsvUrl(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit", propertyId?: string) {
+  return `${apiBaseUrl}/refrigerant/export.csv?${refrigerantReportQuery(report, propertyId)}`;
 }
 
-export function refrigerantPrintableHtmlReportUrl(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit") {
-  return `${apiBaseUrl}/refrigerant/report.html?report=${encodeURIComponent(report)}`;
+export function refrigerantExportExcelUrl(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit", propertyId?: string) {
+  return `${apiBaseUrl}/refrigerant/export.xls?${refrigerantReportQuery(report, propertyId)}`;
 }
 
-export function refrigerantPrintableReportUrl(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit") {
-  return `${apiBaseUrl}/refrigerant/report.pdf?report=${encodeURIComponent(report)}`;
+export function refrigerantPrintableHtmlReportUrl(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit", propertyId?: string) {
+  return `${apiBaseUrl}/refrigerant/report.html?${refrigerantReportQuery(report, propertyId)}`;
+}
+
+export function refrigerantPrintableReportUrl(report: "usage" | "recovery" | "cylinders" | "compliance" | "unitHistory" | "fullAudit", propertyId?: string) {
+  return `${apiBaseUrl}/refrigerant/report.pdf?${refrigerantReportQuery(report, propertyId)}`;
 }
 
 export type RefrigerantTransactionInput = {

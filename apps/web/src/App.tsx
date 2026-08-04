@@ -233,15 +233,27 @@ const metaCacheStorageKey = "makereadyos.meta-cache";
 const boardWindowPageSize = 250;
 const serverSortableItemFields = new Set([
   "boardGroup",
+  "itemName",
   "unitNumber",
+  "floorPlan",
+  "applicant",
+  "scopeLevel",
+  "vacancyStatus",
   "moveInDate",
+  "moveOutDate",
   "makeReadyDate",
   "vacatedDate",
   "flooringDate",
   "daysVacant",
+  "daysUntilMoveIn",
   "riskScore",
   "riskLevel",
+  "overdue",
+  "moveInSoon",
   "assignedTech",
+  "makeReadyStatus",
+  "completionStatus",
+  "cleaningStatus",
   "updatedAt",
   "createdAt",
 ]);
@@ -1500,6 +1512,15 @@ function App() {
   });
   const boardItems = itemsQuery.data?.items ?? [];
   const boardPagination = itemsQuery.data?.pagination;
+  const boardWindowLoadedCount = boardItems.length;
+  const boardWindowTotalCount = boardPagination?.total ?? null;
+  const boardWindowRemainingCount = boardWindowedMode && boardWindowTotalCount !== null
+    ? Math.max(0, boardWindowTotalCount - boardWindowLoadedCount)
+    : 0;
+  const boardWindowUsesServerSort = serverSortableItemFields.has(sortKey);
+  const boardWindowProgressPercent = boardWindowedMode && boardWindowTotalCount && boardWindowTotalCount > 0
+    ? Math.min(100, Math.round((boardWindowLoadedCount / boardWindowTotalCount) * 100))
+    : 100;
 
   const savedViewsQuery = useQuery({
     queryKey: ["saved-views"],
@@ -3262,30 +3283,25 @@ function App() {
   };
 
   const filteredItems = useMemo(() => {
-    const allItems = boardItems;
+    if (structuredFilters.archiveState !== "occupied") {
+      return boardItems;
+    }
 
-    return allItems.filter((item) => {
-      if (propertyId && item.propertyId !== propertyId) {
-        return false;
-      }
-
-      if (deferredSearch) {
-        const haystack = [item.unitNumber, item.itemName, item.applicant ?? "", item.assignedTech ?? "", item.property.code].join(" ").toLowerCase();
-        if (!haystack.includes(deferredSearch.toLowerCase())) {
-          return false;
-        }
-      }
-
-      if (scopeLevelFilter && item.scopeLevel !== scopeLevelFilter) {
-        return false;
-      }
-      return itemMatchesStructuredFilters(item, structuredFilters, metaQuery.data?.boardSections ?? [], metaQuery.data?.customFields ?? []);
-    });
-  }, [boardItems, metaQuery.data?.boardSections, propertyId, scopeLevelFilter, deferredSearch, structuredFilters]);
+    return boardItems.filter((item) => itemMatchesStructuredFilters(
+      item,
+      structuredFilters,
+      metaQuery.data?.boardSections ?? [],
+      metaQuery.data?.customFields ?? [],
+    ));
+  }, [boardItems, metaQuery.data?.boardSections, metaQuery.data?.customFields, structuredFilters]);
 
   const sortedItems = useMemo(() => {
+    if (boardWindowUsesServerSort) {
+      return filteredItems;
+    }
+
     return [...filteredItems].sort((a, b) => compareValues(a[sortKey as keyof typeof a], b[sortKey as keyof typeof b], sortDirection));
-  }, [filteredItems, sortDirection, sortKey]);
+  }, [boardWindowUsesServerSort, filteredItems, sortDirection, sortKey]);
   const occupiedDirectoryResultCount = useMemo(() => {
     if (structuredFilters.archiveState !== "occupied") return 0;
     const query = deferredSearch.trim().toLowerCase();
@@ -3727,6 +3743,8 @@ function App() {
                 setDashboardDrilldownContext({ label: contextLabel, savedViewName });
                 if (type === "property") {
                   setPropertyId(metaQuery.data?.properties.find((property) => property.code === value)?.id ?? "");
+                } else if (type === "area") {
+                  setSearch(value);
                 } else if (type === "vacancy") {
                   setStructuredFilters((current) => ({ ...current, vacancyStatus: value }));
                 } else if (type === "tech") {
@@ -4256,41 +4274,67 @@ function App() {
                   savingContext={createViewMutation.isPending}
                 />
                 <div className="board-window-controls" data-testid="board-window-controls">
-                  <label className="toggle-row">
-                    <input
-                      type="checkbox"
-                      data-testid="board-windowed-toggle"
-                      checked={boardWindowedMode}
-                      onChange={(event) => setBoardWindowedMode(event.target.checked)}
-                    />
-                    Windowed loading
-                  </label>
-                  <span>
-                    {boardWindowedMode
-                      ? `Loaded ${boardItems.length}${boardPagination?.total !== undefined ? ` of ${boardPagination.total}` : ""} records`
-                      : `Full board stream: ${boardItems.length} records`}
-                  </span>
-                  {boardWindowedMode && boardPagination?.hasMore ? (
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      data-testid="board-window-load-more"
-                      disabled={itemsQuery.isFetching}
-                      onClick={() => setBoardWindowLimit((current) => Math.min(current + boardWindowPageSize, boardPagination.total || current + boardWindowPageSize))}
-                    >
-                      Load next {boardWindowPageSize}
-                    </button>
-                  ) : null}
+                  <div className="board-window-header">
+                    <label className="toggle-row">
+                      <input
+                        type="checkbox"
+                        data-testid="board-windowed-toggle"
+                        checked={boardWindowedMode}
+                        onChange={(event) => setBoardWindowedMode(event.target.checked)}
+                      />
+                      Windowed loading
+                    </label>
+                    <span className={`status-pill ${boardWindowedMode ? "status-info" : "status-muted"}`}>
+                      {boardWindowedMode ? "Windowed" : "Full stream"}
+                    </span>
+                  </div>
+                  <div className="board-window-summary">
+                    <strong>
+                      {boardWindowedMode
+                        ? `Loaded ${boardWindowLoadedCount}${boardWindowTotalCount !== null ? ` of ${boardWindowTotalCount}` : ""} records`
+                        : `Full board stream: ${boardWindowLoadedCount} records`}
+                    </strong>
+                    <span>
+                      {boardWindowedMode
+                        ? boardWindowRemainingCount > 0
+                          ? `${boardWindowRemainingCount} more record${boardWindowRemainingCount === 1 ? "" : "s"} available`
+                          : "All currently matched records are loaded"
+                        : "All matched records are loaded in one stream"}
+                    </span>
+                    {boardWindowedMode && !boardWindowUsesServerSort ? (
+                      <span className="board-window-warning">
+                        Current sort uses client-side ordering. Load the full board for complete sorting on this column.
+                      </span>
+                    ) : null}
+                  </div>
                   {boardWindowedMode ? (
-                    <button
-                      type="button"
-                      className="button button-ghost"
-                      data-testid="board-window-disable"
-                      onClick={() => setBoardWindowedMode(false)}
-                    >
-                      Load full board
-                    </button>
+                    <div className="board-window-progress" aria-hidden="true">
+                      <span style={{ width: `${boardWindowProgressPercent}%` }} />
+                    </div>
                   ) : null}
+                  <div className="board-window-actions">
+                    {boardWindowedMode && boardPagination?.hasMore ? (
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        data-testid="board-window-load-more"
+                        disabled={itemsQuery.isFetching}
+                        onClick={() => setBoardWindowLimit((current) => Math.min(current + boardWindowPageSize, boardPagination.total || current + boardWindowPageSize))}
+                      >
+                        {itemsQuery.isFetching ? "Loading..." : `Load next ${boardWindowPageSize}`}
+                      </button>
+                    ) : null}
+                    {boardWindowedMode ? (
+                      <button
+                        type="button"
+                        className="button button-ghost"
+                        data-testid="board-window-disable"
+                        onClick={() => setBoardWindowedMode(false)}
+                      >
+                        Load full board
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </>
             ) : null}

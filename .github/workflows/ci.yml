@@ -26,13 +26,16 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Install root dependencies
-        run: npm install
+        run: npm ci
 
       - name: Install API dependencies
-        run: npm --prefix apps/api install
+        run: npm --prefix apps/api ci
 
       - name: Install web dependencies
-        run: npm --prefix apps/web install
+        run: npm --prefix apps/web ci
+
+      - name: Audit root production dependencies
+        run: npm audit --omit=dev
 
       - name: Audit API production dependencies
         run: npm --prefix apps/api audit --omit=dev

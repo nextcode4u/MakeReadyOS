@@ -27,6 +27,7 @@ import {
   type UserLanguage,
   type UserRole,
 } from "../lib/api";
+import { formatDateTime as sharedFormatDateTime, todayInputValue } from "../lib/dateTime";
 import { enqueuePmComplete, enqueuePmSkip, enqueuePmUpload, getOfflineSyncEventName, listOfflineSyncJobs, syncOfflineJobs, type OfflineSyncJobSummary } from "../lib/offlineSync";
 import { t } from "../lib/i18n";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
@@ -46,7 +47,7 @@ type CalendarMode = "daily" | "weekly" | "monthly";
 type TaskFocus = "all" | "due-now" | "photo-proof" | "notes-required" | "pass-fail";
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return todayInputValue();
 }
 
 function addDays(value: Date, days: number) {
@@ -69,7 +70,7 @@ function formatDate(value: string | Date | null | undefined) {
 
 function formatDateTime(value: string | Date | null | undefined) {
   if (!value) return "-";
-  return new Date(value).toLocaleString();
+  return sharedFormatDateTime(value);
 }
 
 function isDueNow(task: PreventiveMaintenanceTask) {
@@ -110,11 +111,11 @@ function calendarRange(mode: CalendarMode, anchor: string) {
   }
   if (mode === "weekly") {
     const from = startOfWeek(base);
-    return { from: from.toISOString().slice(0, 10), to: addDays(from, 6).toISOString().slice(0, 10) };
+    return { from: todayInputValue(from), to: todayInputValue(addDays(from, 6)) };
   }
   const from = new Date(base.getFullYear(), base.getMonth(), 1);
   const to = new Date(base.getFullYear(), base.getMonth() + 1, 0);
-  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+  return { from: todayInputValue(from), to: todayInputValue(to) };
 }
 
 function pmQueueStatusSummary(jobs: OfflineSyncJobSummary[], language: UserLanguage) {

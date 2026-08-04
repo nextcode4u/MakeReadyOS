@@ -81,11 +81,12 @@ for deployed environments. `db:push` remains available only as an early-developm
 
 ## CI
 
-GitHub Actions runs the same verification path on every push and pull request using Node 20 and a clean checkout.
+GitHub Actions runs the same verification path on every push and pull request using Node 20, a clean checkout, and lockfile-strict installs.
 
 The CI workflow installs dependencies and runs:
 
 ```bash
+npm audit --omit=dev
 npm --prefix apps/api audit --omit=dev
 npm --prefix apps/web audit --omit=dev
 ./build.sh

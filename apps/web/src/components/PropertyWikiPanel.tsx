@@ -29,6 +29,7 @@ import {
   type UserRole,
 } from "../lib/api";
 import type { OpenWikiRecordRequest } from "../lib/wikiNavigation";
+import { formatDateInput as sharedFormatDateInput, formatDateTime } from "../lib/dateTime";
 import { t, tWithVars } from "../lib/i18n";
 import { StatusState } from "./StatusState";
 
@@ -233,14 +234,13 @@ function sectionLabel(section: string, language: UserLanguage) {
   }
 }
 
-function formatDate(value: string | null | undefined) {
+function formatDate(value: string | null | undefined, language: UserLanguage) {
   if (!value) return "";
-  return new Date(value).toLocaleString();
+  return formatDateTime(value, undefined, language);
 }
 
 function formatDateInput(value: string | null | undefined) {
-  if (!value) return "";
-  return new Date(value).toISOString().slice(0, 10);
+  return sharedFormatDateInput(value);
 }
 
 function recordSummary(entry: PropertyWikiEntry) {
@@ -862,7 +862,7 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
                     <strong>{item.user}</strong>
                     <span>{item.action}</span>
                   </div>
-                  <span>{formatDate(item.date)}</span>
+                  <span>{formatDate(item.date, language)}</span>
                 </article>
               ))}
             </div>
@@ -930,7 +930,7 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
                     <div>
                       <strong>{item.title}</strong>
                       <span>{sectionLabel(item.section, language)}{item.building ? ` / ${item.building}` : ""}</span>
-                      <small>{t(language, "wiki.viewed")} {formatDate(item.viewedAt)}</small>
+                      <small>{t(language, "wiki.viewed")} {formatDate(item.viewedAt, language)}</small>
                     </div>
                     <div className="pool-entry-actions">
                       <button type="button" className="button button-secondary" onClick={() => openRecord(item.targetType, item.id)}>{t(language, "wiki.open")}</button>

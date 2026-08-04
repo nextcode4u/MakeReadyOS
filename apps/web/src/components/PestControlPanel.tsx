@@ -32,6 +32,8 @@ import {
   type UserRole,
 } from "../lib/api";
 import { enqueuePestCreate, enqueuePestUpload, getOfflineSyncEventName, listOfflineSyncJobs, syncOfflineJobs, type OfflineSyncJobSummary } from "../lib/offlineSync";
+import { formatDateTime } from "../lib/dateTime";
+import { todayInputValue } from "../lib/dateTime";
 import { t } from "../lib/i18n";
 import type { OpenPestQuickAddRequest, OpenPestWorkspaceRequest } from "../lib/pestNavigation";
 import { isTouchMobileViewport } from "../lib/responsive";
@@ -58,7 +60,7 @@ const pestPriorities: PestPriority[] = ["Low", "Normal", "High", "Critical"];
 const pestSources: PestSource[] = ["Third Party Work Order", "Leasing", "Resident Request", "Maintenance", "Manager", "Inspection", "Preventive Maintenance", "Make Ready", "Property Walk", "Other"];
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return todayInputValue();
 }
 
 function formatDate(value?: string | null) {
@@ -267,7 +269,7 @@ function PestIssueCard({
               {issue.notes.slice(0, 4).map((entry) => (
                 <div key={entry.id} className="activity-entry">
                   <strong>{entry.authorName}</strong>
-                  <span>{new Date(entry.createdAt).toLocaleString()}</span>
+                  <span>{formatDateTime(entry.createdAt, undefined, language)}</span>
                   <p>{entry.body}</p>
                 </div>
               ))}

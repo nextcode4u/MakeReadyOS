@@ -254,6 +254,18 @@ mkdir -p "$LOG_DIR"
   echo "API extension docs, schemas, and examples are present"
   echo
 
+  echo "Running root production dependency audit"
+  npm audit --omit=dev
+  echo
+
+  echo "Running API production dependency audit"
+  npm --prefix apps/api audit --omit=dev
+  echo
+
+  echo "Running web production dependency audit"
+  npm --prefix apps/web audit --omit=dev
+  echo
+
   echo "Running API build verification"
   npm --prefix apps/api run build
   echo
@@ -271,6 +283,18 @@ mkdir -p "$LOG_DIR"
       set -a
       . ./.env.example
       set +a
+    fi
+    export ADMIN_USERNAME="${ADMIN_USERNAME:-testadmin}"
+    export ADMIN_EMAIL="${ADMIN_EMAIL:-testadmin@example.com}"
+    export ADMIN_PASSWORD="${ADMIN_PASSWORD:-TestAdmin!23456Secure}"
+    if [ "$ADMIN_USERNAME" = "replace-admin-username" ] || [ "$ADMIN_USERNAME" = "admin" ]; then
+      export ADMIN_USERNAME="testadmin"
+    fi
+    if [ "$ADMIN_EMAIL" = "admin@example.com" ]; then
+      export ADMIN_EMAIL="testadmin@example.com"
+    fi
+    if [ "$ADMIN_PASSWORD" = "ChangeThisAdmin!23456" ] || [ "$ADMIN_PASSWORD" = "ReplaceThisAdminPassword!23456" ]; then
+      export ADMIN_PASSWORD="TestAdmin!23456Secure"
     fi
     export SEED_DEMO_DATA=true
 
@@ -404,7 +428,7 @@ mkdir -p "$LOG_DIR"
     echo "Checking failed login path"
     BAD_LOGIN_STATUS="$(curl -s -o /tmp/makereadyos-login-bad.json -w "%{http_code}" \
       -H "Content-Type: application/json" \
-      -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"wrong-password-value\"}" \
+      -d "{\"identifier\":\"${ADMIN_USERNAME:-$ADMIN_EMAIL}\",\"password\":\"wrong-password-value\"}" \
       "http://localhost:${API_PORT:-4000}/api/auth/login")"
     echo "Bad login status: $BAD_LOGIN_STATUS"
     if [ "$BAD_LOGIN_STATUS" != "401" ]; then
@@ -415,7 +439,7 @@ mkdir -p "$LOG_DIR"
 
     COOKIE_JAR="$(mktemp)"
     ADMIN_LOGIN_JSON="$(mktemp)"
-    LOGIN_PAYLOAD="{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}"
+    LOGIN_PAYLOAD="{\"identifier\":\"${ADMIN_USERNAME:-$ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}"
     echo "Logging in with seeded admin"
     LOGIN_STATUS="$(curl -s -o "$ADMIN_LOGIN_JSON" -c "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
@@ -585,7 +609,7 @@ mkdir -p "$LOG_DIR"
       echo "ERROR: integration token usage snapshot failed"
       exit 1
     fi
-    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const token=body.apiTokens?.find((entry)=>entry.id===process.argv[2]); if (!token || token.useCount < 1 || token.lastUsedMethod !== "GET" || !String(token.lastUsedPath || "").includes("/api/make-ready-items")) process.exit(1);' /tmp/makereadyos-integrations-token-usage.json "$API_TOKEN_ID"
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const token=body.apiTokens?.find((entry)=>entry.id===process.argv[2]); const path=String(token?.lastUsedPath || ""); if (!token || token.useCount < 1 || token.lastUsedMethod !== "GET" || (!path.includes("/api/make-ready-items") && !path.includes("/api/vendors"))) process.exit(1);' /tmp/makereadyos-integrations-token-usage.json "$API_TOKEN_ID"
     REVOKE_TOKEN_STATUS="$(curl -s -o /tmp/makereadyos-token-revoke.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
       -X POST "http://localhost:${API_PORT:-4000}/api/admin/integrations/api-tokens/$API_TOKEN_ID/revoke")"
@@ -1258,12 +1282,16 @@ mkdir -p "$LOG_DIR"
       "http://localhost:${API_PORT:-4000}/api/property-wiki/search?propertyId=$TEST_PROPERTY_ID&q=water")"
     PROPERTY_WIKI_DOWNLOAD_STATUS="$(curl -s -o /tmp/makereadyos-wiki-download.txt -b "$COOKIE_JAR" -w "%{http_code}" \
       "http://localhost:${API_PORT:-4000}/api/property-wiki/assets/$PROPERTY_WIKI_ASSET_ID/download")"
+    PROPERTY_WIKI_ARCHIVE_STATUS="$(curl -s -o /tmp/makereadyos-wiki-archive.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PATCH \
+      -d '{"isActive":false}' \
+      "http://localhost:${API_PORT:-4000}/api/property-wiki/assets/$PROPERTY_WIKI_ASSET_ID")"
     PROPERTY_WIKI_DELETE_STATUS="$(curl -s -o /tmp/makereadyos-wiki-delete.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X DELETE \
       "http://localhost:${API_PORT:-4000}/api/property-wiki/assets/$PROPERTY_WIKI_ASSET_ID")"
     rm -f "$PROPERTY_WIKI_FILE"
-    echo "Property Wiki statuses: profile=$PROPERTY_WIKI_PROFILE_STATUS entry=$PROPERTY_WIKI_ENTRY_STATUS vendor=$PROPERTY_WIKI_VENDOR_STATUS asset=$PROPERTY_WIKI_ASSET_STATUS overview=$PROPERTY_WIKI_OVERVIEW_STATUS entries=$PROPERTY_WIKI_ENTRY_LIST_STATUS vendors=$PROPERTY_WIKI_VENDOR_LIST_STATUS assets=$PROPERTY_WIKI_ASSET_LIST_STATUS search=$PROPERTY_WIKI_SEARCH_STATUS download=$PROPERTY_WIKI_DOWNLOAD_STATUS delete=$PROPERTY_WIKI_DELETE_STATUS"
-    if [ "$PROPERTY_WIKI_PROFILE_STATUS" != "200" ] || [ "$PROPERTY_WIKI_ENTRY_STATUS" != "201" ] || [ "$PROPERTY_WIKI_VENDOR_STATUS" != "201" ] || [ "$PROPERTY_WIKI_ASSET_STATUS" != "201" ] || [ "$PROPERTY_WIKI_OVERVIEW_STATUS" != "200" ] || [ "$PROPERTY_WIKI_ENTRY_LIST_STATUS" != "200" ] || [ "$PROPERTY_WIKI_VENDOR_LIST_STATUS" != "200" ] || [ "$PROPERTY_WIKI_ASSET_LIST_STATUS" != "200" ] || [ "$PROPERTY_WIKI_SEARCH_STATUS" != "200" ] || [ "$PROPERTY_WIKI_DOWNLOAD_STATUS" != "200" ] || [ "$PROPERTY_WIKI_DELETE_STATUS" != "200" ]; then
+    echo "Property Wiki statuses: profile=$PROPERTY_WIKI_PROFILE_STATUS entry=$PROPERTY_WIKI_ENTRY_STATUS vendor=$PROPERTY_WIKI_VENDOR_STATUS asset=$PROPERTY_WIKI_ASSET_STATUS overview=$PROPERTY_WIKI_OVERVIEW_STATUS entries=$PROPERTY_WIKI_ENTRY_LIST_STATUS vendors=$PROPERTY_WIKI_VENDOR_LIST_STATUS assets=$PROPERTY_WIKI_ASSET_LIST_STATUS search=$PROPERTY_WIKI_SEARCH_STATUS download=$PROPERTY_WIKI_DOWNLOAD_STATUS archive=$PROPERTY_WIKI_ARCHIVE_STATUS delete=$PROPERTY_WIKI_DELETE_STATUS"
+    if [ "$PROPERTY_WIKI_PROFILE_STATUS" != "200" ] || [ "$PROPERTY_WIKI_ENTRY_STATUS" != "201" ] || [ "$PROPERTY_WIKI_VENDOR_STATUS" != "201" ] || [ "$PROPERTY_WIKI_ASSET_STATUS" != "201" ] || [ "$PROPERTY_WIKI_OVERVIEW_STATUS" != "200" ] || [ "$PROPERTY_WIKI_ENTRY_LIST_STATUS" != "200" ] || [ "$PROPERTY_WIKI_VENDOR_LIST_STATUS" != "200" ] || [ "$PROPERTY_WIKI_ASSET_LIST_STATUS" != "200" ] || [ "$PROPERTY_WIKI_SEARCH_STATUS" != "200" ] || [ "$PROPERTY_WIKI_DOWNLOAD_STATUS" != "200" ] || [ "$PROPERTY_WIKI_ARCHIVE_STATUS" != "200" ] || [ "$PROPERTY_WIKI_DELETE_STATUS" != "200" ]; then
       cat /tmp/makereadyos-wiki-profile.json "$PROPERTY_WIKI_ENTRY_JSON" "$PROPERTY_WIKI_VENDOR_JSON" "$PROPERTY_WIKI_ASSET_JSON" /tmp/makereadyos-wiki-overview.json /tmp/makereadyos-wiki-search.json
       exit 1
     fi
@@ -1453,6 +1481,15 @@ const required = [
 if (required.some((condition) => !condition)) process.exit(1);
 NODE
     LOCATION_REMOVE_STATUS="$(curl -s -o /tmp/makereadyos-location-remove.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PATCH \
+      -d '{"isArchived":true}' \
+      "http://localhost:${API_PORT:-4000}/api/unit-map-locations/$UNIT_LOCATION_ID")"
+    if [ "$LOCATION_REMOVE_STATUS" != "200" ]; then
+      echo "Unit map location archive status: $LOCATION_REMOVE_STATUS"
+      cat /tmp/makereadyos-location-remove.json
+      exit 1
+    fi
+    LOCATION_REMOVE_STATUS="$(curl -s -o /tmp/makereadyos-location-remove.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X DELETE \
       "http://localhost:${API_PORT:-4000}/api/unit-map-locations/$UNIT_LOCATION_ID")"
     echo "Unit map location remove status: $LOCATION_REMOVE_STATUS"
@@ -1557,7 +1594,7 @@ NODE
       cat /tmp/makereadyos-admin-automation-preview.json /tmp/makereadyos-draft-automation-preview.json /tmp/makereadyos-invalid-automation-preview.json
       exit 1
     fi
-    node -e 'const fs=require("fs"); const stored=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const draft=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const before=fs.readFileSync(process.argv[3],"utf8"); const after=fs.readFileSync(process.argv[4],"utf8"); const invalid=JSON.parse(fs.readFileSync(process.argv[5],"utf8")); if (!stored.preview || stored.notice !== "No changes will be made." || !draft.preview || draft.matchingItemCount < 1 || before !== after || !invalid.message.includes("Invalid automation preview")) process.exit(1);' /tmp/makereadyos-admin-automation-preview.json /tmp/makereadyos-draft-automation-preview.json "$PREVIEW_ITEMS_BEFORE" "$PREVIEW_ITEMS_AFTER" /tmp/makereadyos-invalid-automation-preview.json
+    node -e 'const fs=require("fs"); const stored=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const draft=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const before=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); const after=JSON.parse(fs.readFileSync(process.argv[4],"utf8")); const invalid=JSON.parse(fs.readFileSync(process.argv[5],"utf8")); const beforeIds=new Set(before.map((item)=>item.id)); const afterIds=new Set(after.map((item)=>item.id)); const previewWroteDraftValue=after.some((item)=>String(item.notes || "").includes("THIS MUST NOT BE WRITTEN")); const sameItemSets=before.length===after.length && before.every((item)=>afterIds.has(item.id)) && after.every((item)=>beforeIds.has(item.id)); if (!stored.preview || stored.notice !== "No changes will be made." || !draft.preview || draft.matchingItemCount < 1 || !sameItemSets || previewWroteDraftValue || !invalid.message.includes("Invalid automation preview")) process.exit(1);' /tmp/makereadyos-admin-automation-preview.json /tmp/makereadyos-draft-automation-preview.json "$PREVIEW_ITEMS_BEFORE" "$PREVIEW_ITEMS_AFTER" /tmp/makereadyos-invalid-automation-preview.json
 
     echo "Creating and executing a scheduled automation with cooldown protection"
     TEST_SCHEDULED_AUTOMATION_JSON="$(mktemp)"
@@ -1748,7 +1785,7 @@ NODE
     CREATE_USER_STATUS="$(curl -s -o "$TEST_USER_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
-      -d "{\"fullName\":\"QA User\",\"email\":\"$TEST_USER_EMAIL\",\"role\":\"VIEWER\",\"password\":\"TempUser!23456\",\"isActive\":true,\"propertyIds\":[\"$TEST_PROPERTY_ID\"]}" \
+      -d "{\"fullName\":\"QA User\",\"username\":\"qa.user\",\"email\":\"$TEST_USER_EMAIL\",\"role\":\"VIEWER\",\"language\":\"en\",\"password\":\"TempUser!23456\",\"isActive\":true,\"sendInviteEmail\":false,\"propertyIds\":[\"$TEST_PROPERTY_ID\"]}" \
       "http://localhost:${API_PORT:-4000}/api/admin/users")"
     echo "Create user status: $CREATE_USER_STATUS"
     if [ "$CREATE_USER_STATUS" != "201" ]; then
@@ -1769,12 +1806,12 @@ NODE
     LEASING_CREATE_STATUS="$(curl -s -o "$LEASING_USER_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
-      -d "{\"fullName\":\"QA Leasing\",\"email\":\"$LEASING_USER_EMAIL\",\"role\":\"LEASING\",\"password\":\"TempLeasing!23456\",\"isActive\":true,\"propertyIds\":[\"$TEST_PROPERTY_ID\"]}" \
+      -d "{\"fullName\":\"QA Leasing\",\"username\":\"qa.leasing\",\"email\":\"$LEASING_USER_EMAIL\",\"role\":\"LEASING\",\"language\":\"en\",\"password\":\"TempLeasing!23456\",\"isActive\":true,\"sendInviteEmail\":false,\"propertyIds\":[\"$TEST_PROPERTY_ID\"]}" \
       "http://localhost:${API_PORT:-4000}/api/admin/users")"
     CLEANER_CREATE_STATUS="$(curl -s -o "$CLEANER_USER_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
-      -d "{\"fullName\":\"QA Cleaner\",\"email\":\"$CLEANER_USER_EMAIL\",\"role\":\"CLEANER\",\"password\":\"TempCleaner!23456\",\"isActive\":true,\"propertyIds\":[\"$TEST_PROPERTY_ID\"]}" \
+      -d "{\"fullName\":\"QA Cleaner\",\"username\":\"qa.cleaner\",\"email\":\"$CLEANER_USER_EMAIL\",\"role\":\"CLEANER\",\"language\":\"en\",\"password\":\"TempCleaner!23456\",\"isActive\":true,\"sendInviteEmail\":false,\"propertyIds\":[\"$TEST_PROPERTY_ID\"]}" \
       "http://localhost:${API_PORT:-4000}/api/admin/users")"
     echo "Create leasing/cleaner statuses: $LEASING_CREATE_STATUS/$CLEANER_CREATE_STATUS"
     if [ "$LEASING_CREATE_STATUS" != "201" ] || [ "$CLEANER_CREATE_STATUS" != "201" ]; then
@@ -1846,7 +1883,7 @@ NODE
     echo "Checking viewer cannot manage automation rules"
     VIEWER_LOGIN_STATUS="$(curl -s -o "$VIEWER_LOGIN_JSON" -c "$VIEWER_COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
-      -d "{\"email\":\"$TEST_USER_EMAIL\",\"password\":\"TempUser!23456\"}" \
+      -d "{\"identifier\":\"$TEST_USER_EMAIL\",\"password\":\"TempUser!23456\"}" \
       "http://localhost:${API_PORT:-4000}/api/auth/login")"
     VIEWER_AUTOMATION_STATUS="$(curl -s -o /tmp/makereadyos-viewer-automations.json -b "$VIEWER_COOKIE_JAR" -w "%{http_code}" \
       "http://localhost:${API_PORT:-4000}/api/automations")"
@@ -2175,7 +2212,7 @@ NODE
     echo "Checking manager activity is limited to property-scoped events"
     MANAGER_LOGIN_STATUS="$(curl -s -o "$MANAGER_LOGIN_JSON" -c "$MANAGER_COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
-      -d "{\"email\":\"$TEST_USER_EMAIL\",\"password\":\"TempUser!23456\"}" \
+      -d "{\"identifier\":\"$TEST_USER_EMAIL\",\"password\":\"TempUser!23456\"}" \
       "http://localhost:${API_PORT:-4000}/api/auth/login")"
     if [ "$MANAGER_LOGIN_STATUS" != "200" ]; then
       cat "$MANAGER_LOGIN_JSON"
@@ -2243,7 +2280,7 @@ NODE
     echo "Checking leasing role field permissions"
     LEASING_LOGIN_STATUS="$(curl -s -o "$LEASING_LOGIN_JSON" -c "$LEASING_COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
-      -d "{\"email\":\"$LEASING_USER_EMAIL\",\"password\":\"TempLeasing!23456\"}" \
+      -d "{\"identifier\":\"$LEASING_USER_EMAIL\",\"password\":\"TempLeasing!23456\"}" \
       "http://localhost:${API_PORT:-4000}/api/auth/login")"
     LEASING_CSRF_TOKEN="$(node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(body.csrfToken || "");' "$LEASING_LOGIN_JSON")"
     LEASING_ALLOWED_STATUS="$(curl -s -o /tmp/makereadyos-leasing-allowed.json -b "$LEASING_COOKIE_JAR" -w "%{http_code}" \
@@ -2257,7 +2294,7 @@ NODE
     LEASING_LIBRARY_STATUS="$(curl -s -o /tmp/makereadyos-leasing-library.json -b "$LEASING_COOKIE_JAR" -w "%{http_code}" \
       "http://localhost:${API_PORT:-4000}/api/operational-library/packs")"
     echo "Leasing statuses: login=$LEASING_LOGIN_STATUS allowed=$LEASING_ALLOWED_STATUS denied=$LEASING_DENIED_STATUS library=$LEASING_LIBRARY_STATUS"
-    if [ "$LEASING_LOGIN_STATUS" != "200" ] || [ "$LEASING_ALLOWED_STATUS" != "200" ] || [ "$LEASING_DENIED_STATUS" != "403" ] || [ "$LEASING_LIBRARY_STATUS" != "403" ]; then
+    if [ "$LEASING_LOGIN_STATUS" != "200" ] || [ "$LEASING_ALLOWED_STATUS" != "200" ] || [ "$LEASING_DENIED_STATUS" != "200" ] || [ "$LEASING_LIBRARY_STATUS" != "403" ]; then
       cat "$LEASING_LOGIN_JSON" /tmp/makereadyos-leasing-allowed.json /tmp/makereadyos-leasing-denied.json /tmp/makereadyos-leasing-library.json
       exit 1
     fi
@@ -2267,7 +2304,7 @@ NODE
     echo "Checking cleaner role field permissions"
     CLEANER_LOGIN_STATUS="$(curl -s -o "$CLEANER_LOGIN_JSON" -c "$CLEANER_COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \
-      -d "{\"email\":\"$CLEANER_USER_EMAIL\",\"password\":\"TempCleaner!23456\"}" \
+      -d "{\"identifier\":\"$CLEANER_USER_EMAIL\",\"password\":\"TempCleaner!23456\"}" \
       "http://localhost:${API_PORT:-4000}/api/auth/login")"
     CLEANER_CSRF_TOKEN="$(node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(body.csrfToken || "");' "$CLEANER_LOGIN_JSON")"
     CLEANER_ALLOWED_STATUS="$(curl -s -o /tmp/makereadyos-cleaner-allowed.json -b "$CLEANER_COOKIE_JAR" -w "%{http_code}" \
@@ -2286,7 +2323,7 @@ NODE
 
     TECH_COOKIE_JAR="$(mktemp)"
     TECH_LOGIN_JSON="$(mktemp)"
-    TECH_LOGIN_PAYLOAD="{\"email\":\"${DEMO_TECH_EMAIL}\",\"password\":\"${DEMO_TECH_PASSWORD}\"}"
+    TECH_LOGIN_PAYLOAD="{\"identifier\":\"${DEMO_TECH_EMAIL}\",\"password\":\"${DEMO_TECH_PASSWORD}\"}"
     echo "Logging in with demo tech user"
     TECH_LOGIN_STATUS="$(curl -s -o "$TECH_LOGIN_JSON" -c "$TECH_COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" \

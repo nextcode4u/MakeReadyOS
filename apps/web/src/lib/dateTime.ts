@@ -64,9 +64,20 @@ export function formatDateDisplay(value: string | Date | null | undefined, now =
   return `${month} ${ordinal(date.getDate())}, ${date.getFullYear()}`;
 }
 
+export function localDateStamp(input = new Date()) {
+  const year = input.getFullYear();
+  const month = String(input.getMonth() + 1).padStart(2, "0");
+  const day = String(input.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function todayInputValue(input = new Date()) {
+  return localDateStamp(input);
+}
+
 export function formatDateInput(value: string | Date | null | undefined) {
   if (!value) return "";
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) return localDateStamp(value);
   const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
-  return match ? match[1] : new Date(value).toISOString().slice(0, 10);
+  return match ? match[1] : localDateStamp(new Date(value));
 }

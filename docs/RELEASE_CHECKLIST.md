@@ -25,6 +25,7 @@ Run:
 ./e2e.sh
 ./run-automations.sh
 ./run-analytics-snapshot.sh
+npm audit --omit=dev
 npm --prefix apps/api audit --omit=dev
 npm --prefix apps/web audit --omit=dev
 ```

@@ -27,6 +27,7 @@ import {
   type Unit,
   type UserRole,
 } from "../lib/api";
+import { formatDateTime } from "../lib/dateTime";
 import { t, tWithVars } from "../lib/i18n";
 import { Modal } from "./Modal";
 import { UnitSearchSelect } from "./UnitSearchSelect";
@@ -92,7 +93,7 @@ function numberValue(value: FormDataEntryValue | null) {
 
 function dateLabel(value: string | null | undefined, language: UserLanguage) {
   if (!value) return t(language, "refrigerant.none");
-  return new Date(value).toLocaleString();
+  return formatDateTime(value, undefined, language);
 }
 
 function cylinderContentsWeight(cylinder: RefrigerantCylinder) {
@@ -502,10 +503,10 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
               <div key={report} className="refrigerant-export-row">
                 <strong>{label}</strong>
                 <div className="pool-entry-actions">
-                  <a className="button button-secondary" href={refrigerantExportCsvUrl(report as never)}>{t(language, "nav.csv")}</a>
-                  <a className="button button-secondary" href={refrigerantExportExcelUrl(report as never)}>{t(language, "nav.excel")}</a>
-                  <a className="button button-secondary" href={refrigerantPrintableHtmlReportUrl(report as never)} target="_blank" rel="noreferrer">{t(language, "refrigerant.printable")}</a>
-                  <a className="button button-primary" href={refrigerantPrintableReportUrl(report as never)} target="_blank" rel="noreferrer">{t(language, "nav.pdf")}</a>
+                  <a className="button button-secondary" href={refrigerantExportCsvUrl(report as never, propertyFilter || undefined)}>{t(language, "nav.csv")}</a>
+                  <a className="button button-secondary" href={refrigerantExportExcelUrl(report as never, propertyFilter || undefined)}>{t(language, "nav.excel")}</a>
+                  <a className="button button-secondary" href={refrigerantPrintableHtmlReportUrl(report as never, propertyFilter || undefined)} target="_blank" rel="noreferrer">{t(language, "refrigerant.printable")}</a>
+                  <a className="button button-primary" href={refrigerantPrintableReportUrl(report as never, propertyFilter || undefined)} target="_blank" rel="noreferrer">{t(language, "nav.pdf")}</a>
                 </div>
               </div>
             ))}

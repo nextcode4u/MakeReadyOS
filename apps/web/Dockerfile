@@ -2,7 +2,7 @@ FROM node:20-alpine AS build
 
 WORKDIR /workspace/apps/web
 COPY apps/web/package*.json ./
-RUN npm install
+RUN npm ci
 
 COPY apps/web/tsconfig.json apps/web/vite.config.ts apps/web/index.html ./
 COPY apps/web/src ./src
