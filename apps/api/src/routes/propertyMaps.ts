@@ -195,6 +195,22 @@ function propertyMapPinInclude() {
   };
 }
 
+async function buildLinkedRecordDisplayMap(pins: Array<{
+  id: string;
+  propertyId: string;
+  linkedRecordType: string | null;
+  linkedRecordId: string | null;
+}>) {
+  const summaries = await Promise.all(pins.map(async (pin) => [pin.id, await buildLinkedRecordSummary(pin)] as const));
+  return new Map(
+    summaries.map(([pinId, summary]) => {
+      if (!summary) return [pinId, ""] as const;
+      const detail = [summary.title, summary.subtitle, summary.status].filter(Boolean).join(" / ");
+      return [pinId, detail || summary.targetType] as const;
+    }),
+  );
+}
+
 export async function propertyMapRoutes(app: FastifyInstance) {
   app.get("/property-maps", async (request, reply) => {
     const query = propertyMapQuerySchema.parse(request.query);
@@ -342,7 +358,7 @@ export async function propertyMapRoutes(app: FastifyInstance) {
     if (!(await requirePropertyAccess(request, reply, map.propertyId))) return;
     reply.header("Content-Type", map.mimeType ?? "application/octet-stream");
     reply.header("X-Content-Type-Options", "nosniff");
-    reply.header("Content-Disposition", `inline; filename="${(map.originalName ?? "property-map").replace(/"/g, "")}"`);
+    reply.header("Content-Disposition", `inline; filename="${sanitizeFilename(map.originalName ?? "property-map")}"`);
     return reply.send(createReadStream(resolveStoredUploadPath(map.storedName)));
   });
 
@@ -607,6 +623,7 @@ export async function propertyMapRoutes(app: FastifyInstance) {
     });
     if (!map) return reply.code(404).send({ message: "Property map not found" });
     if (!(await requirePropertyAccess(request, reply, map.propertyId))) return;
+    const linkedRecordLabels = await buildLinkedRecordDisplayMap(map.pins);
     const csv = stringify(map.pins.map((pin) => ({
       Property: map.property.code,
       Map: map.name,
@@ -617,7 +634,7 @@ export async function propertyMapRoutes(app: FastifyInstance) {
       Area: pin.area ?? "",
       XCoordinate: pin.xPercent,
       YCoordinate: pin.yPercent,
-      LinkedRecord: [pin.linkedRecordType, pin.linkedRecordId].filter(Boolean).join(" / "),
+      LinkedRecord: linkedRecordLabels.get(pin.id) ?? "",
       Tags: pin.tags.join(", "),
       Emergency: pin.isEmergency ? "Yes" : "No",
     })), { header: true });
@@ -634,6 +651,7 @@ export async function propertyMapRoutes(app: FastifyInstance) {
     });
     if (!map) return reply.code(404).send({ message: "Property map not found" });
     if (!(await requirePropertyAccess(request, reply, map.propertyId))) return;
+    const linkedRecordLabels = await buildLinkedRecordDisplayMap(map.pins);
     const header = ["Property", "Map", "Title", "Pin Type", "Building", "Unit", "Area", "X Percent", "Y Percent", "Linked Record", "Tags", "Emergency", "Description"];
     const body = map.pins.map((pin) => [
       map.property.code,
@@ -645,7 +663,7 @@ export async function propertyMapRoutes(app: FastifyInstance) {
       pin.area ?? "",
       pin.xPercent,
       pin.yPercent,
-      [pin.linkedRecordType, pin.linkedRecordId].filter(Boolean).join(" / "),
+      linkedRecordLabels.get(pin.id) ?? "",
       pin.tags.join(", "),
       pin.isEmergency ? "Yes" : "No",
       pin.description ?? "",
@@ -666,6 +684,7 @@ export async function propertyMapRoutes(app: FastifyInstance) {
     });
     if (!map) return reply.code(404).send({ message: "Property map not found" });
     if (!(await requirePropertyAccess(request, reply, map.propertyId))) return;
+    const linkedRecordLabels = await buildLinkedRecordDisplayMap(map.pins);
     const html = `<!doctype html><html><body style="font-family: Arial, sans-serif; padding: 24px; color: #111827;">
       <h1 style="margin:0 0 8px;">${htmlEscape(map.name)}</h1>
       <p style="margin:0 0 20px;">${htmlEscape(map.property.code)} · ${htmlEscape(map.mapType)} · ${map.pins.length} active pin${map.pins.length === 1 ? "" : "s"}</p>
@@ -682,7 +701,7 @@ export async function propertyMapRoutes(app: FastifyInstance) {
           <td style="border-bottom:1px solid #e5e7eb; padding:8px;">${htmlEscape(pin.pinType)}</td>
           <td style="border-bottom:1px solid #e5e7eb; padding:8px;">${htmlEscape([pin.building, pin.unitLabel, pin.area].filter(Boolean).join(" / "))}</td>
           <td style="border-bottom:1px solid #e5e7eb; padding:8px;">${pin.xPercent.toFixed(1)}%, ${pin.yPercent.toFixed(1)}%</td>
-          <td style="border-bottom:1px solid #e5e7eb; padding:8px;">${htmlEscape([pin.linkedRecordType, pin.linkedRecordId].filter(Boolean).join(" / "))}</td>
+          <td style="border-bottom:1px solid #e5e7eb; padding:8px;">${htmlEscape(linkedRecordLabels.get(pin.id) ?? "")}</td>
         </tr>`).join("")}</tbody>
       </table>
     </body></html>`;

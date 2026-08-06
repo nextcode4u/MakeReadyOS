@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import type { Unit } from "../lib/api";
+import type { Unit, UserLanguage } from "../lib/api";
+import { t } from "../lib/i18n";
 import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
 
 type Props = {
@@ -10,6 +11,7 @@ type Props = {
   placeholder?: string;
   emptyLabel?: string;
   disabled?: boolean;
+  language?: UserLanguage;
 };
 
 function unitLabel(unit: Unit) {
@@ -22,9 +24,10 @@ export function UnitSearchSelect({
   value,
   onChange,
   name,
-  placeholder = "Search unit...",
-  emptyLabel = "No unit selected",
+  placeholder,
+  emptyLabel,
   disabled = false,
+  language = "en",
 }: Props) {
   const options = useMemo<SearchSelectOption[]>(() => units.map((unit) => ({
     value: unit.id,
@@ -38,10 +41,10 @@ export function UnitSearchSelect({
       value={value}
       onChange={onChange}
       name={name}
-      placeholder={placeholder}
-      emptyLabel={emptyLabel}
-      noMatchesLabel="No matching units"
-      clearLabel="Clear unit selection"
+      placeholder={placeholder ?? t(language, "pest.searchUnit")}
+      emptyLabel={emptyLabel ?? t(language, "refrigerant.noUnitSelected")}
+      noMatchesLabel={t(language, "unitSearch.noMatches")}
+      clearLabel={t(language, "unitSearch.clearSelection")}
       disabled={disabled}
     />
   );

@@ -37,6 +37,10 @@ function canManagePlanning(role: UserRole) {
   return role === UserRole.ADMIN || role === UserRole.MANAGER;
 }
 
+function formatDisplayDate(value: Date | null | undefined) {
+  return value ? value.toLocaleDateString() : "";
+}
+
 async function staffFor(id: string) {
   return prisma.user.findFirst({
     where: { id, isActive: true, role: { in: [...planningStaffRoles] } },
@@ -118,7 +122,7 @@ export async function planningRoutes(app: FastifyInstance) {
       itemId: item.id,
       category: "PLANNING",
       title: "Planned work assigned",
-      message: `${item.unitNumber}: ${input.category} planned for ${input.plannedDate.toISOString().slice(0, 10)}.`,
+      message: `${item.unitNumber}: ${input.category} planned for ${formatDisplayDate(input.plannedDate)}.`,
       dedupeKey: `planning:${block.id}:assigned`,
     });
     await evaluateAndPersistItemRisk(item.id, { notify: true });
@@ -168,7 +172,7 @@ export async function planningRoutes(app: FastifyInstance) {
         itemId: block.itemId,
         category: "PLANNING",
         title: "Planned work changed",
-        message: `${block.item.unitNumber}: ${block.category} is now planned for ${block.plannedDate.toISOString().slice(0, 10)}.`,
+        message: `${block.item.unitNumber}: ${block.category} is now planned for ${formatDisplayDate(block.plannedDate)}.`,
       });
     }
     await evaluateAndPersistItemRisk(block.itemId, { notify: true });

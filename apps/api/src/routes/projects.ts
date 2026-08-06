@@ -12,6 +12,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { createNotification } from "../lib/notifications.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
+import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { ensureStoredUploadParent, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 
@@ -431,7 +432,19 @@ function projectAttachmentUrl(id: string) {
   return `/api/projects/attachments/${encodeURIComponent(id)}/download`;
 }
 
-function buildProjectsOverviewHtml(filtered: Array<Prisma.ProjectRecordGetPayload<{ include: { property: true; attachments: true } }>>) {
+async function reportScopeLabel(propertyId: string | undefined) {
+  if (!propertyId) return ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL;
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: { code: true, name: true },
+  });
+  return propertyScopeLabel(property);
+}
+
+function buildProjectsOverviewHtml(
+  filtered: Array<Prisma.ProjectRecordGetPayload<{ include: { property: true; attachments: true } }>>,
+  scopeLabel: string,
+) {
   return `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8" /><title>Projects Report</title>
@@ -453,6 +466,7 @@ body{font-family:Arial,sans-serif;padding:24px;background:#f8fafc;color:#0f172a}
 <body>
 <div class="report">
   <h1>Projects Overview Report</h1>
+  <p class="muted">${htmlEscape(scopeLabel)} | Generated ${htmlEscape(new Date().toLocaleString())}</p>
   <div class="kpis">
     <div class="kpi"><strong>${filtered.length}</strong><span>Total records</span></div>
     <div class="kpi"><strong>${filtered.filter((record) => record.status === "In Progress").length}</strong><span>In progress</span></div>
@@ -1199,6 +1213,7 @@ export async function projectRoutes(app: FastifyInstance) {
       if (query.agingBucket && agingBucketFor(daysOpen(record)) !== query.agingBucket) return false;
       return projectMatchesQuery(record, query.q);
     });
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const rows = filtered.map((record) => ({
       Property: record.property.code,
       RecordType: record.recordType,
@@ -1224,7 +1239,7 @@ export async function projectRoutes(app: FastifyInstance) {
       AssignedUser: record.assignedUserName ?? "",
     }));
     reply.header("content-type", "text/csv; charset=utf-8");
-    reply.header("content-disposition", 'attachment; filename="projects-export.csv"');
+    reply.header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-projects-export.csv`)}"`);
     return stringify(rows, { header: true });
   });
 
@@ -1250,6 +1265,7 @@ export async function projectRoutes(app: FastifyInstance) {
       if (query.agingBucket && agingBucketFor(daysOpen(record)) !== query.agingBucket) return false;
       return projectMatchesQuery(record, query.q);
     });
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const header = ["Property", "Record Type", "Title", "Source", "Status", "Priority", "Days Open", "Budget Year", "Deferred", "Deferred Reason", "Target Year", "Category", "Execution Type", "Estimated Cost", "Actual Cost", "Company Name", "Total Amount", "Scheduled Date", "Due Date", "Assigned User"];
     const lines = [header.join("\t"), ...filtered.map((record) => [
       record.property.code,
@@ -1274,7 +1290,7 @@ export async function projectRoutes(app: FastifyInstance) {
       record.assignedUserName ?? "",
     ].map(csvCell).join("\t"))];
     reply.header("content-type", "application/vnd.ms-excel; charset=utf-8");
-    reply.header("content-disposition", 'attachment; filename="projects-export.xls"');
+    reply.header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-projects-export.xls`)}"`);
     return lines.join("\n");
   });
 
@@ -1300,8 +1316,9 @@ export async function projectRoutes(app: FastifyInstance) {
       if (query.agingBucket && agingBucketFor(daysOpen(record)) !== query.agingBucket) return false;
       return projectMatchesQuery(record, query.q);
     });
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     reply.header("content-type", "text/html; charset=utf-8");
-    return buildProjectsOverviewHtml(filtered);
+    return buildProjectsOverviewHtml(filtered, scopeLabel);
   });
 
   app.get("/projects/report.pdf", async (request, reply) => {
@@ -1326,9 +1343,10 @@ export async function projectRoutes(app: FastifyInstance) {
       if (query.agingBucket && agingBucketFor(daysOpen(record)) !== query.agingBucket) return false;
       return projectMatchesQuery(record, query.q);
     });
-    const pdf = await renderPdfFromHtml(buildProjectsOverviewHtml(filtered));
+    const scopeLabel = await reportScopeLabel(query.propertyId);
+    const pdf = await renderPdfFromHtml(buildProjectsOverviewHtml(filtered, scopeLabel));
     reply.header("content-type", "application/pdf");
-    reply.header("content-disposition", 'inline; filename="projects-overview-report.pdf"');
+    reply.header("content-disposition", `inline; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-projects-overview-report.pdf`)}"`);
     return reply.send(pdf);
   });
 }

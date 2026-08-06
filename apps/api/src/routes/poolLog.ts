@@ -10,6 +10,7 @@ import { prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { notifyPropertyRoles } from "../lib/notifications.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
+import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
 
@@ -33,6 +34,7 @@ const defaultPoolChemicals: Array<{
   name: string;
   category: typeof chemicalCategories[number];
   unit: typeof chemicalUnits[number];
+  allowedUnits?: Array<typeof chemicalUnits[number]>;
   concentrationPercent?: number | null;
   notes?: string | null;
 }> = [
@@ -40,41 +42,82 @@ const defaultPoolChemicals: Array<{
     name: "Chlorine Tabs",
     category: "CHLORINE",
     unit: "TABLETS",
+    allowedUnits: ["TABLETS"],
     notes: "Starter default for routine sanitizer additions.",
   },
   {
     name: "Liquid Chlorine",
     category: "CHLORINE",
     unit: "GALLONS",
+    allowedUnits: ["GALLONS", "QUARTS"],
     concentrationPercent: 12.5,
     notes: "Starter default for liquid sanitizer dosing.",
+  },
+  {
+    name: "Cal Hypo Granules",
+    category: "CHLORINE",
+    unit: "POUNDS",
+    allowedUnits: ["POUNDS", "OUNCES"],
+    concentrationPercent: 65,
+    notes: "Starter default for granular chlorine shock additions.",
+  },
+  {
+    name: "Dichlor Granules",
+    category: "CHLORINE",
+    unit: "POUNDS",
+    allowedUnits: ["POUNDS", "OUNCES"],
+    concentrationPercent: 56,
+    notes: "Starter default for stabilized granular sanitizer additions.",
+  },
+  {
+    name: "Trichlor Tabs",
+    category: "CHLORINE",
+    unit: "TABLETS",
+    allowedUnits: ["TABLETS", "POUNDS", "OUNCES"],
+    concentrationPercent: 90,
+    notes: "Starter default for tablet chlorination and feeder loads.",
   },
   {
     name: "pH Up",
     category: "PH_UP",
     unit: "POUNDS",
+    allowedUnits: ["POUNDS", "OUNCES"],
   },
   {
     name: "Muriatic Acid",
     category: "PH_DOWN",
     unit: "QUARTS",
+    allowedUnits: ["QUARTS", "GALLONS"],
   },
   {
     name: "Alkalinity Up",
     category: "ALKALINITY_UP",
     unit: "POUNDS",
+    allowedUnits: ["POUNDS", "OUNCES"],
   },
   {
     name: "Stabilizer",
     category: "STABILIZER",
     unit: "POUNDS",
+    allowedUnits: ["POUNDS", "OUNCES"],
   },
   {
     name: "Calcium Hardness Increaser",
     category: "CALCIUM_HARDNESS",
     unit: "POUNDS",
+    allowedUnits: ["POUNDS", "OUNCES"],
   },
 ];
+
+function normalizePoolChemicalAllowedUnits(unit: string, allowedUnits?: string[] | null) {
+  const normalized = (allowedUnits ?? [])
+    .filter((value): value is typeof chemicalUnits[number] => (chemicalUnits as readonly string[]).includes(value))
+    .filter((value, index, array) => array.indexOf(value) === index);
+  if ((chemicalUnits as readonly string[]).includes(unit) && !normalized.includes(unit as typeof chemicalUnits[number])) {
+    normalized.unshift(unit as typeof chemicalUnits[number]);
+  }
+  return normalized.length ? normalized : ((chemicalUnits as readonly string[]).includes(unit) ? [unit as typeof chemicalUnits[number]] : []);
+}
 
 const defaultTargets = {
   POOL: {
@@ -162,6 +205,19 @@ function htmlEscape(value: unknown) {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function formatDisplayDate(value: Date | null | undefined) {
+  return value ? value.toLocaleDateString() : "";
+}
+
+async function reportScopeLabel(propertyId: string | undefined) {
+  if (!propertyId) return ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL;
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: { code: true, name: true },
+  });
+  return propertyScopeLabel(property);
 }
 
 function isSolidChemicalUnit(unit: string) {
@@ -328,6 +384,7 @@ async function ensureDefaultPoolChemicals(propertyIds: string[], userId?: string
         name: chemical.name,
         category: chemical.category,
         unit: chemical.unit,
+        allowedUnits: normalizePoolChemicalAllowedUnits(chemical.unit, chemical.allowedUnits),
         concentrationPercent: chemical.concentrationPercent ?? null,
         notes: chemical.notes ?? null,
         createdById: userId ?? null,
@@ -357,6 +414,7 @@ export const poolChemicalSchema = z.object({
   category: z.enum(chemicalCategories),
   concentrationPercent: z.number().positive().max(100).nullable().optional(),
   unit: z.enum(chemicalUnits),
+  allowedUnits: z.array(z.enum(chemicalUnits)).optional(),
   notes: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
 });
@@ -563,7 +621,16 @@ export async function poolLogRoutes(app: FastifyInstance) {
     if (!access.manage) throw Object.assign(new Error("Only admins and managers can manage pool chemical library"), { statusCode: 403 });
     const input = poolChemicalSchema.parse(request.body);
     await assertPropertyAccess(request, input.propertyId);
-    const chemical = await prisma.poolChemical.create({ data: { ...input, createdById: request.currentUser?.id, updatedById: request.currentUser?.id }, include: { property: true } });
+    const normalizedAllowedUnits = normalizePoolChemicalAllowedUnits(input.unit, input.allowedUnits);
+    const chemical = await prisma.poolChemical.create({
+      data: {
+        ...input,
+        createdById: request.currentUser?.id,
+        updatedById: request.currentUser?.id,
+        ...(normalizedAllowedUnits.length ? { allowedUnits: normalizedAllowedUnits } : {}),
+      } as never,
+      include: { property: true },
+    });
     await writeAuditLog({ request, propertyId: chemical.propertyId, entityType: "PoolChemical", entityId: chemical.id, action: "Pool Chemical Created", message: `Created pool chemical ${chemical.name}` });
     reply.code(201);
     return { chemical };
@@ -578,7 +645,19 @@ export async function poolLogRoutes(app: FastifyInstance) {
     await assertPropertyAccess(request, existing.propertyId);
     const input = poolChemicalSchema.partial().parse(request.body);
     if (input.propertyId) await assertPropertyAccess(request, input.propertyId);
-    const chemical = await prisma.poolChemical.update({ where: { id: params.id }, data: { ...input, updatedById: request.currentUser?.id }, include: { property: true } });
+    const existingAllowedUnits = ((existing as { allowedUnits?: string[] }).allowedUnits ?? []);
+    const normalizedAllowedUnits = input.unit || input.allowedUnits
+      ? normalizePoolChemicalAllowedUnits(input.unit ?? existing.unit, input.allowedUnits ?? existingAllowedUnits)
+      : null;
+    const chemical = await prisma.poolChemical.update({
+      where: { id: params.id },
+      data: {
+        ...input,
+        updatedById: request.currentUser?.id,
+        ...(normalizedAllowedUnits?.length ? { allowedUnits: normalizedAllowedUnits } : {}),
+      } as never,
+      include: { property: true },
+    });
     await writeAuditLog({ request, propertyId: chemical.propertyId, entityType: "PoolChemical", entityId: chemical.id, action: "Pool Chemical Updated", message: `Updated pool chemical ${chemical.name}` });
     return { chemical };
   });
@@ -740,13 +819,14 @@ export async function poolLogRoutes(app: FastifyInstance) {
       orderBy: [{ logDate: "desc" }, { createdAt: "desc" }],
       take: 250,
     });
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const reviewCount = entries.filter((entry) => (entry.evaluationJson as { status?: string } | null)?.status === "REVIEW" || entry.safetyChecks.some((check) => check.value === "FAIL")).length;
     const rows = entries.map((entry) => {
       const evaluation = entry.evaluationJson as { status?: string; issues?: Array<{ message?: string }> } | null;
       return `<tr>
         <td>${htmlEscape(entry.property.code)}</td>
         <td>${htmlEscape(entry.facility.name)}</td>
-        <td>${htmlEscape(entry.logDate.toISOString().slice(0, 10))}</td>
+        <td>${htmlEscape(formatDisplayDate(entry.logDate))}</td>
         <td>${htmlEscape(entry.logTime ?? "")}</td>
         <td>${htmlEscape(entry.technicianName ?? "")}</td>
         <td>${htmlEscape(entry.ph ?? "")}</td>
@@ -774,7 +854,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
       </style></head><body>
       <button onclick="window.print()">Print / Save PDF</button>
       <h1>MakeReadyOS Pool Log Report</h1>
-      <p class="muted">Generated ${htmlEscape(new Date().toLocaleString())}</p>
+      <p class="muted">${htmlEscape(scopeLabel)} | Generated ${htmlEscape(new Date().toLocaleString())}</p>
       <div class="summary">
         <div class="card"><strong>${entries.length}</strong><span>Log entries</span></div>
         <div class="card"><strong>${reviewCount}</strong><span>Review entries</span></div>
@@ -800,13 +880,14 @@ export async function poolLogRoutes(app: FastifyInstance) {
       orderBy: [{ logDate: "desc" }, { createdAt: "desc" }],
       take: 250,
     });
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const reviewCount = entries.filter((entry) => (entry.evaluationJson as { status?: string } | null)?.status === "REVIEW" || entry.safetyChecks.some((check) => check.value === "FAIL")).length;
     const rows = entries.map((entry) => {
       const evaluation = entry.evaluationJson as { status?: string; issues?: Array<{ message?: string }> } | null;
       return `<tr>
         <td>${htmlEscape(entry.property.code)}</td>
         <td>${htmlEscape(entry.facility.name)}</td>
-        <td>${htmlEscape(entry.logDate.toISOString().slice(0, 10))}</td>
+        <td>${htmlEscape(formatDisplayDate(entry.logDate))}</td>
         <td>${htmlEscape(entry.logTime ?? "")}</td>
         <td>${htmlEscape(entry.technicianName ?? "")}</td>
         <td>${htmlEscape(entry.ph ?? "")}</td>
@@ -832,7 +913,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
         th{background:#f3f4f6}
       </style></head><body>
       <h1>MakeReadyOS Pool Log Report</h1>
-      <p class="muted">Generated ${htmlEscape(new Date().toLocaleString())}</p>
+      <p class="muted">${htmlEscape(scopeLabel)} | Generated ${htmlEscape(new Date().toLocaleString())}</p>
       <div class="summary">
         <div class="card"><strong>${entries.length}</strong><span>Log entries</span></div>
         <div class="card"><strong>${reviewCount}</strong><span>Review entries</span></div>
@@ -841,7 +922,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
       </body></html>`;
     const pdf = await renderPdfFromHtml(html);
     reply.header("content-type", "application/pdf");
-    reply.header("content-disposition", 'inline; filename="pool-log-report.pdf"');
+    reply.header("content-disposition", `inline; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-pool-log-report.pdf`)}"`);
     return reply.send(pdf);
   });
 
@@ -925,6 +1006,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
       include: { property: true, facility: true, safetyChecks: true, chemicalAdditions: true },
       orderBy: [{ logDate: "desc" }, { createdAt: "desc" }],
     });
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const rows = [
       ["property", "pool_spa", "date", "time", "tech", "ph", "free_chlorine", "combined_chlorine", "total_chlorine", "alkalinity", "cya", "calcium_hardness", "temperature", "status", "issues", "chemical_additions", "notes"],
       ...entries.map((entry) => {
@@ -952,7 +1034,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
     ];
     const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
     reply.header("content-type", "text/csv; charset=utf-8");
-    reply.header("content-disposition", "attachment; filename=\"makereadyos-pool-log.csv\"");
+    reply.header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-pool-log.csv`)}"`);
     return csv;
   });
 }

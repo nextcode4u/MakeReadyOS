@@ -38,9 +38,11 @@ import {
   type Property,
   type PropertyMap,
   type ProjectHistoryEntry,
+  type UserLanguage,
   type UserRole,
 } from "../lib/api";
 import { formatDateDisplay, formatDateTime as sharedFormatDateTime, todayInputValue } from "../lib/dateTime";
+import { t } from "../lib/i18n";
 import {
   enqueueProjectAttachmentUpload,
   enqueueProjectCapture,
@@ -59,7 +61,7 @@ type Props = {
   properties: Property[];
   users: Array<{ id: string; fullName: string; role: UserRole }>;
   userRole: UserRole;
-  language?: string;
+  language?: UserLanguage;
   selectedPropertyId?: string;
   openRecordRequest?: (OpenProjectRecordRequest & { nonce: number }) | null;
   openCreateRequest?: (OpenProjectCreateRequest & { nonce: number }) | null;
@@ -262,7 +264,7 @@ function ProjectDetail({
   record: ProjectRecord;
   canEdit: boolean;
   users: Array<{ id: string; fullName: string; role: UserRole }>;
-  language?: string;
+  language?: UserLanguage;
   history: ProjectHistoryEntry[];
   onSave: (record: ProjectRecord, patch: Partial<ProjectRecord>) => void;
   onConvert: (id: string) => void;
@@ -454,6 +456,7 @@ function ProjectDetail({
         equipmentQuery={record.title}
         query={[record.description, record.locationNotes, record.categoryName, record.companyName, record.bidNotes].filter(Boolean).join(" ")}
         canEdit={canEdit}
+        language={language}
       />
 
       <div className="projects-detail-workspace">
@@ -650,7 +653,7 @@ function ProjectDetail({
                       onChange={(assignedUserId) => setTask((current) => ({ ...current, assignedUserId }))}
                       placeholder={isSpanish ? "Buscar usuario..." : "Search user..."}
                       emptyLabel={isSpanish ? "Sin asignar" : "Unassigned"}
-                      noMatchesLabel={isSpanish ? "No hay usuarios coincidentes" : "No matching users"}
+                      noMatchesLabel={t(language, "common.noMatchingUsers")}
                       clearLabel={isSpanish ? "Quitar usuario asignado" : "Clear assigned user"}
                     />
                   </label>
@@ -759,6 +762,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   const captureMapCanvasRef = useRef<HTMLDivElement | null>(null);
   const mapViewCanvasRef = useRef<HTMLDivElement | null>(null);
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [lastRecordsTab, setLastRecordsTab] = useState<Extract<Tab, "projects" | "recommendations" | "bids" | "archive">>("projects");
   const [propertyId, setPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [selectedMapId, setSelectedMapId] = useState<string>("");
@@ -849,6 +853,12 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   useEffect(() => {
     setDraft((current) => ({ ...current, propertyId }));
   }, [propertyId]);
+
+  useEffect(() => {
+    if (tab === "projects" || tab === "recommendations" || tab === "bids" || tab === "archive") {
+      setLastRecordsTab(tab);
+    }
+  }, [tab]);
 
   useEffect(() => {
     setDraft((current) => ({
@@ -1057,6 +1067,22 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
       return haystack.includes(normalizedSearch);
     });
   }, [agingFilter, budgetYearFilter, deferredFilter, pinnedRecords, search, sourceFilter]);
+  const projectReportFilters = useMemo<Record<string, string | undefined>>(() => ({
+    propertyId: propertyId || undefined,
+    q: search || undefined,
+    source: sourceFilter || undefined,
+    budgetYear: budgetYearFilter || undefined,
+    deferredMaintenance: deferredFilter ? String(deferredFilter === "yes") : undefined,
+    agingBucket: agingFilter || undefined,
+    recordType:
+      lastRecordsTab === "recommendations"
+        ? "Recommendation"
+        : lastRecordsTab === "projects"
+          ? "Project"
+          : undefined,
+    includeArchived: lastRecordsTab === "archive" ? "true" : undefined,
+    attachmentType: lastRecordsTab === "bids" ? "BID" : undefined,
+  }), [agingFilter, budgetYearFilter, deferredFilter, lastRecordsTab, propertyId, search, sourceFilter]);
   const maps = mapsQuery.data?.maps ?? [];
   const userOptions = useMemo<SearchSelectOption[]>(() => assignableUsers.map((user) => ({
     value: user.id,
@@ -1616,7 +1642,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                       onChange={(assignedUserId) => setDraft((current) => ({ ...current, assignedUserId }))}
                       placeholder={isSpanish ? "Buscar usuario..." : "Search user..."}
                       emptyLabel={isSpanish ? "Sin asignar" : "Unassigned"}
-                      noMatchesLabel={isSpanish ? "No hay usuarios coincidentes" : "No matching users"}
+                      noMatchesLabel={t(language, "common.noMatchingUsers")}
                       clearLabel={isSpanish ? "Quitar usuario asignado" : "Clear assigned user"}
                     />
                   </label>
@@ -1645,11 +1671,16 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
           <div className="pool-card">
             <h2>{isSpanish ? "Reportes / Exportaciones" : "Reports / Exports"}</h2>
             <div className="pool-entry-actions">
-              <a className="button button-secondary" href={projectsExportCsvUrl({ propertyId })} target="_blank" rel="noreferrer">CSV</a>
-              <a className="button button-secondary" href={projectsExportExcelUrl({ propertyId })} target="_blank" rel="noreferrer">Excel</a>
-              <a className="button button-secondary" href={projectsPrintableReportUrl({ propertyId })} target="_blank" rel="noreferrer">{isSpanish ? "Imprimible" : "Printable"}</a>
-              <a className="button button-primary" href={projectsPdfReportUrl({ propertyId })} target="_blank" rel="noreferrer">PDF</a>
+              <a className="button button-secondary" href={projectsExportCsvUrl(projectReportFilters)} target="_blank" rel="noreferrer">CSV</a>
+              <a className="button button-secondary" href={projectsExportExcelUrl(projectReportFilters)} target="_blank" rel="noreferrer">Excel</a>
+              <a className="button button-secondary" href={projectsPrintableReportUrl(projectReportFilters)} target="_blank" rel="noreferrer">{isSpanish ? "Imprimible" : "Printable"}</a>
+              <a className="button button-primary" href={projectsPdfReportUrl(projectReportFilters)} target="_blank" rel="noreferrer">PDF</a>
             </div>
+            <p className="muted">
+              {isSpanish
+                ? `Los reportes siguen la última vista de trabajo (${lastRecordsTab}) y los filtros activos de búsqueda, origen, presupuesto, diferido y antigüedad.`
+                : `Reports follow the last working view (${lastRecordsTab}) and the active search, source, budget, deferred, and aging filters.`}
+            </p>
           </div>
           {canAdmin ? (
             <div className="pool-card">

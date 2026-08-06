@@ -17,6 +17,7 @@ import type {
   UnitMapLocation,
   UserLanguage,
 } from "../lib/api";
+import { t } from "../lib/i18n";
 import {
   createPropertyMapPin,
   getLeaseComplianceIssues,
@@ -1601,6 +1602,7 @@ export function PropertyMapsPanel({
                 onChange={(value) => {
                   selectPlacementUnit(value);
                 }}
+                language={language}
                 placeholder={isSpanish ? "Buscar unidad..." : "Search unit..."}
               />
               <div className="pool-entry-actions">
@@ -1753,7 +1755,7 @@ export function PropertyMapsPanel({
                           });
                         }}
                       >
-                        {isSpanish ? "Crear recomendacion" : "Create Recommendation"}
+                        {t(language, "common.createRecommendation")}
                       </button>
                       <button
                         className="button button-secondary"
@@ -1831,7 +1833,7 @@ export function PropertyMapsPanel({
                           tags: ["property-map", selectedMarker.area.areaType.toLowerCase()],
                         })}
                       >
-                        {isSpanish ? "Crear recomendacion" : "Create Recommendation"}
+                        {t(language, "common.createRecommendation")}
                       </button>
                       <button
                         className="button button-secondary"
@@ -1890,7 +1892,7 @@ export function PropertyMapsPanel({
                           tags: ["property-map", selectedMarker.pin.pinType.toLowerCase().replace(/\s+/g, "-")],
                         })}
                       >
-                        {isSpanish ? "Crear recomendacion" : "Create Recommendation"}
+                        {t(language, "common.createRecommendation")}
                       </button>
                       <button
                         className="button button-secondary"

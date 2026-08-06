@@ -10,6 +10,7 @@ import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
 import { notifyAssignedStaff, notifyPropertyRoles } from "../lib/notifications.js";
 import { computeDerivedFields, editableFields, normalizeItemPatch } from "../lib/board.js";
+import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { evaluateAndPersistItemRisk, riskCategories } from "../lib/risk.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 
@@ -125,9 +126,11 @@ export const makeReadyCreateSchema = z.object({
 });
 
 export const makeReadyPatchSchema = z.record(z.unknown());
-const makeReadyExportQuerySchema = z.object({
-  propertyId: z.string().optional(),
-});
+const makeReadyExportQuerySchema = makeReadyQuerySchema
+  .omit({ limit: true, offset: true, updatedSince: true })
+  .extend({
+    archiveState: z.enum(["active", "archived", "all"]).optional(),
+  });
 export const makeReadyBatchSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("ARCHIVE"), ids: z.array(z.string()).min(1).max(200) }),
   z.object({ action: z.literal("RESTORE"), ids: z.array(z.string()).min(1).max(200) }),
@@ -213,22 +216,152 @@ function htmlEscape(value: unknown) {
     .replaceAll("'", "&#39;");
 }
 
-async function getMakeReadyExportBundle(request: FastifyRequest, propertyId?: string) {
-  const scoped = scopedAllowedPropertyIds(request);
-  if (propertyId && scoped !== null && !scoped.includes(propertyId)) {
+function formatDisplayDate(value: Date | null | undefined) {
+  return value ? value.toLocaleDateString() : "-";
+}
+
+function sanitizeFilename(filename: string) {
+  return filename
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+}
+
+async function makeReadyReportScopeLabel(propertyId: string | undefined) {
+  if (!propertyId) return ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL;
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: { code: true, name: true },
+  });
+  return propertyScopeLabel(property);
+}
+
+async function buildMakeReadyExportWhere(
+  request: FastifyRequest,
+  query: z.infer<typeof makeReadyExportQuerySchema>,
+) {
+  const propertyIds = scopedAllowedPropertyIds(request);
+  if (query.propertyId && propertyIds !== null && !propertyIds.includes(query.propertyId)) {
     throw Object.assign(new Error("Property access denied"), { statusCode: 403 });
   }
+
+  let boardGroupFilter = query.boardGroup ?? query.section;
+  if (!boardGroupFilter && query.boardSection) {
+    if (query.boardSection.startsWith("type:")) {
+      const sectionType = query.boardSection.slice(5);
+      if (!boardSectionTypes.has(sectionType)) {
+        throw Object.assign(new Error("Invalid board section type"), { statusCode: 400 });
+      }
+      const sections = await prisma.boardSection.findMany({
+        where: {
+          isActive: true,
+          sectionType,
+          propertyId: query.propertyId ?? (propertyIds === null ? undefined : { in: propertyIds }),
+        },
+        select: { key: true },
+      });
+      boardGroupFilter = sections.length === 1 ? sections[0].key : undefined;
+    } else {
+      boardGroupFilter = query.boardSection;
+    }
+  }
+
+  const andFilters: Prisma.MakeReadyItemWhereInput[] = [];
+  if (query.boardSection?.startsWith("type:")) {
+    const sectionType = query.boardSection.slice(5);
+    if (!boardSectionTypes.has(sectionType)) {
+      throw Object.assign(new Error("Invalid board section type"), { statusCode: 400 });
+    }
+    const sections = await prisma.boardSection.findMany({
+      where: {
+        isActive: true,
+        sectionType,
+        propertyId: query.propertyId ?? (propertyIds === null ? undefined : { in: propertyIds }),
+      },
+      select: { propertyId: true, key: true },
+    });
+    andFilters.push(sections.length
+      ? { OR: sections.map((section) => ({ propertyId: section.propertyId, boardGroup: section.key })) }
+      : { id: "__no_matching_section__" });
+  }
+  if (query.vacancyStatus === "__ntv__") {
+    andFilters.push({ vacancyStatus: { startsWith: "NTV" } });
+  } else if (query.vacancyStatus === "__vacant__") {
+    andFilters.push({ vacancyStatus: { in: ["VACANT", "VACANT_NOT_LEASED", "VACANT_READY", "VACANT NOT LEASED READY", "VACANT NOT LEASED NOT READY"] } });
+  } else if (query.vacancyStatus === "__vacant_leased__") {
+    andFilters.push({ vacancyStatus: { in: ["VACANT LEASED", "VACANT_LEASED", "VACANT LEASED READY", "VACANT LEASED NOT READY"] } });
+  } else if (query.vacancyStatus) {
+    andFilters.push({ vacancyStatus: query.vacancyStatus });
+  }
+  if (query.assignedTech === "__unassigned__") {
+    andFilters.push({ OR: [{ assignedTech: null }, { assignedTech: "" }] });
+  } else if (query.assignedTech) {
+    andFilters.push({ assignedTech: query.assignedTech });
+  }
+  if (query.scopeLevel) andFilters.push({ scopeLevel: query.scopeLevel });
+  if (query.makeReadyStatus) andFilters.push({ makeReadyStatus: query.makeReadyStatus });
+  if (query.riskLevel) andFilters.push({ riskLevel: query.riskLevel });
+  if (query.riskCategory) andFilters.push({ riskReasons: { array_contains: [{ category: query.riskCategory }] } });
+  if (query.moveInWindow) andFilters.push({ moveInDate: moveInWindowFilter(query.moveInWindow) });
+  if (query.overdueOnly) andFilters.push({ overdue: true });
+  if (query.missingDatesOnly) andFilters.push({ OR: [{ makeReadyDate: null }, { vacatedDate: null }] });
+  if (query.pestIssuesOnly) andFilters.push({ pestStatus: { notIn: ["NONE", "TREATED"] } });
+  if (query.flooringNeededOnly) andFilters.push({ floorsStatus: "REPLACE CARPET" });
+  if (query.paintNeededOnly) andFilters.push({ paintStatus: { not: null }, NOT: { paintStatus: "GOOD" } });
+  if (query.moveInRiskOnly) {
+    const soon = moveInWindowFilter("7");
+    andFilters.push({
+      OR: [
+        { moveInSoon: true },
+        { AND: [{ moveInDate: soon }, { completionStatus: { not: "YES" } }] },
+        { riskReasons: { array_contains: [{ category: "MOVE_IN_RISK" }] } },
+      ],
+    });
+  }
+  if (query.q) {
+    andFilters.push({
+      OR: [
+        { unitNumber: { contains: query.q, mode: "insensitive" } },
+        { itemName: { contains: query.q, mode: "insensitive" } },
+        { applicant: { contains: query.q, mode: "insensitive" } },
+        { assignedTech: { contains: query.q, mode: "insensitive" } },
+      ],
+    });
+  }
+
+  let customFieldFilters: CustomFieldFilterInput[] = [];
+  try {
+    customFieldFilters = parseCustomFieldFilters(query.customFieldFilters);
+  } catch (error) {
+    throw Object.assign(new Error(error instanceof Error ? error.message : "Invalid custom field filters"), { statusCode: 400 });
+  }
+
+  const where: Prisma.MakeReadyItemWhereInput = {
+    propertyId: query.propertyId ?? (propertyIds === null ? undefined : { in: propertyIds }),
+    boardGroup: query.boardSection?.startsWith("type:") ? undefined : boardGroupFilter,
+    isArchived: query.archiveState === "archived" ? true : query.archiveState === "all" || query.includeArchived ? undefined : false,
+    property: query.archiveState === "all" || query.archiveState === "archived" || query.includeArchived ? undefined : { isActive: true },
+    AND: andFilters.length ? andFilters : undefined,
+  };
+
+  if (!customFieldFilters.length) {
+    return where;
+  }
+
+  const matchingIds = await itemIdsMatchingCustomFilters(where, customFieldFilters);
+  return { ...where, id: { in: matchingIds.length ? matchingIds : ["__no_matching_custom_field_filter__"] } };
+}
+
+async function getMakeReadyExportBundle(request: FastifyRequest, query: z.infer<typeof makeReadyExportQuerySchema>) {
+  const where = await buildMakeReadyExportWhere(request, query);
   const items = await prisma.makeReadyItem.findMany({
-    where: {
-      propertyId: propertyId ?? (scoped === null ? undefined : { in: scoped }),
-      isArchived: false,
-      property: { isActive: true },
-    },
+    where,
     include: {
       property: true,
       customFieldValues: true,
     },
-    orderBy: [{ propertyId: "asc" }, { boardGroup: "asc" }, { unitNumber: "asc" }],
+    orderBy: itemOrderBy(query.sortBy, query.sortDirection ?? "asc"),
   });
 
   const customFields = await prisma.customField.findMany({
@@ -239,7 +372,10 @@ async function getMakeReadyExportBundle(request: FastifyRequest, propertyId?: st
   return { items, customFields };
 }
 
-function buildMakeReadyReportHtml(items: Array<Prisma.MakeReadyItemGetPayload<{ include: { property: true; customFieldValues: true } }>>) {
+function buildMakeReadyReportHtml(
+  items: Array<Prisma.MakeReadyItemGetPayload<{ include: { property: true; customFieldValues: true } }>>,
+  scopeLabel: string,
+) {
   const total = items.length;
   const overdue = items.filter((item) => item.overdue).length;
   const moveInSoon = items.filter((item) => item.moveInSoon).length;
@@ -262,6 +398,7 @@ th{background:#e2e8f0;font-size:11px;text-transform:uppercase;letter-spacing:.04
 <body>
 <div class="report">
   <h1>Make Ready Board Report</h1>
+  <p class="muted">${htmlEscape(scopeLabel)} | Generated ${htmlEscape(new Date().toLocaleString())}</p>
   <div class="kpis">
     <div class="kpi"><strong>${total}</strong><span>Active turns</span></div>
     <div class="kpi"><strong>${overdue}</strong><span>Overdue</span></div>
@@ -291,7 +428,7 @@ th{background:#e2e8f0;font-size:11px;text-transform:uppercase;letter-spacing:.04
             <td>${htmlEscape(item.unitNumber)}</td>
             <td>${htmlEscape(item.vacancyStatus ?? "-")}</td>
             <td>${htmlEscape(item.makeReadyStatus ?? "-")}</td>
-            <td>${htmlEscape(item.moveInDate?.toISOString().slice(0, 10) ?? "-")}</td>
+            <td>${htmlEscape(formatDisplayDate(item.moveInDate))}</td>
             <td>${htmlEscape(item.assignedTech ?? "-")}</td>
             <td>${htmlEscape(item.riskLevel ?? "NONE")} / ${htmlEscape(item.riskScore ?? 0)}</td>
             <td class="muted">${htmlEscape(item.notes ?? "")}</td>
@@ -1395,7 +1532,8 @@ export async function makeReadyRoutes(app: FastifyInstance) {
 
   app.get("/export/make-ready.csv", async (request, reply) => {
     const query = makeReadyExportQuerySchema.parse(request.query);
-    const { items, customFields } = await getMakeReadyExportBundle(request, query.propertyId);
+    const { items, customFields } = await getMakeReadyExportBundle(request, query);
+    const scopeLabel = await makeReadyReportScopeLabel(query.propertyId);
 
     const csv = stringify(
       items.map((item) => ({
@@ -1439,23 +1577,25 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     );
 
     reply.header("content-type", "text/csv; charset=utf-8");
-    reply.header("content-disposition", "attachment; filename=make-ready-board.csv");
+    reply.header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-make-ready-board.csv`)}"`);
     return reply.send(csv);
   });
 
   app.get("/export/make-ready.html", async (request, reply) => {
     const query = makeReadyExportQuerySchema.parse(request.query);
-    const { items } = await getMakeReadyExportBundle(request, query.propertyId);
+    const { items } = await getMakeReadyExportBundle(request, query);
+    const scopeLabel = await makeReadyReportScopeLabel(query.propertyId);
     reply.header("content-type", "text/html; charset=utf-8");
-    return reply.send(buildMakeReadyReportHtml(items));
+    return reply.send(buildMakeReadyReportHtml(items, scopeLabel));
   });
 
   app.get("/export/make-ready.pdf", async (request, reply) => {
     const query = makeReadyExportQuerySchema.parse(request.query);
-    const { items } = await getMakeReadyExportBundle(request, query.propertyId);
-    const pdf = await renderPdfFromHtml(buildMakeReadyReportHtml(items));
+    const { items } = await getMakeReadyExportBundle(request, query);
+    const scopeLabel = await makeReadyReportScopeLabel(query.propertyId);
+    const pdf = await renderPdfFromHtml(buildMakeReadyReportHtml(items, scopeLabel));
     reply.header("content-type", "application/pdf");
-    reply.header("content-disposition", "inline; filename=make-ready-board.pdf");
+    reply.header("content-disposition", `inline; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-make-ready-board.pdf`)}"`);
     return reply.send(pdf);
   });
 }

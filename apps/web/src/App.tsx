@@ -1505,6 +1505,15 @@ function App() {
     } : {}),
   }), [boardWindowLimit, boardWindowedMode, itemServerFilters, sortDirection, sortKey]);
 
+  const makeReadyExportFilters = useMemo(() => ({
+    ...itemServerFilters,
+    archiveState: structuredFilters.archiveState === "archived" || structuredFilters.archiveState === "all"
+      ? structuredFilters.archiveState
+      : undefined,
+    sortBy: sortKey as Parameters<typeof getMakeReadyItemPage>[0]["sortBy"],
+    sortDirection,
+  }), [itemServerFilters, sortDirection, sortKey, structuredFilters.archiveState]);
+
   const itemsQuery = useQuery({
     queryKey: ["make-ready-items", effectiveItemServerFilters],
     queryFn: () => getMakeReadyItemPage(effectiveItemServerFilters),
@@ -3569,6 +3578,7 @@ function App() {
         properties={metaQuery.data?.properties ?? []}
         currentUser={currentUser}
         selectedPropertyId={propertyId}
+        makeReadyExportFilters={makeReadyExportFilters}
         search={search}
         onPropertyChange={setPropertyId}
         onSearchChange={setSearch}
@@ -4345,7 +4355,7 @@ function App() {
               <div className="table-filter-row table-filter-row-selects">
                 <label>Property
                   <select data-testid="table-filter-property" value={propertyId} onChange={(event) => setPropertyId(event.target.value)}>
-                    <option value="">All properties</option>
+                    <option value="">{t(language, "nav.allProperties")}</option>
                     {(metaQuery.data?.properties ?? []).map((property) => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}
                   </select>
                 </label>

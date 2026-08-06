@@ -21,9 +21,11 @@ import {
   type PoolFacility,
   type PoolLogEntry,
   type Property,
+  type UserLanguage,
   type UserRole,
 } from "../lib/api";
 import { todayInputValue } from "../lib/dateTime";
+import { t } from "../lib/i18n";
 import { enqueuePoolCreate, enqueuePoolUpload, getOfflineSyncEventName, listOfflineSyncJobs, syncOfflineJobs, type OfflineSyncJobSummary } from "../lib/offlineSync";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { StatusState } from "./StatusState";
@@ -35,7 +37,7 @@ type Props = {
   properties: Property[];
   userRole: UserRole;
   selectedPropertyId?: string;
-  language?: string;
+  language?: UserLanguage;
 };
 
 const poolTypes: Array<{ value: PoolFacility["type"]; label: string }> = [
@@ -57,6 +59,30 @@ const chemicalCategories: Array<{ value: PoolChemical["category"]; label: string
 ];
 
 const chemicalUnits: PoolChemical["unit"][] = ["POUNDS", "OUNCES", "GALLONS", "QUARTS", "TABLETS"];
+
+function poolChemicalAllowedUnits(chemical: PoolChemical | null | undefined) {
+  if (!chemical) return [] as PoolChemical["unit"][];
+  const units = Array.isArray(chemical.allowedUnits) && chemical.allowedUnits.length ? chemical.allowedUnits : [chemical.unit];
+  return units.filter((value, index, array) => array.indexOf(value) === index);
+}
+
+function poolChemicalUnitLabel(unit: PoolChemical["unit"], language: UserLanguage) {
+  const english: Record<PoolChemical["unit"], string> = {
+    POUNDS: "Pounds",
+    OUNCES: "Ounces",
+    GALLONS: "Gallons",
+    QUARTS: "Quarts",
+    TABLETS: "Tablets",
+  };
+  const spanish: Record<PoolChemical["unit"], string> = {
+    POUNDS: "Libras",
+    OUNCES: "Onzas",
+    GALLONS: "Galones",
+    QUARTS: "Cuartos",
+    TABLETS: "Tabletas",
+  };
+  return (language === "es" ? spanish : english)[unit];
+}
 
 function today() {
   return todayInputValue();
@@ -107,7 +133,7 @@ function formatPoolChemicalAmount(amount: number, unit: PoolChemical["unit"]) {
 
 function formatPoolDosageMessage(
   dosage: { chemicalCategory: string; chemicalName?: string; amount?: number; unit?: string; message: string; missing?: string[] },
-  language: string,
+  language: UserLanguage,
 ) {
   if (dosage.amount && dosage.unit) {
     return dosage.chemicalName
@@ -122,7 +148,7 @@ function formatPoolDosageMessage(
   return dosage.message;
 }
 
-function poolChemicalCategoryActionLabel(category: string, language: string) {
+function poolChemicalCategoryActionLabel(category: string, language: UserLanguage) {
   const english: Record<string, string> = {
     CHLORINE: "Add chlorine",
     PH_UP: "Add pH Up",
@@ -148,7 +174,7 @@ function summarizePoolCorrection(
   issue: { code?: string; message?: string } | null | undefined,
   dosage: Array<{ chemicalCategory: string; chemicalName?: string; amount?: number; unit?: string; message: string; missing?: string[] }>,
   recommendations: string[],
-  language: string,
+  language: UserLanguage,
 ) {
   const actions: string[] = [];
   dosage.forEach((entry) => {
@@ -187,7 +213,7 @@ function summarizePoolCorrection(
   return [...new Set(actions)].slice(0, 3);
 }
 
-function poolTypeLabel(type: PoolFacility["type"], language: string) {
+function poolTypeLabel(type: PoolFacility["type"], language: UserLanguage) {
   const english: Record<PoolFacility["type"], string> = {
     POOL: "Pool",
     SPA: "Spa",
@@ -205,7 +231,7 @@ function poolTypeLabel(type: PoolFacility["type"], language: string) {
   return (language === "es" ? spanish : english)[type];
 }
 
-function poolQueueStatusSummary(jobs: OfflineSyncJobSummary[], language: string) {
+function poolQueueStatusSummary(jobs: OfflineSyncJobSummary[], language: UserLanguage) {
   const blocked = jobs.filter((job) => job.status === "blocked");
   const retrying = jobs.filter((job) => job.status === "retrying");
   const pending = jobs.filter((job) => job.status === "pending");
@@ -234,7 +260,7 @@ function poolQueueStatusSummary(jobs: OfflineSyncJobSummary[], language: string)
   };
 }
 
-function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: PoolLogEntry; canEdit: boolean; onUpload: (entryId: string, files: FileList | null) => void; language?: string }) {
+function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: PoolLogEntry; canEdit: boolean; onUpload: (entryId: string, files: FileList | null) => void; language?: UserLanguage }) {
   const isSpanish = language === "es";
   const evaluation = entry.evaluationJson;
   const needsFollowUp = evaluation?.status === "REVIEW" || entry.safetyChecks.some((check) => check.value === "FAIL");
@@ -294,9 +320,7 @@ function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: Po
               area: entry.facility.type.replace(/_/g, " "),
               tags: ["pool-log", needsFollowUp ? "review" : "follow-up"],
             })}
-          >
-            {isSpanish ? "Crear recomendación" : "Create Recommendation"}
-          </button>
+          >{t(language, "common.createRecommendation")}</button>
         ) : null}
         {entry.attachments?.length ? (
           <div className="pool-attachment-list">
@@ -365,6 +389,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
   const selectedProperty = properties.find((property) => property.id === propertyId);
   const defaultFacilityId = activeFacilities[0]?.id ?? "";
   const [selectedChemicalId, setSelectedChemicalId] = useState("");
+  const [selectedChemicalUnit, setSelectedChemicalUnit] = useState<PoolChemical["unit"] | "">("");
+  const [chemicalAmountValue, setChemicalAmountValue] = useState("");
   const [chemicalAmountPounds, setChemicalAmountPounds] = useState("");
   const [chemicalAmountOunces, setChemicalAmountOunces] = useState("");
   const [queuedPoolJobs, setQueuedPoolJobs] = useState<OfflineSyncJobSummary[]>([]);
@@ -379,6 +405,11 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
     )
   ), [chemicalAmountOunces, chemicalAmountPounds]);
   const solidChemicalEquivalentPounds = solidChemicalTotalOunces ? solidChemicalTotalOunces / 16 : null;
+  const activeSelectedChemicalUnit = selectedChemical
+    ? ((selectedChemicalUnit && poolChemicalAllowedUnits(selectedChemical).includes(selectedChemicalUnit as PoolChemical["unit"]))
+      ? selectedChemicalUnit
+      : poolChemicalAllowedUnits(selectedChemical)[0] ?? selectedChemical.unit)
+    : "";
 
   const invalidate = async () => {
     await Promise.all([
@@ -459,6 +490,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
       category: String(formData.get("category") ?? "CHLORINE") as PoolChemical["category"],
       concentrationPercent: formNumber(formData, "concentrationPercent"),
       unit: String(formData.get("unit") ?? "POUNDS") as PoolChemical["unit"],
+      allowedUnits: formData.getAll("allowedUnits").map((value) => String(value) as PoolChemical["unit"]),
       notes: String(formData.get("notes") ?? "").trim() || null,
     });
     form.reset();
@@ -472,8 +504,11 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
     const facilityId = String(formData.get("facilityId") ?? "");
     const chemicalId = String(formData.get("chemicalId") ?? "");
     const chemical = chemicalId ? activeChemicalsById.get(chemicalId) : null;
+    const chosenChemicalUnit = chemical
+      ? ((String(formData.get("chemicalUnit") ?? "") as PoolChemical["unit"]) || poolChemicalAllowedUnits(chemical)[0] || chemical.unit)
+      : null;
     const amount = chemical
-      ? isSolidChemicalUnit(chemical.unit)
+      ? chosenChemicalUnit === "POUNDS"
         ? normalizeSolidChemicalAmount(formNumber(formData, "chemicalAmountPounds"), formNumber(formData, "chemicalAmountOunces"))
         : formNumber(formData, "chemicalAmount")
       : null;
@@ -509,7 +544,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
         chemicalId: chemical.id,
         chemicalName: chemical.name,
         amount,
-        unit: isSolidChemicalUnit(chemical.unit) ? "OUNCES" as PoolChemical["unit"] : chemical.unit,
+        unit: chosenChemicalUnit === "POUNDS" ? "OUNCES" as PoolChemical["unit"] : (chosenChemicalUnit ?? chemical.unit),
       }] : [],
     };
     try {
@@ -522,6 +557,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
     }
     form.reset();
     setSelectedChemicalId("");
+    setSelectedChemicalUnit("");
+    setChemicalAmountValue("");
     setChemicalAmountPounds("");
     setChemicalAmountOunces("");
   }
@@ -577,7 +614,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
         </div>
         <div className="module-actions">
           <select value={propertyId} onChange={(event) => setPropertyId(event.target.value)} aria-label={isSpanish ? "Propiedad del registro de piscina" : "Pool log property"}>
-            <option value="">{isSpanish ? "Todas las propiedades accesibles" : "All accessible properties"}</option>
+            <option value="">{t(language, "common.allAccessibleProperties")}</option>
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
           </select>
           <a className="button secondary" data-testid="pool-report-printable" href={poolLogPrintableReportUrl({ propertyId: propertyId || undefined })} target="_blank" rel="noreferrer">{isSpanish ? "Reporte PDF" : "PDF report"}</a>
@@ -679,6 +716,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
             equipmentQuery={workflowFacilityName}
             query="pool equipment procedures vendors emergency"
             canEdit={canEdit}
+            language={language}
           />
         </>
       ) : tab === "daily" ? (
@@ -729,7 +767,10 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                   name="chemicalId"
                   value={selectedChemicalId}
                   onChange={(event) => {
+                    const nextChemical = activeChemicalsById.get(event.target.value) ?? null;
                     setSelectedChemicalId(event.target.value);
+                    setSelectedChemicalUnit(nextChemical ? (poolChemicalAllowedUnits(nextChemical)[0] ?? nextChemical.unit) : "");
+                    setChemicalAmountValue("");
                     setChemicalAmountPounds("");
                     setChemicalAmountOunces("");
                   }}
@@ -738,7 +779,25 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                   {chemicals.map((chemical) => <option key={chemical.id} value={chemical.id}>{chemical.name}</option>)}
                 </select>
               </label>
-              {selectedChemical && isSolidChemicalUnit(selectedChemical.unit) ? (
+              {selectedChemical ? (
+                <label>{isSpanish ? "Unidad" : "Unit"}
+                  <select
+                    name="chemicalUnit"
+                    value={activeSelectedChemicalUnit}
+                    onChange={(event) => {
+                      setSelectedChemicalUnit(event.target.value as PoolChemical["unit"]);
+                      setChemicalAmountValue("");
+                      setChemicalAmountPounds("");
+                      setChemicalAmountOunces("");
+                    }}
+                  >
+                    {poolChemicalAllowedUnits(selectedChemical).map((unit) => (
+                      <option key={unit} value={unit}>{poolChemicalUnitLabel(unit, language)}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {selectedChemical && activeSelectedChemicalUnit === "POUNDS" ? (
                 <>
                   <label>{isSpanish ? "Libras" : "Pounds"}
                     <input
@@ -765,7 +824,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                     />
                   </label>
                 </>
-              ) : (
+              ) : selectedChemical ? (
                 <label>{isSpanish ? "Cantidad" : "Amount"}
                   <input
                     name="chemicalAmount"
@@ -773,16 +832,18 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                     type="number"
                     min="0"
                     step="0.01"
-                    placeholder={selectedChemical ? selectedChemical.unit.toLowerCase() : ""}
+                    placeholder={activeSelectedChemicalUnit ? poolChemicalUnitLabel(activeSelectedChemicalUnit, language).toLowerCase() : ""}
+                    value={chemicalAmountValue}
+                    onChange={(event) => setChemicalAmountValue(event.target.value)}
                   />
                 </label>
-              )}
+              ) : null}
             </div>
-            {selectedChemical && isSolidChemicalUnit(selectedChemical.unit) ? (
+            {selectedChemical && (activeSelectedChemicalUnit === "POUNDS" || activeSelectedChemicalUnit === "OUNCES") ? (
               <p className="muted">
                 {isSpanish
-                  ? "Los químicos sólidos usan campos separados de libras y onzas. Ejemplo: 70 onzas se convierten en 4.4 lb y se guardan como 4 lb 6 oz."
-                  : "Solid chemicals use separate pounds and ounces fields. Example: 70 ounces converts to 4.4 lb and is stored as 4 lb 6 oz."}
+                  ? "Los químicos sólidos pueden registrarse en libras u onzas. Ejemplo: 70 onzas se convierten en 4.4 lb y se guardan como 4 lb 6 oz."
+                  : "Solid chemicals can be logged in pounds or ounces. Example: 70 ounces converts to 4.4 lb and is stored as 4 lb 6 oz."}
                 {solidChemicalEquivalentPounds
                   ? ` ${isSpanish ? "Equivalente actual" : "Current equivalent"}: ${solidChemicalEquivalentPounds.toFixed(1)} lb (${formatPoolChemicalAmount(solidChemicalTotalOunces ?? 0, "OUNCES")}).`
                   : ""}
@@ -803,6 +864,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
             equipmentQuery={workflowFacilityName}
             query="pool equipment procedures vendors emergency"
             canEdit={canEdit}
+            language={language}
           />
         </div>
       ) : tab === "setup" ? (
@@ -873,6 +935,21 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
             <input name="name" data-testid="pool-chemical-name" placeholder={isSpanish ? "Nombre del químico" : "Chemical name"} required disabled={!canManage} />
             <select name="category" disabled={!canManage}>{chemicalCategories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select>
             <select name="unit" disabled={!canManage}>{chemicalUnits.map((unit) => <option key={unit} value={unit}>{unit.replace(/_/g, " ")}</option>)}</select>
+            <fieldset className="pool-safety-grid">
+              <legend>{isSpanish ? "Unidades permitidas" : "Allowed units"}</legend>
+              {chemicalUnits.map((unit) => (
+                <label key={unit} className="pool-check-item">
+                  <span>{poolChemicalUnitLabel(unit, language)}</span>
+                  <input
+                    name="allowedUnits"
+                    type="checkbox"
+                    value={unit}
+                    defaultChecked={unit === "POUNDS"}
+                    disabled={!canManage}
+                  />
+                </label>
+              ))}
+            </fieldset>
             <input name="concentrationPercent" type="number" step="0.01" min="0" max="100" placeholder={isSpanish ? "Concentración % (opcional)" : "Concentration % (optional)"} disabled={!canManage} />
             <textarea name="notes" placeholder={isSpanish ? "Notas" : "Notes"} disabled={!canManage} />
             <button type="submit" data-testid="pool-chemical-submit" disabled={!canManage || chemicalCreateMutation.isPending}>{isSpanish ? "Agregar químico" : "Add chemical"}</button>
@@ -884,7 +961,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
               <div className="pool-row" key={chemical.id}>
                 <div>
                   <strong>{chemical.name}</strong>
-                  <span>{chemical.category.replace(/_/g, " ")} / {chemical.concentrationPercent ? `${chemical.concentrationPercent}%` : (isSpanish ? "concentración faltante" : "concentration missing")} / {chemical.unit}</span>
+                  <span>{chemical.category.replace(/_/g, " ")} / {chemical.concentrationPercent ? `${chemical.concentrationPercent}%` : (isSpanish ? "concentración faltante" : "concentration missing")} / {poolChemicalUnitLabel(chemical.unit, language)} / {(chemical.allowedUnits?.length ? chemical.allowedUnits : [chemical.unit]).map((unit) => poolChemicalUnitLabel(unit, language)).join(", ")}</span>
                 </div>
                 {canManage ? <button type="button" onClick={() => chemicalUpdateMutation.mutate({ id: chemical.id, data: { isActive: false } })}>{isSpanish ? "Archivar" : "Archive"}</button> : null}
               </div>

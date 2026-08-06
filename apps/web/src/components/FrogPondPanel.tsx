@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { BoardSection, LabelDefinition, MakeReadyItem, Property, UserLanguage } from "../lib/api";
 import { boardGroupLabel, displayUnitNumber } from "../lib/board";
+import { t } from "../lib/i18n";
 import { StatusState } from "./StatusState";
 
 type MetricSource = "active" | "risk" | "techWorkload" | "vacant" | "moveInsWeek";
@@ -655,7 +656,7 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
         </label>
         <label>{isSpanish ? "Propiedad" : "Property"}
           <select data-testid="frog-property-filter" value={config.propertyId} onChange={(event) => updateConfig({ propertyId: event.target.value })}>
-            <option value="">{isSpanish ? "Todas las propiedades accesibles" : "All accessible properties"}</option>
+            <option value="">{t(language, "common.allAccessibleProperties")}</option>
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} · {property.name}</option>)}
           </select>
         </label>

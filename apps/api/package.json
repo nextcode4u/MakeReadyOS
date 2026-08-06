@@ -22,11 +22,11 @@
     "uploads:route-existing": "tsx src/routeExistingUploads.ts"
   },
   "dependencies": {
-    "@fastify/cookie": "^11.0.2",
+    "@fastify/cookie": "11.0.0",
     "@fastify/cors": "^11.3.0",
     "@fastify/multipart": "^9.4.0",
     "@prisma/client": "^6.8.2",
-    "csv-stringify": "^6.5.2",
+    "csv-stringify": "^6.8.3",
     "fastify": "^5.11.2",
     "nodemailer": "^9.0.4",
     "puppeteer-core": "^24.43.1",
@@ -44,7 +44,7 @@
     "@types/nodemailer": "^6.4.24",
     "@types/yazl": "^3.3.1",
     "prisma": "^6.8.2",
-    "tsx": "^4.23.5",
+    "tsx": "^4.23.9",
     "typescript": "^5.8.3"
   }
 }

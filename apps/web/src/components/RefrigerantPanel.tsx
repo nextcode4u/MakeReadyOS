@@ -467,23 +467,24 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
           <div className="toolbar-card">
             <label>{t(language, "refrigerant.property")}
               <select value={propertyFilter} onChange={(event) => setPropertyFilter(event.target.value)}>
-                <option value="">{t(language, "refrigerant.allAccessibleProperties")}</option>
+                <option value="">{t(language, "common.allAccessibleProperties")}</option>
                 {properties.map((property) => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}
               </select>
             </label>
           </div>
           {workflowPropertyId ? (
-            <PropertyWikiWorkflowPanel
-              title={t(language, "refrigerant.unitContext")}
-              module="REFRIGERANT"
+          <PropertyWikiWorkflowPanel
+            title={t(language, "refrigerant.unitContext")}
+            module="REFRIGERANT"
               propertyId={workflowPropertyId}
               recordType={workflowTransaction?.id ? "REFRIGERANT_TRANSACTION" : undefined}
               recordId={workflowTransaction?.id ?? undefined}
               unitNumber={workflowTransaction?.unitNumber}
-              equipmentQuery={workflowTransaction?.unitNumber}
-              query={workflowTransaction?.notes}
-              canEdit={canEdit}
-            />
+            equipmentQuery={workflowTransaction?.unitNumber}
+            query={workflowTransaction?.notes}
+            canEdit={canEdit}
+            language={language}
+          />
           ) : null}
           <HistoryList language={language} transactions={historyQuery.data?.transactions ?? []} />
         </>
@@ -637,6 +638,7 @@ function UnitSelect({
           units={scopedUnits}
           value={selectedUnitId}
           onChange={onUnitChange}
+          language={language}
           emptyLabel={t(language, "refrigerant.noUnitSelected")}
           placeholder={t(language, "refrigerant.searchUnit")}
         />
@@ -746,6 +748,7 @@ function QuickChargeForm({ title, properties, units, tanks, recentUnitTransactio
           equipmentQuery={workflowDraft.equipmentQuery || undefined}
           query={workflowDraft.query || undefined}
           canEdit={canEdit}
+          language={language}
         />
       ) : null}
       <button type="submit" className="button button-primary" disabled={loading || tanks.length === 0}>{t(language, "refrigerant.logCharge")}</button>
@@ -866,6 +869,7 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
           equipmentQuery={workflowDraft.equipmentQuery || undefined}
           query={workflowDraft.query || undefined}
           canEdit={canEdit}
+          language={language}
         />
       ) : null}
       <button type="submit" className="button button-primary" disabled={loading || tanks.length === 0}>{t(language, "refrigerant.logRecovery")}</button>

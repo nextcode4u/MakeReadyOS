@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { dailyActivityReportCsvUrl, getActivity, getDailyActivityReport, isApiError } from "../lib/api";
 import { formatDateTime } from "../lib/dateTime";
+import { t } from "../lib/i18n";
 import { StatusState } from "./StatusState";
 
 type Props = {
@@ -161,7 +162,7 @@ export function ActivityPanel({ onSessionExpired, language = "en" }: Props) {
         <label>
           {isSpanish ? "Propiedad" : "Property"}
           <select data-testid="activity-filter-property" value={propertyId} onChange={(event) => updateFilter(setPropertyId, event.target.value)}>
-            <option value="">{isSpanish ? "Todas las propiedades" : "All properties"}</option>
+            <option value="">{t(language, "nav.allProperties")}</option>
             {activityQuery.data?.filterOptions.properties.map((property) => (
               <option key={property.id} value={property.id}>{property.code} - {property.name}</option>
             ))}
@@ -194,7 +195,7 @@ export function ActivityPanel({ onSessionExpired, language = "en" }: Props) {
                 value={reportPropertyId}
                 onChange={(event) => setReportPropertyId(event.target.value)}
               >
-                <option value="">{isSpanish ? "Todas las propiedades" : "All properties"}</option>
+                <option value="">{t(language, "nav.allProperties")}</option>
                 {(reportQuery.data?.filterOptions.properties ?? activityQuery.data?.filterOptions.properties ?? []).map((property) => (
                   <option key={property.id} value={property.id}>{property.code} - {property.name}</option>
                 ))}

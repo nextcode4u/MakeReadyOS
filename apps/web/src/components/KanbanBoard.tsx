@@ -153,7 +153,7 @@ export function KanbanBoard({ items, groupBy, properties, labelsByField, customF
       <div className="kanban-config" data-testid="kanban-config">
         <label>Property
           <select data-testid="kanban-property-filter" value={selectedPropertyId} onChange={(event) => onPropertyChange(event.target.value)}>
-            <option value="">All accessible properties</option>
+            <option value="">{t(language, "common.allAccessibleProperties")}</option>
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}
           </select>
         </label>

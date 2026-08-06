@@ -6,8 +6,10 @@ Pool Log is the first MakeReadyOS water-feature module. It is designed for daily
 
 - Properties with one or more pools, spas, wading pools, splash pads, or other water features.
 - Pool/spa setup: name, type, optional capacity in gallons, surface type, notes, and active/archive state.
-- Property-level chemical library: chemical name, category, unit, optional concentration percentage, and notes.
+- Property-level chemical library: chemical name, category, preferred unit, allowed units, optional concentration percentage, and notes.
 - Daily log entries: date, time, technician, chemistry readings, operational checks, water condition, notes, safety checklist, and chemical additions.
+- Starter defaults include broader real-world sanitizer options such as liquid chlorine, cal hypo granules, dichlor granules, trichlor tabs, muriatic acid, stabilizer, alkalinity increaser, and calcium hardness increaser.
+- Daily chemical logging now lets operators choose the measurement that matches the product and site practice, including gallons, quarts, pounds, ounces, and tablets where configured for that chemical.
 - Pool-specific photos and PDF attachments on daily log entries.
 - Generated chemistry review notes for low/high readings, combined chlorine issues, cloudy water, and algae.
 - Basic dosage estimate for low free chlorine when both pool/spa capacity and chemical concentration are known.

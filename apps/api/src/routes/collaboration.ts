@@ -229,7 +229,9 @@ async function buildChargeReport(request: FastifyRequest, reply: FastifyReply, i
       id: item.id,
       propertyId: item.propertyId,
       propertyCode: item.property.code,
+      propertyName: item.property.name,
       unitNumber: item.unitNumber,
+      itemName: item.itemName,
       boardGroup: item.boardGroup,
     },
     summary: {
@@ -530,8 +532,16 @@ function formatReportDollars(cents: number | null | undefined) {
   return `$${((cents ?? 0) / 100).toFixed(2)}`;
 }
 
+function chargeReportBaseFilename(report: NonNullable<Awaited<ReturnType<typeof buildChargeReport>>>) {
+  return sanitizeFilename(`${report.item.propertyCode}-${report.item.unitNumber}-${report.item.itemName}-charge-report`);
+}
+
 function buildChargeReportHtml(report: NonNullable<Awaited<ReturnType<typeof buildChargeReport>>>, options?: { groupByCategory?: boolean }) {
   const grouped = options?.groupByCategory ? groupChargeReportLines(report.lines) : null;
+  const propertyLabel = report.item.propertyName && report.item.propertyName !== report.item.propertyCode
+    ? `${report.item.propertyCode} / ${report.item.propertyName}`
+    : report.item.propertyCode;
+  const generatedAt = new Date().toLocaleString();
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -566,16 +576,20 @@ function buildChargeReportHtml(report: NonNullable<Awaited<ReturnType<typeof bui
   <div class="report">
     <div class="header">
       <h1>Charge Evidence Summary</h1>
-      <p>${htmlEscape(report.item.propertyCode)} • Unit ${htmlEscape(report.item.unitNumber)} • ${htmlEscape(report.item.boardGroup)}</p>
+      <p>${htmlEscape(propertyLabel)} • Unit ${htmlEscape(report.item.unitNumber)} • ${htmlEscape(report.item.itemName)} • ${htmlEscape(report.item.boardGroup)}</p>
     </div>
     <div class="meta">
       <div class="card">
         <div class="label">Property</div>
-        <div class="value">${htmlEscape(report.item.propertyCode)}</div>
+        <div class="value">${htmlEscape(propertyLabel)}</div>
       </div>
       <div class="card">
         <div class="label">Unit</div>
         <div class="value">${htmlEscape(report.item.unitNumber)}</div>
+      </div>
+      <div class="card">
+        <div class="label">Turn</div>
+        <div class="value">${htmlEscape(report.item.itemName)}</div>
       </div>
       <div class="card">
         <div class="label">Section</div>
@@ -583,7 +597,7 @@ function buildChargeReportHtml(report: NonNullable<Awaited<ReturnType<typeof bui
       </div>
       <div class="card">
         <div class="label">Generated</div>
-        <div class="value">${htmlEscape(new Date().toISOString().slice(0, 10))}</div>
+        <div class="value">${htmlEscape(generatedAt)}</div>
       </div>
     </div>
     <div class="kpis">
@@ -737,7 +751,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
     if (!report) return;
     reply.header("Content-Type", "text/csv; charset=utf-8");
     reply.header("X-Content-Type-Options", "nosniff");
-    reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`${report.item.propertyCode}-${report.item.unitNumber}-charge-report.csv`)}"`);
+    reply.header("Content-Disposition", `attachment; filename="${chargeReportBaseFilename(report)}.csv"`);
     return reply.send(query.groupBy === "category" ? chargeReportCsvGroupedByCategory(report) : chargeReportCsv(report));
   });
 
@@ -757,7 +771,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
     if (!report) return;
     const pdf = await renderPdfFromHtml(buildChargeReportHtml(report, { groupByCategory: query.groupBy === "category" }));
     reply.header("Content-Type", "application/pdf");
-    reply.header("Content-Disposition", `inline; filename="${sanitizeFilename(`${report.item.propertyCode}-${report.item.unitNumber}-charge-report.pdf`)}"`);
+    reply.header("Content-Disposition", `inline; filename="${chargeReportBaseFilename(report)}.pdf"`);
     return reply.send(pdf);
   });
 
@@ -1049,7 +1063,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
     if (scopedProperties && !scopedProperties.includes(attachment.propertyId)) return reply.code(403).send({ message: "Property access required" });
     reply.header("Content-Type", attachment.mimeType);
     reply.header("X-Content-Type-Options", "nosniff");
-    reply.header("Content-Disposition", `${attachment.mimeType.startsWith("image/") ? "inline" : "attachment"}; filename="${attachment.originalName.replace(/"/g, "")}"`);
+    reply.header("Content-Disposition", `${attachment.mimeType.startsWith("image/") ? "inline" : "attachment"}; filename="${sanitizeFilename(attachment.originalName)}"`);
     return reply.send(createReadStream(resolveStoredUploadPath(attachment.storedName)));
   });
 

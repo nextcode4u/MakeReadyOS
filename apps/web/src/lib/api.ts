@@ -643,6 +643,7 @@ export type PoolChemical = {
   category: "CHLORINE" | "PH_UP" | "PH_DOWN" | "ALKALINITY_UP" | "STABILIZER" | "CALCIUM_HARDNESS" | "OTHER";
   concentrationPercent: number | null;
   unit: "POUNDS" | "OUNCES" | "GALLONS" | "QUARTS" | "TABLETS";
+  allowedUnits: Array<"POUNDS" | "OUNCES" | "GALLONS" | "QUARTS" | "TABLETS">;
   notes: string | null;
   isActive: boolean;
   createdAt: string;
@@ -3218,15 +3219,45 @@ export function projectsPdfReportUrl(filters: Record<string, string | undefined>
   return `${apiBaseUrl}/projects/report.pdf${params.toString() ? `?${params.toString()}` : ""}`;
 }
 
-export function makeReadyExportCsvUrl(filters: { propertyId?: string } = {}) {
-  const params = new URLSearchParams();
+export type MakeReadyItemFilters = Parameters<typeof getMakeReadyItems>[0] & {
+  archiveState?: "active" | "archived" | "all";
+};
+
+function appendMakeReadyFilters(params: URLSearchParams, filters: MakeReadyItemFilters) {
   if (filters.propertyId) params.set("propertyId", filters.propertyId);
+  if (filters.q) params.set("q", filters.q);
+  if (filters.includeArchived) params.set("includeArchived", "true");
+  if (filters.boardGroup) params.set("boardGroup", filters.boardGroup);
+  if (filters.section) params.set("section", filters.section);
+  if (filters.boardSection) params.set("boardSection", filters.boardSection);
+  if (filters.vacancyStatus) params.set("vacancyStatus", filters.vacancyStatus);
+  if (filters.assignedTech) params.set("assignedTech", filters.assignedTech);
+  if (filters.scopeLevel) params.set("scopeLevel", filters.scopeLevel);
+  if (filters.makeReadyStatus) params.set("makeReadyStatus", filters.makeReadyStatus);
+  if (filters.riskLevel) params.set("riskLevel", filters.riskLevel);
+  if (filters.riskCategory) params.set("riskCategory", filters.riskCategory);
+  if (filters.moveInWindow) params.set("moveInWindow", filters.moveInWindow);
+  if (filters.overdueOnly) params.set("overdueOnly", "true");
+  if (filters.missingDatesOnly) params.set("missingDatesOnly", "true");
+  if (filters.pestIssuesOnly) params.set("pestIssuesOnly", "true");
+  if (filters.flooringNeededOnly) params.set("flooringNeededOnly", "true");
+  if (filters.paintNeededOnly) params.set("paintNeededOnly", "true");
+  if (filters.moveInRiskOnly) params.set("moveInRiskOnly", "true");
+  if (filters.customFieldFilters?.length) params.set("customFieldFilters", JSON.stringify(filters.customFieldFilters));
+  if (filters.sortBy) params.set("sortBy", filters.sortBy);
+  if (filters.sortDirection) params.set("sortDirection", filters.sortDirection);
+  if (filters.archiveState) params.set("archiveState", filters.archiveState);
+}
+
+export function makeReadyExportCsvUrl(filters: MakeReadyItemFilters = {}) {
+  const params = new URLSearchParams();
+  appendMakeReadyFilters(params, filters);
   return `${apiBaseUrl}/export/make-ready.csv${params.toString() ? `?${params.toString()}` : ""}`;
 }
 
-export function makeReadyPdfReportUrl(filters: { propertyId?: string } = {}) {
+export function makeReadyPdfReportUrl(filters: MakeReadyItemFilters = {}) {
   const params = new URLSearchParams();
-  if (filters.propertyId) params.set("propertyId", filters.propertyId);
+  appendMakeReadyFilters(params, filters);
   return `${apiBaseUrl}/export/make-ready.pdf${params.toString() ? `?${params.toString()}` : ""}`;
 }
 
@@ -4372,6 +4403,7 @@ export function createPoolChemical(input: {
   category: PoolChemical["category"];
   concentrationPercent?: number | null;
   unit: PoolChemical["unit"];
+  allowedUnits?: PoolChemical["unit"][];
   notes?: string | null;
 }) {
   return request<{ chemical: PoolChemical }>("/pool/chemicals", { method: "POST", body: JSON.stringify(input) });

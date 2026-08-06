@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import type { MakeReadyItem, Property, Vendor, VendorAssignment } from "../lib/api";
+import type { MakeReadyItem, Property, UserLanguage, Vendor, VendorAssignment } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
+import { t } from "../lib/i18n";
 import { UnitSearchSelect } from "./UnitSearchSelect";
 
 const vendorStatuses: VendorAssignment["status"][] = ["REQUESTED", "SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELED", "FOLLOW_UP_NEEDED"];
@@ -16,7 +17,7 @@ type Props = {
   items: MakeReadyItem[];
   canManageDirectory: boolean;
   canCoordinateAssignments: boolean;
-  language?: string;
+  language?: UserLanguage;
   loading?: boolean;
   error?: string | null;
   onCreateVendor: (input: { name: string; trade: string; phone?: string | null; email?: string | null; notes?: string | null; isPreferred?: boolean; propertyIds?: string[] }) => Promise<void>;
@@ -147,6 +148,7 @@ export function VendorsPanel({
               units={unitOptions}
               value={assignmentDraft.itemId}
               onChange={(value) => setAssignmentDraft((current) => ({ ...current, itemId: value }))}
+              language={language}
               placeholder={isSpanish ? "Buscar unidad..." : "Search unit..."}
               emptyLabel={isSpanish ? "Ninguna unidad seleccionada" : "No unit selected"}
             />
@@ -174,7 +176,7 @@ export function VendorsPanel({
                     <div>
                       <strong>{vendor.name}</strong>
                       <small>{vendor.trade}{vendor.isPreferred ? (isSpanish ? " / Preferido" : " / Preferred") : ""}</small>
-                      <small>{vendor.serviceAreas.length ? vendor.serviceAreas.map((area) => area.property.code).join(", ") : (isSpanish ? "Todas las propiedades" : "All properties")}</small>
+                      <small>{vendor.serviceAreas.length ? vendor.serviceAreas.map((area) => area.property.code).join(", ") : t(language, "nav.allProperties")}</small>
                     </div>
                     <div className="row-actions">
                       {vendor.phone && <a href={`tel:${vendor.phone}`}>{vendor.phone}</a>}
@@ -195,7 +197,7 @@ export function VendorsPanel({
                       <div>
                         <strong>{vendor.name}</strong>
                         <small>{vendor.trade}{vendor.isPreferred ? (isSpanish ? " / Preferido" : " / Preferred") : ""}</small>
-                        <small>{vendor.serviceAreas.length ? vendor.serviceAreas.map((area) => area.property.code).join(", ") : (isSpanish ? "Todas las propiedades" : "All properties")}</small>
+                        <small>{vendor.serviceAreas.length ? vendor.serviceAreas.map((area) => area.property.code).join(", ") : t(language, "nav.allProperties")}</small>
                       </div>
                       <div className="row-actions">
                         {vendor.phone && <a href={`tel:${vendor.phone}`}>{vendor.phone}</a>}

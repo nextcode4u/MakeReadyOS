@@ -11,6 +11,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { notifyPropertyRoles } from "../lib/notifications.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
+import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 
@@ -296,6 +297,15 @@ function reportRows(issues: Array<Awaited<ReturnType<typeof prisma.leaseComplian
     tags: issue.tags.join(", "),
     description: issue.description ?? "",
   }));
+}
+
+async function reportScopeLabel(propertyId: string | undefined) {
+  if (!propertyId) return ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL;
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: { code: true, name: true },
+  });
+  return propertyScopeLabel(property);
 }
 
 async function notifyLeaseComplianceRoles(input: {
@@ -1088,9 +1098,10 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
       },
       orderBy: [{ createdAt: "desc" }],
     });
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const csv = stringify(reportRows(issues), { header: true });
     reply.header("Content-Type", "text/csv; charset=utf-8");
-    reply.header("Content-Disposition", "attachment; filename=\"lease-compliance-report.csv\"");
+    reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-lease-compliance-report.csv`)}"`);
     return reply.send(csv);
   });
 
@@ -1110,6 +1121,7 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
       take: 150,
     });
     const rows = reportRows(issues);
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     reply.header("Content-Type", "text/html; charset=utf-8");
     return reply.send(`<!doctype html>
 <html>
@@ -1131,7 +1143,7 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
   </head>
   <body>
     <h1>Lease Compliance Operational Report</h1>
-    <p>${htmlEscape(query.propertyId ? "Property filter applied" : "All accessible properties")} | ${htmlEscape(new Date().toLocaleString())}</p>
+    <p>${htmlEscape(scopeLabel)} | ${htmlEscape(new Date().toLocaleString())}</p>
     <div class="kpis">
       <div class="kpi"><strong>${issues.length}</strong><span>Total issues</span></div>
       <div class="kpi"><strong>${issues.filter((issue) => issue.status === "Open").length}</strong><span>Open</span></div>
@@ -1189,6 +1201,7 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
       take: 100,
     });
     const rows = reportRows(issues);
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const html = `<!doctype html>
 <html>
   <head>
@@ -1205,7 +1218,7 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
   </head>
   <body>
     <h1>Lease Compliance Report</h1>
-    <p>${htmlEscape(new Date().toLocaleString())}</p>
+    <p>${htmlEscape(scopeLabel)} | ${htmlEscape(new Date().toLocaleString())}</p>
     <table>
       <thead>
         <tr>
@@ -1234,7 +1247,7 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
 </html>`;
     const pdf = await renderPdfFromHtml(html);
     reply.header("Content-Type", "application/pdf");
-    reply.header("Content-Disposition", "inline; filename=\"lease-compliance-report.pdf\"");
+    reply.header("Content-Disposition", `inline; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-lease-compliance-report.pdf`)}"`);
     return reply.send(pdf);
   });
 }

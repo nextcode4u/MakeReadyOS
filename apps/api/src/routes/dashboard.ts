@@ -22,6 +22,10 @@ function daysFromNow(days: number) {
   return value;
 }
 
+function formatDisplayDate(value: Date | null | undefined) {
+  return value ? value.toLocaleDateString() : "";
+}
+
 export async function dashboardRoutes(app: FastifyInstance) {
   app.get("/dashboard", async (request, reply) => {
     const query = dashboardQuerySchema.parse(request.query);
@@ -235,7 +239,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
             property: item.property,
             changeType: "VACATED",
             title: "Came vacant",
-            detail: item.vacatedDate ? `Vacated ${item.vacatedDate.toISOString().slice(0, 10)}` : "Vacated",
+            detail: item.vacatedDate ? `Vacated ${formatDisplayDate(item.vacatedDate)}` : "Vacated",
             changedAt: item.vacatedDate!.toISOString(),
             source: "board",
           })),
@@ -248,7 +252,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
             property: item.property,
             changeType: "NOTICE",
             title: "Notice logged",
-            detail: item.moveOutDate ? `NTV ${item.moveOutDate.toISOString().slice(0, 10)}` : "Notice to vacate updated",
+            detail: item.moveOutDate ? `NTV ${formatDisplayDate(item.moveOutDate)}` : "Notice to vacate updated",
             changedAt: item.moveOutDate!.toISOString(),
             source: "board",
           })),

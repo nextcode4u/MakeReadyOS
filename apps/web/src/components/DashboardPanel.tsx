@@ -115,6 +115,44 @@ function csvCell(value: string | number | null | undefined) {
   return `"${text.replace(/"/g, "\"\"")}"`;
 }
 
+type DashboardAction = {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  ariaLabel?: string;
+};
+
+function DashboardActionMenu({
+  label,
+  actions,
+}: {
+  label: string;
+  actions: DashboardAction[];
+}) {
+  const enabledActions = actions.filter((action) => !action.disabled);
+  if (!enabledActions.length) {
+    return <button type="button" className="button button-secondary" disabled>{label}</button>;
+  }
+  return (
+    <details className="dashboard-action-menu">
+      <summary className="button button-secondary">{label}</summary>
+      <div className="dashboard-action-menu-panel">
+        {enabledActions.map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            className="dashboard-action-menu-item"
+            onClick={action.onClick}
+            aria-label={action.ariaLabel}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 const analyticsWindowOptions = [7, 30, 90, 180] as const;
 const analyticsMetricOptions = ["overdue", "highRisk", "activeTurns", "averageDaysVacant", "completedTurnsCount"] as const;
 type AnalyticsComparisonMetric = typeof analyticsMetricOptions[number];
@@ -555,6 +593,30 @@ function AnalyticsPanel({ data, loading, propertyId, language, onDrillDown, onOp
     summary: data,
     snapshots,
   };
+  const analyticsExportActions: DashboardAction[] = [
+    {
+      label: isSpanish ? "Snapshots CSV" : "Snapshots CSV",
+      onClick: () => downloadBlob(`makereadyos-analytics-${propertyId ? "property" : "portfolio"}-snapshots.csv`, new Blob([snapshotCsv], { type: "text/csv;charset=utf-8" })),
+      disabled: !snapshots.length,
+      ariaLabel: isSpanish ? "Exportar snapshots como CSV" : "Export snapshots as CSV",
+    },
+    {
+      label: isSpanish ? "Ops CSV" : "Ops CSV",
+      onClick: () => downloadBlob(`makereadyos-analytics-${propertyId ? "property" : "portfolio"}-ops.csv`, new Blob([analyticsOpsCsv], { type: "text/csv;charset=utf-8" })),
+      ariaLabel: isSpanish ? "Exportar operaciones como CSV" : "Export operations as CSV",
+    },
+    {
+      label: isSpanish ? "Comparacion CSV" : "Comparison CSV",
+      onClick: () => downloadBlob(`makereadyos-analytics-${propertyId ? "property" : "portfolio"}-${comparisonMetric}-${comparisonWindowDays}d.csv`, new Blob([comparisonCsv], { type: "text/csv;charset=utf-8" })),
+      disabled: !comparisonSummary,
+      ariaLabel: isSpanish ? "Exportar comparacion como CSV" : "Export comparison as CSV",
+    },
+    {
+      label: "JSON",
+      onClick: () => downloadBlob(`makereadyos-analytics-${propertyId ? "property" : "portfolio"}-summary.json`, new Blob([JSON.stringify(summaryJson, null, 2)], { type: "application/json" })),
+      ariaLabel: isSpanish ? "Exportar analitica como JSON" : "Export analytics as JSON",
+    },
+  ];
   return (
     <section className="dashboard-chart analytics-panel" data-testid="analytics-panel">
       <div className="drawer-section-title">
@@ -563,36 +625,7 @@ function AnalyticsPanel({ data, loading, propertyId, language, onDrillDown, onOp
           <p className="muted">{isSpanish ? "Datos al" : "Data as of"} {formatDateTime(data.generatedAt)}</p>
         </div>
         <div className="analytics-export-actions">
-          <button
-            type="button"
-            className="button button-secondary"
-            onClick={() => downloadBlob(`makereadyos-analytics-${propertyId ? "property" : "portfolio"}-snapshots.csv`, new Blob([snapshotCsv], { type: "text/csv;charset=utf-8" }))}
-            disabled={!snapshots.length}
-          >
-            {isSpanish ? "Exportar CSV" : "Export CSV"}
-          </button>
-          <button
-            type="button"
-            className="button button-secondary"
-            onClick={() => downloadBlob(`makereadyos-analytics-${propertyId ? "property" : "portfolio"}-ops.csv`, new Blob([analyticsOpsCsv], { type: "text/csv;charset=utf-8" }))}
-          >
-            {isSpanish ? "Exportar ops CSV" : "Export Ops CSV"}
-          </button>
-          <button
-            type="button"
-            className="button button-secondary"
-            onClick={() => downloadBlob(`makereadyos-analytics-${propertyId ? "property" : "portfolio"}-${comparisonMetric}-${comparisonWindowDays}d.csv`, new Blob([comparisonCsv], { type: "text/csv;charset=utf-8" }))}
-            disabled={!comparisonSummary}
-          >
-            {isSpanish ? "Exportar comparacion CSV" : "Export Comparison CSV"}
-          </button>
-          <button
-            type="button"
-            className="button button-secondary"
-            onClick={() => downloadBlob(`makereadyos-analytics-${propertyId ? "property" : "portfolio"}-summary.json`, new Blob([JSON.stringify(summaryJson, null, 2)], { type: "application/json" }))}
-          >
-            {isSpanish ? "Exportar JSON" : "Export JSON"}
-          </button>
+          <DashboardActionMenu label={isSpanish ? "Exportar" : "Export"} actions={analyticsExportActions} />
         </div>
       </div>
       <div className="analytics-metrics">
@@ -746,14 +779,20 @@ function AnalyticsPanel({ data, loading, propertyId, language, onDrillDown, onOp
                   </div>
                 </button>
                 <div className="analytics-hotspot-card__actions">
-                  <button type="button" className="button button-secondary" onClick={() => onDrillDown({ type: "property", value: entry.property.code })}>
-                    {isSpanish ? "Ver propiedad" : "View property"}
-                  </button>
-                  {entry.currentItemId ? (
-                    <button type="button" className="button button-secondary" onClick={() => onOpenItem(entry.currentItemId!)}>
-                      {isSpanish ? "Abrir turno" : "Open turn"}
-                    </button>
-                  ) : null}
+                  <DashboardActionMenu
+                    label={isSpanish ? "Acciones" : "Actions"}
+                    actions={[
+                      {
+                        label: isSpanish ? "Ver propiedad" : "View property",
+                        onClick: () => onDrillDown({ type: "property", value: entry.property.code }),
+                      },
+                      {
+                        label: isSpanish ? "Abrir turno" : "Open turn",
+                        onClick: () => onOpenItem(entry.currentItemId!),
+                        disabled: !entry.currentItemId,
+                      },
+                    ]}
+                  />
                 </div>
               </article>
             ))}
@@ -814,9 +853,16 @@ function DashboardWikiWidget({ propertyId, language }: { propertyId?: string; la
     <section className="dashboard-chart dashboard-wiki-widget" data-testid="dashboard-wiki-widget">
       <div className="drawer-section-title">
         <h3>{isSpanish ? "Wiki de propiedad" : "Property Wiki"}</h3>
-        <button type="button" className="button button-secondary" onClick={() => openWikiRecord({ targetType: "ENTRY", id: overviewQuery.data?.pinnedCriticalInformation[0]?.id ?? overviewQuery.data?.emergencyContacts[0]?.id ?? "", propertyId })} disabled={!overviewQuery.data?.pinnedCriticalInformation[0] && !overviewQuery.data?.emergencyContacts[0]}>
-          {isSpanish ? "Abrir wiki" : "Open Wiki"}
-        </button>
+        <DashboardActionMenu
+          label={isSpanish ? "Acciones" : "Actions"}
+          actions={[
+            {
+              label: t(language, "common.openWiki"),
+              onClick: () => openWikiRecord({ targetType: "ENTRY", id: overviewQuery.data?.pinnedCriticalInformation[0]?.id ?? overviewQuery.data?.emergencyContacts[0]?.id ?? "", propertyId }),
+              disabled: !overviewQuery.data?.pinnedCriticalInformation[0] && !overviewQuery.data?.emergencyContacts[0],
+            },
+          ]}
+        />
       </div>
       <div className="dashboard-wiki-actions">
         {(overviewQuery.data?.emergencyContacts ?? []).slice(0, 2).map((entry) => (
@@ -868,9 +914,15 @@ function DashboardMapsWidget({ data, propertyId, language }: { data?: DashboardR
     <section className="dashboard-chart dashboard-maps-widget" data-testid="dashboard-maps-widget">
       <div className="drawer-section-title">
         <h3>{isSpanish ? "Mapas de propiedad" : "Property Maps"}</h3>
-        <button type="button" className="button button-secondary" onClick={() => openMapsView(propertyId)}>
-          {isSpanish ? "Abrir mapas" : "Open Maps"}
-        </button>
+        <DashboardActionMenu
+          label={isSpanish ? "Acciones" : "Actions"}
+          actions={[
+            {
+              label: isSpanish ? "Abrir mapas" : "Open Maps",
+              onClick: () => openMapsView(propertyId),
+            },
+          ]}
+        />
       </div>
       <div className="dashboard-map-metrics">
         <span><strong>{data.totalMaps}</strong> {isSpanish ? "mapas" : "maps"}</span>
@@ -955,6 +1007,30 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
       entry.changedAt,
     ]),
   ].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n");
+  const assignedWorkExportActions: DashboardAction[] = [
+    {
+      label: "CSV",
+      onClick: () => downloadBlob(`makereadyos-assigned-work-${propertyId ? "property" : "portfolio"}-${exportDate}.csv`, new Blob([assignedWorkCsv], { type: "text/csv;charset=utf-8" })),
+      disabled: !assignedWork?.entries?.length && !activeSessions.length,
+      ariaLabel: isSpanish ? "Exportar trabajo asignado como CSV" : "Export assigned work as CSV",
+    },
+  ];
+  const needsAttentionExportActions: DashboardAction[] = [
+    {
+      label: "CSV",
+      onClick: () => downloadBlob(`makereadyos-needs-attention-${propertyId ? "property" : "portfolio"}-${exportDate}.csv`, new Blob([needsAttentionCsv], { type: "text/csv;charset=utf-8" })),
+      disabled: !needsAttention.length,
+      ariaLabel: isSpanish ? "Exportar elementos que necesitan atención como CSV" : "Export needs attention as CSV",
+    },
+  ];
+  const recentStatusExportActions: DashboardAction[] = [
+    {
+      label: "CSV",
+      onClick: () => downloadBlob(`makereadyos-recent-status-changes-${propertyId ? "property" : "portfolio"}-${exportDate}.csv`, new Blob([recentStatusChangesCsv], { type: "text/csv;charset=utf-8" })),
+      disabled: !recentStatusChanges.length,
+      ariaLabel: isSpanish ? "Exportar cambios recientes de estado como CSV" : "Export recent status changes as CSV",
+    },
+  ];
   return (
     <section className={`dashboard-shell dashboard-layout-${layout}`} data-testid="dashboard-panel">
       <header className="panel-heading">
@@ -990,15 +1066,7 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
                 <h3>{isSpanish ? "Trabajo asignado" : "Assigned Work"}</h3>
               </div>
               <div className="analytics-export-actions">
-                <button
-                  type="button"
-                  className="button button-secondary"
-                  aria-label={isSpanish ? "Exportar trabajo asignado como CSV" : "Export assigned work as CSV"}
-                  onClick={() => downloadBlob(`makereadyos-assigned-work-${propertyId ? "property" : "portfolio"}-${exportDate}.csv`, new Blob([assignedWorkCsv], { type: "text/csv;charset=utf-8" }))}
-                  disabled={!assignedWork?.entries?.length && !activeSessions.length}
-                >
-                  {isSpanish ? "Exportar CSV" : "Export CSV"}
-                </button>
+                <DashboardActionMenu label={isSpanish ? "Exportar" : "Export"} actions={assignedWorkExportActions} />
                 <button type="button" className="button button-secondary" onClick={onOpenAssignedWork}>
                   {isSpanish ? "Abrir" : "Open"}
                 </button>
@@ -1045,15 +1113,7 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
       <section className="attention-panel" data-testid="needs-attention-panel">
         <div className="drawer-section-title">
           <h3>{t(language, "dashboard.needsAttention")}</h3>
-          <button
-            type="button"
-            className="button button-secondary"
-            aria-label={isSpanish ? "Exportar elementos que necesitan atención como CSV" : "Export needs attention as CSV"}
-            onClick={() => downloadBlob(`makereadyos-needs-attention-${propertyId ? "property" : "portfolio"}-${exportDate}.csv`, new Blob([needsAttentionCsv], { type: "text/csv;charset=utf-8" }))}
-            disabled={!needsAttention.length}
-          >
-            {isSpanish ? "Exportar CSV" : "Export CSV"}
-          </button>
+          <DashboardActionMenu label={isSpanish ? "Exportar" : "Export"} actions={needsAttentionExportActions} />
         </div>
         {needsAttention.length === 0 ? <p className="empty-copy">{t(language, "dashboard.needsAttentionEmpty")}</p> : (
           <div className="attention-list">
@@ -1073,15 +1133,7 @@ export function DashboardPanel({ data, analytics, loading, analyticsLoading, err
             <h3>{t(language, "dashboard.recentStatusChanges")}</h3>
             <p className="muted">{t(language, "dashboard.recentStatusChangesCopy")}</p>
           </div>
-          <button
-            type="button"
-            className="button button-secondary"
-            aria-label={isSpanish ? "Exportar cambios recientes de estado como CSV" : "Export recent status changes as CSV"}
-            onClick={() => downloadBlob(`makereadyos-recent-status-changes-${propertyId ? "property" : "portfolio"}-${exportDate}.csv`, new Blob([recentStatusChangesCsv], { type: "text/csv;charset=utf-8" }))}
-            disabled={!recentStatusChanges.length}
-          >
-            {isSpanish ? "Exportar CSV" : "Export CSV"}
-          </button>
+          <DashboardActionMenu label={isSpanish ? "Exportar" : "Export"} actions={recentStatusExportActions} />
         </div>
         {recentStatusChanges.length === 0 ? <p className="empty-copy">{t(language, "dashboard.recentStatusChangesEmpty")}</p> : (
           <div className="attention-list">

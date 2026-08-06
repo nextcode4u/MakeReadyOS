@@ -2168,6 +2168,7 @@ export function OperationsPanel({
                 units={activeUnitsForItem}
                 value={newItem.unitId}
                 onChange={chooseItemUnit}
+                language={language}
                 placeholder={isSpanish ? "Buscar unidad..." : "Search unit..."}
                 emptyLabel={isSpanish ? "No hay unidad seleccionada" : "No unit selected"}
               />
@@ -2461,6 +2462,7 @@ export function OperationsPanel({
                   units={historyUnitsForProperty}
                   value={historyInspectorUnitId}
                   onChange={setHistoryInspectorUnitId}
+                  language={language}
                   placeholder={isSpanish ? "Buscar unidad para historial..." : "Search unit for history..."}
                   emptyLabel={isSpanish ? "No hay unidad seleccionada" : "No unit selected"}
                 />

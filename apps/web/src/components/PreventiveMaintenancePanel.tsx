@@ -188,6 +188,7 @@ function TaskCard({
         equipmentQuery={task.taskName}
         query={`${task.category} ${task.template.name}`}
         canEdit={canEdit}
+        language={language}
       />
       {task.attachments.length ? (
         <div className="pool-attachment-list">
@@ -220,7 +221,7 @@ function TaskCard({
                 tags: ["preventive-maintenance", task.category.toLowerCase()],
               })}
             >
-              {t(language, "pm.createRecommendation")}
+                {t(language, "common.createRecommendation")}
             </button>
             <label className="button button-secondary pool-upload-button">
               {t(language, "pm.uploadPhotoPdf")}
@@ -253,6 +254,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   const isSpanish = language === "es";
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [lastFilterTab, setLastFilterTab] = useState<Extract<Tab, "tasks" | "history">>("tasks");
   const [propertyId, setPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("monthly");
   const [calendarAnchor, setCalendarAnchor] = useState(today());
@@ -269,6 +271,12 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   const canEdit = userRole === "ADMIN" || userRole === "MANAGER" || userRole === "TECH" || userRole === "CLEANER";
   const canAdmin = userRole === "ADMIN";
   const range = calendarRange(calendarMode, calendarAnchor);
+
+  useEffect(() => {
+    if (tab === "tasks" || tab === "history") {
+      setLastFilterTab(tab);
+    }
+  }, [tab]);
 
   const overviewQuery = useQuery({
     queryKey: ["pm", "overview", propertyId],
@@ -409,6 +417,13 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   const activeTemplates = useMemo(() => templates.filter((template) => !template.isArchived), [templates]);
   const archivedTemplates = useMemo(() => templates.filter((template) => template.isArchived), [templates]);
   const calendarTasks = calendarQuery.data?.tasks ?? [];
+  const pmReportFilters = useMemo<Record<string, string | undefined>>(() => ({
+    propertyId: propertyId || undefined,
+    status: lastFilterTab === "tasks" ? taskStatus || undefined : undefined,
+    category: lastFilterTab === "tasks" ? taskCategory || undefined : undefined,
+    priority: lastFilterTab === "tasks" ? taskPriority || undefined : undefined,
+    q: lastFilterTab === "history" ? historyQuery || undefined : taskQuery || undefined,
+  }), [historyQuery, lastFilterTab, propertyId, taskCategory, taskPriority, taskQuery, taskStatus]);
 
   const taskFocusCounts = useMemo(() => ({
     dueNow: tasks.filter((task) => isDueNow(task)).length,
@@ -506,9 +521,9 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
           <select value={propertyId} onChange={(event) => setPropertyId(event.target.value)} aria-label={t(language, "pm.property")}>
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
           </select>
-          <a className="button secondary" href={preventiveMaintenancePrintableReportUrl({ propertyId })} target="_blank" rel="noreferrer">{t(language, "pm.pdfReport")}</a>
-          <a className="button secondary" href={preventiveMaintenanceExportCsvUrl({ propertyId })}>{t(language, "nav.csv")}</a>
-          <a className="button secondary" href={preventiveMaintenanceExportExcelUrl({ propertyId })}>{t(language, "nav.excel")}</a>
+          <a className="button secondary" href={preventiveMaintenancePrintableReportUrl(pmReportFilters)} target="_blank" rel="noreferrer">{t(language, "pm.pdfReport")}</a>
+          <a className="button secondary" href={preventiveMaintenanceExportCsvUrl(pmReportFilters)}>{t(language, "nav.csv")}</a>
+          <a className="button secondary" href={preventiveMaintenanceExportExcelUrl(pmReportFilters)}>{t(language, "nav.excel")}</a>
         </div>
       </div>
 
@@ -713,7 +728,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
                   onChange={(assignedUserId) => setTemplateDraft((current) => ({ ...current, assignedUserId }))}
                   placeholder={t(language, "pm.searchUser")}
                   emptyLabel={t(language, "lease.unassigned")}
-                  noMatchesLabel={t(language, "pm.noMatchingUsers")}
+                  noMatchesLabel={t(language, "common.noMatchingUsers")}
                   clearLabel={t(language, "pm.clearAssignedUser")}
                 />
               </label>
@@ -850,11 +865,16 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
           <article className="pool-card">
             <h2>{t(language, "pm.exports")}</h2>
             <div className="export-grid">
-              <a className="button button-secondary" href={preventiveMaintenancePrintableReportUrl({ propertyId })} target="_blank" rel="noreferrer">{t(language, "pm.completionPdfReport")}</a>
-              <a className="button button-secondary" href={preventiveMaintenanceExportCsvUrl({ propertyId })}>{t(language, "pm.complianceCsv")}</a>
-              <a className="button button-secondary" href={preventiveMaintenanceExportExcelUrl({ propertyId })}>{t(language, "pm.overdueHistoryExcel")}</a>
+              <a className="button button-secondary" href={preventiveMaintenancePrintableReportUrl(pmReportFilters)} target="_blank" rel="noreferrer">{t(language, "pm.completionPdfReport")}</a>
+              <a className="button button-secondary" href={preventiveMaintenanceExportCsvUrl(pmReportFilters)}>{t(language, "pm.complianceCsv")}</a>
+              <a className="button button-secondary" href={preventiveMaintenanceExportExcelUrl(pmReportFilters)}>{t(language, "pm.overdueHistoryExcel")}</a>
             </div>
             <p className="muted">{t(language, "pm.exportsCopy")}</p>
+            <p className="muted">
+              {language === "es"
+                ? `Las exportaciones siguen el último contexto filtrado (${lastFilterTab}) y mantienen la búsqueda y filtros activos.`
+                : `Exports follow the last filtered context (${lastFilterTab}) and keep the active search and task filters.`}
+            </p>
           </article>
           <article className="pool-card">
             <h2>{t(language, "pm.complianceSnapshot")}</h2>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { makeReadyExportCsvUrl, makeReadyPdfReportUrl, type CurrentUser, type Property, type UserLanguage } from "../lib/api";
+import { makeReadyExportCsvUrl, makeReadyPdfReportUrl, type CurrentUser, type MakeReadyItemFilters, type Property, type UserLanguage } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import type { ClockMode } from "../lib/dateTime";
 import { languageOptions, t, translateUserRole } from "../lib/i18n";
@@ -12,6 +12,7 @@ type Props = {
   properties: Property[];
   currentUser: CurrentUser;
   selectedPropertyId: string;
+  makeReadyExportFilters: MakeReadyItemFilters;
   search: string;
   onPropertyChange: (value: string) => void;
   onSearchChange: (value: string) => void;
@@ -51,6 +52,7 @@ export function FilterBar({
   properties,
   currentUser,
   selectedPropertyId,
+  makeReadyExportFilters,
   search,
   onPropertyChange,
   onSearchChange,
@@ -378,10 +380,10 @@ export function FilterBar({
                 </select>
               </label>
             ) : null}
-            <a data-testid="export-csv" className="button button-secondary export-button" href={makeReadyExportCsvUrl({ propertyId: selectedPropertyId || undefined })}>
+            <a data-testid="export-csv" className="button button-secondary export-button" href={makeReadyExportCsvUrl(makeReadyExportFilters)}>
               {t(language, "nav.export")}
             </a>
-            <a data-testid="export-pdf" className="button button-secondary export-button" href={makeReadyPdfReportUrl({ propertyId: selectedPropertyId || undefined })} target="_blank" rel="noreferrer">
+            <a data-testid="export-pdf" className="button button-secondary export-button" href={makeReadyPdfReportUrl(makeReadyExportFilters)} target="_blank" rel="noreferrer">
               {t(language, "nav.pdf")}
             </a>
             <button data-testid="notifications-button" className="button button-secondary notification-button" onClick={onOpenNotifications} aria-label={`${notificationUnreadCount} ${t(language, "nav.notificationsUnread")}`}>
@@ -508,10 +510,10 @@ export function FilterBar({
             </select>
           </label>
         ) : null}
-        <a data-testid="export-csv" className="button button-secondary export-button" href={makeReadyExportCsvUrl({ propertyId: selectedPropertyId || undefined })}>
+        <a data-testid="export-csv" className="button button-secondary export-button" href={makeReadyExportCsvUrl(makeReadyExportFilters)}>
           {t(language, "nav.export")}
         </a>
-        <a data-testid="export-pdf" className="button button-secondary export-button" href={makeReadyPdfReportUrl({ propertyId: selectedPropertyId || undefined })} target="_blank" rel="noreferrer">
+        <a data-testid="export-pdf" className="button button-secondary export-button" href={makeReadyPdfReportUrl(makeReadyExportFilters)} target="_blank" rel="noreferrer">
           {t(language, "nav.pdf")}
         </a>
         <button data-testid="notifications-button" className="button button-secondary notification-button" onClick={onOpenNotifications} aria-label={`${notificationUnreadCount} ${t(language, "nav.notificationsUnread")}`}>

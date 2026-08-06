@@ -9,6 +9,11 @@ const backupFormat = "makereadyos.backup";
 const backupVersion = 1;
 const supportedScheduleColorBases = ["STATUS", "SCOPE", "FIELD", "FIXED", "NEUTRAL"] as const;
 
+function localDateStamp(date = new Date()) {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return offsetDate.toISOString().slice(0, 10);
+}
+
 const propertySchema = z.object({
   code: z.string().trim().min(1).max(40),
   name: z.string().trim().min(1).max(120),
@@ -5084,7 +5089,7 @@ export async function backupTransferRoutes(app: FastifyInstance) {
       action: "BACKUP_EXPORTED",
       message: "Exported MakeReadyOS native backup",
     });
-    reply.header("content-disposition", `attachment; filename=makereadyos-backup-${new Date().toISOString().slice(0, 10)}.json`);
+    reply.header("content-disposition", `attachment; filename="makereadyos-backup-${localDateStamp()}.json"`);
     return backup;
   });
 

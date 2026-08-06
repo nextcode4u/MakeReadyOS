@@ -325,7 +325,7 @@ function PestIssueCard({
                   onChange={(assignedUserId) => onSave(issue.id, { assignedUserId: assignedUserId || null })}
                   placeholder={t(language, "pest.searchUser")}
                   emptyLabel={t(language, "pest.unassigned")}
-                  noMatchesLabel={t(language, "pest.noMatchingUsers")}
+                  noMatchesLabel={t(language, "common.noMatchingUsers")}
                   clearLabel={t(language, "pest.clearAssignedUser")}
                 />
               </label>
@@ -504,6 +504,14 @@ export function PestControlPanel({ properties, units, users, userRole, language,
     }),
     enabled: Boolean(propertyId),
   });
+  const pestReportFilters = useMemo(() => ({
+    propertyId: propertyId || undefined,
+    makeReadyItemId: linkedMakeReadyItemId || undefined,
+    status: tab === "active" ? statusFilter || undefined : undefined,
+    makeReadyOnly: tab === "make-ready" ? true : undefined,
+    includeArchived: tab === "archive" ? true : undefined,
+    q: search || undefined,
+  }), [linkedMakeReadyItemId, propertyId, search, statusFilter, tab]);
   const vendorsQuery = useQuery({
     queryKey: ["pest", "vendors", propertyId],
     queryFn: () => getPestVendors(propertyId || undefined),
@@ -925,6 +933,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
                   units={propertyUnits}
                   value={quickAddUnitId}
                   onChange={setQuickAddUnitId}
+                  language={language}
                   emptyLabel={t(language, "pest.areaOnly")}
                   placeholder={t(language, "pest.searchUnit")}
                 />
@@ -1222,11 +1231,16 @@ export function PestControlPanel({ properties, units, users, userRole, language,
           <h2>{t(language, "pest.reports")}</h2>
           <p>{t(language, "pest.reportsCopy")}</p>
           <div className="pool-entry-actions">
-            <a className="button button-secondary" href={pestExportCsvUrl({ propertyId: propertyId || undefined })} target="_blank" rel="noreferrer">{t(language, "pest.exportCsv")}</a>
-            <a className="button button-secondary" href={pestExportXlsUrl({ propertyId: propertyId || undefined })} target="_blank" rel="noreferrer">{t(language, "pest.exportExcel")}</a>
-            <a className="button button-secondary" href={pestPrintableHtmlReportUrl({ propertyId: propertyId || undefined })} target="_blank" rel="noreferrer">{t(language, "pest.printableHtml")}</a>
-            <a className="button button-primary" href={pestPrintableReportUrl({ propertyId: propertyId || undefined })} target="_blank" rel="noreferrer">{t(language, "pest.pdfReport")}</a>
+            <a className="button button-secondary" href={pestExportCsvUrl(pestReportFilters)} target="_blank" rel="noreferrer">{t(language, "pest.exportCsv")}</a>
+            <a className="button button-secondary" href={pestExportXlsUrl(pestReportFilters)} target="_blank" rel="noreferrer">{t(language, "pest.exportExcel")}</a>
+            <a className="button button-secondary" href={pestPrintableHtmlReportUrl(pestReportFilters)} target="_blank" rel="noreferrer">{t(language, "pest.printableHtml")}</a>
+            <a className="button button-primary" href={pestPrintableReportUrl(pestReportFilters)} target="_blank" rel="noreferrer">{t(language, "pest.pdfReport")}</a>
           </div>
+          <p className="muted">
+            {language === "es"
+              ? "Las exportaciones siguen la búsqueda y filtros activos del contexto actual."
+              : "Exports follow the active search and filter context from the current workspace."}
+          </p>
         </section>
       ) : null}
     </section>

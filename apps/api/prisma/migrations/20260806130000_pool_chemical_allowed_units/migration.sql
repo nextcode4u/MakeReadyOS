@@ -1,0 +1,2 @@
+ALTER TABLE "PoolChemical"
+  ADD COLUMN "allowedUnits" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

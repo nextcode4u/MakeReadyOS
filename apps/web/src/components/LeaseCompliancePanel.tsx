@@ -336,6 +336,7 @@ function IssueCard({
                   issue.locationNotes,
                 ].filter(Boolean).join(" ")}
                 canEdit={canEdit}
+                language={language}
               />
 
               {issue.notes.length ? (
@@ -379,6 +380,7 @@ function IssueCard({
                           building: unitId ? (nextUnit?.building ?? issue.building) : issue.building,
                         });
                       }}
+                      language={language}
                       placeholder={t(language, "lease.searchUnit")}
                       emptyLabel={t(language, "lease.areaExteriorOnly")}
                     />
@@ -414,7 +416,7 @@ function IssueCard({
                       onChange={(assignedUserId) => onSave(issue.id, { assignedUserId: assignedUserId || null })}
                       placeholder={t(language, "pm.searchUser")}
                       emptyLabel={t(language, "lease.unassigned")}
-                      noMatchesLabel={t(language, "pm.noMatchingUsers")}
+                      noMatchesLabel={t(language, "common.noMatchingUsers")}
                       clearLabel={t(language, "pm.clearAssignedUser")}
                     />
                   </label>
@@ -638,6 +640,13 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
     }),
     enabled: Boolean(propertyId) && permissions.view,
   });
+  const leaseReportFilters = useMemo(() => ({
+    propertyId: propertyId || undefined,
+    q: search || undefined,
+    status: tab === "resolved" ? "Resolved" : tab === "archive" ? "Archived" : statusFilter || undefined,
+    noticeStage: tab === "needs-notice" ? (noticeStageFilter || undefined) : tab === "violation" ? "Violation Needed" : noticeStageFilter || undefined,
+    includeArchived: tab === "archive" ? true : undefined,
+  }), [noticeStageFilter, propertyId, search, statusFilter, tab]);
 
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ["lease-compliance"] });
@@ -1254,6 +1263,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
                       setShowAdvancedQuickCapture(false);
                     }
                   }}
+                  language={language}
                   emptyLabel={t(language, "lease.areaExteriorOnly")}
                   placeholder={t(language, "lease.searchUnit")}
                 />
@@ -1312,7 +1322,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
                       onChange={(assignedUserId) => setQuickAddDraft((current) => ({ ...current, assignedUserId }))}
                       placeholder={t(language, "pm.searchUser")}
                       emptyLabel={t(language, "lease.unassigned")}
-                      noMatchesLabel={t(language, "pm.noMatchingUsers")}
+                      noMatchesLabel={t(language, "common.noMatchingUsers")}
                       clearLabel={t(language, "pm.clearAssignedUser")}
                     />
                   </label>
@@ -1441,10 +1451,15 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
           </div>
           <p className="muted">{t(language, "lease.reportsCopy")}</p>
           <div className="pool-entry-actions">
-            <a className="button button-secondary" href={leaseComplianceExportCsvUrl({ propertyId })} target="_blank" rel="noreferrer">{t(language, "lease.exportCsv")}</a>
-            <a className="button button-secondary" href={leaseCompliancePrintableHtmlReportUrl({ propertyId })} target="_blank" rel="noreferrer">{t(language, "lease.printableHtml")}</a>
-            <a className="button button-primary" href={leaseCompliancePrintableReportUrl({ propertyId })} target="_blank" rel="noreferrer">{t(language, "lease.openPdf")}</a>
+            <a className="button button-secondary" href={leaseComplianceExportCsvUrl(leaseReportFilters)} target="_blank" rel="noreferrer">{t(language, "lease.exportCsv")}</a>
+            <a className="button button-secondary" href={leaseCompliancePrintableHtmlReportUrl(leaseReportFilters)} target="_blank" rel="noreferrer">{t(language, "lease.printableHtml")}</a>
+            <a className="button button-primary" href={leaseCompliancePrintableReportUrl(leaseReportFilters)} target="_blank" rel="noreferrer">{t(language, "lease.openPdf")}</a>
           </div>
+          <p className="muted">
+            {language === "es"
+              ? "Las exportaciones siguen la búsqueda y filtros activos del contexto actual."
+              : "Exports follow the active search and filter context from the current workspace."}
+          </p>
         </section>
       ) : null}
 

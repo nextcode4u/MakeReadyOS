@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { prisma } from "../lib/prisma.js";
+import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 
 const querySchema = z
   .object({
@@ -47,6 +48,10 @@ function reportDayRange(dateValue: string | undefined, timezoneOffsetMinutes: nu
 
 function normalizeAction(value: string) {
   return value.toUpperCase();
+}
+
+function formatDisplayDate(value: Date | null | undefined) {
+  return value ? value.toLocaleDateString() : "";
 }
 
 function categorizeReportAction(action: string, message: string): DailyReportCategory {
@@ -101,6 +106,14 @@ function titleCase(value: string) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function sanitizeFilename(filename: string) {
+  return filename
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
 }
 
 export async function activityRoutes(app: FastifyInstance) {
@@ -209,11 +222,19 @@ export async function activityRoutes(app: FastifyInstance) {
       exception: 0,
     } satisfies Record<DailyReportCategory | "totalChanges", number>);
 
+    const scopeLabel = query.propertyId
+      ? (() => {
+          const property = properties.find((entry) => entry.id === query.propertyId);
+          return propertyScopeLabel(property);
+        })()
+      : ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL;
+
     return {
       date,
       range: { from: start, to: end },
       summary,
       records,
+      scopeLabel,
       filterOptions: { properties },
     };
   }
@@ -244,7 +265,7 @@ export async function activityRoutes(app: FastifyInstance) {
     const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
     reply
       .header("content-type", "text/csv; charset=utf-8")
-      .header("content-disposition", `attachment; filename="makereadyos-daily-report-${report.date}.csv"`);
+      .header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${report.scopeLabel}-daily-report-${report.date}.csv`)}"`);
     return csv;
   });
 
@@ -517,7 +538,7 @@ export async function activityRoutes(app: FastifyInstance) {
         }
         case "PoolLogEntry": {
           const poolEntry = poolEntryById.get(entry.entityId);
-          return poolEntry ? `Pool log / ${poolEntry.facility.name} / ${poolEntry.logDate.toISOString().slice(0, 10)}` : "Pool log";
+          return poolEntry ? `Pool log / ${poolEntry.facility.name} / ${formatDisplayDate(poolEntry.logDate)}` : "Pool log";
         }
         case "PoolFacility": {
           const facility = poolFacilityById.get(entry.entityId);

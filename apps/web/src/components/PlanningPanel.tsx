@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import type { MakeReadyItem, PlanningResponse, Property, StaffOption, WorkAssignmentBlock } from "../lib/api";
+import type { MakeReadyItem, PlanningResponse, Property, StaffOption, UserLanguage, WorkAssignmentBlock } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
 import { todayInputValue } from "../lib/dateTime";
+import { t } from "../lib/i18n";
 import { StatusState } from "./StatusState";
 import { UnitSearchSelect } from "./UnitSearchSelect";
 
@@ -10,7 +11,7 @@ type Props = {
   properties: Property[];
   items: MakeReadyItem[];
   propertyId: string;
-  language?: string;
+  language?: UserLanguage;
   onPropertyChange: (value: string) => void;
   loading: boolean;
   error: boolean;
@@ -64,7 +65,7 @@ export function PlanningPanel({ data, properties, items, propertyId, language = 
         </div>
         <label>{isSpanish ? "Propiedad" : "Property"}
           <select data-testid="planning-property-filter" value={propertyId} onChange={(event) => onPropertyChange(event.target.value)}>
-            <option value="">{isSpanish ? "Todas las propiedades accesibles" : "All accessible properties"}</option>
+            <option value="">{t(language, "common.allAccessibleProperties")}</option>
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}
           </select>
         </label>
@@ -99,6 +100,7 @@ export function PlanningPanel({ data, properties, items, propertyId, language = 
               units={unitOptions}
               value={draft.itemId}
               onChange={(value) => setDraft((current) => ({ ...current, itemId: value }))}
+              language={language}
               placeholder={isSpanish ? "Buscar unidad..." : "Search unit..."}
               emptyLabel={isSpanish ? "Ninguna unidad seleccionada" : "No unit selected"}
             />

@@ -254,6 +254,14 @@ mkdir -p "$LOG_DIR"
   echo "API extension docs, schemas, and examples are present"
   echo
 
+  echo "Linting GitHub workflow files"
+  if ! docker image inspect rhysd/actionlint:1.7.7 >/dev/null 2>&1; then
+    docker pull rhysd/actionlint:1.7.7 >/dev/null
+  fi
+  docker run --rm -v "$ROOT_DIR:/repo" -w /repo rhysd/actionlint:1.7.7 -color
+  echo "GitHub workflow lint passed"
+  echo
+
   echo "Running root production dependency audit"
   npm audit --omit=dev
   echo

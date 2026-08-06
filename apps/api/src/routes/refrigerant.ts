@@ -7,6 +7,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { createNotification } from "../lib/notifications.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
+import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 
 const cylinderCategories = ["VIRGIN", "CLEAN_RECOVERY", "DIRTY_RECOVERY"] as const;
 const cylinderStatuses = ["ACTIVE", "EMPTY_PENDING_RECOVERY", "ARCHIVED"] as const;
@@ -178,13 +179,33 @@ function titleCase(input: string) {
     .join(" ");
 }
 
+function sanitizeFilename(filename: string) {
+  return filename
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+}
+
 function formatReportValue(value: unknown) {
   if (value === null || value === undefined) return "";
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2);
   return String(value);
 }
 
-function buildReportDocument(report: RefrigerantReportKind, sections: RefrigerantReportSection[], rowCount: number) {
+async function refrigerantReportScopeLabel(propertyIds: string[] | null) {
+  if (propertyIds === null) return ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL;
+  if (propertyIds.length === 1) {
+    const property = await prisma.property.findUnique({
+      where: { id: propertyIds[0] },
+      select: { code: true, name: true },
+    });
+    return propertyScopeLabel(property);
+  }
+  return `${propertyIds.length} selected properties`;
+}
+
+function buildReportDocument(report: RefrigerantReportKind, sections: RefrigerantReportSection[], rowCount: number, scopeLabel: string) {
   const reportTitle = `Refrigerant ${titleCase(report)} Report`;
   const generatedAt = new Date().toLocaleString();
   return `<!doctype html>
@@ -222,7 +243,7 @@ function buildReportDocument(report: RefrigerantReportKind, sections: Refrigeran
 </head>
 <body>
   <h1>${htmlEscape(reportTitle)}</h1>
-  <p class="report-meta">Generated ${htmlEscape(generatedAt)} | ${htmlEscape(rowCount)} row(s) across ${htmlEscape(sections.length)} section(s)</p>
+  <p class="report-meta">${htmlEscape(scopeLabel)} | Generated ${htmlEscape(generatedAt)} | ${htmlEscape(rowCount)} row(s) across ${htmlEscape(sections.length)} section(s)</p>
   ${sections.map((section) => {
     const headers = Array.from(new Set(section.rows.flatMap((row) => Object.keys(row))));
     return `<section class="report-section">
@@ -244,6 +265,15 @@ function buildReportDocument(report: RefrigerantReportKind, sections: Refrigeran
 }
 
 async function refrigerantReportSections(report: RefrigerantReportKind, propertyIds: string[] | null) {
+  const resolvePropertyLabels = async (ids: Array<string | null | undefined>) => {
+    const uniqueIds = Array.from(new Set(ids.filter((value): value is string => typeof value === "string" && value.trim().length > 0)));
+    if (!uniqueIds.length) return new Map<string, string>();
+    const properties = await prisma.property.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true, code: true, name: true },
+    });
+    return new Map(properties.map((property) => [property.id, propertyScopeLabel(property)]));
+  };
   const tankRow = (tank: {
     identifier: string;
     category: string;
@@ -284,10 +314,10 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
     amount: number;
     createdByName: string | null;
     notes: string | null;
-  }) => ({
+  }, propertyLabels: Map<string, string>) => ({
     rowType: "TRANSACTION",
     date: entry.occurredAt.toISOString(),
-    property: entry.propertyId ?? "",
+    property: entry.propertyId ? (propertyLabels.get(entry.propertyId) ?? entry.propertyId) : "",
     transactionType: entry.transactionType,
     unitNumber: entry.unitNumber ?? "",
     refrigerantType: entry.refrigerantType.name,
@@ -316,6 +346,7 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
 
   if (report === "compliance") {
     const result = await complianceIssues(propertyIds);
+    const propertyLabels = await resolvePropertyLabels(result.transactions.map((entry) => entry.propertyId));
     return [
       { key: "issues", title: "Compliance Issues", rows: result.issues.map(complianceRow) },
       {
@@ -336,6 +367,7 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
 
   if (report === "fullAudit") {
     const result = await complianceIssues(propertyIds);
+    const scopeLabel = await refrigerantReportScopeLabel(propertyIds);
     const activeVirginCount = result.cylinders.filter((tank) => tank.category === "VIRGIN" && tank.status === "ACTIVE").length;
     const activeRecoveryCount = result.cylinders.filter((tank) => tank.category !== "VIRGIN" && tank.status === "ACTIVE").length;
     const chargeTransactions = result.transactions.filter((entry) => entry.transactionType === "VIRGIN_CHARGE");
@@ -346,7 +378,7 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
         title: "Audit Summary",
         rows: [{
           rowType: "SUMMARY",
-          accessibleProperties: propertyIds === null ? "All properties" : propertyIds.length,
+          accessibleProperties: scopeLabel,
           totalCylinders: result.cylinders.length,
           activeVirginTanks: activeVirginCount,
           activeRecoveryTanks: activeRecoveryCount,
@@ -358,7 +390,7 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
         }],
       },
       { key: "cylinders", title: "Cylinder Inventory", rows: result.cylinders.map(tankRow) },
-      { key: "transactions", title: "All Refrigerant Transactions", rows: result.transactions.map(transactionRow) },
+      { key: "transactions", title: "All Refrigerant Transactions", rows: result.transactions.map((entry) => transactionRow(entry, propertyLabels)) },
       {
         key: "unit-history",
         title: "Unit Transaction History",
@@ -415,13 +447,15 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
   ]);
 
   if (report === "recovery") {
+    const propertyLabels = await resolvePropertyLabels(transactions.map((entry) => entry.propertyId));
     return [
       { key: "recovery-tanks", title: "Recovery Tank Inventory", rows: recoveryTanks.map(tankRow) },
-      { key: "recovery-transactions", title: "Recovery Transactions", rows: transactions.map(transactionRow) },
+      { key: "recovery-transactions", title: "Recovery Transactions", rows: transactions.map((entry) => transactionRow(entry, propertyLabels)) },
     ];
   }
 
   if (report === "unitHistory") {
+    const propertyLabels = await resolvePropertyLabels(transactions.map((entry) => entry.propertyId));
     return [{
       key: "unit-history",
       title: "Unit Refrigerant History",
@@ -430,7 +464,7 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
         .map((entry) => ({
           rowType: "UNIT_HISTORY",
           unitNumber: entry.unitNumber ?? "",
-          property: entry.propertyId ?? "",
+          property: entry.propertyId ? (propertyLabels.get(entry.propertyId) ?? entry.propertyId) : "",
           date: entry.occurredAt.toISOString(),
           transactionType: entry.transactionType,
           refrigerantType: entry.refrigerantType.name,
@@ -443,7 +477,8 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
     }];
   }
 
-  return [{ key: "usage", title: "Refrigerant Usage Transactions", rows: transactions.map(transactionRow) }];
+  const propertyLabels = await resolvePropertyLabels(transactions.map((entry) => entry.propertyId));
+  return [{ key: "usage", title: "Refrigerant Usage Transactions", rows: transactions.map((entry) => transactionRow(entry, propertyLabels)) }];
 }
 
 async function refrigerantExportRows(report: RefrigerantReportKind, propertyIds: string[] | null) {
@@ -933,10 +968,11 @@ export async function refrigerantRoutes(app: FastifyInstance) {
     const scope = scopedPropertyWhere(request, query.propertyId);
     if (scope.denied) return reply.code(403).send({ message: "Property access denied" });
     const propertyIds = query.propertyId ? [query.propertyId] : scopedAllowedPropertyIds(request);
+    const scopeLabel = await refrigerantReportScopeLabel(propertyIds);
     const rows = await refrigerantExportRows(query.report, propertyIds);
     const csv = stringify(rows, { header: true });
     reply.header("content-type", "text/csv; charset=utf-8");
-    reply.header("content-disposition", `attachment; filename=\"makereadyos-refrigerant-${query.report}.csv\"`);
+    reply.header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-refrigerant-${query.report}.csv`)}"`);
     return csv;
   });
 
@@ -949,6 +985,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
     const scope = scopedPropertyWhere(request, query.propertyId);
     if (scope.denied) return reply.code(403).send({ message: "Property access denied" });
     const propertyIds = query.propertyId ? [query.propertyId] : scopedAllowedPropertyIds(request);
+    const scopeLabel = await refrigerantReportScopeLabel(propertyIds);
     const rows = await refrigerantExportRows(query.report, propertyIds);
     const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
     const lines = [
@@ -956,7 +993,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
       ...rows.map((row) => headers.map((header) => String((row as Record<string, unknown>)[header] ?? "")).join("\t")),
     ].join("\n");
     reply.header("content-type", "application/vnd.ms-excel; charset=utf-8");
-    reply.header("content-disposition", `attachment; filename=\"makereadyos-refrigerant-${query.report}.xls\"`);
+    reply.header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-refrigerant-${query.report}.xls`)}"`);
     return lines;
   });
 
@@ -970,8 +1007,9 @@ export async function refrigerantRoutes(app: FastifyInstance) {
     if (scope.denied) return reply.code(403).send({ message: "Property access denied" });
     const propertyIds = query.propertyId ? [query.propertyId] : scopedAllowedPropertyIds(request);
     const sections = await refrigerantReportSections(query.report, propertyIds);
+    const scopeLabel = await refrigerantReportScopeLabel(propertyIds);
     const rowCount = sections.reduce((sum, section) => sum + section.rows.length, 0);
-    const html = buildReportDocument(query.report, sections, rowCount);
+    const html = buildReportDocument(query.report, sections, rowCount, scopeLabel);
     reply.header("content-type", "text/html; charset=utf-8");
     return reply.send(html);
   });
@@ -986,11 +1024,12 @@ export async function refrigerantRoutes(app: FastifyInstance) {
     if (scope.denied) return reply.code(403).send({ message: "Property access denied" });
     const propertyIds = query.propertyId ? [query.propertyId] : scopedAllowedPropertyIds(request);
     const sections = await refrigerantReportSections(query.report, propertyIds);
+    const scopeLabel = await refrigerantReportScopeLabel(propertyIds);
     const rowCount = sections.reduce((sum, section) => sum + section.rows.length, 0);
-    const html = buildReportDocument(query.report, sections, rowCount);
+    const html = buildReportDocument(query.report, sections, rowCount, scopeLabel);
     const pdf = await renderPdfFromHtml(html);
     reply.header("content-type", "application/pdf");
-    reply.header("content-disposition", `inline; filename="makereadyos-refrigerant-${query.report}.pdf"`);
+    reply.header("content-disposition", `inline; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-refrigerant-${query.report}.pdf`)}"`);
     return reply.send(pdf);
   });
 }

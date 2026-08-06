@@ -923,6 +923,7 @@ export function ItemDrawer({
             equipmentQuery={item.itemName}
             query={item.notes}
             canEdit={currentUser.role === "ADMIN" || currentUser.role === "MANAGER" || currentUser.role === "TECH" || currentUser.role === "LEASING"}
+            language={language}
           />
         </section>
 

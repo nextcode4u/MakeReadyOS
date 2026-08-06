@@ -10,6 +10,7 @@ import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
+import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 
@@ -320,6 +321,15 @@ function reportRows(issues: Array<{
     workOrder: String(issue.thirdPartyWorkOrderNumber ?? ""),
     notes: String(issue.description ?? ""),
   }));
+}
+
+async function reportScopeLabel(propertyId: string | undefined) {
+  if (!propertyId) return ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL;
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: { code: true, name: true },
+  });
+  return propertyScopeLabel(property);
 }
 
 export async function pestControlRoutes(app: FastifyInstance) {
@@ -943,9 +953,10 @@ export async function pestControlRoutes(app: FastifyInstance) {
       },
       orderBy: [{ requestDate: "desc" }],
     });
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const csv = stringify(reportRows(issues), { header: true });
     reply.header("Content-Type", "text/csv; charset=utf-8");
-    reply.header("Content-Disposition", "attachment; filename=\"pest-control-report.csv\"");
+    reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-pest-control-report.csv`)}"`);
     return reply.send(csv);
   });
 
@@ -963,6 +974,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
       },
       orderBy: [{ requestDate: "desc" }],
     });
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const rows = reportRows(issues);
     const header = ["Property", "Unit / Area", "Building", "Pest", "Additional Pest", "Status", "Priority", "Source", "Vendor", "Assigned User", "Request Date", "Treatment Date", "Follow Up Date", "Recurring", "Manager Review", "Work Order", "Notes"];
     const body = rows.map((row) => [
@@ -988,7 +1000,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
       return /[\t"\n\r]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
     }).join("\t"));
     reply.header("Content-Type", "application/vnd.ms-excel; charset=utf-8");
-    reply.header("Content-Disposition", "attachment; filename=\"pest-control-report.xls\"");
+    reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-pest-control-report.xls`)}"`);
     return reply.send([header.join("\t"), ...body].join("\n"));
   });
 
@@ -1013,6 +1025,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
     const openCount = issues.filter((issue) => ["Open", "Scheduled", "Treated", "Needs Follow Up"].includes(issue.status)).length;
     const followUpCount = issues.filter((issue) => issue.status === "Needs Follow Up").length;
     const recurringCount = issues.filter((issue) => issue.recurringConcern || issue.managerReviewRequired).length;
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     reply.header("Content-Type", "text/html; charset=utf-8");
     return reply.send(`<!doctype html>
 <html>
@@ -1034,7 +1047,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
   </head>
   <body>
     <h1>Pest Control Operational Report</h1>
-    <p>${htmlEscape(query.propertyId ? "Property filter applied" : "All accessible properties")} | ${htmlEscape(new Date().toLocaleString())}</p>
+    <p>${htmlEscape(scopeLabel)} | ${htmlEscape(new Date().toLocaleString())}</p>
     <div class="kpis">
       <div class="kpi"><strong>${issues.length}</strong><span>Total issues</span></div>
       <div class="kpi"><strong>${openCount}</strong><span>Open / active</span></div>
@@ -1093,6 +1106,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
       take: 100,
     });
     const rows = reportRows(issues);
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const html = `<!doctype html>
 <html>
   <head>
@@ -1109,7 +1123,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
   </head>
   <body>
     <h1>Pest Control Report</h1>
-    <p>${htmlEscape(query.propertyId ? `Property filter applied` : "All accessible properties")} | ${htmlEscape(new Date().toLocaleString())}</p>
+    <p>${htmlEscape(scopeLabel)} | ${htmlEscape(new Date().toLocaleString())}</p>
     <table>
       <thead>
         <tr>
@@ -1142,7 +1156,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
 </html>`;
     const pdf = await renderPdfFromHtml(html);
     reply.header("Content-Type", "application/pdf");
-    reply.header("Content-Disposition", "inline; filename=\"pest-control-report.pdf\"");
+    reply.header("Content-Disposition", `inline; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-pest-control-report.pdf`)}"`);
     return reply.send(pdf);
   });
 }

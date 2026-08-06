@@ -11,6 +11,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { createNotification, notifyPropertyRoles } from "../lib/notifications.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
+import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
 
@@ -88,6 +89,15 @@ function propertyScopeWhere(request: FastifyRequest, propertyId?: string) {
   const scoped = scopedAllowedPropertyIds(request);
   if (propertyId && scoped !== null && !scoped.includes(propertyId)) return { denied: true as const, where: undefined };
   return { denied: false as const, where: propertyId ?? (scoped === null ? undefined : { in: scoped }) };
+}
+
+async function reportScopeLabel(propertyId: string | undefined) {
+  if (!propertyId) return ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL;
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: { code: true, name: true },
+  });
+  return propertyScopeLabel(property);
 }
 
 function hasPropertyAccess(user: {
@@ -382,6 +392,35 @@ function taskMatchesQuery(task: {
     task.property.name,
   ].join(" ").toLowerCase();
   return haystack.includes(q.toLowerCase());
+}
+
+async function getPmReportTasks(request: FastifyRequest, query: z.infer<typeof preventiveMaintenanceHistoryQuerySchema>) {
+  const scoped = propertyScopeWhere(request, query.propertyId);
+  if (scoped.denied) {
+    return { denied: true as const, tasks: [] as Array<ReturnType<typeof Object.assign>> };
+  }
+  const tasks = await prisma.preventiveMaintenanceTask.findMany({
+    where: {
+      propertyId: scoped.where,
+      category: query.category,
+      priority: query.priority,
+      assignedRole: query.assignedRole,
+      dueDate: query.from || query.to ? {
+        ...(query.from ? { gte: startOfDay(query.from) } : {}),
+        ...(query.to ? { lte: endOfDay(query.to) } : {}),
+      } : undefined,
+    },
+    include: { property: true, template: true, attachments: true },
+    orderBy: [{ dueDate: "asc" }, { completedAt: "desc" }],
+  });
+  await syncTaskStatuses(tasks);
+  return {
+    denied: false as const,
+    tasks: tasks
+      .map((task) => ({ ...task, status: derivedTaskStatus(task) }))
+      .filter((task) => !query.status || task.status === query.status)
+      .filter((task) => taskMatchesQuery(task, query.q)),
+  };
 }
 
 export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
@@ -882,19 +921,10 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
   app.get("/pm/export.csv", async (request, reply) => {
     if (!requirePmAccess(request, reply, "view")) return;
     const query = preventiveMaintenanceHistoryQuerySchema.parse(request.query);
-    const scoped = propertyScopeWhere(request, query.propertyId);
-    if (scoped.denied) return reply.code(403).send({ message: "Property access denied" });
-    const tasks = await prisma.preventiveMaintenanceTask.findMany({
-      where: {
-        propertyId: scoped.where,
-        category: query.category,
-        priority: query.priority,
-        assignedRole: query.assignedRole,
-      },
-      include: { property: true, template: true, attachments: true },
-      orderBy: [{ dueDate: "asc" }, { completedAt: "desc" }],
-    });
-    const normalized = tasks.map((task) => ({ ...task, status: derivedTaskStatus(task) })).filter((task) => !query.status || task.status === query.status).filter((task) => taskMatchesQuery(task, query.q));
+    const result = await getPmReportTasks(request, query);
+    if (result.denied) return reply.code(403).send({ message: "Property access denied" });
+    const normalized = result.tasks;
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const csv = stringify(normalized.map((task) => ({
       Property: task.property.code,
       Task: task.taskName,
@@ -912,21 +942,17 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
       Photos: task.attachments.length,
     })), { header: true });
     reply.header("Content-Type", "text/csv; charset=utf-8");
-    reply.header("Content-Disposition", "attachment; filename=\"pm-report.csv\"");
+    reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-pm-report.csv`)}"`);
     return reply.send(csv);
   });
 
   app.get("/pm/export.xls", async (request, reply) => {
     if (!requirePmAccess(request, reply, "view")) return;
     const query = preventiveMaintenanceHistoryQuerySchema.parse(request.query);
-    const scoped = propertyScopeWhere(request, query.propertyId);
-    if (scoped.denied) return reply.code(403).send({ message: "Property access denied" });
-    const tasks = await prisma.preventiveMaintenanceTask.findMany({
-      where: { propertyId: scoped.where },
-      include: { property: true, template: true, attachments: true },
-      orderBy: [{ dueDate: "asc" }, { completedAt: "desc" }],
-    });
-    const normalized = tasks.map((task) => ({ ...task, status: derivedTaskStatus(task) })).filter((task) => !query.status || task.status === query.status).filter((task) => taskMatchesQuery(task, query.q));
+    const result = await getPmReportTasks(request, query);
+    if (result.denied) return reply.code(403).send({ message: "Property access denied" });
+    const normalized = result.tasks;
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const header = ["Property", "Task", "Category", "Due Date", "Assigned Role", "Assigned User", "Status", "Priority", "Template", "Completed By", "Completed Date", "Outcome", "Notes", "Photos"];
     const rows = normalized.map((task) => [
       task.property.code,
@@ -945,21 +971,17 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
       String(task.attachments.length),
     ].join("\t")).join("\n");
     reply.header("Content-Type", "application/vnd.ms-excel; charset=utf-8");
-    reply.header("Content-Disposition", "attachment; filename=\"pm-report.xls\"");
+    reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-pm-report.xls`)}"`);
     return reply.send(`${header.join("\t")}\n${rows}`);
   });
 
   app.get("/pm/report.html", async (request, reply) => {
     if (!requirePmAccess(request, reply, "view")) return;
     const query = preventiveMaintenanceHistoryQuerySchema.parse(request.query);
-    const scoped = propertyScopeWhere(request, query.propertyId);
-    if (scoped.denied) return reply.code(403).send({ message: "Property access denied" });
-    const tasks = await prisma.preventiveMaintenanceTask.findMany({
-      where: { propertyId: scoped.where },
-      include: { property: true, template: true, attachments: true },
-      orderBy: [{ dueDate: "asc" }, { completedAt: "desc" }],
-    });
-    const normalized = tasks.map((task) => ({ ...task, status: derivedTaskStatus(task) })).filter((task) => !query.status || task.status === query.status).filter((task) => taskMatchesQuery(task, query.q));
+    const result = await getPmReportTasks(request, query);
+    if (result.denied) return reply.code(403).send({ message: "Property access denied" });
+    const normalized = result.tasks;
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -975,7 +997,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
 </head>
 <body>
   <h1>Preventive Maintenance Report</h1>
-  <p>Generated ${htmlEscape(new Date().toLocaleString())}</p>
+  <p>${htmlEscape(scopeLabel)} | Generated ${htmlEscape(new Date().toLocaleString())}</p>
   <table>
     <thead>
       <tr>
@@ -995,14 +1017,10 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
   app.get("/pm/report.pdf", async (request, reply) => {
     if (!requirePmAccess(request, reply, "view")) return;
     const query = preventiveMaintenanceHistoryQuerySchema.parse(request.query);
-    const scoped = propertyScopeWhere(request, query.propertyId);
-    if (scoped.denied) return reply.code(403).send({ message: "Property access denied" });
-    const tasks = await prisma.preventiveMaintenanceTask.findMany({
-      where: { propertyId: scoped.where },
-      include: { property: true, template: true, attachments: true },
-      orderBy: [{ dueDate: "asc" }, { completedAt: "desc" }],
-    });
-    const normalized = tasks.map((task) => ({ ...task, status: derivedTaskStatus(task) })).filter((task) => !query.status || task.status === query.status).filter((task) => taskMatchesQuery(task, query.q));
+    const result = await getPmReportTasks(request, query);
+    if (result.denied) return reply.code(403).send({ message: "Property access denied" });
+    const normalized = result.tasks;
+    const scopeLabel = await reportScopeLabel(query.propertyId);
     const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -1018,7 +1036,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
 </head>
 <body>
   <h1>Preventive Maintenance Report</h1>
-  <p>Generated ${htmlEscape(new Date().toLocaleString())}</p>
+  <p>${htmlEscape(scopeLabel)} | Generated ${htmlEscape(new Date().toLocaleString())}</p>
   <table>
     <thead>
       <tr>
@@ -1033,7 +1051,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
 </html>`;
     const pdf = await renderPdfFromHtml(html);
     reply.header("Content-Type", "application/pdf");
-    reply.header("Content-Disposition", 'inline; filename="pm-report.pdf"');
+    reply.header("Content-Disposition", `inline; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-pm-report.pdf`)}"`);
     return reply.send(pdf);
   });
 }

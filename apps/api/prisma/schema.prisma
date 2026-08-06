@@ -1593,6 +1593,7 @@ model PoolChemical {
   category             String
   concentrationPercent Float?
   unit                 String
+  allowedUnits         String[]               @default([])
   notes                String?
   isActive             Boolean                @default(true)
   createdById          String?
