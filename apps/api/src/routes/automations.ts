@@ -1,6 +1,7 @@
 import { Prisma, UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { booleanFlag } from "../lib/booleanFlag.js";
 import { allowedPropertyIds, requireManagerOrAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { actionSchema, automationRuleBaseSchema, automationRuleInputSchema as createSchema, validateRuleReferences } from "../lib/automationDefinition.js";
@@ -13,7 +14,7 @@ import { executeScheduledAutomationRules } from "../lib/scheduledAutomations.js"
 export const automationCreateSchema = createSchema;
 export const automationUpdateSchema = automationRuleBaseSchema.partial().omit({ enabled: true });
 export const automationToggleSchema = z.object({ enabled: z.boolean() });
-export const automationListSchema = z.object({ includeArchived: z.coerce.boolean().default(false) });
+export const automationListSchema = z.object({ includeArchived: booleanFlag.default(false) });
 export const automationInstallTemplateSchema = z.object({
   propertyId: z.string().nullable().optional(),
   enabled: z.boolean().default(false),

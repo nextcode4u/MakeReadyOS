@@ -6,6 +6,8 @@ LOG_DIR="$ROOT_DIR/logs"
 TIMESTAMP="$(date +"%Y%m%d-%H%M%S")"
 LOG_FILE="$LOG_DIR/test-$TIMESTAMP.txt"
 PLANNING_TEST_DATE="$(date -u +%F)"
+# This suite creates and deletes database volumes; never share a deployed Compose project.
+export COMPOSE_PROJECT_NAME="makereadyos-test-$$"
 
 mkdir -p "$LOG_DIR"
 
@@ -23,10 +25,14 @@ mkdir -p "$LOG_DIR"
     echo "ERROR: npm is not installed"
     exit 1
   fi
+  if ! command -v rg >/dev/null 2>&1; then
+    echo "ERROR: ripgrep (rg) is required for source and configuration checks"
+    exit 1
+  fi
 
   NODE_MAJOR="$(node -p 'process.versions.node.split(`.`)[0]')"
-  if [ "$NODE_MAJOR" -lt 20 ]; then
-    echo "ERROR: Node 20+ is required"
+  if [ "$NODE_MAJOR" -ne 24 ]; then
+    echo "ERROR: Node 24 LTS is required"
     exit 1
   fi
 
@@ -34,7 +40,22 @@ mkdir -p "$LOG_DIR"
   echo "NPM: $(npm --version)"
   echo
 
+  echo "Running isolated report and email regression tests"
+  node --test "$ROOT_DIR/e2e/service-worker.test.mjs" "$ROOT_DIR/e2e/hooks-lint.test.mjs" "$ROOT_DIR/e2e/offline-sync.test.mjs"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/e2e/lease-matching.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/leaseLookup.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/operationalReports.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/planningPrivacy.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/mapPrivacy.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/poolChemicalAdditions.test.ts" "$ROOT_DIR/apps/api/src/routes/poolEntryValidation.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/dailyReport.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/riskScope.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/audit.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/refrigerantReports.test.ts" "$ROOT_DIR/apps/api/src/routes/planningAccess.test.ts" "$ROOT_DIR/apps/api/src/lib/inviteTemplate.test.ts" "$ROOT_DIR/apps/api/src/lib/pdf.test.ts" "$ROOT_DIR/apps/api/src/lib/booleanFlag.test.ts" "$ROOT_DIR/apps/api/src/lib/planningDates.test.ts"
+  echo
+
   echo "Checking database backup/restore helper scripts"
+  bash "$ROOT_DIR/test-environment.test.sh"
   for helper_script in backup-db.sh restore-db.sh backup-uploads.sh restore-uploads.sh move-uploads.sh route-existing-uploads.sh prune-backups.sh run-automations.sh run-analytics-snapshot.sh run-webhooks.sh seed-large.sh reset-demo.sh check-migration-hygiene.sh doctor.sh update.sh; do
     if [ ! -f "$helper_script" ] || [ ! -x "$helper_script" ]; then
       echo "ERROR: $helper_script is missing or is not executable"
@@ -263,6 +284,7 @@ mkdir -p "$LOG_DIR"
   echo
 
   echo "Running root production dependency audit"
+  npm run lint
   npm audit --omit=dev
   echo
 
@@ -283,31 +305,11 @@ mkdir -p "$LOG_DIR"
   echo
 
   if command -v docker >/dev/null 2>&1; then
-    if [ -f .env ]; then
-      set -a
-      . ./.env
-      set +a
-    else
-      set -a
-      . ./.env.example
-      set +a
-    fi
-    export ADMIN_USERNAME="${ADMIN_USERNAME:-testadmin}"
-    export ADMIN_EMAIL="${ADMIN_EMAIL:-testadmin@example.com}"
-    export ADMIN_PASSWORD="${ADMIN_PASSWORD:-TestAdmin!23456Secure}"
-    if [ "$ADMIN_USERNAME" = "replace-admin-username" ] || [ "$ADMIN_USERNAME" = "admin" ]; then
-      export ADMIN_USERNAME="testadmin"
-    fi
-    if [ "$ADMIN_EMAIL" = "admin@example.com" ]; then
-      export ADMIN_EMAIL="testadmin@example.com"
-    fi
-    if [ "$ADMIN_PASSWORD" = "ChangeThisAdmin!23456" ] || [ "$ADMIN_PASSWORD" = "ReplaceThisAdminPassword!23456" ]; then
-      export ADMIN_PASSWORD="TestAdmin!23456Secure"
-    fi
-    export SEED_DEMO_DATA=true
+    . "$ROOT_DIR/test-environment.sh"
 
-    echo "Validating docker compose configuration"
-    docker compose config
+  echo "Validating docker compose configuration"
+  bash "$ROOT_DIR/test-compose-config.test.sh"
+    docker compose config --quiet
     echo
 
     echo "Starting docker compose stack for auth smoke checks"
@@ -329,6 +331,24 @@ mkdir -p "$LOG_DIR"
     curl -fsS "http://localhost:${API_PORT:-4000}/health"
     echo
     echo
+
+    echo "Checking trusted-origin CORS edit methods"
+    TEST_API_URL="http://localhost:${API_PORT:-4000}" TEST_ORIGIN="${APP_URL:-http://localhost:8080}" node --input-type=module -e '
+      const url = `${process.env.TEST_API_URL}/api/operations/columns/vacatedDate`;
+      for (const method of ["PUT", "PATCH", "DELETE"]) {
+        const response = await fetch(url, { method: "OPTIONS", headers: {
+          Origin: process.env.TEST_ORIGIN, "Access-Control-Request-Method": method,
+        } });
+        const allowed = (response.headers.get("access-control-allow-methods") || "").split(/,\s*/);
+        if (response.status !== 204 || !allowed.includes(method) || response.headers.get("access-control-allow-origin") !== process.env.TEST_ORIGIN) {
+          throw new Error(`Trusted-origin ${method} preflight failed`);
+        }
+      }
+      const denied = await fetch(url, { method: "OPTIONS", headers: {
+        Origin: "https://untrusted.invalid", "Access-Control-Request-Method": "PATCH",
+      } });
+      if (denied.headers.has("access-control-allow-origin")) throw new Error("Untrusted origin allowed");
+    '
 
     echo "Checking public OpenAPI contract"
     OPENAPI_JSON="$(mktemp)"
@@ -2156,7 +2176,16 @@ NODE
       exit 1
     fi
     ACTIVE_FIELDS_AFTER_ARCHIVE_STATUS="$(curl -s -o /tmp/makereadyos-active-fields-after-archive.json -b "$COOKIE_JAR" -w "%{http_code}" \
-      "http://localhost:${API_PORT:-4000}/api/custom-fields")"
+      "http://localhost:${API_PORT:-4000}/api/custom-fields?includeArchived=false&includeDeleted=0")"
+    curl -fsS -o /tmp/makereadyos-fields-with-archive.json -b "$COOKIE_JAR" \
+      "http://localhost:${API_PORT:-4000}/api/custom-fields?includeArchived=1&includeDeleted=false"
+    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!body.fields.some(field => field.id === process.argv[2] && field.isArchived)) process.exit(1);' /tmp/makereadyos-fields-with-archive.json "$TEST_FIELD_ID"
+    INVALID_BOOLEAN_STATUS="$(curl -s -o /tmp/makereadyos-invalid-boolean.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      "http://localhost:${API_PORT:-4000}/api/custom-fields?includeArchived=anything")"
+    if [ "$INVALID_BOOLEAN_STATUS" != "400" ]; then
+      echo "Malformed boolean filter was not rejected: $INVALID_BOOLEAN_STATUS"
+      exit 1
+    fi
     RESTORE_FIELD_STATUS="$(curl -s -o /tmp/makereadyos-restore-field.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
       -X POST \

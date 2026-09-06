@@ -87,8 +87,9 @@ function transactionTypeName(language: UserLanguage, type: RefrigerantTransactio
 }
 
 function numberValue(value: FormDataEntryValue | null) {
+  if (typeof value !== "string" || !value.trim()) return NaN;
   const next = Number(value);
-  return Number.isFinite(next) ? next : 0;
+  return Number.isFinite(next) ? next : NaN;
 }
 
 function dateLabel(value: string | null | undefined, language: UserLanguage) {
@@ -113,6 +114,7 @@ function safeCapacity(cylinder: RefrigerantCylinder) {
 }
 
 function remainingCapacity(cylinder: RefrigerantCylinder) {
+  if (cylinder.category === "VIRGIN") return cylinderContentsWeight(cylinder);
   return cylinder.remainingCapacity ?? Math.max(0, Number((safeCapacity(cylinder) - cylinderContentsWeight(cylinder)).toFixed(2)));
 }
 
@@ -159,7 +161,6 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [propertyFilter, setPropertyFilter] = useState("");
-  const [formResetVersion, setFormResetVersion] = useState(0);
   const canEdit = userRole === "ADMIN" || userRole === "MANAGER" || userRole === "TECH";
   const canAdmin = userRole === "ADMIN";
   const queryClient = useQueryClient();
@@ -204,7 +205,6 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
     onSuccess: async () => {
       setMessage(t(language, "refrigerant.saved"));
       setError("");
-      setFormResetVersion((current) => current + 1);
       await invalidate();
     },
     onError: (err) => {
@@ -244,14 +244,13 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
     const data = new FormData(event.currentTarget);
     const name = String(data.get("name") ?? "").trim();
     if (!name) return;
-    runMutation.mutate(() => createRefrigerantType({ name, notes: String(data.get("notes") ?? "").trim() || null }));
-    event.currentTarget.reset();
+    submitForm(event.currentTarget, () => createRefrigerantType({ name, notes: String(data.get("notes") ?? "").trim() || null }));
   };
 
   const submitCylinder = (event: FormEvent<HTMLFormElement>, category: RefrigerantCylinder["category"]) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    runMutation.mutate(() => createRefrigerantCylinder({
+    submitForm(event.currentTarget, () => createRefrigerantCylinder({
       identifier: String(data.get("identifier") ?? "").trim(),
       refrigerantTypeId: String(data.get("refrigerantTypeId") ?? ""),
       category,
@@ -262,7 +261,15 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
       notes: String(data.get("notes") ?? "").trim() || null,
       overrideActiveVirgin: data.get("overrideActiveVirgin") === "on",
     }));
-    event.currentTarget.reset();
+  };
+
+  const submitForm = (form: HTMLFormElement, save: () => Promise<unknown>) => {
+    runMutation.mutate(async () => {
+      const result = await save();
+      // Preserve the draft on failure; never read a React event after awaiting.
+      form.reset();
+      return result;
+    });
   };
 
   const transactionPayload = (form: HTMLFormElement): RefrigerantTransactionInput => {
@@ -289,22 +296,19 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
   const submitCharge = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const payload = transactionPayload(event.currentTarget);
-    runMutation.mutate(() => createRefrigerantCharge(payload));
-    event.currentTarget.reset();
+    submitForm(event.currentTarget, () => createRefrigerantCharge(payload));
   };
 
   const submitRecovery = (event: FormEvent<HTMLFormElement>, recoveryType: "CLEAN" | "DIRTY") => {
     event.preventDefault();
     const payload = transactionPayload(event.currentTarget);
-    runMutation.mutate(() => createRefrigerantRecovery({ ...payload, recoveryType }));
-    event.currentTarget.reset();
+    submitForm(event.currentTarget, () => createRefrigerantRecovery({ ...payload, recoveryType }));
   };
 
   const submitFinalRecovery = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const payload = transactionPayload(event.currentTarget);
-    runMutation.mutate(() => createRefrigerantFinalRecovery(payload));
-    event.currentTarget.reset();
+    submitForm(event.currentTarget, () => createRefrigerantFinalRecovery(payload));
   };
 
   if (overviewQuery.isLoading || cylindersQuery.isLoading) {
@@ -360,7 +364,6 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
                 onSubmit={submitCharge}
                 canEdit={canEdit}
                 loading={runMutation.isPending}
-                resetVersion={formResetVersion}
               />
               <QuickRecoveryForm
                 title={t(language, "refrigerant.quickRecovery")}
@@ -374,7 +377,6 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
                 onSubmit={(event) => submitRecovery(event, "CLEAN")}
                 canEdit={canEdit}
                 loading={runMutation.isPending}
-                resetVersion={formResetVersion}
               />
             </div>
           ) : null}
@@ -442,7 +444,6 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
           onDelete={(id) => deleteCylinderMutation.mutate(id)}
           onRecovery={(event) => submitRecovery(event, "CLEAN")}
           loading={runMutation.isPending}
-          resetVersion={formResetVersion}
         />
       ) : tab === "dirty" ? (
         <TankWorkspace
@@ -460,7 +461,6 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
           onDelete={(id) => deleteCylinderMutation.mutate(id)}
           onRecovery={(event) => submitRecovery(event, "DIRTY")}
           loading={runMutation.isPending}
-          resetVersion={formResetVersion}
         />
       ) : tab === "history" ? (
         <>
@@ -486,7 +486,17 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
             language={language}
           />
           ) : null}
-          <HistoryList language={language} transactions={historyQuery.data?.transactions ?? []} />
+          {historyQuery.isError ? (
+            <div role="alert" className="refrigerant-card">
+              <p>{language === "es" ? "No se pudo actualizar el historial. Los registros guardados no se han eliminado." : "Could not refresh history. Saved records have not been deleted."}</p>
+              <button type="button" className="button button-secondary" disabled={historyQuery.isFetching} onClick={() => void historyQuery.refetch()}>{language === "es" ? "Reintentar" : "Retry"}</button>
+            </div>
+          ) : null}
+          {historyQuery.isLoading ? (
+            <StatusState title={t(language, "refrigerant.loading")} description={t(language, "refrigerant.loadingCopy")} />
+          ) : historyQuery.data ? (
+            <HistoryList language={language} transactions={historyQuery.data.transactions} />
+          ) : null}
         </>
       ) : (
         <section className="refrigerant-card">
@@ -647,7 +657,7 @@ function UnitSelect({
   );
 }
 
-function QuickChargeForm({ title, properties, units, tanks, recentUnitTransactions, language, onSubmit, canEdit, loading, resetVersion }: {
+function QuickChargeForm({ title, properties, units, tanks, recentUnitTransactions, language, onSubmit, canEdit, loading }: {
   title: string;
   properties: Property[];
   units: Unit[];
@@ -657,7 +667,6 @@ function QuickChargeForm({ title, properties, units, tanks, recentUnitTransactio
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   canEdit: boolean;
   loading: boolean;
-  resetVersion: number;
 }) {
   const [selectedPropertyId, setSelectedPropertyId] = useState("");
   const [selectedUnitId, setSelectedUnitId] = useState("");
@@ -665,14 +674,14 @@ function QuickChargeForm({ title, properties, units, tanks, recentUnitTransactio
   const [startWeight, setStartWeight] = useState("");
   const [endWeight, setEndWeight] = useState("");
   const [notes, setNotes] = useState("");
-  useEffect(() => {
+  const resetDraft = () => {
     setSelectedPropertyId("");
     setSelectedUnitId("");
     setSelectedSourceCylinderId("");
     setStartWeight("");
     setEndWeight("");
     setNotes("");
-  }, [resetVersion]);
+  };
   const selectedUnit = units.find((unit) => unit.id === selectedUnitId) ?? null;
   const selectedTank = tanks.find((tank) => tank.id === selectedSourceCylinderId) ?? null;
   const recentUnitTransaction = selectedUnitId ? recentUnitTransactions.get(selectedUnitId) ?? null : null;
@@ -687,7 +696,7 @@ function QuickChargeForm({ title, properties, units, tanks, recentUnitTransactio
     }
     : null;
   return (
-    <form className="refrigerant-card compact-form" onSubmit={onSubmit}>
+    <form className="refrigerant-card compact-form" onSubmit={onSubmit} onReset={resetDraft}>
       <h2>{title}</h2>
       <UnitSelect
         language={language}
@@ -756,7 +765,7 @@ function QuickChargeForm({ title, properties, units, tanks, recentUnitTransactio
   );
 }
 
-function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryType, recentUnitTransactions, language, onSubmit, canEdit, loading, resetVersion }: {
+function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryType, recentUnitTransactions, language, onSubmit, canEdit, loading }: {
   title: string;
   properties: Property[];
   units: Unit[];
@@ -768,7 +777,6 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   canEdit: boolean;
   loading: boolean;
-  resetVersion: number;
 }) {
   const [selectedPropertyId, setSelectedPropertyId] = useState("");
   const [selectedUnitId, setSelectedUnitId] = useState("");
@@ -777,7 +785,7 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
   const [startWeight, setStartWeight] = useState("");
   const [endWeight, setEndWeight] = useState("");
   const [notes, setNotes] = useState("");
-  useEffect(() => {
+  const resetDraft = () => {
     setSelectedPropertyId("");
     setSelectedUnitId("");
     setSelectedRefrigerantTypeId("");
@@ -785,7 +793,7 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
     setStartWeight("");
     setEndWeight("");
     setNotes("");
-  }, [resetVersion]);
+  };
   const selectedUnit = units.find((unit) => unit.id === selectedUnitId) ?? null;
   const selectedType = types.find((type) => type.id === selectedRefrigerantTypeId) ?? null;
   const selectedTank = tanks.find((tank) => tank.id === selectedRecoveryCylinderId) ?? null;
@@ -801,7 +809,7 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
     }
     : null;
   return (
-    <form className="refrigerant-card compact-form" onSubmit={onSubmit}>
+    <form className="refrigerant-card compact-form" onSubmit={onSubmit} onReset={resetDraft}>
       <h2>{title}</h2>
       <UnitSelect
         language={language}
@@ -877,7 +885,7 @@ function QuickRecoveryForm({ title, properties, units, tanks, types, recoveryTyp
   );
 }
 
-function TankWorkspace({ title, language, canEdit, canAdmin, category, types, tanks, properties = [], units = [], recoveryTanks = [], onCreate, onUpdate, onDelete, onRecovery, onFinalRecovery, loading, resetVersion = 0 }: {
+function TankWorkspace({ title, language, canEdit, canAdmin, category, types, tanks, properties = [], units = [], recoveryTanks = [], onCreate, onUpdate, onDelete, onRecovery, onFinalRecovery, loading }: {
   title: string;
   language: UserLanguage;
   canEdit: boolean;
@@ -905,7 +913,6 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
   onRecovery?: (event: FormEvent<HTMLFormElement>) => void;
   onFinalRecovery?: (event: FormEvent<HTMLFormElement>) => void;
   loading: boolean;
-  resetVersion?: number;
 }) {
   const activeTanks = tanks.filter((tank) => tank.status !== "ARCHIVED");
   const archivedTanks = tanks.filter((tank) => tank.status === "ARCHIVED");
@@ -914,12 +921,12 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
   const [finalRecoveryStartWeight, setFinalRecoveryStartWeight] = useState("");
   const [finalRecoveryEndWeight, setFinalRecoveryEndWeight] = useState("");
   const [finalRecoveryRecoveryId, setFinalRecoveryRecoveryId] = useState("");
-  useEffect(() => {
+  const resetFinalRecovery = () => {
     setFinalRecoverySourceId("");
     setFinalRecoveryStartWeight("");
     setFinalRecoveryEndWeight("");
     setFinalRecoveryRecoveryId("");
-  }, [resetVersion]);
+  };
   return (
     <>
       {canEdit ? (
@@ -945,11 +952,11 @@ function TankWorkspace({ title, language, canEdit, canAdmin, category, types, ta
       ) : null}
 
       {onRecovery ? (
-        <QuickRecoveryForm title={tWithVars(language, "refrigerant.logCategoryRecovery", { category: categoryName(language, category) })} properties={properties} units={units} tanks={tanks.filter((tank) => tank.status === "ACTIVE")} types={types} recoveryType={category === "DIRTY_RECOVERY" ? "DIRTY" : "CLEAN"} recentUnitTransactions={new Map()} language={language} onSubmit={onRecovery} canEdit={canEdit} loading={loading} resetVersion={resetVersion} />
+        <QuickRecoveryForm title={tWithVars(language, "refrigerant.logCategoryRecovery", { category: categoryName(language, category) })} properties={properties} units={units} tanks={tanks.filter((tank) => tank.status === "ACTIVE")} types={types} recoveryType={category === "DIRTY_RECOVERY" ? "DIRTY" : "CLEAN"} recentUnitTransactions={new Map()} language={language} onSubmit={onRecovery} canEdit={canEdit} loading={loading} />
       ) : null}
 
       {onFinalRecovery ? (
-        <form className="refrigerant-card compact-form" onSubmit={onFinalRecovery}>
+        <form className="refrigerant-card compact-form" onSubmit={onFinalRecovery} onReset={resetFinalRecovery}>
           <h2>{t(language, "refrigerant.finalRecoveryTitle")}</h2>
           <div className="form-grid-four">
             <label>{t(language, "refrigerant.emptyVirginTank")}

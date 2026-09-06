@@ -1,6 +1,7 @@
 import { Prisma, UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { stringify } from "csv-stringify/sync";
 import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
@@ -95,11 +96,6 @@ function externalActionHint(category: DailyReportCategory) {
   }
 }
 
-function csvEscape(value: unknown) {
-  const text = value === null || value === undefined ? "" : String(value);
-  return `"${text.replaceAll("\"", "\"\"")}"`;
-}
-
 function titleCase(value: string) {
   return value
     .toLowerCase()
@@ -151,7 +147,6 @@ export async function activityRoutes(app: FastifyInstance) {
           property: { select: { id: true, name: true, code: true } },
         },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        take: 500,
       }),
       prisma.property.findMany({
         where: propertyIds === null ? undefined : { id: { in: propertyIds } },
@@ -262,7 +257,7 @@ export async function activityRoutes(app: FastifyInstance) {
         record.actor?.fullName ?? "System / unknown",
       ]),
     ];
-    const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+    const csv = stringify(rows, { escape_formulas: true });
     reply
       .header("content-type", "text/csv; charset=utf-8")
       .header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${report.scopeLabel}-daily-report-${report.date}.csv`)}"`);

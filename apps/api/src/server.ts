@@ -76,6 +76,7 @@ await app.register(cors, {
         originCallback(new Error("Origin not allowed"), false);
       },
       credentials: true,
+      methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     });
   },
 });

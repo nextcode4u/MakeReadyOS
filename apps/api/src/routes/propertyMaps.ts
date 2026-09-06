@@ -189,8 +189,8 @@ function propertyMapPinInclude() {
   return {
     property: true,
     map: true,
-    createdBy: true,
-    updatedBy: true,
+    createdBy: { select: { id: true, fullName: true, role: true } },
+    updatedBy: { select: { id: true, fullName: true, role: true } },
     attachments: { orderBy: { createdAt: "desc" as const } },
   };
 }
@@ -637,7 +637,7 @@ export async function propertyMapRoutes(app: FastifyInstance) {
       LinkedRecord: linkedRecordLabels.get(pin.id) ?? "",
       Tags: pin.tags.join(", "),
       Emergency: pin.isEmergency ? "Yes" : "No",
-    })), { header: true });
+    })), { header: true, escape_formulas: true });
     reply.header("Content-Type", "text/csv; charset=utf-8");
     reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`${map.property.code}-${map.name}-pins.csv`)}"`);
     return reply.send(csv);
@@ -667,13 +667,10 @@ export async function propertyMapRoutes(app: FastifyInstance) {
       pin.tags.join(", "),
       pin.isEmergency ? "Yes" : "No",
       pin.description ?? "",
-    ].map((value) => {
-      const text = value === null || value === undefined ? "" : String(value);
-      return /[\t"\n\r]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
-    }).join("\t"));
+    ]);
     reply.header("Content-Type", "application/vnd.ms-excel; charset=utf-8");
     reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`${map.property.code}-${map.name}-pins.xls`)}"`);
-    return reply.send([header.join("\t"), ...body].join("\n"));
+    return reply.send(stringify([header, ...body], { delimiter: "\t", escape_formulas: true }));
   });
 
   app.get("/property-maps/:id/report.pdf", async (request, reply) => {

@@ -1,30 +1,13 @@
 import type { Prisma } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import { prisma } from "./prisma.js";
+import { addDays, dateKey, startOfDay } from "./planningDates.js";
+export { addDays, dateKey, defaultPlanningWindow, startOfDay } from "./planningDates.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const planningStaffRoles = [UserRole.ADMIN, UserRole.MANAGER, UserRole.TECH, UserRole.CLEANER] as const;
 export const activePlanningStatuses = ["PLANNED", "IN_PROGRESS"] as const;
-
-export function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-export function addDays(date: Date, days: number) {
-  const next = startOfDay(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-export function dateKey(date: Date) {
-  return startOfDay(date).toISOString().slice(0, 10);
-}
-
-export function defaultPlanningWindow() {
-  const from = startOfDay(new Date());
-  return { from, to: addDays(from, 7) };
-}
 
 export async function planningSummary(where: Prisma.WorkAssignmentBlockWhereInput, itemWhere: Prisma.MakeReadyItemWhereInput, propertyId: Prisma.StringFilter<"VendorAssignment"> | string | undefined) {
   const [blocks, items, vendorAssignments] = await Promise.all([

@@ -1,3 +1,5 @@
+import { localDateStamp } from "./dateTime";
+
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api";
 let csrfToken: string | null = null;
 
@@ -2750,6 +2752,7 @@ export function deleteLeaseComplianceIssueType(id: string) {
 export function getLeaseComplianceIssues(filters: {
   propertyId?: string;
   unitId?: string;
+  commonAreasOnly?: boolean;
   status?: LeaseComplianceStatus;
   noticeStage?: LeaseComplianceNoticeStage;
   priority?: LeaseCompliancePriority;
@@ -4837,7 +4840,11 @@ export function getVendorAssignments(filters: { itemId?: string; propertyId?: st
 }
 
 export function getPlanning(filters: { propertyId?: string; assignedUserId?: string; from?: string; to?: string } = {}) {
-  const params = new URLSearchParams();
+  // The planning window follows the user's calendar day, not the server's timezone.
+  const today = new Date();
+  const nextWeek = new Date(today);
+  nextWeek.setDate(nextWeek.getDate() + 7);
+  const params = new URLSearchParams({ from: localDateStamp(today), to: localDateStamp(nextWeek) });
   Object.entries(filters).forEach(([key, value]) => {
     if (value) params.set(key, String(value));
   });

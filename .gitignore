@@ -24,3 +24,4 @@ playwright-report/
 test-results/
 uploads/*
 !uploads/.gitkeep
+apps/api/uploads/

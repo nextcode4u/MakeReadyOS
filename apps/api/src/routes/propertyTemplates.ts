@@ -1,6 +1,7 @@
 import { CustomFieldType, Prisma, UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { booleanFlag } from "../lib/booleanFlag.js";
 import { allowedPropertyIds, requireManagerOrAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
@@ -437,7 +438,7 @@ async function applyTemplateManifest(options: {
 export async function propertyTemplateRoutes(app: FastifyInstance) {
   app.get("/property-templates", async (request, reply) => {
     if (!(await ensureTemplateManager(request, reply))) return;
-    const { includeArchived } = z.object({ includeArchived: z.coerce.boolean().default(false) }).parse(request.query);
+    const { includeArchived } = z.object({ includeArchived: booleanFlag.default(false) }).parse(request.query);
     const templates = await prisma.propertyTemplate.findMany({
       where: includeArchived ? undefined : { isArchived: false },
       orderBy: [{ category: "asc" }, { name: "asc" }],

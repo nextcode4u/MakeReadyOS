@@ -139,7 +139,7 @@ test.describe("mobile workflow coverage", () => {
     await loginMobile(page);
 
     await openModuleRailPanel(page, "module-rail-pool", "pool", "pool-log-panel");
-    await page.getByRole("button", { name: "Setup" }).click();
+    await page.getByTestId("pool-tab-setup").click();
     await page.getByTestId("pool-facility-name").fill(poolFacility);
     await page.getByTestId("pool-facility-submit").click();
     await page.getByRole("button", { name: "Daily log" }).click();

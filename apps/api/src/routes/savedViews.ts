@@ -1,13 +1,14 @@
 import { Prisma } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { booleanFlag } from "../lib/booleanFlag.js";
 import { canManageSharedViews } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
 
 export const savedViewModuleQuerySchema = z.object({
   module: z.string().default("make-ready"),
-  includeArchived: z.coerce.boolean().default(false),
+  includeArchived: booleanFlag.default(false),
 });
 
 export const savedViewSchema = z.object({

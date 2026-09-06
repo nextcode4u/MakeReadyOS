@@ -73,8 +73,8 @@ if ! command -v node >/dev/null 2>&1; then
   fail "node is not installed"
 fi
 NODE_MAJOR="$(node -p 'process.versions.node.split(`.`)[0]')"
-if [ "$NODE_MAJOR" -lt 20 ]; then
-  fail "Node 20+ is required; found $(node --version)"
+if [ "$NODE_MAJOR" -ne 24 ]; then
+  fail "Node 24 LTS is required; found $(node --version)"
 fi
 echo "Node: $(node --version)"
 
@@ -82,6 +82,10 @@ if ! command -v npm >/dev/null 2>&1; then
   fail "npm is not installed"
 fi
 echo "NPM: $(npm --version)"
+
+if ! command -v rg >/dev/null 2>&1; then
+  fail "ripgrep (rg) is required for source and configuration checks"
+fi
 
 if ! command -v docker >/dev/null 2>&1; then
   warn "docker is not installed or not on PATH"

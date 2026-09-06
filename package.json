@@ -3,9 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=24 <25"
   },
   "scripts": {
+    "lint": "eslint apps/web/src --max-warnings=0",
     "dev": "concurrently \"npm --prefix apps/api run dev\" \"npm --prefix apps/web run dev\"",
     "build": "npm --prefix apps/api run build && npm --prefix apps/web run build",
     "seed": "npm --prefix apps/api run seed",
@@ -13,6 +14,9 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
-    "concurrently": "^9.2.4"
+    "@typescript-eslint/parser": "^8.69.0",
+    "concurrently": "^9.2.4",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1"
   }
 }

@@ -6,6 +6,9 @@ import { pipeline } from "node:stream/promises";
 import { UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { stringify } from "csv-stringify/sync";
+import { booleanFlag } from "../lib/booleanFlag.js";
+import { validatePoolChemicalAdditions } from "../lib/poolChemicalAdditions.js";
 import { prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { notifyPropertyRoles } from "../lib/notifications.js";
@@ -191,11 +194,6 @@ function endOfDay(value = new Date()) {
 
 function sanitizeFilename(filename: string) {
   return basename(filename).replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 180) || "pool-attachment";
-}
-
-function csvCell(value: unknown) {
-  const text = value === null || value === undefined ? "" : String(value);
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 function htmlEscape(value: unknown) {
@@ -534,7 +532,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
   app.get("/pool/facilities", async (request) => {
     const access = roleAccess(request.currentUser?.role ?? "VIEWER");
     if (!access.view) throw Object.assign(new Error("Pool facility access denied"), { statusCode: 403 });
-    const query = z.object({ propertyId: z.string().optional(), includeArchived: z.coerce.boolean().optional() }).parse(request.query);
+    const query = z.object({ propertyId: z.string().optional(), includeArchived: booleanFlag.optional() }).parse(request.query);
     if (query.propertyId) await assertPropertyAccess(request, query.propertyId);
     const allowed = await allowedPropertyIds(request);
     const facilities = await prisma.poolFacility.findMany({
@@ -601,7 +599,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
   app.get("/pool/chemicals", async (request) => {
     const access = roleAccess(request.currentUser?.role ?? "VIEWER");
     if (!access.view) throw Object.assign(new Error("Pool chemical access denied"), { statusCode: 403 });
-    const query = z.object({ propertyId: z.string().optional(), includeArchived: z.coerce.boolean().optional() }).parse(request.query);
+    const query = z.object({ propertyId: z.string().optional(), includeArchived: booleanFlag.optional() }).parse(request.query);
     if (query.propertyId) await assertPropertyAccess(request, query.propertyId);
     const allowed = await allowedPropertyIds(request);
     await ensureDefaultPoolChemicals(query.propertyId ? [query.propertyId] : allowed, request.currentUser?.id ?? null);
@@ -722,6 +720,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
     const facility = await prisma.poolFacility.findUnique({ where: { id: input.facilityId } });
     if (!facility || facility.propertyId !== input.propertyId) throw Object.assign(new Error("Pool/spa does not belong to selected property"), { statusCode: 400 });
     const propertyChemicals = await prisma.poolChemical.findMany({ where: { propertyId: input.propertyId, isActive: true } });
+    const chemicalAdditions = validatePoolChemicalAdditions(input.chemicalAdditions ?? [], propertyChemicals);
     const targetOverride = await prisma.poolChemistryTarget.findUnique({ where: { propertyId_facilityType: { propertyId: input.propertyId, facilityType: facility.type } } });
     const targets = targetFor(facility.type, targetOverride);
     const evaluation = evaluateChemistry(input, targets, facility, propertyChemicals);
@@ -758,7 +757,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
         updatedById: request.currentUser?.id,
         safetyChecks: { create: safetyChecks.map((check, index) => ({ label: check.label, value: check.value, notes: check.notes ?? null, sortOrder: check.sortOrder ?? index })) },
         chemicalAdditions: {
-          create: (input.chemicalAdditions ?? []).map((addition) => {
+          create: chemicalAdditions.map((addition) => {
             const normalized = normalizeChemicalAdditionStorage(addition);
             return {
               chemicalId: addition.chemicalId ?? null,
@@ -817,7 +816,6 @@ export async function poolLogRoutes(app: FastifyInstance) {
       },
       include: { property: true, facility: true, safetyChecks: true, chemicalAdditions: true, attachments: true },
       orderBy: [{ logDate: "desc" }, { createdAt: "desc" }],
-      take: 250,
     });
     const scopeLabel = await reportScopeLabel(query.propertyId);
     const reviewCount = entries.filter((entry) => (entry.evaluationJson as { status?: string } | null)?.status === "REVIEW" || entry.safetyChecks.some((check) => check.value === "FAIL")).length;
@@ -878,7 +876,6 @@ export async function poolLogRoutes(app: FastifyInstance) {
       },
       include: { property: true, facility: true, safetyChecks: true, chemicalAdditions: true, attachments: true },
       orderBy: [{ logDate: "desc" }, { createdAt: "desc" }],
-      take: 250,
     });
     const scopeLabel = await reportScopeLabel(query.propertyId);
     const reviewCount = entries.filter((entry) => (entry.evaluationJson as { status?: string } | null)?.status === "REVIEW" || entry.safetyChecks.some((check) => check.value === "FAIL")).length;
@@ -1032,7 +1029,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
         ];
       }),
     ];
-    const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
+    const csv = stringify(rows, { escape_formulas: true });
     reply.header("content-type", "text/csv; charset=utf-8");
     reply.header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-pool-log.csv`)}"`);
     return csv;

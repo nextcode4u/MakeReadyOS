@@ -12,6 +12,8 @@ import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../li
 const cylinderCategories = ["VIRGIN", "CLEAN_RECOVERY", "DIRTY_RECOVERY"] as const;
 const cylinderStatuses = ["ACTIVE", "EMPTY_PENDING_RECOVERY", "ARCHIVED"] as const;
 const transactionTypes = ["VIRGIN_CHARGE", "CLEAN_RECOVERY", "DIRTY_RECOVERY", "FINAL_RECOVERY"] as const;
+const numericReading = z.union([z.number(), z.string().trim().min(1)]);
+const weightReading = numericReading.pipe(z.coerce.number().finite().min(0).max(10000));
 
 export const refrigerantTypeSchema = z.object({
   name: z.string().trim().min(2).max(40),
@@ -23,10 +25,10 @@ export const refrigerantCylinderSchema = z.object({
   identifier: z.string().trim().min(1).max(120),
   refrigerantTypeId: z.string(),
   category: z.enum(cylinderCategories),
-  tankSize: z.coerce.number().positive().max(10000),
-  currentWeight: z.coerce.number().min(0).max(10000),
-  tareWeight: z.coerce.number().min(0).max(10000).nullable().optional(),
-  waterCapacity: z.coerce.number().min(0).max(10000).nullable().optional(),
+  tankSize: numericReading.pipe(z.coerce.number().finite().positive().max(10000)),
+  currentWeight: weightReading,
+  tareWeight: weightReading.nullable().optional(),
+  waterCapacity: weightReading.nullable().optional(),
   status: z.enum(cylinderStatuses).optional().default("ACTIVE"),
   notes: z.string().trim().max(2000).nullable().optional(),
   dispositionNotes: z.string().trim().max(2000).nullable().optional(),
@@ -44,8 +46,8 @@ export const refrigerantTransactionSchema = z.object({
   refrigerantTypeId: z.string(),
   sourceCylinderId: z.string().optional(),
   recoveryCylinderId: z.string().optional(),
-  startWeight: z.coerce.number().min(0).max(10000),
-  endWeight: z.coerce.number().min(0).max(10000),
+  startWeight: weightReading,
+  endWeight: weightReading,
   occurredAt: z.coerce.date().optional(),
   notes: z.string().trim().max(2000).nullable().optional(),
 });
@@ -124,7 +126,9 @@ function cylinderMetrics<T extends { category: string; tankSize: number; current
   return {
     safeCapacity,
     fillPercent: fillPercent(safeCapacity, trackedWeight),
-    remainingCapacity: Math.max(0, Number((safeCapacity - trackedWeight).toFixed(2))),
+    remainingCapacity: cylinder.category === "VIRGIN"
+      ? Math.max(0, trackedWeight)
+      : Math.max(0, Number((safeCapacity - trackedWeight).toFixed(2))),
   };
 }
 
@@ -284,6 +288,8 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
     waterCapacity: number | null;
     finalRecoveryCompleted: boolean;
     notes: string | null;
+    dispositionNotes?: string | null;
+    archivedAt?: Date | null;
     refrigerantType: { name: string };
     }) => ({
     rowType: "CYLINDER",
@@ -300,6 +306,8 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
     waterCapacity: tank.waterCapacity,
     finalRecoveryCompleted: tank.finalRecoveryCompleted,
     notes: tank.notes ?? "",
+    dispositionNotes: tank.dispositionNotes ?? "",
+    archivedAt: tank.archivedAt?.toISOString() ?? "",
   });
   const transactionRow = (entry: {
     occurredAt: Date;
@@ -345,8 +353,7 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
   }
 
   if (report === "compliance") {
-    const result = await complianceIssues(propertyIds);
-    const propertyLabels = await resolvePropertyLabels(result.transactions.map((entry) => entry.propertyId));
+    const result = await complianceIssues(propertyIds, true);
     return [
       { key: "issues", title: "Compliance Issues", rows: result.issues.map(complianceRow) },
       {
@@ -366,7 +373,12 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
   }
 
   if (report === "fullAudit") {
-    const result = await complianceIssues(propertyIds);
+    const result = await complianceIssues(propertyIds, true, true);
+    const legacyLogs = await prisma.refrigerantLog.findMany({
+      where: { propertyId: propertyIds === null ? undefined : { in: propertyIds } },
+      orderBy: { loggedAt: "desc" },
+    });
+    const propertyLabels = await resolvePropertyLabels([...result.transactions, ...legacyLogs, ...result.leakFlags].map((entry) => entry.propertyId));
     const scopeLabel = await refrigerantReportScopeLabel(propertyIds);
     const activeVirginCount = result.cylinders.filter((tank) => tank.category === "VIRGIN" && tank.status === "ACTIVE").length;
     const activeRecoveryCount = result.cylinders.filter((tank) => tank.category !== "VIRGIN" && tank.status === "ACTIVE").length;
@@ -379,18 +391,39 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
         rows: [{
           rowType: "SUMMARY",
           accessibleProperties: scopeLabel,
+          inventoryScope: "Shared cylinder inventory across properties",
           totalCylinders: result.cylinders.length,
           activeVirginTanks: activeVirginCount,
           activeRecoveryTanks: activeRecoveryCount,
           totalTransactions: result.transactions.length,
+          legacyRecords: legacyLogs.length,
           chargeTransactions: chargeTransactions.length,
           recoveryTransactions: recoveryTransactions.length,
-          activeLeakFlags: result.leakFlags.length,
+          activeLeakFlags: result.leakFlags.filter((flag) => flag.status === "ACTIVE").length,
+          totalLeakFlags: result.leakFlags.length,
           complianceIssues: result.issues.length,
         }],
       },
       { key: "cylinders", title: "Cylinder Inventory", rows: result.cylinders.map(tankRow) },
       { key: "transactions", title: "All Refrigerant Transactions", rows: result.transactions.map((entry) => transactionRow(entry, propertyLabels)) },
+      {
+        key: "legacy-logs",
+        title: "Legacy Refrigerant Logs (Separate From Transaction Totals)",
+        rows: legacyLogs.map((entry) => ({
+          rowType: "LEGACY_LOG",
+          property: propertyLabels.get(entry.propertyId) ?? entry.propertyId,
+          unitNumber: entry.systemUnit,
+          date: entry.loggedAt.toISOString(),
+          refrigerantType: entry.refrigerantType,
+          cylinderSerialNumber: entry.cylinderSerialNumber ?? "",
+          startingWeight: entry.startingWeight,
+          amountAdded: entry.amountAdded,
+          amountRecovered: entry.amountRecovered,
+          currentBalance: entry.currentBalance,
+          user: entry.tech ?? "",
+          notes: entry.notes ?? "",
+        })),
+      },
       {
         key: "unit-history",
         title: "Unit Transaction History",
@@ -399,6 +432,7 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
           .map((entry) => ({
             rowType: "UNIT_HISTORY",
             unitNumber: entry.unitNumber ?? "",
+            property: entry.propertyId ? (propertyLabels.get(entry.propertyId) ?? entry.propertyId) : "",
             date: entry.occurredAt.toISOString(),
             transactionType: entry.transactionType,
             refrigerantType: entry.refrigerantType.name,
@@ -415,11 +449,14 @@ async function refrigerantReportSections(report: RefrigerantReportKind, property
         rows: result.leakFlags.map((flag) => ({
           rowType: "LEAK_FLAG",
           unitNumber: flag.unitNumber,
+          property: flag.propertyId ? (propertyLabels.get(flag.propertyId) ?? flag.propertyId) : "",
           refrigerantType: flag.refrigerantType?.name ?? "",
           level: flag.level,
           status: flag.status,
           reason: flag.reason,
           lastDetectedAt: flag.lastDetectedAt.toISOString(),
+          dismissedAt: flag.dismissedAt?.toISOString() ?? "",
+          dismissalNotes: flag.dismissalNotes ?? "",
         })),
       },
       { key: "compliance", title: "Compliance Issues", rows: result.issues.map(complianceRow) },
@@ -558,17 +595,17 @@ async function evaluateLeakFlag(input: {
   return flag;
 }
 
-async function complianceIssues(propertyIds: string[] | null) {
+async function complianceIssues(propertyIds: string[] | null, completeHistory = false, includeDismissedFlags = false) {
   const [cylinders, transactions, leakFlags] = await Promise.all([
     prisma.refrigerantCylinder.findMany({ include: { refrigerantType: true } }),
     prisma.refrigerantTransaction.findMany({
       where: { propertyId: propertyIds === null ? undefined : { in: propertyIds } },
       include: { refrigerantType: true, sourceCylinder: true, recoveryCylinder: true },
       orderBy: { occurredAt: "desc" },
-      take: 1000,
+      take: completeHistory ? undefined : 1000,
     }),
     prisma.refrigerantLeakFlag.findMany({
-      where: { status: "ACTIVE", propertyId: propertyIds === null ? undefined : { in: propertyIds } },
+      where: { status: includeDismissedFlags ? undefined : "ACTIVE", propertyId: propertyIds === null ? undefined : { in: propertyIds } },
       include: { refrigerantType: true },
       orderBy: { lastDetectedAt: "desc" },
     }),
@@ -599,7 +636,7 @@ async function complianceIssues(propertyIds: string[] | null) {
     ...transactions
       .filter((entry) => !Number.isFinite(entry.startWeight) || !Number.isFinite(entry.endWeight) || entry.amount < 0)
       .map((entry) => ({ severity: "HIGH", type: "WEIGHT_ERROR", message: `${entry.transactionType} on ${entry.unitNumber ?? "unknown unit"} has invalid weights.`, transactionId: entry.id })),
-    ...leakFlags.map((flag) => ({ severity: flag.level === "MANAGER_REVIEW_REQUIRED" ? "HIGH" : "MEDIUM", type: "REPEATED_ADDITIONS", message: `${flag.unitNumber}: ${flag.reason}`, leakFlagId: flag.id })),
+    ...leakFlags.filter((flag) => flag.status === "ACTIVE").map((flag) => ({ severity: flag.level === "MANAGER_REVIEW_REQUIRED" ? "HIGH" : "MEDIUM", type: "REPEATED_ADDITIONS", message: `${flag.unitNumber}: ${flag.reason}`, leakFlagId: flag.id })),
   ];
   return { issues, cylinders, transactions, leakFlags };
 }
@@ -815,9 +852,32 @@ export async function refrigerantRoutes(app: FastifyInstance) {
     if (!requireRefrigerantAccess(request, reply, "edit")) return;
     const input = refrigerantTransactionSchema.parse(request.body);
     if (!(await assertPropertyScope(request, reply, input.propertyId))) return;
+    if (input.unitId) {
+      const unit = await prisma.unit.findUnique({ where: { id: input.unitId }, select: { propertyId: true, number: true } });
+      if (!unit) return reply.code(404).send({ message: "Unit not found." });
+      if (!(await assertPropertyScope(request, reply, unit.propertyId))) return;
+      if (input.propertyId && input.propertyId !== unit.propertyId) {
+        return reply.code(400).send({ message: "Selected unit does not belong to the selected property." });
+      }
+      input.propertyId = unit.propertyId;
+      input.unitNumber = unit.number;
+    }
+    if (input.propertyId && !(await prisma.property.findUnique({ where: { id: input.propertyId }, select: { id: true } }))) {
+      return reply.code(404).send({ message: "Property not found." });
+    }
+    const isRecovery = transactionType === "CLEAN_RECOVERY" || transactionType === "DIRTY_RECOVERY";
+    if (isRecovery && input.sourceCylinderId) {
+      return reply.code(400).send({ message: "Recovery readings must identify only the receiving recovery tank." });
+    }
+    if (transactionType === "VIRGIN_CHARGE" && input.recoveryCylinderId) {
+      return reply.code(400).send({ message: "Charge readings must identify only the source tank." });
+    }
+    if (input.sourceCylinderId && input.sourceCylinderId === input.recoveryCylinderId) {
+      return reply.code(400).send({ message: "Source and recovery tanks must be different." });
+    }
     const amount = weightAmount(transactionType, input.startWeight, input.endWeight);
     if (amount < 0) {
-      return reply.code(400).send({ message: transactionType.includes("RECOVERY") ? "Recovery end weight must be greater than or equal to start weight." : "Charge/final recovery end weight must be less than or equal to start weight." });
+      return reply.code(400).send({ message: isRecovery ? "Recovery end weight must be greater than or equal to start weight." : "Charge/final recovery end weight must be less than or equal to start weight." });
     }
     if ((transactionType === "VIRGIN_CHARGE" || transactionType === "FINAL_RECOVERY") && !input.sourceCylinderId) {
       return reply.code(400).send({ message: transactionType === "VIRGIN_CHARGE" ? "Select a source tank." : "Select a source virgin tank." });
@@ -844,11 +904,26 @@ export async function refrigerantRoutes(app: FastifyInstance) {
       if (transactionType === "FINAL_RECOVERY" && source.category !== "VIRGIN") {
         return reply.code(400).send({ message: "Final recovery source must be a virgin tank." });
       }
+      if (transactionType === "FINAL_RECOVERY" && (source.status === "ARCHIVED" || source.finalRecoveryCompleted)) {
+        return reply.code(400).send({ message: "This tank is archived or its final recovery has already been recorded." });
+      }
+      if (transactionType === "FINAL_RECOVERY" && source.refrigerantTypeId !== input.refrigerantTypeId) {
+        return reply.code(400).send({ message: "Source tank refrigerant type must match the final recovery type." });
+      }
     }
     if (input.recoveryCylinderId && (transactionType === "CLEAN_RECOVERY" || transactionType === "DIRTY_RECOVERY" || transactionType === "FINAL_RECOVERY")) {
       const recovery = await prisma.refrigerantCylinder.findUnique({ where: { id: input.recoveryCylinderId } });
       if (!recovery) {
         return reply.code(404).send({ message: "Recovery tank not found." });
+      }
+      if (recovery.status !== "ACTIVE" || !["CLEAN_RECOVERY", "DIRTY_RECOVERY"].includes(recovery.category)) {
+        return reply.code(400).send({ message: "Select an active recovery tank, not a virgin or archived tank." });
+      }
+      if (isRecovery && recovery.category !== transactionType) {
+        return reply.code(400).send({ message: "Recovery tank category must match clean or dirty recovery." });
+      }
+      if (recovery.category === "CLEAN_RECOVERY" && recovery.refrigerantTypeId !== input.refrigerantTypeId) {
+        return reply.code(400).send({ message: "Clean recovery tank refrigerant type must match the selected type." });
       }
       const projectedWeight = transactionType === "FINAL_RECOVERY"
         ? recovery.currentWeight + amount
@@ -970,7 +1045,8 @@ export async function refrigerantRoutes(app: FastifyInstance) {
     const propertyIds = query.propertyId ? [query.propertyId] : scopedAllowedPropertyIds(request);
     const scopeLabel = await refrigerantReportScopeLabel(propertyIds);
     const rows = await refrigerantExportRows(query.report, propertyIds);
-    const csv = stringify(rows, { header: true });
+    const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+    const csv = stringify(rows, { header: true, columns, escape_formulas: true });
     reply.header("content-type", "text/csv; charset=utf-8");
     reply.header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-refrigerant-${query.report}.csv`)}"`);
     return csv;
@@ -988,10 +1064,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
     const scopeLabel = await refrigerantReportScopeLabel(propertyIds);
     const rows = await refrigerantExportRows(query.report, propertyIds);
     const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
-    const lines = [
-      headers.join("\t"),
-      ...rows.map((row) => headers.map((header) => String((row as Record<string, unknown>)[header] ?? "")).join("\t")),
-    ].join("\n");
+    const lines = stringify(rows, { header: true, columns: headers, delimiter: "\t", escape_formulas: true });
     reply.header("content-type", "application/vnd.ms-excel; charset=utf-8");
     reply.header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-refrigerant-${query.report}.xls`)}"`);
     return lines;

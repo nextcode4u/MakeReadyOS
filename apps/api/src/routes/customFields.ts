@@ -1,6 +1,7 @@
 import { CustomFieldType, Prisma } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { booleanFlag } from "../lib/booleanFlag.js";
 import { allowedPropertyIds, requireManagerOrAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
@@ -192,8 +193,8 @@ export async function customFieldRoutes(app: FastifyInstance) {
   app.get("/custom-fields", async (request, reply) => {
     if (!(await requireFieldManager(request, reply))) return;
     const query = z.object({
-      includeArchived: z.coerce.boolean().default(false),
-      includeDeleted: z.coerce.boolean().default(false),
+      includeArchived: booleanFlag.default(false),
+      includeDeleted: booleanFlag.default(false),
     }).parse(request.query);
     const fields = await prisma.customField.findMany({
       where: {

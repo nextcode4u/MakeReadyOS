@@ -1,6 +1,6 @@
 # Refrigerant
 
-The Refrigerant workspace provides simple EPA 608-friendly refrigerant tracking for multifamily maintenance teams. It is built for fast field entry, accountability, auditability, and exportability without becoming a full asset-management or accounting system.
+The Refrigerant workspace provides operational refrigerant tracking for multifamily maintenance teams. It supports field entry, accountability, and reporting; it does not certify regulatory compliance or replace cylinder manufacturer instructions.
 
 ## Scope
 
@@ -8,7 +8,7 @@ The module tracks:
 
 - Administrator-managed refrigerant types such as `R22`, `R410A`, `R454B`, `R32`, and `R134a`.
 - Virgin cylinders, clean recovery cylinders, and dirty recovery cylinders.
-- Unit charge entries from virgin cylinders.
+- Unit charge entries from virgin or clean recovery cylinders.
 - Clean/dirty recovery entries into recovery cylinders.
 - Final recovery from empty virgin cylinders before archival.
 - Repeated unit additions that may indicate a leak.
@@ -45,13 +45,17 @@ Only one active virgin tank is allowed per refrigerant type by default. Managers
 
 Virgin tanks marked empty move to `Empty Pending Recovery`. A virgin tank cannot be safely archived until final recovery is recorded.
 
-Recovery tanks now track additional stamped reference values for `TC/Tare` and `WC/Water Capacity`. Operational fill warnings use the usable recovery ceiling instead of the raw nominal tank size:
+Recovery tanks track `TW` (tare/empty cylinder weight) and `WC` (water capacity). `TC` is not a field to use for tare. Current implementation:
 
 ```text
-usable recovery fill = tank size x 0.80
+net contents = max(0, gross scale weight - recorded tare)
+estimated recovery ceiling = (WC when positive, otherwise nominal tank size) x 0.80
+recovery headroom = max(0, estimated recovery ceiling - net contents)
 ```
 
-That keeps the workspace aligned with the field rule that recovery cylinders should only be filled to 80% of their usable refrigerant capacity, while still recording the stamped `TC/WC` values operators may need during inspection or reclaim handling.
+This is an estimate, not a verified safe fill weight for every refrigerant. The current calculation does not model liquid density, temperature, or cylinder compatibility. Manufacturer guidance calls for refrigerant-specific density at the relevant temperature; use the manufacturer's limit and a scale, not this estimate alone. See [Appion cylinder guidance](https://appiontools.com/blog/fast-recovery-series-cylinders/). A validated replacement is tracked in the reliability queue.
+
+For a known-full virgin cylinder, nominal size is the initial net refrigerant amount. Initial gross weight minus that amount gives estimated tare. A partly used cylinder cannot establish tare from nominal size alone. Virgin `remainingCapacity` means net refrigerant left, not free space; recovery `remainingCapacity` means headroom. Low-virgin warnings use remaining contents.
 
 ## Weight Calculations
 
@@ -91,6 +95,10 @@ The overview highlights:
 ## Exports And Backup
 
 Refrigerant reporting now includes CSV exports for spreadsheet review, Excel-compatible tab exports, printable HTML, and direct PDF output for compliance handoff.
+
+Full audit includes all scoped modern transactions (no 1,000-row ceiling), unit history with property labels, shared cylinder inventory including archived/disposition information, active and dismissed leak flags, and compliance issues. Legacy `RefrigerantLog` entries appear separately and are not added to modern transaction totals. Property filters restrict logs, transactions, and flags; cylinder inventory is shared across properties because cylinders do not have property ownership fields.
+
+CSV includes columns from every report section. Excel-compatible output is quoted tab-separated text, not an XLSX workbook. Spreadsheet formula prefixes are escaped. PDF rendering uses Playwright Core with the installed Chromium executable or `CHROMIUM_PATH`.
 
 Native MakeReadyOS backup/export includes safe refrigerant operational data:
 

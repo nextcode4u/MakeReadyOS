@@ -242,6 +242,9 @@ export async function riskRoutes(app: FastifyInstance) {
       reply.code(403);
       return { message: "Property access denied for one or more items" };
     }
+    if (payload.propertyId && items.some((item) => item.propertyId !== payload.propertyId)) {
+      return reply.code(400).send({ message: "All selected items must belong to the selected property." });
+    }
     const results: Array<{ item: { id: string }; riskScore: number; riskLevel: RiskLevel; riskReasons: RiskReason[] }> = [];
     for (const item of items) {
       const result = await evaluateAndPersistItemRisk(item.id, { notify: payload.notify });

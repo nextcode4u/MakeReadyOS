@@ -32,12 +32,20 @@ export function SearchSelect({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const clearingForSearch = useRef(false);
 
   const selectedOption = useMemo(() => options.find((option) => option.value === value) ?? null, [options, value]);
+  const selectedLabel = selectedOption?.label ?? "";
 
   useEffect(() => {
-    setQuery(selectedOption?.label ?? "");
-  }, [selectedOption]);
+    // Clearing the selected ID while typing must not erase the new search text.
+    if (clearingForSearch.current && !value) {
+      clearingForSearch.current = false;
+      return;
+    }
+    clearingForSearch.current = false;
+    setQuery(selectedLabel);
+  }, [value, selectedLabel]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -75,7 +83,10 @@ export function SearchSelect({
           onChange={(event) => {
             setQuery(event.target.value);
             if (!open) setOpen(true);
-            if (value) onChange("");
+            if (value) {
+              clearingForSearch.current = true;
+              onChange("");
+            }
           }}
           onKeyDown={(event) => {
             if (event.key === "Escape") {

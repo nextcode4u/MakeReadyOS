@@ -53,7 +53,7 @@ For a fuller feature walkthrough, see [docs/PRODUCT_OVERVIEW.md](docs/PRODUCT_OV
 
 ## Stack
 
-- `apps/api`: Node 20, Fastify 5, Prisma, PostgreSQL
+- `apps/api`: Node 24 LTS, Fastify 5, Prisma, PostgreSQL
 - `apps/web`: React, Vite, TypeScript
 - `docker-compose.yml`: web, API, and PostgreSQL services
 - Root scripts for build, test, E2E, backups, automation runs, analytics snapshots, webhook delivery runs, and diagnostics

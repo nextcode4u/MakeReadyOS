@@ -2034,6 +2034,12 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
         <div className="pool-grid projects-work-grid">
           <section className="pool-card">
             <div className="pm-task-list">
+              {recordsQuery.isError ? (
+                <div role="alert">
+                  <p>{isSpanish ? "No se pudieron cargar los registros de proyectos." : "Project records could not be loaded."}</p>
+                  <button type="button" className="button button-secondary" disabled={recordsQuery.isFetching} onClick={() => void recordsQuery.refetch()}>{isSpanish ? "Reintentar" : "Retry records"}</button>
+                </div>
+              ) : null}
               {recordsQuery.isLoading ? <StatusState title={isSpanish ? "Cargando registros" : "Loading records"} description={isSpanish ? "Cargando proyectos y recomendaciones." : "Fetching project and recommendation records."} /> : visibleRecords.map((record) => (
                 <button key={record.id} type="button" className="projects-record-card" onClick={() => setSelectedRecordId(record.id)}>
                   <div className="projects-record-thumb">
@@ -2058,7 +2064,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                   </div>
                 </button>
               ))}
-              {!recordsQuery.isLoading && visibleRecords.length === 0 ? <p className="muted">{isSpanish ? "Todavía no hay registros que coincidan con esta vista." : "No records match this bid view yet."}</p> : null}
+              {!recordsQuery.isLoading && !recordsQuery.isError && visibleRecords.length === 0 ? <p className="muted">{isSpanish ? "Todavía no hay registros que coincidan con esta vista." : "No records match this view yet."}</p> : null}
             </div>
           </section>
           <section className="pool-card">

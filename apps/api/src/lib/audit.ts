@@ -1,5 +1,6 @@
 import type { FastifyRequest } from "fastify";
 import { prisma } from "./prisma.js";
+import { clientIpAddress } from "./auth.js";
 
 export async function writeAuditLog(options: {
   request?: FastifyRequest;
@@ -11,11 +12,7 @@ export async function writeAuditLog(options: {
   message: string;
   metadata?: Record<string, unknown>;
 }) {
-  const forwarded = options.request?.headers["x-forwarded-for"];
-  const ipAddress =
-    typeof forwarded === "string"
-      ? forwarded.split(",")[0]?.trim()
-      : options.request?.ip ?? null;
+  const ipAddress = options.request ? clientIpAddress(options.request) : null;
 
   await prisma.auditLog.create({
     data: {

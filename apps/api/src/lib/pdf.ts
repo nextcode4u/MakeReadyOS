@@ -1,5 +1,5 @@
 import { access } from "node:fs/promises";
-import puppeteer from "puppeteer-core";
+import { chromium } from "playwright-core";
 
 async function detectChromiumPath() {
   const configured = process.env.CHROMIUM_PATH;
@@ -17,7 +17,7 @@ async function detectChromiumPath() {
 
 export async function renderPdfFromHtml(html: string, options?: { headerTemplate?: string; footerTemplate?: string }) {
   const executablePath = await detectChromiumPath();
-  const browser = await puppeteer.launch({
+  const browser = await chromium.launch({
     executablePath,
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],

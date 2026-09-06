@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Source only committed defaults. Never inherit a deployed database or upload path.
+set -a
+. "$ROOT_DIR/.env.example"
+set +a
+export COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
+export COMPOSE_ENV_FILES="$ROOT_DIR/.env.example"
+export COMPOSE_PROJECT_NAME="makereadyos-${MROS_TEST_KIND:-test}-$$"
+export POSTGRES_DB=makereadyos
+export POSTGRES_USER=makeready
+export POSTGRES_PASSWORD='LocalTestPostgres!23456'
+export DATABASE_URL='postgresql://makeready:LocalTestPostgres!23456@db:5432/makereadyos?schema=public'
+export UPLOAD_DIR=/app/uploads
+export UPLOADS_HOST_PATH=uploads_data
+export ADMIN_USERNAME=testadmin
+export ADMIN_EMAIL=testadmin@example.com
+export ADMIN_PASSWORD='TestAdmin!23456Secure'
+export DEMO_TECH_EMAIL=tech@example.com
+export DEMO_TECH_PASSWORD='MakeReadyTech!23456'
+export SEED_DEMO_DATA=true
+export SMTP_HOST=
+export SMTP_USER=
+export SMTP_PASS=
+export SMTP_FROM=
+export SMTP_REPLY_TO=

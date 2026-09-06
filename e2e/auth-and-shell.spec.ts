@@ -1,10 +1,420 @@
 import { expect, test, type Page } from "@playwright/test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import ts from "../apps/web/node_modules/typescript/lib/typescript.js";
 
 const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
 const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
+
+for (const [tab, endpoint, empty, responseKey] of [
+  ["Calendar", "calendar", "No tasks scheduled in this range.", "tasks"],
+  ["Tasks", "tasks", "No PM tasks found", "tasks"],
+  ["Templates", "templates", "No PM templates created yet.", "templates"],
+  ["History", "history", "No PM history found.", "tasks"],
+]) {
+  test(`PM ${tab} failures show retry instead of empty records`, async ({ page }) => {
+    await login(page, adminEmail, adminPassword);
+    let fail = true;
+    await page.route(`**/api/pm/${endpoint}?**`, async route => {
+      await route.fulfill(fail
+        ? { status: 503, json: { message: "Temporary PM outage" } }
+        : { json: { [responseKey]: [] } });
+    });
+    await page.getByTestId("module-rail-pm").click();
+    await page.setViewportSize({ width: 412, height: 915 });
+    const panel = page.getByTestId("preventive-maintenance-panel");
+    await panel.locator(".module-tabs").getByRole("button", { name: tab, exact: true }).click();
+    await expect(panel.getByText(empty, { exact: true })).toHaveCount(0);
+    await expect(panel.getByRole("alert")).toContainText("PM records could not be loaded.");
+    await expect(panel.getByText(empty, { exact: true })).toHaveCount(0);
+    fail = false;
+    await panel.getByRole("button", { name: "Retry records", exact: true }).click();
+    await expect(panel.getByText(empty, { exact: true })).toBeVisible();
+    await expect(panel.getByRole("alert")).toHaveCount(0);
+  });
+}
+
+test("project list failures show retry instead of a false empty state", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  let fail = true;
+  await page.route("**/api/projects/records?**", async route => {
+    await route.fulfill(fail
+      ? { status: 503, json: { message: "Temporary project outage" } }
+      : { json: { records: [] } });
+  });
+  await page.getByTestId("module-rail-projects").click();
+  await page.locator(".projects-panel .module-tabs").getByRole("button", { name: "Projects", exact: true }).click();
+  await page.setViewportSize({ width: 412, height: 915 });
+  await expect(page.getByText("No records match this view yet.", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("alert").filter({ hasText: "Project records could not be loaded" })).toBeVisible();
+  await expect(page.getByText("No records match this view yet.", { exact: true })).toHaveCount(0);
+  fail = false;
+  await page.getByRole("button", { name: "Retry records", exact: true }).click();
+  await expect(page.getByText("No records match this view yet.", { exact: true })).toBeVisible();
+});
+
+test("pool history failures are not presented as empty records and can be retried", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  let fail = true;
+  await page.route("**/api/pool/entries**", async route => {
+    await route.fulfill(fail
+      ? { status: 503, json: { message: "Temporary history outage" } }
+      : { json: { entries: [], pagination: { total: 0, hasMore: false } } });
+  });
+  await page.getByTestId("module-rail-pool").click();
+  await page.setViewportSize({ width: 412, height: 915 });
+  await page.getByTestId("pool-tab-history").click();
+  await expect(page.getByText("No pool log entries found.", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("alert").filter({ hasText: "Pool history could not be loaded" })).toBeVisible();
+  await expect(page.getByText("No pool log entries found.", { exact: true })).toHaveCount(0);
+  fail = false;
+  await page.getByRole("button", { name: "Retry history", exact: true }).click();
+  await expect(page.getByText("No pool log entries found.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "Pool history could not be loaded" })).toHaveCount(0);
+});
+
+test("common-area quick capture checks later pages independently of the active list", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const offsets: number[] = [];
+  let switchedAccount = false;
+  let releaseLookup!: () => void;
+  const pendingLookup = new Promise<void>(resolve => { releaseLookup = resolve; });
+  await page.route("**/api/lease-compliance/issues?**", async route => {
+    const params = new URL(route.request().url()).searchParams;
+    const offset = Number(params.get("offset"));
+    if (params.get("commonAreasOnly") !== "true") {
+      await route.fulfill({ json: { issues: [], pagination: { total: 0, hasMore: false } } });
+      return;
+    }
+    if (switchedAccount) {
+      await pendingLookup;
+      await route.fulfill({ json: { issues: [], pagination: { total: 0, hasMore: false } } });
+      return;
+    }
+    offsets.push(offset);
+    const issue = {
+      id: `common-${offset}`, propertyId: params.get("propertyId"), unitId: null,
+      building: "Clubhouse", area: "Pool", issueTypeName: offset ? "QA Gate" : "QA Deck",
+      status: "Open", isArchived: false, priority: "Normal", noticeStage: "None",
+      createdAt: "2026-09-06T12:00:00Z", updatedAt: "2026-09-06T12:00:00Z",
+      photos: [], notes: [], persistenceChecks: [], noticeActions: [], tags: [],
+    };
+    await route.fulfill({ json: { issues: [issue], pagination: { total: 2, offset, limit: 1, hasMore: offset === 0 } } });
+  });
+  await page.getByTestId("module-rail-lease-compliance").click();
+  await page.setViewportSize({ width: 412, height: 915 });
+  await page.getByTestId("lease-quick-capture-building").fill("Clubhouse");
+  await page.getByTestId("lease-quick-capture-area").fill("Pool");
+  await expect(page.getByTestId("lease-repeat-card")).toHaveCount(2);
+  await expect(page.getByTestId("lease-repeat-card").filter({ hasText: "QA Gate" })).toBeVisible();
+  expect(offsets).toEqual([0, 1]);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByTestId("account-menu").click();
+  await page.getByTestId("logout-button").click();
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  switchedAccount = true;
+  await page.getByTestId("login-email").fill(techEmail);
+  await page.getByTestId("login-password").fill(techPassword);
+  await page.getByTestId("login-submit").click();
+  await expect(page.getByTestId("property-filter")).toBeVisible();
+  await page.getByTestId("module-rail-lease-compliance").click();
+  await page.getByTestId("lease-quick-capture-building").fill("Clubhouse");
+  await page.getByTestId("lease-quick-capture-area").fill("Pool");
+  await expect(page.getByText("Checking this location's existing issues...", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("lease-repeat-card")).toHaveCount(0);
+  releaseLookup();
+  await expect(page.getByText("Checking this location's existing issues...", { exact: true })).toHaveCount(0);
+});
+
+test("lease quick capture checks every page for the selected unit independently of list filters", async ({ page }) => {
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const sessionResponse = await session;
+  const origin = new URL(sessionResponse.url()).origin;
+  const { csrfToken } = await sessionResponse.json();
+  const unitsResponse = await page.request.get(`${origin}/api/operations/units`);
+  expect(unitsResponse.ok()).toBeTruthy();
+  const { units } = await unitsResponse.json();
+  const unit = units.find((entry: { number: string; property: { code: string } }) => /^(?:TA )?284$/.test(entry.number) && entry.property.code === "TA");
+  expect(unit).toBeTruthy();
+  const ids: string[] = [];
+  for (const issueTypeName of ["QA Blinds", "QA Patio"]) {
+    const response = await page.request.post(`${origin}/api/lease-compliance/issues`, {
+      headers: { "x-csrf-token": csrfToken },
+      data: { propertyId: unit.propertyId, unitId: unit.id, issueTypeName, description: "QA independent unit lookup" },
+    });
+    expect(response.status(), await response.text()).toBe(201);
+    ids.push((await response.json()).issue.id);
+  }
+  const existing = await page.request.get(`${origin}/api/lease-compliance/issues?unitId=${unit.id}`);
+  const fixtures = (await existing.json()).issues.filter((issue: { id: string }) => ids.includes(issue.id));
+  const offsets: number[] = [];
+  await page.route("**/api/lease-compliance/issues?**", async route => {
+    const params = new URL(route.request().url()).searchParams;
+    if (params.get("unitId") === unit.id) {
+      expect(params.has("q")).toBe(false);
+      expect(params.has("status")).toBe(false);
+      const offset = Number(params.get("offset"));
+      offsets.push(offset);
+      await route.fulfill({ json: { issues: fixtures.slice(offset, offset + 1), pagination: { total: 2, offset, limit: 1, hasMore: offset === 0 } } });
+    } else {
+      await route.fulfill({ json: { issues: [], pagination: { total: 0, offset: 0, limit: 200, hasMore: false } } });
+    }
+  });
+  await page.getByTestId("module-rail-lease-compliance").click();
+  await page.getByTestId("lease-compliance-panel").getByRole("combobox", { name: "Lease Compliance property", exact: true }).selectOption(unit.propertyId);
+  await page.setViewportSize({ width: 412, height: 915 });
+  await page.getByPlaceholder("Search unit...", { exact: true }).fill("284");
+  await page.getByRole("listbox").getByRole("button", { name: /^(?:TA )?284(?: \/|$)/ }).click();
+  await expect(page.getByTestId("lease-repeat-card")).toHaveCount(2);
+  await expect(page.getByTestId("lease-repeat-card").filter({ hasText: "QA Patio" })).toBeVisible();
+  await expect(page.getByTestId("lease-repeat-card").filter({ hasText: "QA Blinds" })).toBeVisible();
+  expect(offsets).toEqual([0, 1]);
+  const resolvedId = fixtures.find((issue: { issueTypeName: string }) => issue.issueTypeName === "QA Blinds").id;
+  await page.route(`**/api/lease-compliance/issues/${resolvedId}/resolve`, async route => {
+    const response = await route.fetch();
+    expect(response.ok()).toBeTruthy();
+    fixtures.find((issue: { id: string }) => issue.id === resolvedId).status = "Resolved";
+    await route.fulfill({ response });
+  });
+  await page.getByTestId("lease-repeat-card").filter({ hasText: "QA Blinds" }).getByRole("button", { name: "Mark Resolved", exact: true }).click();
+  await expect(page.getByTestId("lease-repeat-card")).toHaveCount(1);
+  await expect(page.getByTestId("lease-repeat-card")).toContainText("QA Patio");
+});
+
+test("rejected login stays inline, preserves inputs, and permits a successful retry", async ({ page }) => {
+  await page.goto("/");
+  let attempts = 0;
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/auth/login", async route => {
+    attempts++;
+    if (attempts === 1) {
+      await pending;
+      await route.fulfill({ status: 401, json: { message: "Invalid credentials" } });
+    } else await route.continue();
+  });
+  await page.getByTestId("login-email").fill(adminEmail);
+  await page.getByTestId("login-password").fill("wrong-password");
+  await page.getByTestId("login-submit").click();
+  await expect(page.getByTestId("login-submit")).toBeDisabled();
+  await page.locator(".login-form").dispatchEvent("submit");
+  await expect.poll(() => attempts).toBe(1);
+  release();
+  await expect(page.locator(".login-form").getByRole("alert")).toHaveText("Invalid credentials");
+  await expect(page.getByTestId("login-password")).toHaveValue("wrong-password");
+  await expect(page.locator("#app-error-notice")).toHaveCount(0);
+  await page.getByTestId("login-password").fill(adminPassword);
+  await page.getByTestId("login-submit").click();
+  await expect(page.getByTestId("board-table-view")).toBeVisible();
+  expect(attempts).toBe(2);
+});
+
+test("dashboard survives delayed analytics loading", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/analytics/summary**", async route => {
+    await pending;
+    await route.continue();
+  });
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.getByTestId("tab-dashboard").click();
+  await expect(page.getByTestId("analytics-panel")).toContainText("Loading snapshot-backed analytics");
+  release();
+  await expect(page.getByTestId("analytics-panel")).not.toContainText("Loading snapshot-backed analytics");
+  await expect(page.getByTestId("dashboard-panel")).toBeVisible();
+  await expect(page.locator("#app-error-notice")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("failed bulk archive keeps its selection and blocks duplicate confirmation", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  let requests = 0;
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/make-ready-items/batch", async route => {
+    requests++;
+    await pending;
+    await route.fulfill({ status: 503, json: { message: "Test archive unavailable" } });
+  });
+  await page.getByTestId("select-item-ta-284").check();
+  await page.getByTestId("batch-archive").click();
+  const confirm = page.getByTestId("confirm-dialog-confirm");
+  await confirm.click();
+  await expect(confirm).toBeDisabled();
+  await confirm.evaluate(element => element.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  await expect.poll(() => requests).toBe(1);
+  release();
+  await expect(page.getByTestId("confirm-dialog").getByRole("alert")).toHaveText("Test archive unavailable");
+  await expect(confirm).toBeEnabled();
+  await expect(page.getByTestId("select-item-ta-284")).toBeChecked();
+  await page.getByTestId("confirm-dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByTestId("board-search").fill("no-such-unit-for-selection-test");
+  await expect(page.getByTestId("batch-action-bar")).toHaveCount(0);
+  await page.getByTestId("board-search").fill("");
+  await expect(page.getByTestId("select-item-ta-284")).not.toBeChecked();
+  expect(requests).toBe(1);
+});
+
+test("literal translation keys have user-facing labels", () => {
+  const source = readFileSync("apps/web/src/lib/i18n.ts", "utf8");
+  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+  const dictionary: { t?: (language: string, key: string) => string } = {};
+  new Function("exports", compiled)(dictionary);
+  const missing: string[] = [];
+  function inspect(directory: string) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) inspect(path);
+      else if (/\.tsx?$/.test(entry.name)) {
+        const ast = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
+        function visit(node: ts.Node) {
+          if (ts.isCallExpression(node) && ["t", "tWithVars"].includes(node.expression.getText(ast))) {
+            for (const argument of node.arguments.slice(0, 2)) {
+              if (ts.isStringLiteral(argument) && argument.text.includes(".")) {
+                for (const language of ["en", "es"]) {
+                  if (dictionary.t!(language, argument.text) === argument.text) missing.push(`${path}: ${language} ${argument.text}`);
+                }
+              }
+            }
+          }
+          ts.forEachChild(node, visit);
+        }
+        visit(ast);
+      }
+    }
+  }
+  inspect("apps/web/src");
+  expect(missing).toEqual([]);
+});
+
+test("concurrent lease setup requests initialize defaults without duplicates", async ({ page }) => {
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const sessionResponse = await session;
+  const origin = new URL(sessionResponse.url()).origin;
+  const { csrfToken } = await sessionResponse.json();
+  const created = await page.request.post(`${origin}/api/operations/properties`, {
+    headers: { "x-csrf-token": csrfToken }, data: { code: `QALC${Date.now()}`, name: "QA Lease Defaults" },
+  });
+  expect(created.status(), await created.text()).toBe(201);
+  const { property } = await created.json();
+  const responses = await Promise.all(Array.from({ length: 10 }, () => page.request.get(`${origin}/api/lease-compliance/issue-types?propertyId=${property.id}`)));
+  let expectedNames: string[] | undefined;
+  for (const response of responses) {
+    expect(response.status(), await response.text()).toBe(200);
+    const { issueTypes } = await response.json();
+    const names = issueTypes.map((entry: { name: string }) => entry.name).sort();
+    expect(names.length).toBeGreaterThan(0);
+    expect(new Set(names).size).toBe(names.length);
+    if (expectedNames) expect(names).toEqual(expectedNames);
+    expectedNames = names;
+  }
+});
+
+test("pest and lease setup forms reset safely after asynchronous saves", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.route("**/api/pest/issues", route => route.request().method() === "POST" ? route.fulfill({ status: 201, json: { issue: { id: "test-issue" } } }) : route.continue());
+  await page.route("**/api/pest/vendors", route => route.request().method() === "POST" ? route.fulfill({ status: 201, json: { vendor: { id: "test-vendor" } } }) : route.continue());
+  await page.getByTestId("module-rail-pest").click();
+  await page.setViewportSize({ width: 412, height: 915 });
+  await page.getByTestId("pest-quick-add-area").fill("Test courtyard");
+  await page.getByTestId("pest-quick-add-description").fill("Test ants");
+  await page.getByTestId("pest-quick-add-submit").click();
+  await expect(page.getByTestId("pest-quick-add-description")).toHaveValue("");
+  await page.locator(".module-tabs").getByRole("button", { name: "Vendors", exact: true }).click();
+  const vendorName = page.locator('input[name="vendorName"]');
+  await vendorName.fill("Test vendor");
+  await page.locator("form").filter({ has: vendorName }).getByRole("button", { name: "Add Vendor", exact: true }).click();
+  await expect(vendorName).toHaveValue("");
+  await expect(page.locator("#app-error-notice")).toHaveCount(0);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByTestId("module-rail-lease-compliance").click();
+  await page.locator(".module-tabs").getByRole("button", { name: "Setup", exact: true }).click();
+  let saveSucceeds = false;
+  await page.route("**/api/lease-compliance/issue-types", route => route.request().method() === "POST"
+    ? route.fulfill({ status: saveSucceeds ? 201 : 400, json: saveSucceeds ? { issueType: { id: "test-type" } } : { message: "Test validation error" } })
+    : route.continue());
+  const name = page.locator('input[name="name"]');
+  const form = page.locator("form").filter({ has: name });
+  await name.fill("Test issue type");
+  await form.getByRole("button", { name: "Add Issue Type", exact: true }).click();
+  await expect(form.getByRole("alert")).toHaveText("Test validation error");
+  await expect(name).toHaveValue("Test issue type");
+  saveSucceeds = true;
+  await form.getByRole("button", { name: "Add Issue Type", exact: true }).click();
+  await expect(name).toHaveValue("");
+  expect(errors).toEqual([]);
+});
+
+test("runtime errors preserve drafts, escape details, and allow dismissal", async ({ page }) => {
+  await page.setViewportSize({ width: 412, height: 915 });
+  await page.setContent('<div id="root"><input aria-label="Draft" value="Keep this draft"></div>');
+  const compiled = ts.transpileModule(readFileSync("apps/web/src/lib/appErrors.ts", "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  await page.addScriptTag({ content: `(function(){const exports={};${compiled}\nexports.installAppErrorHandlers();})();` });
+  await page.evaluate(() => window.dispatchEvent(new ErrorEvent("error", { message: '<img src=x onerror="window.injected=true">' })));
+  await expect(page.getByLabel("Draft")).toHaveValue("Keep this draft");
+  await page.getByText("Error details", { exact: true }).click();
+  await expect(page.locator("#app-error-notice pre")).toContainText("<img");
+  await expect(page.locator("#app-error-notice img")).toHaveCount(0);
+  await page.evaluate(() => window.dispatchEvent(new PromiseRejectionEvent("unhandledrejection", { promise: Promise.resolve(), reason: "Second failure" })));
+  await expect(page.locator("#app-error-notice")).toHaveCount(1);
+  await expect(page.getByLabel("Draft")).toHaveValue("Keep this draft");
+  await page.getByText("Error details", { exact: true }).click();
+  await expect(page.locator("#app-error-notice pre")).toHaveText("Second failure");
+  await assertNoPageHorizontalOverflow(page);
+  page.once("dialog", dialog => dialog.dismiss());
+  await page.getByRole("button", { name: "Reload app" }).click();
+  await expect(page.getByLabel("Draft")).toHaveValue("Keep this draft");
+  await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("refrigerant failed saves retain drafts and failed history is not empty", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  let saveSucceeds = false;
+  let historySucceeds = false;
+  await page.route("**/api/refrigerant/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/overview")) return route.fulfill({ json: { types: [], summary: {}, recent: [] } });
+    if (path.endsWith("/cylinders")) return route.fulfill({ json: { cylinders: [] } });
+    if (path.endsWith("/history")) return route.fulfill({ status: historySucceeds ? 200 : 503, json: historySucceeds ? { transactions: [] } : { message: "History unavailable" } });
+    if (path.endsWith("/types") && route.request().method() === "POST") {
+      return route.fulfill({ status: saveSucceeds ? 200 : 400, json: saveSucceeds ? {} : { message: "Rejected test save" } });
+    }
+    return route.abort();
+  });
+  await page.getByTestId("module-rail-refrigerant").click();
+  const name = page.locator('input[name="name"]');
+  const chargeDraft = page.locator("form").filter({ has: page.locator('select[name="sourceCylinderId"]') }).locator('input[name="notes"]');
+  await chargeDraft.fill("Unsubmitted charge notes");
+  const form = page.locator("form").filter({ has: name });
+  await name.fill("R32 test");
+  await form.locator('input[name="notes"]').fill("Keep my draft");
+  await form.locator('button[type="submit"]').click();
+  await expect(page.getByText("Rejected test save")).toBeVisible();
+  await expect(name).toHaveValue("R32 test");
+  await expect(form.locator('input[name="notes"]')).toHaveValue("Keep my draft");
+  saveSucceeds = true;
+  await form.locator('button[type="submit"]').click();
+  await expect(name).toHaveValue("");
+  await expect(chargeDraft).toHaveValue("Unsubmitted charge notes");
+  await page.getByTestId("refrigerant-tab-history").click();
+  await expect(page.getByRole("alert")).toContainText("Could not refresh history", { timeout: 15000 });
+  await expect(page.getByText("No refrigerant activity logged yet.")).toHaveCount(0);
+  historySucceeds = true;
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByText("No refrigerant activity logged yet.")).toBeVisible();
+});
 
 test("light theme uses neutral surfaces and preserves the warm eye-strain option", async ({ page }, testInfo) => {
   await page.setContent(`<html data-theme="light"><body><div class="app-shell compact-mode">
@@ -254,14 +664,14 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("theme-mode-select").selectOption("light");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--text").trim())).toBe("#182432");
-    await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--border").trim())).toBe("#b6aa9c");
+    await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--border").trim())).toBe("#c6d1df");
     await page.getByTestId("tab-calendar").click();
     await expect(page.locator(".calendar-grid").first()).toBeVisible();
     await expect(page.locator(".calendar-dow").first()).toHaveText("Sun");
     if (await page.getByTestId("calendar-today").count()) {
       await expect(page.getByTestId("calendar-today").first()).toBeVisible();
     }
-    await expect.poll(() => page.locator(".calendar-grid").first().evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(169, 155, 137)");
+    await expect.poll(() => page.locator(".calendar-grid").first().evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(198, 209, 223)");
     await expect(page.getByTestId("calendar-past-day").first()).toBeVisible();
     await expect.poll(() => page.getByTestId("calendar-past-day").first().evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
     await page.getByTestId("tab-activity").click();
@@ -350,51 +760,55 @@ test.describe("MakeReadyOS browser flows", () => {
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-maps").click();
     await expect(page.getByTestId("property-maps-panel")).toBeVisible();
-    await expect(page.getByTestId("unit-directory-panel")).toBeVisible();
-    const taPropertyValue = await page.getByTestId("map-property-select").evaluate((select) => {
+    await expect(page.getByRole("heading", { name: "Map Controls", exact: true })).toBeVisible();
+    const taPropertyValue = await page.getByTestId("property-maps-property-select").evaluate((select) => {
       const propertySelect = select as HTMLSelectElement;
       return Array.from(propertySelect.options).find((option) => option.textContent?.startsWith("TA -"))?.value ?? "";
     });
-    if (taPropertyValue) await page.getByTestId("map-property-select").selectOption(taPropertyValue);
-    await page.getByTestId("map-create-name").fill(mapName);
+    expect(taPropertyValue).toBeTruthy();
+    await page.getByTestId("property-maps-property-select").selectOption(taPropertyValue);
+    await page.getByTestId("property-maps-create-name").fill(mapName);
     const createResponse = page.waitForResponse((response) =>
       response.url().includes("/api/property-maps") && response.request().method() === "POST",
     );
-    await page.getByTestId("map-create-submit").click();
+    await page.getByTestId("property-maps-create-submit").click();
     await expect((await createResponse).status()).toBe(201);
-    await expect(page.getByTestId("map-active-select")).toContainText(mapName);
-    const itemBackedUnitValue = await page.getByTestId("map-unit-select").evaluate((select) => {
-      const unitSelect = select as HTMLSelectElement;
-      return Array.from(unitSelect.options).find((option) => option.textContent?.includes("TA 284"))?.value ?? unitSelect.options[1]?.value ?? "";
+    await expect(page.getByTestId("property-maps-map-select")).toContainText(mapName);
+    await expect(page.getByTestId("property-maps-map-select").locator("option:checked")).toContainText(mapName);
+    const pageErrors: string[] = [];
+    page.on("pageerror", error => pageErrors.push(error.message));
+    await page.getByLabel("Map file", { exact: true }).setInputFiles({
+      name: "qa-site-map.png", mimeType: "image/png",
+      buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64"),
     });
-    expect(itemBackedUnitValue).toBeTruthy();
-    await page.getByTestId("map-unit-select").selectOption(itemBackedUnitValue);
-    await page.getByTestId("map-location-building").fill("B1");
-    await page.getByTestId("map-location-area").fill("North");
+    await expect(page.getByLabel("Map file", { exact: true })).toHaveValue("");
+    await expect(page.getByText("File uploaded", { exact: true })).toBeVisible();
+    expect(pageErrors).toEqual([]);
+    await page.getByTestId("property-maps-placement-mode").selectOption("unit");
+    await page.getByPlaceholder("Search unit...", { exact: true }).fill("284");
+    await expect(page.getByPlaceholder("Search unit...", { exact: true })).toHaveValue("284");
+    await page.getByRole("listbox").getByRole("button", { name: /^(?:TA )?284(?: \/|$)/ }).click();
+    await page.getByPlaceholder("Building", { exact: true }).fill("B1");
+    await page.getByPlaceholder("Area", { exact: true }).fill("North");
     const saveResponse = page.waitForResponse((response) =>
       response.url().includes("/api/unit-map-locations") && response.request().method() === "PUT",
     );
-    await page.getByTestId("property-map-canvas").click({ position: { x: 180, y: 150 } });
+    await page.getByTestId("property-maps-canvas").click({ position: { x: 180, y: 150 } });
     await expect((await saveResponse).status()).toBe(200);
-    await expect(page.locator("[data-testid^='map-marker-']").first()).toBeVisible();
-    await expect(page.getByTestId("map-building-summary")).toContainText("B1");
-    await expect(page.getByTestId("map-building-filter-b1")).toContainText("1/1 mapped");
-    await expect(page.getByTestId("map-building-b1")).toBeVisible();
-    await page.getByTestId("map-building-filter-b1").click();
-    await expect(page.getByTestId("map-unit-select")).toContainText("Bldg B1");
-    await expect(page.getByTestId("map-legend")).toBeVisible();
-    const marker = page.locator("[data-testid^='map-marker-']").first();
-    const markerBox = await marker.boundingBox();
-    expect(markerBox).toBeTruthy();
-    const dragResponse = page.waitForResponse((response) =>
+    const marker = page.locator(".map-marker").filter({ hasText: /^(?:TA )?284$/ });
+    await expect(marker).toBeVisible();
+    const originalPosition = await marker.getAttribute("style");
+    await page.getByPlaceholder("Search unit...", { exact: true }).fill("284");
+    await page.getByRole("listbox").getByRole("button", { name: /^(?:TA )?284(?: \/|$)/ }).click();
+    const moveResponse = page.waitForResponse((response) =>
       response.url().includes("/api/unit-map-locations") && response.request().method() === "PUT",
     );
-    await page.mouse.move(markerBox!.x + markerBox!.width / 2, markerBox!.y + markerBox!.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(markerBox!.x + 80, markerBox!.y + 65, { steps: 4 });
-    await page.mouse.up();
-    await expect((await dragResponse).status()).toBe(200);
+    await page.getByTestId("property-maps-canvas").click({ position: { x: 260, y: 210 } });
+    await expect((await moveResponse).status()).toBe(200);
+    await expect(marker).not.toHaveAttribute("style", originalPosition!);
     await marker.click();
+    await expect(page.locator(".map-detail-card")).toContainText("B1");
+    await page.locator(".unit-directory-row").getByRole("button", { name: /^(?:TA )?284 / }).click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
     await page.keyboard.press("Escape");
   });
@@ -717,7 +1131,8 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect((await unitResponse).status()).toBe(201);
 
     await page.getByTestId("item-create-property").selectOption({ label: `${code} - ${propertyName}` });
-    await page.getByTestId("item-create-unit").selectOption({ label: `${unitNumber} - QA B1` });
+    await page.locator(".turn-form").getByPlaceholder("Search unit...", { exact: true }).fill(unitNumber);
+    await page.getByRole("listbox").getByRole("button", { name: new RegExp(unitNumber) }).click();
     await page.getByTestId("item-create-status").selectOption("LITE");
     const itemResponse = page.waitForResponse((response) =>
       response.url().includes("/api/make-ready-items") && response.request().method() === "POST",
@@ -758,6 +1173,11 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId(`select-item-${slugify(unitNumber)}`).check();
     const archiveResponse = page.waitForResponse((response) => response.url().includes("/api/make-ready-items/batch") && response.request().method() === "POST");
     await page.getByTestId("batch-archive").click();
+    await expect(page.getByTestId("confirm-dialog")).toContainText("1 selected make-ready item");
+    await page.getByTestId("confirm-dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByTestId(`select-item-${slugify(unitNumber)}`)).toBeChecked();
+    await page.getByTestId("batch-archive").click();
+    await page.getByTestId("confirm-dialog-confirm").click();
     await expect((await archiveResponse).status()).toBe(200);
     await expect(page.getByTestId(`select-item-${slugify(unitNumber)}`)).toHaveCount(0);
     await page.getByTestId("top-archive-mode").selectOption("archived");
@@ -1046,13 +1466,14 @@ test.describe("MakeReadyOS browser flows", () => {
   test("admin can create a user, update role, deactivate, and reactivate", async ({ page }) => {
     const userName = uniqueTag("qa-user");
     const userEmail = `${userName}@example.com`;
-    const userRowId = `admin-user-row-${slugify(userEmail)}`;
+    const userRowId = `admin-user-row-${slugify(userName)}`;
 
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-admin").click();
     await expect(page.getByTestId("admin-panel")).toBeVisible();
 
     await page.getByTestId("admin-create-full-name").fill(userName);
+    await page.getByTestId("admin-create-username").fill(userName);
     await page.getByTestId("admin-create-email").fill(userEmail);
     await page.getByTestId("admin-create-role").selectOption("VIEWER");
     await page.getByTestId("admin-create-password").fill("TempUser!23456");
@@ -1250,14 +1671,16 @@ test.describe("MakeReadyOS browser flows", () => {
     const previewResponse = page.waitForResponse((response) =>
       response.url().includes("/api/operational-library/preview") && response.request().method() === "POST",
     );
-    await page.getByTestId("library-pack-preview-make-ready-operations-starter").click();
+    await page.getByTestId("library-pack-use-make-ready-operations-starter").click();
+    await page.getByTestId("library-import-preview").click();
     await expect((await previewResponse).status()).toBe(200);
-    await expect(page.getByTestId("library-preview-summary")).toContainText("automationTemplates");
+    await expect(page.getByTestId("library-preview-summary")).toContainText("Automation Templates");
 
     const installResponse = page.waitForResponse((response) =>
       response.url().includes("/api/operational-library/install") && response.request().method() === "POST",
     );
-    await page.getByTestId("library-pack-install-make-ready-operations-starter").click();
+    await page.getByTestId("library-import-install").click();
+    if (await page.getByTestId("confirm-dialog").isVisible()) await page.getByTestId("confirm-dialog-confirm").click();
     await expect((await installResponse).status()).toBe(200);
     await expect(page.getByText("Installed operational library items")).toBeVisible();
   });
@@ -1337,12 +1760,34 @@ test.describe("MakeReadyOS browser flows", () => {
   });
 
   test("admin can preview and install least-loaded staff automation starters as review-first rules", async ({ page }) => {
+    const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
     await login(page, adminEmail, adminPassword);
+    const sessionResponse = await session;
+    const apiOrigin = new URL(sessionResponse.url()).origin;
+    const { csrfToken } = await sessionResponse.json();
+    const create = async (path: string, data: Record<string, unknown>) => {
+      const response = await page.request.post(`${apiOrigin}/api${path}`, { headers: { "x-csrf-token": csrfToken }, data });
+      expect(response.status(), await response.text()).toBe(201);
+      return response.json();
+    };
+    const { property } = await create("/operations/properties", { code: `QAAS${Date.now()}`, name: "QA Assignment Preview" });
+    const { unit } = await create("/operations/units", { propertyId: property.id, number: "ASSIGN-101" });
+    const metaResponse = await page.request.get(`${apiOrigin}/api/meta`);
+    expect(metaResponse.status()).toBe(200);
+    const { boardSections } = await metaResponse.json();
+    const section = boardSections.find((entry: { propertyId: string; sectionType: string }) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+    expect(section).toBeTruthy();
+    await create("/make-ready-items", {
+      propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number,
+      makeReadyDate: new Date(Date.now() + 86400000).toISOString().slice(0, 10), completionStatus: "NO",
+    });
+    // The fixture has a matching turn but no staff, independent of seeded board edits.
+    await page.reload();
     await page.getByTestId("tab-automations").click();
     await expect(page.getByTestId("automation-panel")).toBeVisible();
 
     await page.getByTestId("automation-template-category").selectOption("Assignment");
-    await page.getByTestId("automation-template-property").selectOption({ index: 1 });
+    await page.getByTestId("automation-template-property").selectOption(property.id);
     await expect(page.getByTestId("automation-template-balanced-tech-auto-assignment")).toBeVisible();
     await expect(page.getByTestId("automation-template-auto-assign-cleaner-balanced")).toBeVisible();
     await expect(page.getByTestId("automation-template-enable")).not.toBeChecked();
@@ -1380,7 +1825,8 @@ test.describe("MakeReadyOS browser flows", () => {
       expect(planningBoxes[index].left).toBeGreaterThanOrEqual(planningBoxes[index - 1].left);
     }
     await page.getByTestId("planning-assigned-user").selectOption({ index: 1 });
-    await page.getByTestId("planning-item").selectOption({ index: 1 });
+    await page.getByPlaceholder("Search unit...", { exact: true }).fill("284");
+    await page.getByRole("listbox").getByRole("button", { name: /^(?:TA )?284(?: \/|$)/ }).click();
     await page.getByTestId("planning-date").fill(todayUtc());
     const response = page.waitForResponse((result) => result.url().includes("/api/planning/blocks") && result.request().method() === "POST");
     await page.getByTestId("planning-create-submit").click();
@@ -1398,7 +1844,8 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("refrigerant-tab-history").click();
     await expect(page.getByTestId("refrigerant-panel")).toContainText("Recent Refrigerant Activity");
     await page.getByTestId("refrigerant-tab-exports").click();
-    await expect(page.getByTestId("refrigerant-panel")).toContainText("Usage Report CSV");
+    await expect(page.getByTestId("refrigerant-panel").getByText("Usage Report", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("refrigerant-panel").getByRole("link", { name: "CSV", exact: true })).toHaveCount(6);
   });
 
   test("admin can create a pool log, open report tools, and upload a pool photo", async ({ page }) => {
@@ -1484,12 +1931,15 @@ test.describe("MakeReadyOS browser flows", () => {
       response.url().includes("/api/pest/issues") && response.request().method() === "POST",
     );
     await quickAddForm.getByRole("button", { name: "Quick Add Pest Request" }).click();
-    await expect((await createResponse).status()).toBe(201);
+    const savedResponse = await createResponse;
+    expect(savedResponse.status()).toBe(201);
+    const savedIssue = (await savedResponse.json()).issue;
+    expect(savedIssue.makeReadyItemId).toBeTruthy();
 
     await page.getByRole("button", { name: "Make Ready" }).click();
     const linkedIssue = page.locator("[data-testid^='pest-issue-']").filter({ hasText: pestTag }).first();
     await expect(linkedIssue).toBeVisible();
-    await expect(linkedIssue).toContainText("Make Ready linked");
+    await expect(linkedIssue).toHaveAttribute("data-testid", `pest-issue-${savedIssue.id}`);
   });
 
   test("admin can create and search property wiki content", async ({ page }) => {
@@ -1497,49 +1947,50 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("module-rail-property-wiki").click();
     await expect(page.getByTestId("property-wiki-panel")).toBeVisible();
 
-    await page.getByTestId("property-wiki-profile-address").fill("500 QA Property Wiki Lane");
+    const wiki = page.getByTestId("property-wiki-panel");
+    await wiki.getByLabel("Address", { exact: true }).fill("500 QA Property Wiki Lane");
     const profileResponse = page.waitForResponse((response) =>
       response.url().includes("/api/property-wiki/profile") && response.request().method() === "PATCH",
     );
     await page.getByRole("button", { name: "Save Overview" }).click();
     await expect((await profileResponse).status()).toBe(200);
 
-    await page.getByTestId("property-wiki-tab-utilities").click();
+    await wiki.getByRole("button", { name: "Utilities", exact: true }).click();
     const utilityTitle = uniqueTag("QA Utility Shutoff");
-    await page.getByTestId("property-wiki-entry-title").fill(utilityTitle);
+    await wiki.getByLabel("Title", { exact: true }).fill(utilityTitle);
     const utilityResponse = page.waitForResponse((response) =>
       response.url().includes("/api/property-wiki/entries") && response.request().method() === "POST",
     );
-    await page.getByRole("button", { name: "Create Entry" }).click();
+    await wiki.getByRole("button", { name: "Create Record", exact: true }).click();
     await expect((await utilityResponse).status()).toBe(201);
-    await expect(page.getByTestId("property-wiki-entry-row").first()).toContainText(utilityTitle);
+    await expect(wiki.locator(".property-wiki-record").filter({ hasText: utilityTitle })).toBeVisible();
 
-    await page.getByTestId("property-wiki-tab-vendors").click();
+    await wiki.getByRole("button", { name: "Vendors", exact: true }).click();
     const vendorName = uniqueTag("QA Wiki Vendor");
-    await page.getByTestId("property-wiki-vendor-company").fill(vendorName);
+    await wiki.getByLabel("Company", { exact: true }).fill(vendorName);
     const vendorResponse = page.waitForResponse((response) =>
       response.url().includes("/api/property-wiki/vendors") && response.request().method() === "POST",
     );
     await page.getByRole("button", { name: "Create Vendor" }).click();
     await expect((await vendorResponse).status()).toBe(201);
-    await expect(page.getByTestId("property-wiki-vendor-row").first()).toContainText(vendorName);
+    await expect(wiki.locator(".property-wiki-record").filter({ hasText: vendorName })).toBeVisible();
 
-    await page.getByTestId("property-wiki-tab-documents").click();
+    await wiki.getByRole("button", { name: "Documents", exact: true }).click();
     const assetResponse = page.waitForResponse((response) =>
       response.url().includes("/api/property-wiki/assets/upload") && response.request().method() === "POST",
     );
-    await page.getByTestId("property-wiki-asset-title").fill(`${vendorName} Manual`);
-    await page.getByTestId("property-wiki-asset-file").setInputFiles({
+    await wiki.getByLabel("Title", { exact: true }).fill(`${vendorName} Manual`);
+    await wiki.locator('input[type="file"]').setInputFiles({
       name: "property-wiki-note.txt",
       mimeType: "text/plain",
       buffer: Buffer.from("MakeReadyOS property wiki smoke"),
     });
     await expect((await assetResponse).status()).toBe(201);
-    await expect(page.getByTestId("property-wiki-asset-row").first()).toContainText("property-wiki-note.txt");
+    await expect(wiki.locator(".property-wiki-record").filter({ hasText: `${vendorName} Manual` })).toContainText("property-wiki-note.txt");
 
     await page.getByTestId("property-wiki-search-input").fill("shutoff");
-    await page.getByTestId("property-wiki-open-search").click();
-    await expect(page.getByTestId("property-wiki-search-results")).toContainText(utilityTitle);
+    await page.getByTestId("property-wiki-search-submit").click();
+    await expect(wiki.locator(".property-wiki-search-results")).toContainText(utilityTitle);
   });
 
   test("demo tech does not see admin tab", async ({ page }) => {

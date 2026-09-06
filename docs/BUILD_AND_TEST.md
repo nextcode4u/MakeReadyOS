@@ -81,7 +81,9 @@ for deployed environments. `db:push` remains available only as an early-developm
 
 ## CI
 
-GitHub Actions runs the same verification path on every push and pull request using Node 20, a clean checkout, and lockfile-strict installs.
+GitHub Actions runs the same verification path on every push and pull request using Node 24 LTS, a clean checkout, and lockfile-strict installs. Local development uses the same major version (`nvm install && nvm use` reads `.nvmrc`).
+
+`test.sh` and `e2e.sh` load committed test defaults through `test-environment.sh`, never the deployment `.env`. Each uses a unique Compose project with disposable database/upload volumes and cleans up that project on exit. Tests use local ports 4000 and 8080, so run them on a development machine where those ports are free. Browser workflows run serially because they share seeded records.
 
 The CI workflow installs dependencies and runs:
 
@@ -311,8 +313,8 @@ Set `WEBHOOK_ALLOW_PRIVATE_URLS=false` for public deployments that should reject
 
 - The installer currently targets Debian/Ubuntu-style environments with `apt-get`
 - The installer provisions `node`, `npm`, `docker`, and the Compose plugin when missing
-- The installer upgrades Node to the supported Node 20 runtime when an older major version is present
-- If Node 20+, npm, or Docker are already installed, the installer leaves them in place
+- The installer selects the latest Node 24 LTS patch when a different major version is present
+- If Node 24, npm, or Docker are already installed, the installer leaves them in place
 - `test.sh` validates `docker compose config` when Docker is available
 ## Dashboard And Workflow Checks
 

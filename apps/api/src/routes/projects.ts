@@ -7,6 +7,7 @@ import { stringify } from "csv-stringify/sync";
 import { Prisma, UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { booleanFlag } from "../lib/booleanFlag.js";
 import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { createNotification } from "../lib/notifications.js";
@@ -82,7 +83,7 @@ export const projectRecordSchema = z.object({
   estimatedCost: z.coerce.number().min(0).nullable().optional(),
   actualCost: z.coerce.number().min(0).nullable().optional(),
   totalAmount: z.coerce.number().min(0).nullable().optional(),
-  deferredMaintenance: z.coerce.boolean().optional(),
+  deferredMaintenance: booleanFlag.optional(),
   deferredReason: z.string().trim().max(240).nullable().optional(),
   targetYear: z.coerce.number().int().min(2000).max(3000).nullable().optional(),
   deferredNotes: z.string().trim().max(2000).nullable().optional(),
@@ -114,10 +115,10 @@ export const projectRecordQuerySchema = z.object({
   executionType: z.enum(projectExecutionTypes).optional(),
   assignedUserId: z.string().optional(),
   budgetYear: z.string().optional(),
-  deferredMaintenance: z.coerce.boolean().optional(),
+  deferredMaintenance: booleanFlag.optional(),
   attachmentType: z.enum(projectAttachmentTypes).optional(),
   agingBucket: z.enum(["0-30", "31-90", "91-180", "180+"]).optional(),
-  includeArchived: z.coerce.boolean().optional(),
+  includeArchived: booleanFlag.optional(),
   q: z.string().trim().optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
@@ -202,11 +203,6 @@ function agingBucketFor(days: number) {
   if (days > 90) return "91-180";
   if (days > 30) return "31-90";
   return "0-30";
-}
-
-function csvCell(value: unknown) {
-  const text = value === null || value === undefined ? "" : String(value);
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 function htmlEscape(value: unknown) {
@@ -344,19 +340,36 @@ async function projectOverview(propertyId: string | undefined, request: FastifyR
   await ensureDefaultCategories();
   const scoped = propertyScopeWhere(request, propertyId);
   const assignableUsers = propertyId ? await listAssignableUsers(propertyId) : [];
-  const records = await prisma.projectRecord.findMany({
-    where: {
-      propertyId: scoped.where,
-      ...(techScopedProjectWhere(request) ?? {}),
-    },
-    include: { property: true, attachments: true, comments: true },
-    orderBy: [{ updatedAt: "desc" }],
-    take: 300,
-  });
+  const where = { propertyId: scoped.where, ...(techScopedProjectWhere(request) ?? {}) };
+  const activeWhere = { ...where, isArchived: false };
+  const include = { property: true, attachments: true, comments: true } as const;
+  // Totals use every scoped record without loading its attachment/comment history.
+  const [active, recentActivity, recentPhotoActivity, upcomingScheduledProjects, highPriorityItems] = await Promise.all([
+    prisma.projectRecord.findMany({
+      where: activeWhere,
+      select: {
+        recordType: true, status: true, createdAt: true, completedDate: true,
+        dueDate: true, budgetYear: true, source: true, deferredMaintenance: true,
+        estimatedCost: true, totalAmount: true, actualCost: true,
+      },
+    }),
+    prisma.projectRecord.findMany({ where, include, orderBy: { updatedAt: "desc" }, take: 10 }),
+    prisma.projectRecord.findMany({
+      where: { ...activeWhere, attachments: { some: {} } }, include,
+      orderBy: { updatedAt: "desc" }, take: 10,
+    }),
+    prisma.projectRecord.findMany({
+      where: { ...activeWhere, scheduledDate: { gte: startOfDay() } }, include,
+      orderBy: [{ scheduledDate: "asc" }, { updatedAt: "desc" }], take: 10,
+    }),
+    prisma.projectRecord.findMany({
+      where: { ...activeWhere, priority: { in: ["High", "Critical"] } }, include,
+      orderBy: { updatedAt: "desc" }, take: 10,
+    }),
+  ]);
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
-  const active = records.filter((entry) => !entry.isArchived);
   const openRecommendations = active.filter((entry) => entry.recordType === "Recommendation" && !["Denied", "Archived", "Converted To Project"].includes(entry.status));
   const completedThisYear = active.filter((entry) => entry.completedDate && entry.completedDate.getFullYear() === new Date().getFullYear());
   const recommendationsByAge = [
@@ -393,13 +406,13 @@ async function projectOverview(propertyId: string | undefined, request: FastifyR
     recommendationsByAge,
     projectsByBudgetYear,
     projectsBySource,
-    recentActivity: records.slice(0, 10),
-    recentPhotoActivity: active.filter((entry) => entry.attachments.length > 0).slice(0, 10).map((entry) => ({
+    recentActivity,
+    recentPhotoActivity: recentPhotoActivity.map((entry) => ({
       ...entry,
       attachments: [...entry.attachments].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
     })),
-    upcomingScheduledProjects: active.filter((entry) => entry.scheduledDate && entry.scheduledDate >= startOfDay()).sort((a, b) => (a.scheduledDate?.getTime() ?? 0) - (b.scheduledDate?.getTime() ?? 0)).slice(0, 10),
-    highPriorityItems: active.filter((entry) => entry.priority === "High" || entry.priority === "Critical").slice(0, 10),
+    upcomingScheduledProjects,
+    highPriorityItems,
   };
 }
 
@@ -1240,7 +1253,7 @@ export async function projectRoutes(app: FastifyInstance) {
     }));
     reply.header("content-type", "text/csv; charset=utf-8");
     reply.header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-projects-export.csv`)}"`);
-    return stringify(rows, { header: true });
+    return stringify(rows, { header: true, escape_formulas: true });
   });
 
   app.get("/projects/export.xls", async (request, reply) => {
@@ -1267,7 +1280,7 @@ export async function projectRoutes(app: FastifyInstance) {
     });
     const scopeLabel = await reportScopeLabel(query.propertyId);
     const header = ["Property", "Record Type", "Title", "Source", "Status", "Priority", "Days Open", "Budget Year", "Deferred", "Deferred Reason", "Target Year", "Category", "Execution Type", "Estimated Cost", "Actual Cost", "Company Name", "Total Amount", "Scheduled Date", "Due Date", "Assigned User"];
-    const lines = [header.join("\t"), ...filtered.map((record) => [
+    const lines = [header, ...filtered.map((record) => [
       record.property.code,
       record.recordType,
       record.title,
@@ -1288,10 +1301,10 @@ export async function projectRoutes(app: FastifyInstance) {
       record.scheduledDate?.toISOString().slice(0, 10) ?? "",
       record.dueDate?.toISOString().slice(0, 10) ?? "",
       record.assignedUserName ?? "",
-    ].map(csvCell).join("\t"))];
+    ])];
     reply.header("content-type", "application/vnd.ms-excel; charset=utf-8");
     reply.header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-projects-export.xls`)}"`);
-    return lines.join("\n");
+    return stringify(lines, { delimiter: "\t", escape_formulas: true });
   });
 
   app.get("/projects/report.html", async (request, reply) => {

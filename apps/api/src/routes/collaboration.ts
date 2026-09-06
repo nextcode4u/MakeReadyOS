@@ -4,9 +4,11 @@ import { unlink } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Prisma, UserRole } from "@prisma/client";
+import { stringify } from "csv-stringify/sync";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import yazl from "yazl";
 import { z } from "zod";
+import { booleanFlag } from "../lib/booleanFlag.js";
 import { allowedPropertyIds, canCompleteChecklist, canWriteOperations, requireManagerOrAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { notifyAssignedStaff } from "../lib/notifications.js";
@@ -62,7 +64,7 @@ export const attachmentArchiveQuerySchema = z.object({
 });
 export const chargePriceSheetQuerySchema = z.object({
   propertyId: z.string().optional(),
-  includeArchived: z.coerce.boolean().optional().default(false),
+  includeArchived: booleanFlag.optional().default(false),
 });
 export const chargePriceSheetCreateSchema = z.object({
   propertyId: z.string(),
@@ -245,11 +247,6 @@ async function buildChargeReport(request: FastifyRequest, reply: FastifyReply, i
   };
 }
 
-function csvCell(value: unknown) {
-  const text = value === null || value === undefined ? "" : String(value);
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
 function centsToCsvDollars(cents: number | null | undefined) {
   return typeof cents === "number" ? (cents / 100).toFixed(2) : "";
 }
@@ -300,7 +297,7 @@ function chargeReportCsv(report: NonNullable<Awaited<ReturnType<typeof buildChar
     `${report.summary.lineCount} line(s)`,
     "Evidence/estimate metadata only; does not create accounting charges.",
   ]);
-  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
+  return stringify([headers, ...rows], { escape_formulas: true });
 }
 
 function groupChargeReportLines(lines: NonNullable<Awaited<ReturnType<typeof buildChargeReport>>>["lines"]) {
@@ -380,7 +377,7 @@ function chargeReportCsvGroupedByCategory(report: NonNullable<Awaited<ReturnType
     `${report.summary.lineCount} line(s)`,
     "Evidence/estimate metadata only; does not create accounting charges.",
   ]);
-  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
+  return stringify([headers, ...rows], { escape_formulas: true });
 }
 
 function parseDelimitedCells(line: string, delimiter: "," | "\t") {

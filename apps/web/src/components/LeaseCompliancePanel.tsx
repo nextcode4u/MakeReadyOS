@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { leaseIssueMatchesLocation } from "../lib/leaseIssueMatching";
 import {
   addLeaseComplianceIssueNote,
   archiveLeaseComplianceIssue,
@@ -640,6 +641,42 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
     }),
     enabled: Boolean(propertyId) && permissions.view,
   });
+  const quickUnitIssuesQuery = useQuery({
+    queryKey: ["lease-compliance", "quick-unit-issues", propertyId, quickAddUnitId],
+    queryFn: async () => {
+      const result: LeaseComplianceIssue[] = [];
+      let offset = 0;
+      while (true) {
+        const page = await getLeaseComplianceIssues({
+          propertyId, unitId: quickAddUnitId, includeArchived: false, limit: 500, offset,
+        });
+        result.push(...page.issues);
+        if (!page.pagination.hasMore) return result;
+        if (!page.issues.length) throw new Error("Existing issue lookup returned an incomplete page.");
+        offset += page.issues.length;
+      }
+    },
+    enabled: Boolean(propertyId && quickAddUnitId) && permissions.view,
+  });
+  const quickCommonAreaIssuesQuery = useQuery({
+    queryKey: ["lease-compliance", "quick-common-area-issues", propertyId],
+    queryFn: async () => {
+      const result: LeaseComplianceIssue[] = [];
+      let offset = 0;
+      while (true) {
+        const page = await getLeaseComplianceIssues({
+          propertyId, commonAreasOnly: true, includeArchived: false, limit: 500, offset,
+        });
+        result.push(...page.issues);
+        if (!page.pagination.hasMore) return result;
+        if (!page.issues.length) throw new Error("Existing issue lookup returned an incomplete page.");
+        offset += page.issues.length;
+      }
+    },
+    enabled: Boolean(propertyId && !quickAddUnitId && (quickAddDraft.building.trim() || quickAddDraft.area.trim())) && permissions.view,
+  });
+  const quickLocationIssuesQuery = quickAddUnitId ? quickUnitIssuesQuery : quickCommonAreaIssuesQuery;
+  const hasQuickLocation = Boolean(quickAddUnitId || quickAddDraft.building.trim() || quickAddDraft.area.trim());
   const leaseReportFilters = useMemo(() => ({
     propertyId: propertyId || undefined,
     q: search || undefined,
@@ -691,30 +728,16 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
   const activeIssueTypes = useMemo(() => issueTypes.filter((entry) => entry.isActive), [issueTypes]);
   const inactiveIssueTypes = useMemo(() => issueTypes.filter((entry) => !entry.isActive), [issueTypes]);
   const matchingQuickIssues = useMemo(() => {
-    const normalizedBuilding = normalizeLocationValue(quickAddDraft.building);
-    const normalizedArea = normalizeLocationValue(quickAddDraft.area);
     const normalizedIssueType = normalizeLocationValue(quickAddDraft.issueTypeName);
-    const exactLocationMatch = (issue: LeaseComplianceIssue) => {
-      const buildingMatches = normalizedBuilding && normalizeLocationValue(issue.building) === normalizedBuilding;
-      const areaMatches = normalizedArea && normalizeLocationValue(issue.area) === normalizedArea;
-      if (normalizedBuilding && normalizedArea) return buildingMatches && areaMatches;
-      if (normalizedBuilding) return buildingMatches;
-      if (normalizedArea) return areaMatches;
-      return false;
-    };
-    return issues
-      .filter((issue) => {
-        if (issue.isArchived) return false;
-        if (quickAddUnitId) return issue.unitId === quickAddUnitId;
-        return exactLocationMatch(issue);
-      })
+    return (quickLocationIssuesQuery.data ?? [])
+      .filter((issue) => leaseIssueMatchesLocation(issue, { unitId: quickAddUnitId, building: quickAddDraft.building, area: quickAddDraft.area }))
       .sort((left, right) => {
         const leftTypeMatch = normalizedIssueType && normalizeLocationValue(left.issueTypeName) === normalizedIssueType ? 1 : 0;
         const rightTypeMatch = normalizedIssueType && normalizeLocationValue(right.issueTypeName) === normalizedIssueType ? 1 : 0;
         if (leftTypeMatch !== rightTypeMatch) return rightTypeMatch - leftTypeMatch;
         return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
       });
-  }, [issues, quickAddUnitId, quickAddDraft.building, quickAddDraft.area, quickAddDraft.issueTypeName]);
+  }, [quickLocationIssuesQuery.data, quickAddUnitId, quickAddDraft.building, quickAddDraft.area, quickAddDraft.issueTypeName]);
   const latestMatchingQuickIssue = matchingQuickIssues[0] ?? null;
   const groundsRecentLocations = useMemo(() => {
     const seen = new Set<string>();
@@ -1093,6 +1116,13 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
                     </div>
                   );
                 })}
+              </div>
+            ) : null}
+            {hasQuickLocation && quickLocationIssuesQuery.isLoading ? <p role="status">{language === "es" ? "Buscando problemas de esta ubicacion..." : "Checking this location's existing issues..."}</p> : null}
+            {hasQuickLocation && quickLocationIssuesQuery.isError ? (
+              <div role="alert">
+                <p>{language === "es" ? "No se pudieron comprobar todos los problemas de esta ubicacion." : "Could not check all existing issues for this location."}</p>
+                <button type="button" className="button button-secondary" onClick={() => void quickLocationIssuesQuery.refetch()}>{language === "es" ? "Reintentar" : "Retry"}</button>
               </div>
             ) : null}
             {matchingQuickIssues.length ? (
@@ -1530,23 +1560,25 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
             {permissions.admin ? (
               <form className="pool-form" onSubmit={(event) => {
                 event.preventDefault();
-                const form = new FormData(event.currentTarget);
-                void createIssueTypeMutation.mutateAsync({
+                const formElement = event.currentTarget;
+                const form = new FormData(formElement);
+                createIssueTypeMutation.mutate({
                   propertyId,
                   name: String(form.get("name") ?? "").trim(),
                   color: String(form.get("color") ?? "").trim() || null,
-                }).then(() => event.currentTarget.reset());
+                }, { onSuccess: () => formElement.reset() });
               }}>
+                {createIssueTypeMutation.isError ? <p role="alert">{createIssueTypeMutation.error instanceof Error ? createIssueTypeMutation.error.message : (language === "es" ? "No se pudo guardar el tipo." : "Could not save issue type.")}</p> : null}
                 <div className="pool-grid">
                   <label>{t(language, "admin.name")}
-                    <input name="name" placeholder={t(language, "lease.issueTypeNamePlaceholder")} />
+                    <input name="name" required placeholder={t(language, "lease.issueTypeNamePlaceholder")} />
                   </label>
                   <label>{t(language, "lease.color")}
                     <input name="color" placeholder="#58a6de" />
                   </label>
                 </div>
                 <div className="pool-entry-actions">
-                  <button className="button button-primary" type="submit">{t(language, "lease.addIssueType")}</button>
+                  <button className="button button-primary" type="submit" disabled={createIssueTypeMutation.isPending}>{t(language, "lease.addIssueType")}</button>
                 </div>
               </form>
             ) : null}

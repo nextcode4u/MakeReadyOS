@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   BoardSection,
@@ -340,6 +340,13 @@ export function PropertyMapsPanel({
   const [search, setSearch] = useState("");
   const [emergencyOnly, setEmergencyOnly] = useState(false);
   const [draftName, setDraftName] = useState("");
+  const [mapUploadError, setMapUploadError] = useState("");
+  const [mapCreating, setMapCreating] = useState(false);
+  const [mapCreateError, setMapCreateError] = useState("");
+  const [mapUploading, setMapUploading] = useState(false);
+  const [placementSaving, setPlacementSaving] = useState(false);
+  const [placementError, setPlacementError] = useState("");
+  const placementPending = useRef(false);
   const [locationMeta, setLocationMeta] = useState({ building: "", area: "", floor: "" });
   const [areaDraft, setAreaDraft] = useState({ name: "", areaType: "BUILDING", expectedUnitCount: "", color: "#1f8fdb" });
   const [pinDraft, setPinDraft] = useState({
@@ -588,24 +595,34 @@ export function PropertyMapsPanel({
   };
 
   const handleMapClick = async (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!selectedMap || !canManage) return;
+    if (!selectedMap || !canManage || placementPending.current) return;
     const point = percentFromClick(event);
     if (placementMode === "unit" && selectedUnitId) {
-      await onSaveLocation({
-        propertyId,
-        mapId: selectedMap.id,
-        unitId: selectedUnitId,
-        xPercent: point.xPercent,
-        yPercent: point.yPercent,
-        building: locationMeta.building || null,
-        area: locationMeta.area || null,
-        floor: locationMeta.floor || null,
-      });
-      const nextUnit = buildingFilteredUnmappedUnits.find((unit) => unit.id !== selectedUnitId) ?? null;
-      if (nextUnit) {
-        selectPlacementUnit(nextUnit.id);
-      } else {
-        setSelectedUnitId("");
+      placementPending.current = true;
+      setPlacementSaving(true);
+      setPlacementError("");
+      try {
+        await onSaveLocation({
+          propertyId,
+          mapId: selectedMap.id,
+          unitId: selectedUnitId,
+          xPercent: point.xPercent,
+          yPercent: point.yPercent,
+          building: locationMeta.building || null,
+          area: locationMeta.area || null,
+          floor: locationMeta.floor || null,
+        });
+        const nextUnit = buildingFilteredUnmappedUnits.find((unit) => unit.id !== selectedUnitId) ?? null;
+        if (nextUnit) {
+          selectPlacementUnit(nextUnit.id);
+        } else {
+          setSelectedUnitId("");
+        }
+      } catch (error) {
+        setPlacementError(error instanceof Error ? error.message : (isSpanish ? "No se pudo guardar la ubicación." : "Could not save location."));
+      } finally {
+        placementPending.current = false;
+        setPlacementSaving(false);
       }
       return;
     }
@@ -1008,12 +1025,6 @@ export function PropertyMapsPanel({
     return buildingFilteredUnmappedUnits[0] ?? null;
   }, [buildingFilteredUnmappedUnits, selectedUnitId]);
 
-  useEffect(() => {
-    if (placementMode !== "unit" || selectedUnitId) return;
-    if (!nextUnmappedPlacementUnit) return;
-    selectPlacementUnit(nextUnmappedPlacementUnit.id);
-  }, [nextUnmappedPlacementUnit, placementMode, selectedUnitId]);
-
   const copyDisplayedPlacementQueue = async () => {
     if (typeof navigator === "undefined" || !navigator.clipboard || !displayedBuildingUnits.length) {
       setQueueCopyMessage(isSpanish ? "No se pudo copiar la cola." : "Could not copy the queue.");
@@ -1139,12 +1150,12 @@ export function PropertyMapsPanel({
 
       <div className="toolbar compact-toolbar map-toolbar">
         <label>{isSpanish ? "Propiedad" : "Property"}
-          <select data-testid="property-maps-property-select" value={propertyId} onChange={(event) => updateProperty(event.target.value)}>
+          <select disabled={placementSaving} data-testid="property-maps-property-select" value={propertyId} onChange={(event) => updateProperty(event.target.value)}>
             {properties.map((entry) => <option key={entry.id} value={entry.id}>{entry.code} - {entry.name}</option>)}
           </select>
         </label>
         <label>{isSpanish ? "Mapa" : "Map"}
-          <select data-testid="property-maps-map-select" value={selectedMap?.id ?? ""} onChange={(event) => setSelectedMapId(event.target.value)}>
+          <select disabled={placementSaving} data-testid="property-maps-map-select" value={selectedMap?.id ?? ""} onChange={(event) => setSelectedMapId(event.target.value)}>
             <option value="">{isSpanish ? "Ningún mapa seleccionado" : "No map selected"}</option>
             {activePropertyMaps.length ? (
               <optgroup label={isSpanish ? "Mapas activos" : "Active maps"}>
@@ -1214,26 +1225,42 @@ export function PropertyMapsPanel({
           <div className="map-management-grid">
             <form className="inline-form" onSubmit={async (event) => {
               event.preventDefault();
-              if (!propertyId || !draftName.trim()) return;
-              const createdMap = await onCreateMap({ propertyId, name: draftName.trim() });
-              setSelectedMapId(createdMap.id);
-              setSelectedMarker(null);
-              setDraftName("");
+              if (!propertyId || !draftName.trim() || mapCreating) return;
+              setMapCreating(true);
+              setMapCreateError("");
+              try {
+                const createdMap = await onCreateMap({ propertyId, name: draftName.trim() });
+                setSelectedMapId(createdMap.id);
+                setSelectedMarker(null);
+                setDraftName("");
+              } catch (error) {
+                setMapCreateError(error instanceof Error ? error.message : (isSpanish ? "No se pudo crear el mapa." : "Could not create map."));
+              } finally {
+                setMapCreating(false);
+              }
             }}>
-              <input data-testid="property-maps-create-name" value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder={isSpanish ? "Nombre del nuevo mapa" : "New map name"} />
-              <button data-testid="property-maps-create-submit" className="button button-primary" disabled={!draftName.trim()}>{isSpanish ? "Crear mapa" : "Create Map"}</button>
+              <input disabled={mapCreating} data-testid="property-maps-create-name" value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder={isSpanish ? "Nombre del nuevo mapa" : "New map name"} />
+              <button data-testid="property-maps-create-submit" className="button button-primary" disabled={!draftName.trim() || mapCreating}>{isSpanish ? "Crear mapa" : "Create Map"}</button>
+              {mapCreateError ? <p role="alert">{mapCreateError}</p> : null}
             </form>
             {selectedMap ? (
               <div className="map-file-actions">
-                <input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
+                <input type="file" aria-label={isSpanish ? "Archivo del mapa" : "Map file"} disabled={mapUploading || mapCreating} accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => {
+                  const input = event.currentTarget;
+                  const file = input.files?.[0];
                   if (!file) return;
+                  setMapUploadError("");
+                  setMapUploading(true);
                   void onUploadMap(selectedMap.id, file).then((updatedMap) => {
                     setSelectedMapId(updatedMap.id);
+                    input.value = "";
+                  }).catch((error: unknown) => {
+                    setMapUploadError(error instanceof Error ? error.message : (isSpanish ? "No se pudo cargar el mapa." : "Could not upload map."));
                   }).finally(() => {
-                    event.currentTarget.value = "";
+                    setMapUploading(false);
                   });
                 }} />
+                {mapUploadError ? <p role="alert">{mapUploadError}</p> : null}
                 <button className="button button-secondary" type="button" onClick={() => void onArchiveMap(selectedMap.id, !selectedMap.isArchived)}>
                   {selectedMap.isArchived ? (isSpanish ? "Restaurar mapa" : "Restore Map") : (isSpanish ? "Archivar mapa" : "Archive Map")}
                 </button>
@@ -1454,7 +1481,11 @@ export function PropertyMapsPanel({
 
           <div className="map-mode-stack">
             <label>{isSpanish ? "Modo de colocacion" : "Placement mode"}
-              <select data-testid="property-maps-placement-mode" value={placementMode} onChange={(event) => setPlacementMode(event.target.value as PlacementMode)}>
+              <select disabled={placementSaving} data-testid="property-maps-placement-mode" value={placementMode} onChange={(event) => {
+                const mode = event.target.value as PlacementMode;
+                setPlacementMode(mode);
+                if (mode === "unit" && !selectedUnitId && nextUnmappedPlacementUnit) selectPlacementUnit(nextUnmappedPlacementUnit.id);
+              }}>
                 <option value="none">{isSpanish ? "Solo explorar" : "Browse only"}</option>
                 <option value="unit">{isSpanish ? "Colocar unidad" : "Place unit"}</option>
                 <option value="area">{isSpanish ? "Colocar edificio / area" : "Place building / area"}</option>
@@ -1598,6 +1629,7 @@ export function PropertyMapsPanel({
               <label>{isSpanish ? "Unidad a colocar" : "Unit to place"}</label>
               <UnitSearchSelect
                 units={unitListScope === "mapped" ? buildingFilteredMappedUnits : unitListScope === "unmapped" ? buildingFilteredUnmappedUnits : buildingFilteredUnits}
+                disabled={placementSaving}
                 value={selectedUnitId}
                 onChange={(value) => {
                   selectPlacementUnit(value);
@@ -1605,6 +1637,8 @@ export function PropertyMapsPanel({
                 language={language}
                 placeholder={isSpanish ? "Buscar unidad..." : "Search unit..."}
               />
+              {placementSaving ? <p role="status">{isSpanish ? "Guardando ubicación..." : "Saving location..."}</p> : null}
+              {placementError ? <p role="alert">{placementError}</p> : null}
               <div className="pool-entry-actions">
                 <span className="helper-copy">
                   {selectedBuilding
@@ -1620,6 +1654,7 @@ export function PropertyMapsPanel({
                     className="button button-secondary"
                     type="button"
                     onClick={() => selectPlacementUnit(nextUnmappedPlacementUnit.id)}
+                    disabled={placementSaving}
                   >
                     {isSpanish ? "Siguiente sin mapear" : "Next Unmapped"}
                   </button>

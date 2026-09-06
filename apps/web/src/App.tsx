@@ -1723,6 +1723,9 @@ function App() {
   const loginMutation = useMutation({
     mutationFn: ({ identifier, password }: { identifier: string; password: string }) => login(identifier, password),
     onSuccess: async () => {
+      // Session expiry can leave operational queries from the previous account.
+      removeStorageValue(metaCacheStorageKey);
+      queryClient.removeQueries();
       setForceLoggedOut(false);
       setLoginError("");
       setSessionMessage("");
@@ -1744,23 +1747,9 @@ function App() {
       pushToast(t(meQuery.data?.user.language ?? "en", "auth.signedOut"), t(meQuery.data?.user.language ?? "en", "auth.signedOutCopy"), "info");
       setSessionMessage(t(meQuery.data?.user.language ?? "en", "auth.signedOutMessage"));
       setForceLoggedOut(true);
-      queryClient.setQueryData(["auth", "me"], null);
-      queryClient.setQueryData(["meta"], undefined);
-      queryClient.setQueryData(["make-ready-items"], undefined);
-      queryClient.setQueryData(["saved-views"], undefined);
-      queryClient.setQueryData(["admin", "users"], undefined);
-      queryClient.setQueryData(["admin", "properties"], undefined);
-      queryClient.setQueryData(["custom-fields", "manage"], undefined);
-      queryClient.setQueryData(["automations"], undefined);
       setAutomationPreview(null);
-      queryClient.removeQueries({ queryKey: ["auth", "me"] });
-      queryClient.removeQueries({ queryKey: ["meta"] });
-      queryClient.removeQueries({ queryKey: ["make-ready-items"] });
-      queryClient.removeQueries({ queryKey: ["saved-views"] });
-      queryClient.removeQueries({ queryKey: ["admin"] });
-      queryClient.removeQueries({ queryKey: ["custom-fields"] });
-      queryClient.removeQueries({ queryKey: ["automations"] });
       removeStorageValue(metaCacheStorageKey);
+      queryClient.removeQueries();
     },
     onError: (error) => {
       pushToast(t(meQuery.data?.user.language ?? "en", "auth.logoutFailed"), error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "auth.logoutFailed"), "error");

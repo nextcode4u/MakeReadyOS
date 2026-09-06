@@ -83,10 +83,11 @@ export async function planningRoutes(app: FastifyInstance) {
       prisma.userCapacity.findMany({ include: { user: { select: { id: true, fullName: true, role: true } } } }),
     ]);
     const visibleStaff = scoped === null ? staff : staff.filter((user) => user.role === UserRole.ADMIN || user.propertyAccess.some((access) => scoped.includes(access.propertyId)));
+    const visibleStaffIds = new Set(visibleStaff.map((user) => user.id));
     return {
       window: { from: window.from.toISOString(), to: window.to.toISOString() },
       staff: visibleStaff.map((user) => ({ id: user.id, fullName: user.fullName, role: user.role, capacity: user.capacity })),
-      capacities,
+      capacities: capacities.filter((capacity) => visibleStaffIds.has(capacity.user.id)),
       ...summary,
     };
   });
@@ -98,7 +99,7 @@ export async function planningRoutes(app: FastifyInstance) {
     if (!item) return reply.code(status).send({ message: error });
     const staff = await staffFor(input.assignedUserId);
     if (!staff) return reply.code(400).send({ message: "Select an active planning staff user" });
-    if (scoped !== null && staff.role !== UserRole.ADMIN && !staff.propertyAccess.some((access) => access.propertyId === item.propertyId)) {
+    if (staff.role !== UserRole.ADMIN && !staff.propertyAccess.some((access) => access.propertyId === item.propertyId)) {
       return reply.code(403).send({ message: "Assigned user does not have access to this property" });
     }
     const block = await prisma.workAssignmentBlock.create({
@@ -142,12 +143,18 @@ export async function planningRoutes(app: FastifyInstance) {
     if ((input.assignedUserId || input.itemId || input.estimatedHours || input.plannedDate || input.category) && !canManagePlanning(user.role)) {
       return reply.code(403).send({ message: "Only managers can replan work blocks" });
     }
-    const targetItem = input.itemId ? (await ensureScopedItem(input.itemId, scoped)).item : existing.item;
-    if (!targetItem) return reply.code(404).send({ message: "Make-ready item not found" });
-    const targetUser = input.assignedUserId ? await staffFor(input.assignedUserId) : null;
-    if (input.assignedUserId && !targetUser) return reply.code(400).send({ message: "Select an active planning staff user" });
-    if (input.assignedUserId && targetUser && scoped !== null && targetUser.role !== UserRole.ADMIN && !targetUser.propertyAccess.some((access) => access.propertyId === targetItem.propertyId)) {
-      return reply.code(403).send({ message: "Assigned user does not have access to this property" });
+    let targetItem = existing.item;
+    if (input.itemId) {
+      const target = await ensureScopedItem(input.itemId, scoped);
+      if (!target.item) return reply.code(target.status).send({ message: target.error });
+      targetItem = target.item;
+    }
+    if (input.assignedUserId || input.itemId) {
+      const targetUser = await staffFor(input.assignedUserId ?? existing.assignedUserId);
+      if (!targetUser) return reply.code(400).send({ message: "Select an active planning staff user" });
+      if (targetUser.role !== UserRole.ADMIN && !targetUser.propertyAccess.some((access) => access.propertyId === targetItem.propertyId)) {
+        return reply.code(403).send({ message: "Assigned user does not have access to this property" });
+      }
     }
     const block = await prisma.workAssignmentBlock.update({
       where: { id },
@@ -179,18 +186,28 @@ export async function planningRoutes(app: FastifyInstance) {
     return { block };
   });
 
-  app.get("/planning/capacities", async () => {
+  app.get("/planning/capacities", async (request) => {
+    const scoped = scopedAllowedPropertyIds(request);
     const users = await prisma.user.findMany({
       where: { isActive: true, role: { in: [...planningStaffRoles] } },
-      include: { capacity: true },
+      select: { id: true, fullName: true, role: true, capacity: true, propertyAccess: { select: { propertyId: true } } },
       orderBy: { fullName: "asc" },
     });
-    return { users };
+    return { users: users
+      .filter((user) => scoped === null || user.role === UserRole.ADMIN || user.propertyAccess.some((access) => scoped.includes(access.propertyId)))
+      .map((user) => ({ id: user.id, fullName: user.fullName, role: user.role, capacity: user.capacity })) };
   });
 
-  app.put("/planning/capacities/:userId", { preHandler: requireManagerOrAdmin }, async (request) => {
+  app.put("/planning/capacities/:userId", { preHandler: requireManagerOrAdmin }, async (request, reply) => {
     const { userId } = z.object({ userId: z.string() }).parse(request.params);
     const input = planningCapacitySchema.parse(request.body);
+    const staff = await staffFor(userId);
+    if (!staff) return reply.code(404).send({ message: "Active planning staff user not found" });
+    const scoped = scopedAllowedPropertyIds(request);
+    // Capacity applies globally to the user, not only the manager's property.
+    if (scoped !== null && (staff.role === UserRole.ADMIN || !staff.propertyAccess.length || staff.propertyAccess.some((access) => !scoped.includes(access.propertyId)))) {
+      return reply.code(403).send({ message: "Only an admin can change capacity for staff outside your property scope" });
+    }
     const capacity = await prisma.userCapacity.upsert({
       where: { userId },
       create: { userId, defaultDailyHours: input.defaultDailyHours, tradeCategories: input.tradeCategories, unavailableDays: input.unavailableDays },

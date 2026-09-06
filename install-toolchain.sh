@@ -9,7 +9,7 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y curl ca-certificates gnupg
+apt-get install -y curl ca-certificates gnupg ripgrep
 
 if ! command -v node >/dev/null 2>&1; then
   apt-get install -y nodejs npm
@@ -20,9 +20,9 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 
 NODE_MAJOR="$(node -p 'process.versions.node.split(`.`)[0]' 2>/dev/null || echo 0)"
-if [ "${NODE_MAJOR:-0}" -lt 20 ]; then
+if [ "${NODE_MAJOR:-0}" -ne 24 ]; then
   npm install -g n
-  n 20.19.5
+  n 24
 fi
 
 if ! command -v docker >/dev/null 2>&1; then

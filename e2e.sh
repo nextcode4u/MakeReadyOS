@@ -29,21 +29,13 @@ mkdir -p "$LOG_DIR"
   fi
 
   NODE_MAJOR="$(node -p 'process.versions.node.split(`.`)[0]')"
-  if [ "$NODE_MAJOR" -lt 20 ]; then
-    echo "ERROR: Node 20+ is required"
+  if [ "$NODE_MAJOR" -ne 24 ]; then
+    echo "ERROR: Node 24 LTS is required"
     exit 1
   fi
 
-  if [ -f .env ]; then
-    set -a
-    . ./.env
-    set +a
-  else
-    set -a
-    . ./.env.example
-    set +a
-  fi
-  export SEED_DEMO_DATA=true
+  MROS_TEST_KIND=e2e
+  . "$ROOT_DIR/test-environment.sh"
 
   echo "Node: $(node --version)"
   echo "NPM: $(npm --version)"
@@ -58,6 +50,10 @@ mkdir -p "$LOG_DIR"
   echo
 
   echo "Resetting docker compose stack for clean browser tests"
+  cleanup() {
+    docker compose down -v >/dev/null 2>&1 || true
+  }
+  trap cleanup EXIT
   docker compose down -v >/dev/null 2>&1 || true
   docker compose up --build -d
   echo
@@ -85,13 +81,14 @@ mkdir -p "$LOG_DIR"
   echo
 
   export E2E_BASE_URL="http://localhost:${WEB_PORT:-8080}"
+  export E2E_PRODUCTION=1
   export ADMIN_EMAIL
   export ADMIN_PASSWORD
   export DEMO_TECH_EMAIL
   export DEMO_TECH_PASSWORD
 
   echo "Running Playwright tests"
-  npx playwright test
+  npx playwright test --workers=1
   echo
 
   echo "E2E run completed: $(date -Iseconds)"

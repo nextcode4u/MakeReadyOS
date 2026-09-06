@@ -357,6 +357,13 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedItems = useMemo(() => items.filter((item) => selectedSet.has(item.id)), [items, selectedSet]);
   const selectableVisibleIds = useMemo(() => orderedItems.filter((item) => !isOccupiedDirectoryItem(item)).map((item) => item.id), [orderedItems]);
+  useEffect(() => {
+    const visible = new Set(selectableVisibleIds);
+    setSelectedIds((current) => {
+      const next = current.filter((id) => visible.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [selectableVisibleIds]);
   const allVisibleSelected = selectableVisibleIds.length > 0 && selectableVisibleIds.every((id) => selectedSet.has(id));
   const sectionForGroup = (group: string) => {
     if (isOccupiedDirectoryGroup(group)) return undefined;
@@ -1621,8 +1628,8 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
         tone="danger"
         onClose={() => setConfirmBatchArchiveOpen(false)}
         onConfirm={async () => {
-          setConfirmBatchArchiveOpen(false);
           await applyBatch({ action: "ARCHIVE", ids: selectedIds });
+          setConfirmBatchArchiveOpen(false);
         }}
       />
       <ConfirmDialog

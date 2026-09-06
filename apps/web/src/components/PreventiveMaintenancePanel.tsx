@@ -501,6 +501,9 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
     return <StatusState title={t(language, "pm.noPropertiesTitle")} description={t(language, "pm.noPropertiesCopy")} />;
   }
 
+  const activeListQuery = tab === "calendar" ? calendarQuery : tab === "tasks" ? tasksQuery
+    : tab === "templates" ? templatesQuery : tab === "history" ? historyListQuery : null;
+
   if (overviewQuery.isLoading) {
     return <StatusState title={t(language, "pm.loadingTitle")} description={t(language, "pm.loadingCopy")} />;
   }
@@ -541,6 +544,16 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
           </button>
         ))}
       </div>
+
+      {activeListQuery?.isLoading ? <p role="status">{language === "es" ? "Cargando registros..." : "Loading records..."}</p> : null}
+      {activeListQuery?.isError ? (
+        <div className="pool-card" role="alert">
+          <p>{language === "es" ? "No se pudieron cargar los registros de PM." : "PM records could not be loaded."}</p>
+          <button type="button" className="button button-secondary" disabled={activeListQuery.isFetching} onClick={() => void activeListQuery.refetch()}>
+            {language === "es" ? "Reintentar registros" : "Retry records"}
+          </button>
+        </div>
+      ) : null}
 
       {queuedPmJobs.length ? (
         <div className="pool-card projects-sync-banner" style={{ marginBottom: 12 }}>
@@ -631,7 +644,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
                   </div>
                 ))}
               </div>
-            )) : <p className="muted">{t(language, "pm.noTasksInRange")}</p>}
+            )) : !calendarQuery.isLoading && !calendarQuery.isError ? <p className="muted">{t(language, "pm.noTasksInRange")}</p> : null}
           </div>
         </div>
       ) : null}
@@ -692,7 +705,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
                 }}
               />
             ))}
-            {!focusedTasks.length ? <StatusState title={t(language, "pm.noTasksFoundTitle")} description={t(language, "pm.noTasksFoundCopy")} /> : null}
+            {!focusedTasks.length && !tasksQuery.isLoading && !tasksQuery.isError ? <StatusState title={t(language, "pm.noTasksFoundTitle")} description={t(language, "pm.noTasksFoundCopy")} /> : null}
           </div>
         </>
       ) : null}
@@ -798,7 +811,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
                 </div>
               </div>
             ))}
-            {!activeTemplates.length ? <p className="muted">{t(language, "pm.noTemplatesYet")}</p> : null}
+            {!activeTemplates.length && !templatesQuery.isLoading && !templatesQuery.isError ? <p className="muted">{t(language, "pm.noTemplatesYet")}</p> : null}
             {archivedTemplates.length ? (
               <div className="pool-archived-list" data-testid="pm-template-archive-list">
                 <h3>{language === "es" ? "Plantillas archivadas" : "Archived templates"}</h3>
@@ -856,7 +869,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
                 {task.attachments.length ? <span>{task.attachments.length} {task.attachments.length === 1 ? t(language, "pm.fileSingular") : t(language, "pm.filePlural")}</span> : null}
               </div>
             </div>
-          )) : <p className="muted">{t(language, "pm.noHistoryFound")}</p>}
+          )) : !historyListQuery.isLoading && !historyListQuery.isError ? <p className="muted">{t(language, "pm.noHistoryFound")}</p> : null}
         </article>
       ) : null}
 

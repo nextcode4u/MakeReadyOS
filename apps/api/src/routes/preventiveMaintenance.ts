@@ -6,6 +6,7 @@ import { stringify } from "csv-stringify/sync";
 import { UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { booleanFlag } from "../lib/booleanFlag.js";
 import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { createNotification, notifyPropertyRoles } from "../lib/notifications.js";
@@ -181,11 +182,6 @@ function addMonths(value: Date, months: number) {
 
 function sanitizeFilename(filename: string) {
   return basename(filename).replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 180) || "pm-attachment";
-}
-
-function csvCell(value: unknown) {
-  const text = value === null || value === undefined ? "" : String(value);
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 function htmlEscape(value: unknown) {
@@ -434,12 +430,25 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
     await ensureGeneratedTasks(request, query.propertyId);
     const tasks = await prisma.preventiveMaintenanceTask.findMany({
       where: { propertyId: scoped.where },
-      include: { property: true, template: true, attachments: true },
+      select: { id: true, status: true, dueDate: true, completedAt: true },
       orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
-      take: 200,
     });
-    await syncTaskStatuses(tasks);
     const normalized = tasks.map((task) => ({ ...task, status: derivedTaskStatus(task) }));
+    const upcoming = normalized.filter((task) => task.status === "UPCOMING" || task.status === "DUE").slice(0, 10);
+    const overdue = normalized.filter((task) => task.status === "OVERDUE").slice(0, 10);
+    const completed = normalized.filter((task) => task.status === "COMPLETED" || task.status === "SKIPPED")
+      .sort((left, right) => (right.completedAt?.getTime() ?? 0) - (left.completedAt?.getTime() ?? 0)).slice(0, 10);
+    const visibleIds = [...upcoming, ...overdue, ...completed].map(task => task.id);
+    const visibleTasks = visibleIds.length ? await prisma.preventiveMaintenanceTask.findMany({
+      where: { propertyId: scoped.where, id: { in: visibleIds } },
+      include: { property: true, template: true, attachments: true },
+    }) : [];
+    await syncTaskStatuses(visibleTasks);
+    const details = new Map(visibleTasks.map(task => [task.id, { ...task, status: derivedTaskStatus(task) }]));
+    const hydrate = (selected: typeof normalized) => selected.flatMap(task => {
+      const detail = details.get(task.id);
+      return detail ? [detail] : [];
+    });
     const today = startOfDay();
     const weekEnd = endOfDay(addDays(today, 7));
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -459,9 +468,9 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
           ? Math.round((normalized.filter((task) => task.status === "COMPLETED").length / normalized.filter((task) => task.status !== "SKIPPED").length) * 100) || 0
           : 0,
       },
-      upcomingTasks: normalized.filter((task) => task.status === "UPCOMING" || task.status === "DUE").slice(0, 10),
-      overdueTasks: normalized.filter((task) => task.status === "OVERDUE").slice(0, 10),
-      recentCompletions: normalized.filter((task) => task.status === "COMPLETED" || task.status === "SKIPPED").sort((left, right) => (right.completedAt?.getTime() ?? 0) - (left.completedAt?.getTime() ?? 0)).slice(0, 10),
+      upcomingTasks: hydrate(upcoming),
+      overdueTasks: hydrate(overdue),
+      recentCompletions: hydrate(completed),
       compliance: {
         green: normalized.filter((task) => task.status === "COMPLETED").length,
         yellow: normalized.filter((task) => task.status === "DUE" || task.status === "UPCOMING").length,
@@ -472,7 +481,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
 
   app.get("/pm/templates", async (request, reply) => {
     if (!requirePmAccess(request, reply, "view")) return;
-    const query = z.object({ propertyId: z.string().optional(), includeArchived: z.coerce.boolean().optional() }).parse(request.query);
+    const query = z.object({ propertyId: z.string().optional(), includeArchived: booleanFlag.optional() }).parse(request.query);
     const scoped = propertyScopeWhere(request, query.propertyId);
     if (scoped.denied) return reply.code(403).send({ message: "Property access denied" });
     const templates = await prisma.preventiveMaintenanceTemplate.findMany({
@@ -940,7 +949,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
       Outcome: task.completionOutcome ?? "",
       Notes: task.completionNotes ?? "",
       Photos: task.attachments.length,
-    })), { header: true });
+    })), { header: true, escape_formulas: true });
     reply.header("Content-Type", "text/csv; charset=utf-8");
     reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-pm-report.csv`)}"`);
     return reply.send(csv);
@@ -969,10 +978,10 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
       task.completionOutcome ?? "",
       task.completionNotes ?? "",
       String(task.attachments.length),
-    ].join("\t")).join("\n");
+    ]);
     reply.header("Content-Type", "application/vnd.ms-excel; charset=utf-8");
     reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-pm-report.xls`)}"`);
-    return reply.send(`${header.join("\t")}\n${rows}`);
+    return reply.send(stringify([header, ...rows], { delimiter: "\t", escape_formulas: true }));
   });
 
   app.get("/pm/report.html", async (request, reply) => {

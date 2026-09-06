@@ -656,6 +656,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
 
   async function submitQuickAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     const linkedMakeReadyId = (openQuickAddRequest?.makeReadyItemId ?? linkedMakeReadyItemId) || null;
     const quickIssueInput = {
       propertyId,
@@ -687,7 +688,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
       });
       await refreshQueuedPestJobs();
     }
-    event.currentTarget.reset();
+    formElement.reset();
     resetQuickAddForm();
     if (captureInputRef.current) captureInputRef.current.value = "";
     if (uploadInputRef.current) uploadInputRef.current.value = "";
@@ -709,7 +710,8 @@ export function PestControlPanel({ properties, units, users, userRole, language,
 
   async function submitVendor(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     await vendorCreateMutation.mutateAsync({
       propertyId,
       vendorName: String(form.get("vendorName") ?? "").trim(),
@@ -722,7 +724,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
       notes: String(form.get("notes") ?? "").trim() || null,
       isDefault: form.get("isDefault") === "on",
     });
-    event.currentTarget.reset();
+    formElement.reset();
   }
 
   if (!canView) {

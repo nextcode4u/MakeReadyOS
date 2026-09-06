@@ -5,6 +5,7 @@ import { basename, extname } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { booleanFlag } from "../lib/booleanFlag.js";
 import { prisma } from "../lib/prisma.js";
 import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
@@ -1193,7 +1194,7 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
     const query = z.object({
       propertyId: z.string().optional(),
       section: z.enum(wikiSections).optional(),
-      includeInactive: z.coerce.boolean().optional(),
+      includeInactive: booleanFlag.optional(),
       q: z.string().optional(),
     }).parse(request.query);
     if (query.propertyId) await assertPropertyAccess(request, query.propertyId);
@@ -1349,7 +1350,7 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
     requireWikiView(request);
     const query = z.object({
       propertyId: z.string().optional(),
-      includeInactive: z.coerce.boolean().optional(),
+      includeInactive: booleanFlag.optional(),
       q: z.string().optional(),
     }).parse(request.query);
     if (query.propertyId) await assertPropertyAccess(request, query.propertyId);
@@ -1440,7 +1441,7 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
       kind: z.enum(wikiAssetKinds).optional(),
       entryId: z.string().optional(),
       vendorId: z.string().optional(),
-      includeInactive: z.coerce.boolean().optional(),
+      includeInactive: booleanFlag.optional(),
       q: z.string().optional(),
     }).parse(request.query);
     if (query.propertyId) await assertPropertyAccess(request, query.propertyId);

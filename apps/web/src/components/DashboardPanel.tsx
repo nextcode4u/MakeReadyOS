@@ -257,9 +257,9 @@ function recurringSignalSummary(entry: AnalyticsSummaryResponse["recurringProble
 }
 
 function ThroughputSection({ data, isSpanish, onDrillDown }: { data: AnalyticsSummaryResponse; isSpanish: boolean; onDrillDown: Props["onDrillDown"] }) {
-  if (!data.technicianThroughput.length && !data.vendorThroughput.length) return null;
   const [technicianSort, setTechnicianSort] = useState<TechnicianSortMetric>("completedTurns");
   const [vendorSort, setVendorSort] = useState<VendorSortMetric>("completedAssignments");
+  if (!data.technicianThroughput.length && !data.vendorThroughput.length) return null;
   const technicianRows = [...data.technicianThroughput].sort((left, right) => {
     const leftValue = left[technicianSort] ?? -1;
     const rightValue = right[technicianSort] ?? -1;
@@ -433,16 +433,6 @@ function AnalyticsPanel({ data, loading, propertyId, language, onDrillDown, onOp
     queryKey: ["analytics", "snapshots", propertyId ?? "__all__"],
     queryFn: () => getAnalyticsSnapshots({ propertyId, limit: 180 }),
   });
-  if (loading) return <section className="dashboard-chart" data-testid="analytics-panel"><h3>{isSpanish ? "Analitica historica" : "Historical Analytics"}</h3><p className="muted">{isSpanish ? "Cargando analitica basada en snapshots..." : "Loading snapshot-backed analytics..."}</p></section>;
-  if (!data) return <section className="dashboard-chart" data-testid="analytics-panel"><h3>{isSpanish ? "Analitica historica" : "Historical Analytics"}</h3><p className="muted">{isSpanish ? "La analitica no esta disponible para este alcance." : "Analytics are unavailable for this scope."}</p></section>;
-  const trendTotal = Math.max(...data.trends.map((entry) => entry.highRisk + entry.overdue), 1);
-  const propertyRows = Object.entries(data.propertyComparison)
-    .map(([code, values]) => ({ code, ...values }))
-    .sort((left, right) => {
-      const delta = right[propertyComparisonSort] - left[propertyComparisonSort];
-      if (delta !== 0) return delta;
-      return right.active - left.active || right.highRisk - left.highRisk || left.code.localeCompare(right.code);
-    });
   const snapshots = snapshotsQuery.data?.snapshots ?? [];
   const comparisonSummary = useMemo(() => {
     if (!snapshots.length) return null;
@@ -501,6 +491,16 @@ function AnalyticsPanel({ data, loading, propertyId, language, onDrillDown, onOp
       largestDecrease,
     };
   }, [comparisonMetric, comparisonWindowDays, snapshots]);
+  if (loading) return <section className="dashboard-chart" data-testid="analytics-panel"><h3>{isSpanish ? "Analitica historica" : "Historical Analytics"}</h3><p className="muted">{isSpanish ? "Cargando analitica basada en snapshots..." : "Loading snapshot-backed analytics..."}</p></section>;
+  if (!data) return <section className="dashboard-chart" data-testid="analytics-panel"><h3>{isSpanish ? "Analitica historica" : "Historical Analytics"}</h3><p className="muted">{isSpanish ? "La analitica no esta disponible para este alcance." : "Analytics are unavailable for this scope."}</p></section>;
+  const trendTotal = Math.max(...data.trends.map((entry) => entry.highRisk + entry.overdue), 1);
+  const propertyRows = Object.entries(data.propertyComparison)
+    .map(([code, values]) => ({ code, ...values }))
+    .sort((left, right) => {
+      const delta = right[propertyComparisonSort] - left[propertyComparisonSort];
+      if (delta !== 0) return delta;
+      return right.active - left.active || right.highRisk - left.highRisk || left.code.localeCompare(right.code);
+    });
   const snapshotCsv = [
     ["date", "property", "active_turns", "vacant", "ntv", "ready", "down", "overdue", "high_risk", "avg_days_vacant", "move_ins_next_7_days", "completed_turns"],
     ...snapshots.map((snapshot) => [

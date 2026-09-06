@@ -1008,10 +1008,16 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
         <div className="pool-grid">
           <article className="pool-card">
             <h2>{isSpanish ? "Registros recientes de piscina" : "Recent pool logs"}</h2>
-            {historyQuery.isLoading ? <p className="muted">{isSpanish ? "Cargando historial..." : "Loading history..."}</p> : null}
+            {historyQuery.isLoading ? <p role="status" className="muted">{isSpanish ? "Cargando historial..." : "Loading history..."}</p> : null}
+            {historyQuery.isError ? (
+              <div role="alert">
+                <p>{isSpanish ? "No se pudo cargar el historial de piscina. Reintente para consultar los registros guardados." : "Pool history could not be loaded. Retry to check your saved records."}</p>
+                <button type="button" className="button secondary" disabled={historyQuery.isFetching} onClick={() => void historyQuery.refetch()}>{isSpanish ? "Reintentar" : "Retry history"}</button>
+              </div>
+            ) : null}
             {historyQuery.data?.entries.length ? historyQuery.data.entries.map((entry) => (
               <PoolEntryRow key={entry.id} entry={entry} canEdit={canEdit} onUpload={uploadPoolFiles} language={language} />
-            )) : <p className="muted">{isSpanish ? "No se encontraron registros de piscina." : "No pool log entries found."}</p>}
+            )) : !historyQuery.isLoading && !historyQuery.isError ? <p className="muted">{isSpanish ? "No se encontraron registros de piscina." : "No pool log entries found."}</p> : null}
             <p className="muted">{isSpanish ? "Las fotos/PDF de piscina se almacenan en el volumen de carga configurado. La transferencia JSON nativa conserva los registros del log; respalde las cargas por separado para conservar los bytes de archivo." : "Pool photos/PDFs are stored in the configured upload volume. Native JSON transfer keeps pool log records; back up uploads separately for file bytes."}</p>
           </article>
           <PropertyWikiWorkflowPanel

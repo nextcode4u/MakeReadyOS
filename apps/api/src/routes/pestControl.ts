@@ -6,6 +6,7 @@ import { stringify } from "csv-stringify/sync";
 import { UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { booleanFlag } from "../lib/booleanFlag.js";
 import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
@@ -72,9 +73,9 @@ export const pestIssueQuerySchema = z.object({
   vendorId: z.string().optional(),
   assignedUserId: z.string().optional(),
   source: z.enum(pestSources).optional(),
-  includeArchived: z.coerce.boolean().optional(),
-  makeReadyOnly: z.coerce.boolean().optional(),
-  recurringOnly: z.coerce.boolean().optional(),
+  includeArchived: booleanFlag.optional(),
+  makeReadyOnly: booleanFlag.optional(),
+  recurringOnly: booleanFlag.optional(),
   q: z.string().trim().optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
@@ -954,7 +955,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
       orderBy: [{ requestDate: "desc" }],
     });
     const scopeLabel = await reportScopeLabel(query.propertyId);
-    const csv = stringify(reportRows(issues), { header: true });
+    const csv = stringify(reportRows(issues), { header: true, escape_formulas: true });
     reply.header("Content-Type", "text/csv; charset=utf-8");
     reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-pest-control-report.csv`)}"`);
     return reply.send(csv);
@@ -1019,7 +1020,6 @@ export async function pestControlRoutes(app: FastifyInstance) {
         attachments: { orderBy: { createdAt: "desc" }, take: 1 },
       },
       orderBy: [{ requestDate: "desc" }, { updatedAt: "desc" }],
-      take: 150,
     });
     const rows = reportRows(issues);
     const openCount = issues.filter((issue) => ["Open", "Scheduled", "Treated", "Needs Follow Up"].includes(issue.status)).length;
@@ -1103,7 +1103,6 @@ export async function pestControlRoutes(app: FastifyInstance) {
         attachments: { orderBy: { createdAt: "desc" }, take: 1 },
       },
       orderBy: [{ requestDate: "desc" }],
-      take: 100,
     });
     const rows = reportRows(issues);
     const scopeLabel = await reportScopeLabel(query.propertyId);

@@ -25,8 +25,8 @@ mkdir -p "$LOG_DIR"
   fi
 
   NODE_MAJOR="$(node -p 'process.versions.node.split(`.`)[0]')"
-  if [ "$NODE_MAJOR" -lt 20 ]; then
-    echo "ERROR: Node 20+ is required"
+  if [ "$NODE_MAJOR" -ne 24 ]; then
+    echo "ERROR: Node 24 LTS is required"
     exit 1
   fi
 

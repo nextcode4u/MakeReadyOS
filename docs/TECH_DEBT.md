@@ -1,5 +1,7 @@
 # Technical Debt
 
+Current reliability-first work and acceptance checks: [Reliability And Polish Queue](RELIABILITY_POLISH.md).
+
 ## Database Migration Strategy
 
 The project now has an initial versioned Prisma migration and package scripts for `db:migrate` and `db:deploy`.

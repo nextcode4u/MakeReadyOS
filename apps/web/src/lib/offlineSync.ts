@@ -189,6 +189,7 @@ export type OfflineQueueState = {
 
 let syncing = false;
 let syncPromise: Promise<{ processed: number; synced: number; remaining: number }> | null = null;
+const jobDeliveries = new Map<string, Promise<boolean>>();
 const retryDelaysMs = [0, 5000, 15000, 30000, 60000];
 
 function queueUnavailable() {
@@ -572,17 +573,37 @@ export function getOfflineSyncEventName() {
   return queueUpdatedEventName;
 }
 
+function deliverQueuedJob(id: string) {
+  const pending = jobDeliveries.get(id);
+  if (pending) return pending;
+  const delivery = Promise.resolve().then(async () => {
+    // Re-read after acquiring the lock; another attempt may have removed the job.
+    const job = await getOfflineSyncJob(id);
+    if (!job) return false;
+    try {
+      await syncJob(job);
+      await withStore("readwrite", (store) => deleteJob(store, id));
+      return true;
+    } catch (error) {
+      await updateFailedJob(job, error);
+      throw error;
+    }
+  }).finally(() => { jobDeliveries.delete(id); });
+  jobDeliveries.set(id, delivery);
+  return delivery;
+}
+
 export async function syncOfflineJobs() {
   if (syncPromise) {
     return syncPromise;
   }
-  syncPromise = (async () => {
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
-      return { processed: 0, synced: 0, remaining: await getOfflineSyncPendingCount() };
-    }
-    syncing = true;
-    await announceQueueState();
+  syncPromise = Promise.resolve().then(async () => {
     try {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        return { processed: 0, synced: 0, remaining: await getOfflineSyncPendingCount() };
+      }
+      syncing = true;
+      await announceQueueState();
       let processed = 0;
       let syncedCount = 0;
       const jobs = await getOfflineSyncJobs();
@@ -592,12 +613,11 @@ export async function syncOfflineJobs() {
           continue;
         }
         try {
-          await syncJob(job);
-          await withStore("readwrite", (store) => deleteJob(store, job.id));
-          processed += 1;
-          syncedCount += 1;
+          if (await deliverQueuedJob(job.id)) {
+            processed += 1;
+            syncedCount += 1;
+          }
         } catch (error) {
-          await updateFailedJob(job, error);
           if (isNetworkError(error)) {
             break;
           }
@@ -606,28 +626,24 @@ export async function syncOfflineJobs() {
       return { processed, synced: syncedCount, remaining: await getOfflineSyncPendingCount() };
     } finally {
       syncing = false;
-      syncPromise = null;
-      await announceQueueState();
     }
-  })();
+  }).finally(async () => {
+    // Release the shared lock even if offline checks or IndexedDB access fail.
+    syncPromise = null;
+    await announceQueueState();
+  });
   return syncPromise;
 }
 
 export async function retryOfflineSyncJob(id: string) {
-  const job = await getOfflineSyncJob(id);
-  if (!job) {
-    return { synced: false, remaining: await getOfflineSyncPendingCount() };
-  }
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     return { synced: false, remaining: await getOfflineSyncPendingCount() };
   }
   try {
-    await syncJob(job);
-    await withStore("readwrite", (store) => deleteJob(store, job.id));
+    const synced = await deliverQueuedJob(id);
     await announceQueueState();
-    return { synced: true, remaining: await getOfflineSyncPendingCount() };
+    return { synced, remaining: await getOfflineSyncPendingCount() };
   } catch (error) {
-    await updateFailedJob(job, error);
     await announceQueueState();
     throw error;
   }

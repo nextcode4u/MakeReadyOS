@@ -6,6 +6,7 @@ import { stringify } from "csv-stringify/sync";
 import { UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { booleanFlag } from "../lib/booleanFlag.js";
 import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { notifyPropertyRoles } from "../lib/notifications.js";
@@ -65,12 +66,13 @@ export const leaseComplianceIssuePatchSchema = leaseComplianceIssueSchema.partia
 export const leaseComplianceIssueQuerySchema = z.object({
   propertyId: z.string().optional(),
   unitId: z.string().optional(),
+  commonAreasOnly: booleanFlag.optional(),
   status: z.enum(leaseComplianceStatuses).optional(),
   noticeStage: z.enum(leaseComplianceNoticeStages).optional(),
   priority: z.enum(leaseCompliancePriorities).optional(),
   assignedUserId: z.string().optional(),
-  includeArchived: z.coerce.boolean().optional(),
-  recurringOnly: z.coerce.boolean().optional(),
+  includeArchived: booleanFlag.optional(),
+  recurringOnly: booleanFlag.optional(),
   q: z.string().trim().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),
   offset: z.coerce.number().int().min(0).default(0),
@@ -176,6 +178,7 @@ async function ensureDefaultIssueTypes(propertyId: string, userId: string | null
   const count = await prisma.leaseComplianceIssueType.count({ where: { propertyId } });
   if (count > 0) return;
   await prisma.leaseComplianceIssueType.createMany({
+    skipDuplicates: true,
     data: defaultIssueTypes.map((entry, index) => ({
       propertyId,
       name: entry.name,
@@ -239,6 +242,7 @@ function issueWhere(query: z.infer<typeof leaseComplianceIssueQuerySchema>, requ
     ...(query.includeArchived ? {} : { isArchived: false }),
   };
   if (query.unitId) where.unitId = query.unitId;
+  if (query.commonAreasOnly) where.AND = [{ unitId: null }];
   if (query.status) where.status = query.status;
   if (query.noticeStage) where.noticeStage = query.noticeStage;
   if (query.priority) where.priority = query.priority;
@@ -1099,7 +1103,7 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
       orderBy: [{ createdAt: "desc" }],
     });
     const scopeLabel = await reportScopeLabel(query.propertyId);
-    const csv = stringify(reportRows(issues), { header: true });
+    const csv = stringify(reportRows(issues), { header: true, escape_formulas: true });
     reply.header("Content-Type", "text/csv; charset=utf-8");
     reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-lease-compliance-report.csv`)}"`);
     return reply.send(csv);
@@ -1118,7 +1122,6 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
         photos: { orderBy: { createdAt: "desc" }, take: 1 },
       },
       orderBy: [{ createdAt: "desc" }],
-      take: 150,
     });
     const rows = reportRows(issues);
     const scopeLabel = await reportScopeLabel(query.propertyId);
@@ -1198,7 +1201,6 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
         assignedUser: { select: { fullName: true } },
       },
       orderBy: [{ createdAt: "desc" }],
-      take: 100,
     });
     const rows = reportRows(issues);
     const scopeLabel = await reportScopeLabel(query.propertyId);

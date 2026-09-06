@@ -10,6 +10,8 @@ export default defineConfig({
   reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
   use: {
     baseURL: process.env.E2E_BASE_URL || "http://localhost:8080",
+    // Keep page-level request mocks effective against production PWA builds.
+    serviceWorkers: "block",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",

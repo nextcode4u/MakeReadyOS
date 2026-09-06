@@ -1573,7 +1573,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
           return [field.label, Array.isArray(customValue) ? customValue.join(", ") : customValue ?? ""];
         })),
       })),
-      { header: true },
+      { header: true, escape_formulas: true },
     );
 
     reply.header("content-type", "text/csv; charset=utf-8");

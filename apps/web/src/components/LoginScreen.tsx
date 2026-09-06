@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { PasswordForm } from "./PasswordForm";
 import type { UserLanguage } from "../lib/api";
 import { languageOptions, normalizeLanguage, t } from "../lib/i18n";
@@ -35,6 +35,9 @@ export function LoginScreen({ onSubmit, errorMessage, loading, infoMessage, lang
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [forgot, setForgot] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const submissionPending = useRef(false);
   const [selectedLanguage, setSelectedLanguage] = useState<UserLanguage>(() => readStoredLoginLanguage(language));
 
   return (
@@ -49,7 +52,18 @@ export function LoginScreen({ onSubmit, errorMessage, loading, infoMessage, lang
           className="login-form"
           onSubmit={async (event) => {
             event.preventDefault();
-            await onSubmit(identifier, password);
+            if (submissionPending.current || loading) return;
+            submissionPending.current = true;
+            setSubmitting(true);
+            setSubmitError("");
+            try {
+              await onSubmit(identifier, password);
+            } catch (error) {
+              setSubmitError(error instanceof Error ? error.message : t(selectedLanguage, "auth.signInFailed"));
+            } finally {
+              submissionPending.current = false;
+              setSubmitting(false);
+            }
           }}
         >
           <label>
@@ -97,10 +111,10 @@ export function LoginScreen({ onSubmit, errorMessage, loading, infoMessage, lang
             />
           </label>
 
-          {errorMessage ? <div className="login-error">{errorMessage}</div> : null}
+          {errorMessage || submitError ? <div className="login-error" role="alert">{errorMessage || submitError}</div> : null}
 
-          <button data-testid="login-submit" className="button button-primary login-button" type="submit" disabled={loading}>
-            {loading ? t(selectedLanguage, "auth.submitting") : t(selectedLanguage, "auth.submit")}
+          <button data-testid="login-submit" className="button button-primary login-button" type="submit" disabled={loading || submitting}>
+            {loading || submitting ? t(selectedLanguage, "auth.submitting") : t(selectedLanguage, "auth.submit")}
           </button>
           <button type="button" className="button button-secondary" onClick={() => setForgot(true)}>{selectedLanguage === "es" ? "Olvido su contrasena?" : "Forgot password?"}</button>
         </form>}
