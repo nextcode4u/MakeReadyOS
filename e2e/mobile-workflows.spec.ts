@@ -92,7 +92,9 @@ test.describe("mobile workflow coverage", () => {
 
     await openMobileTools(page);
     await expect(page.getByTestId("theme-mode-select")).toBeVisible();
+    await page.getByTestId("account-menu").click();
     await expect(page.getByTestId("logout-button")).toBeVisible();
+    await page.getByTestId("account-menu").click();
 
     await openWorkspaceFromViews(page, "tab-dashboard", "dashboard");
     await page.goBack();

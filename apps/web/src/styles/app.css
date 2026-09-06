@@ -10693,6 +10693,63 @@ textarea {
   min-height: calc(var(--control-height) + 0.3rem);
 }
 
+.filterbar.organized-filterbar {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "brand tabs account" "filters filters filters";
+}
+
+.organized-filterbar .tabset,
+.organized-filterbar .filters {
+  flex-wrap: wrap;
+  overflow: visible;
+  scrollbar-gutter: auto;
+}
+
+.organized-filterbar .nav-group {
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding-inline: 0.3rem;
+  border-right: 1px solid var(--border);
+}
+
+.organized-filterbar .filters > input[data-testid="board-search"] {
+  flex: 1 1 200px;
+  width: auto;
+  max-width: 420px;
+}
+
+.toolbar-account { grid-area: account; }
+.toolbar-popover-trigger { display: inline-flex; gap: 0.5rem; align-items: center; }
+.toolbar-popover-arrow { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid currentColor; }
+.toolbar-popover-trigger[aria-expanded="true"] { border-color: var(--accent); }
+.toolbar-popover-panel {
+  position: fixed;
+  z-index: 120;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  overflow: auto;
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--panel-strong);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.toolbar-popover-panel .toolbar-select { display: grid; gap: 0.3rem; }
+.toolbar-popover-panel .toolbar-select .sr-only { position: static; width: auto; height: auto; clip: auto; clip-path: none; overflow: visible; }
+.toolbar-popover-panel select { width: 100%; min-width: 0; }
+.toolbar-popover-panel .compact-toggle { display: flex; align-items: center; gap: 0.6rem; }
+.toolbar-popover-panel input[type="checkbox"] { width: 1rem; height: 1rem; flex: 0 0 auto; }
+.toolbar-account-identity { display: grid; gap: 0.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.toolbar-account-identity span { color: var(--text-muted); font-size: 0.8rem; }
+
 .primary-panel,
 .board-scroll,
 .table-wrap {

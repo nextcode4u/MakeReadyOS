@@ -30,9 +30,11 @@ async function login(page: Page) {
 }
 
 async function setDisplayMode(page: Page, input: DisplayMode) {
+  await page.getByTestId("display-menu").click();
   await page.getByTestId("theme-mode-select").selectOption(input.theme);
   await page.getByTestId("eye-strain-mode-toggle").setChecked(Boolean(input.eyeStrain));
   await page.getByTestId("dyslexia-mode-toggle").setChecked(Boolean(input.dyslexia));
+  await page.getByTestId("display-menu").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", input.theme);
   if (input.eyeStrain) {
     await expect(page.locator("html")).toHaveClass(/eye-strain-mode/);
@@ -62,7 +64,9 @@ test.describe("visual QA capture", () => {
   test("capture desktop review bundle for theme and dense workspace pass", async ({ page }, testInfo) => {
     await login(page);
 
+    await page.getByTestId("display-menu").click();
     await page.getByTestId("compact-mode-toggle").setChecked(true);
+    await page.getByTestId("display-menu").click();
     await expect(page.locator(".app-shell")).toHaveClass(/compact-mode/);
 
     const modes: DisplayMode[] = [

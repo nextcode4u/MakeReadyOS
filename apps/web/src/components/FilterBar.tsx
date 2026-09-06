@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ChangePasswordButton } from "./PasswordForm";
+import { ToolbarPopover } from "./ToolbarPopover";
 import { makeReadyExportCsvUrl, makeReadyPdfReportUrl, type CurrentUser, type MakeReadyItemFilters, type Property, type UserLanguage } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import type { ClockMode } from "../lib/dateTime";
@@ -260,6 +261,12 @@ export function FilterBar({
     </div>
   ) : null;
 
+  const accountMenu = <ToolbarPopover label={language === "es" ? "Cuenta" : "Account"} testId="account-menu">
+    <div className="toolbar-account-identity"><strong>{currentUser.fullName}</strong><span>{translateUserRole(language, currentUser.role)}</span></div>
+    <ChangePasswordButton language={language} />
+    <button data-testid="logout-button" className="button button-secondary" onClick={() => void onLogout()}>{t(language, "nav.logout")}</button>
+  </ToolbarPopover>;
+
   if (isMobileLayout) {
     return (
       <header className="filterbar mobile-filterbar">
@@ -280,6 +287,7 @@ export function FilterBar({
             aria-label={t(language, "nav.searchBoardItems")}
           />
           <div className="mobile-filterbar-actions">
+            {accountMenu}
             {(showAdmin || showOperations) ? (
               <button data-testid="onboarding-open" className="button button-secondary" type="button" onClick={onOpenOnboarding}>
                 {language === "es" ? "Lista de configuracion" : "Setup checklist"}
@@ -390,10 +398,6 @@ export function FilterBar({
             <button data-testid="notifications-button" className="button button-secondary notification-button" onClick={onOpenNotifications} aria-label={`${notificationUnreadCount} ${t(language, "nav.notificationsUnread")}`}>
               {t(language, "nav.alerts")}{notificationUnreadCount > 0 ? <strong>{notificationUnreadCount}</strong> : null}
             </button>
-            <ChangePasswordButton language={language} />
-            <button data-testid="logout-button" className="button button-secondary" onClick={() => void onLogout()}>
-              {t(language, "nav.logout")}
-            </button>
           </div>
         ) : null}
       </header>
@@ -401,12 +405,11 @@ export function FilterBar({
   }
 
   return (
-    <header className="filterbar">
+    <header className="filterbar organized-filterbar">
       <div className="operations-brand">
         <h1>MakeReadyOS</h1>
-        <span className="operations-user">{currentUser.fullName}</span>
-        <span className="role-chip">{translateUserRole(language, currentUser.role)}</span>
       </div>
+      <div className="toolbar-account">{accountMenu}</div>
 
       <nav className="tabset" role="tablist" aria-label={t(language, "nav.primaryWorkspaceViews")}>
         {operationViews}
@@ -439,6 +442,7 @@ export function FilterBar({
             {language === "es" ? "Lista de configuracion" : "Setup checklist"}
           </button>
         ) : null}
+        <ToolbarPopover label={language === "es" ? "Herramientas" : "Tools"} testId="board-tools-menu">
         {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
           <button type="button" className="button button-secondary" data-testid="basic-board-mode" onClick={onApplyBasicMode}>
             {basicModeActive ? (language === "es" ? "Restaurar tablero" : "Restore board") : (language === "es" ? "Modo basico" : "Basic board")}
@@ -447,6 +451,10 @@ export function FilterBar({
         <button type="button" className="button button-secondary" data-testid="shortcut-help-open" onClick={onOpenShortcutHelp}>
           {language === "es" ? "Atajos" : "Shortcuts"}
         </button>
+        <a data-testid="export-csv" className="button button-secondary export-button" href={makeReadyExportCsvUrl(makeReadyExportFilters)}>{t(language, "nav.export")} CSV</a>
+        <a data-testid="export-pdf" className="button button-secondary export-button" href={makeReadyPdfReportUrl(makeReadyExportFilters)} target="_blank" rel="noreferrer">{t(language, "nav.pdf")}</a>
+        </ToolbarPopover>
+        <ToolbarPopover label={language === "es" ? "Pantalla" : "Display"} testId="display-menu">
         <label className="compact-toggle" title="Reduce spacing to show more board rows">
           <input
             data-testid="compact-mode-toggle"
@@ -501,6 +509,7 @@ export function FilterBar({
           />
           {t(language, "nav.dyslexia")}
         </label>
+        </ToolbarPopover>
         {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
         <label className="toolbar-select archive-mode-select" title={t(language, "nav.archiveMode")}>
           <span className="sr-only">{t(language, "nav.archiveMode")}</span>
@@ -512,18 +521,8 @@ export function FilterBar({
             </select>
           </label>
         ) : null}
-        <a data-testid="export-csv" className="button button-secondary export-button" href={makeReadyExportCsvUrl(makeReadyExportFilters)}>
-          {t(language, "nav.export")}
-        </a>
-        <a data-testid="export-pdf" className="button button-secondary export-button" href={makeReadyPdfReportUrl(makeReadyExportFilters)} target="_blank" rel="noreferrer">
-          {t(language, "nav.pdf")}
-        </a>
         <button data-testid="notifications-button" className="button button-secondary notification-button" onClick={onOpenNotifications} aria-label={`${notificationUnreadCount} ${t(language, "nav.notificationsUnread")}`}>
           {t(language, "nav.alerts")}{notificationUnreadCount > 0 ? <strong>{notificationUnreadCount}</strong> : null}
-        </button>
-        <ChangePasswordButton language={language} />
-        <button data-testid="logout-button" className="button button-secondary" onClick={() => void onLogout()}>
-          {t(language, "nav.logout")}
         </button>
       </div>
     </header>

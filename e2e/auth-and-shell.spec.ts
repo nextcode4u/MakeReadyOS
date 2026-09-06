@@ -113,10 +113,33 @@ async function assertNoPageHorizontalOverflow(page: Page) {
   ).toBe(true);
 }
 
+test("toolbar groups settings and keeps account password form usable", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  await expect(page.getByTestId("logout-button")).toHaveCount(0);
+  await expect(page.getByTestId("theme-mode-select")).toHaveCount(0);
+  await page.getByTestId("account-menu").click();
+  await expect(page.getByTestId("logout-button")).toBeVisible();
+  await page.getByRole("button", { name: "Change password", exact: true }).click();
+  await page.getByLabel("Current password", { exact: true }).fill("not-submitted");
+  await expect(page.getByLabel("Current password", { exact: true })).toHaveValue("not-submitted");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("account-menu")).toBeFocused();
+  for (const width of [1920, 1440, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.getByTestId("display-menu").click();
+    await expect(page.getByTestId("theme-mode-select")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect.poll(() => page.locator(".organized-filterbar .filters").evaluate(el => el.scrollWidth <= el.clientWidth + 2)).toBe(true);
+  }
+});
+
 async function setDisplayMode(page: Page, input: { theme: "default" | "dark" | "light"; eyeStrain?: boolean; dyslexia?: boolean }) {
+  await page.getByTestId("display-menu").click();
   await page.getByTestId("theme-mode-select").selectOption(input.theme);
   await page.getByTestId("eye-strain-mode-toggle").setChecked(Boolean(input.eyeStrain));
   await page.getByTestId("dyslexia-mode-toggle").setChecked(Boolean(input.dyslexia));
+  await page.getByTestId("display-menu").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", input.theme);
   if (input.eyeStrain) {
     await expect(page.locator("html")).toHaveClass(/eye-strain-mode/);
@@ -222,6 +245,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByRole("button", { name: "Close notifications" }).click();
     await page.getByTestId("tab-table").click();
 
+    await page.getByTestId("display-menu").click();
     await page.getByTestId("compact-mode-toggle").check();
     await expect(page.locator(".app-shell")).toHaveClass(/compact-mode/);
     await page.getByTestId("theme-mode-select").selectOption("dark");
@@ -244,12 +268,14 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.locator(".activity-table").first()).toBeVisible();
     await expect.poll(() => page.locator(".activity-table th").first().evaluate((el) => getComputedStyle(el).color)).toBe("rgb(248, 251, 255)");
     await page.getByTestId("tab-table").click();
+    await page.getByTestId("display-menu").click();
     await page.getByTestId("eye-strain-mode-toggle").check();
     await expect(page.locator("html")).toHaveClass(/eye-strain-mode/);
     await page.getByTestId("dyslexia-mode-toggle").check();
     await expect(page.locator("html")).toHaveClass(/dyslexia-mode/);
     await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).fontFamily)).toContain("OpenDyslexic");
     await page.reload();
+    await page.getByTestId("display-menu").click();
     await expect(page.getByTestId("compact-mode-toggle")).toBeChecked();
     await expect(page.locator(".app-shell")).toHaveClass(/compact-mode/);
     await expect(page.getByTestId("theme-mode-select")).toHaveValue("light");
@@ -263,6 +289,7 @@ test.describe("MakeReadyOS browser flows", () => {
     const logoutResponsePromise = page.waitForResponse((response) =>
       response.url().includes("/api/auth/logout") && response.request().method() === "POST",
     );
+    await page.getByTestId("account-menu").click();
     await page.getByTestId("logout-button").click();
     await expect((await logoutResponsePromise).status()).toBe(200);
     await page.goto("/");
@@ -271,7 +298,9 @@ test.describe("MakeReadyOS browser flows", () => {
 
   test("display modes keep core workspaces readable without page overflow", async ({ page }) => {
     await login(page, adminEmail, adminPassword);
+    await page.getByTestId("display-menu").click();
     await page.getByTestId("compact-mode-toggle").setChecked(true);
+    await page.getByTestId("display-menu").click();
 
     const modes = [
       { label: "default", theme: "default" as const },
