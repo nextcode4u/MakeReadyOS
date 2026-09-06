@@ -286,24 +286,16 @@ export function FilterBar({
             placeholder={t(language, "nav.searchPlaceholder")}
             aria-label={t(language, "nav.searchBoardItems")}
           />
-          <div className="mobile-filterbar-actions">
-            {accountMenu}
-            {(showAdmin || showOperations) ? (
-              <button data-testid="onboarding-open" className="button button-secondary" type="button" onClick={onOpenOnboarding}>
-                {language === "es" ? "Lista de configuracion" : "Setup checklist"}
-              </button>
-            ) : null}
-            <button type="button" className={mobileViewsOpen ? "button mobile-filter-toggle active" : "button button-secondary mobile-filter-toggle"} onClick={toggleMobileViews}>
-              {t(language, "nav.view")}: {viewLabel(activeView)}
+            <button type="button" data-testid="mobile-views-toggle" aria-expanded={mobileViewsOpen} aria-controls="mobile-workspace-views" aria-label={`${t(language, "nav.view")}: ${viewLabel(activeView)}`} className={mobileViewsOpen ? "button mobile-filter-toggle mobile-view-toggle active" : "button button-secondary mobile-filter-toggle mobile-view-toggle"} onClick={toggleMobileViews}>
+              {viewLabel(activeView)}
             </button>
-            <button type="button" className={mobileToolsOpen ? "button mobile-filter-toggle active" : "button button-secondary mobile-filter-toggle"} onClick={toggleMobileTools}>
+            <button type="button" data-testid="mobile-tools-toggle" aria-expanded={mobileToolsOpen} aria-controls="mobile-workspace-tools" className={mobileToolsOpen ? "button mobile-filter-toggle mobile-tools-toggle active" : "button button-secondary mobile-filter-toggle mobile-tools-toggle"} onClick={toggleMobileTools}>
               {t(language, "nav.tools")}
             </button>
-          </div>
         </div>
 
         {mobileViewsOpen ? (
-          <nav className="tabset mobile-tabset" role="tablist" aria-label={t(language, "nav.primaryWorkspaceViews")}>
+          <nav id="mobile-workspace-views" className="tabset mobile-tabset" role="tablist" aria-label={t(language, "nav.primaryWorkspaceViews")}>
             {operationViews}
             {visibilityViews}
             {managementViews}
@@ -312,7 +304,8 @@ export function FilterBar({
         ) : null}
 
         {mobileToolsOpen ? (
-          <div className="filters mobile-filters-panel" aria-label={t(language, "nav.boardTools")}>
+          <div id="mobile-workspace-tools" className="filters mobile-filters-panel" aria-label={t(language, "nav.boardTools")}>
+            {accountMenu}
             <button data-testid="command-palette-button" className="button button-secondary command-button" type="button" onClick={onOpenCommandPalette} aria-label={t(language, "nav.openQuickSearch")}>
               {t(language, "nav.search")} <kbd>Ctrl K</kbd>
             </button>

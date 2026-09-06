@@ -51,6 +51,7 @@ mkdir -p "$LOG_DIR"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/dailyReport.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/riskScope.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/audit.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/adminUsername.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/refrigerantReports.test.ts" "$ROOT_DIR/apps/api/src/routes/planningAccess.test.ts" "$ROOT_DIR/apps/api/src/lib/inviteTemplate.test.ts" "$ROOT_DIR/apps/api/src/lib/pdf.test.ts" "$ROOT_DIR/apps/api/src/lib/booleanFlag.test.ts" "$ROOT_DIR/apps/api/src/lib/planningDates.test.ts"
   echo
 

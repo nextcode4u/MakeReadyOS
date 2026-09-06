@@ -20,8 +20,9 @@ const usernameSchema = z
   .string()
   .trim()
   .min(3)
-  .max(40)
-  .regex(/^[a-z0-9._-]+$/i, "Username may only use letters, numbers, dots, underscores, and dashes.");
+  .max(254)
+  .refine(value => (value.length <= 40 && /^[a-z0-9._-]+$/i.test(value)) || z.string().email().safeParse(value).success,
+    "Use a valid email address or a username of up to 40 letters, numbers, dots, underscores, and dashes.");
 const optionalEmailSchema = z.union([z.string().trim().email(), z.literal(""), z.null()]).optional();
 
 export const adminCreateUserSchema = z.object({
@@ -38,7 +39,7 @@ export const adminCreateUserSchema = z.object({
 
 export const adminUpdateUserSchema = z.object({
   fullName: z.string().trim().min(2).max(120).optional(),
-  username: z.string().trim().min(3).max(120).optional(),
+  username: z.string().trim().min(3).max(254).optional(),
   email: optionalEmailSchema,
   role: editableRoles.optional(),
   language: languageSchema.optional(),
@@ -428,12 +429,18 @@ export async function adminRoutes(app: FastifyInstance) {
       reply.code(409);
       return { message: "A user with that username already exists" };
     }
+    if (await prisma.user.findUnique({ where: { email: username } })) {
+      return reply.code(409).send({ message: "That username is already used as another user's email." });
+    }
 
     if (email) {
       const existingByEmail = await prisma.user.findUnique({ where: { email } });
       if (existingByEmail) {
         reply.code(409);
         return { message: "A user with that email already exists" };
+      }
+      if (await prisma.user.findUnique({ where: { username: email } })) {
+        return reply.code(409).send({ message: "That email is already used as another user's username." });
       }
     }
 
@@ -554,6 +561,10 @@ export async function adminRoutes(app: FastifyInstance) {
         reply.code(409);
         return { message: "A user with that username already exists" };
       }
+      const emailOwner = await prisma.user.findUnique({ where: { email: nextUsername } });
+      if (emailOwner && emailOwner.id !== existing.id) {
+        return reply.code(409).send({ message: "That username is already used as another user's email." });
+      }
     }
 
     const nextEmail = typeof payload.email === "string"
@@ -566,6 +577,10 @@ export async function adminRoutes(app: FastifyInstance) {
       if (duplicate) {
         reply.code(409);
         return { message: "A user with that email already exists" };
+      }
+      const usernameOwner = nextEmail ? await prisma.user.findUnique({ where: { username: nextEmail } }) : null;
+      if (usernameOwner && usernameOwner.id !== existing.id) {
+        return reply.code(409).send({ message: "That email is already used as another user's username." });
       }
     }
 

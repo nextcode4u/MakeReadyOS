@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ManagedUser, MetaResponse, Property, UserLanguage, UserRole } from "../lib/api";
 import { languageOptions, t, translateUserRole } from "../lib/i18n";
 import { BackupTransferPanel } from "./BackupTransferPanel";
@@ -66,6 +66,12 @@ export function AdminPanel({
   onBackupImported,
 }: Props) {
   const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [useEmailAsUsername, setUseEmailAsUsername] = useState(false);
+  const [createPending, setCreatePending] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const createInFlight = useRef(false);
+  const editorRef = useRef<HTMLElement>(null);
+  const [editError, setEditError] = useState("");
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<(typeof roleFilterOptions)[number]>("ALL");
   const [statusFilter, setStatusFilter] = useState<(typeof statusFilterOptions)[number]>("ALL");
@@ -210,7 +216,14 @@ export function AdminPanel({
               className={selectedUser?.id === user.id ? "selected" : ""}
               onClick={() => setSelectedUserId(user.id)}
             >
-              <td>{user.fullName}{user.id === currentUserId ? ` (${t(language, "admin.you")})` : ""}</td>
+              <td>
+                {user.fullName}{user.id === currentUserId ? ` (${t(language, "admin.you")})` : ""}
+                <button type="button" className="button button-secondary admin-edit-account" onClick={() => {
+                  setSelectedUserId(user.id);
+                  setEditError("");
+                  editorRef.current?.scrollIntoView({ block: "start" });
+                }}>{language === "es" ? "Editar cuenta" : "Edit account"}</button>
+              </td>
               <td>{user.username}</td>
               <td>{user.email || t(language, "admin.noEmail")}</td>
               <td>{translateUserRole(language, user.role)}</td>
@@ -244,6 +257,12 @@ export function AdminPanel({
         <div className="admin-grid">
           <section className="admin-section">
             <h3>{t(language, "admin.createUser")}</h3>
+            <fieldset disabled={createPending} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
+            <label className="checkbox-row">
+              <input type="checkbox" data-testid="admin-use-email-as-username" checked={useEmailAsUsername}
+                disabled={createPending} onChange={event => setUseEmailAsUsername(event.target.checked)} />
+              {t(language, "admin.useEmailAsUsername")}
+            </label>
             <div className="admin-form-grid">
               <label>
                 {t(language, "admin.fullName")}
@@ -257,7 +276,8 @@ export function AdminPanel({
                 {t(language, "admin.username")}
                 <input
                   data-testid="admin-create-username"
-                  value={createState.username}
+                  value={useEmailAsUsername ? createState.email : createState.username}
+                  readOnly={useEmailAsUsername}
                   autoCapitalize="none"
                   autoCorrect="off"
                   onChange={(event) => setCreateState((current) => ({ ...current, username: event.target.value }))}
@@ -364,11 +384,18 @@ export function AdminPanel({
               )}
             </div>
 
+            {createError ? <p className="admin-message error" role="alert">{createError}</p> : null}
             <button
               data-testid="admin-create-user-button"
               className="button button-primary"
-              disabled={loading}
-              onClick={() => onCreateUser(createState).then(() => {
+              disabled={loading || createPending || (useEmailAsUsername && !createState.email.trim())}
+              onClick={async () => {
+                if (createInFlight.current) return;
+                createInFlight.current = true;
+                setCreatePending(true);
+                setCreateError("");
+                try {
+                  await onCreateUser({ ...createState, username: useEmailAsUsername ? createState.email.trim() : createState.username });
                 setCreateState({
                   fullName: "",
                   username: "",
@@ -380,10 +407,17 @@ export function AdminPanel({
                   propertyIds: [],
                   sendInviteEmail: false,
                 });
-              })}
+                } catch (error) {
+                  setCreateError(error instanceof Error ? error.message : t(language, "admin.createFailed"));
+                } finally {
+                  createInFlight.current = false;
+                  setCreatePending(false);
+                }
+              }}
             >
               {t(language, "admin.createUserButton")}
             </button>
+            </fieldset>
           </section>
 
           <section className="admin-section">
@@ -434,7 +468,7 @@ export function AdminPanel({
         </div>
 
         {selectedUser ? (
-          <section className="admin-section admin-editor">
+          <section className="admin-section admin-editor" ref={editorRef}>
             <div className="admin-section-head">
               <h3>{t(language, "admin.editUser")}</h3>
               <span className="subtitle">{selectedUser.username}</span>
@@ -474,6 +508,7 @@ export function AdminPanel({
                   value={editState.email ?? ""}
                   onChange={(event) => setEditState((current) => ({ ...current, email: event.target.value }))}
                 />
+                <span className="field-help">{language === "es" ? "Agrega o cambia el correo para recuperar la cuenta. El nombre de usuario no cambia." : "Add or change the email used for password recovery. The username stays unchanged."}</span>
               </label>
               <label>
                 {t(language, "admin.role")}
@@ -517,6 +552,7 @@ export function AdminPanel({
               </label>
             </div>
 
+            {editError ? <p className="admin-message error" role="alert">{editError}</p> : null}
             <div className="admin-actions">
               <button
                 data-testid="admin-save-user-button"
@@ -527,14 +563,19 @@ export function AdminPanel({
                     setConfirmAction("role");
                     return;
                   }
-                  await onUpdateUser(selectedUser.id, {
+                  setEditError("");
+                  try {
+                    await onUpdateUser(selectedUser.id, {
                     fullName: editState.fullName,
                     username: editState.username,
                     email: editState.email,
                     role: editState.role,
                     language: editState.language,
                     isActive: editState.isActive,
-                  });
+                    });
+                  } catch (error) {
+                    setEditError(error instanceof Error ? error.message : "Could not save account changes.");
+                  }
                 }}
               >
                 {t(language, "admin.saveUser")}

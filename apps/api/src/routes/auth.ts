@@ -11,7 +11,7 @@ import { inviteEmailConfigured, sendPasswordResetEmail } from "../lib/email.js";
 import { prisma } from "../lib/prisma.js";
 
 export const loginSchema = z.object({
-  identifier: z.string().trim().min(1).max(120),
+  identifier: z.string().trim().min(1).max(254),
   password: z.string().min(8),
 });
 

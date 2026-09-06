@@ -5588,6 +5588,8 @@ textarea {
 }
 
 .admin-section {
+  min-width: 0;
+  align-content: start;
   padding: 1rem;
   border-radius: 16px;
   border: 1px solid var(--border);
@@ -5601,7 +5603,39 @@ textarea {
 }
 
 .admin-filter-grid input {
-  min-width: 14rem;
+  min-width: 0;
+  flex: 1 1 14rem;
+}
+
+.admin-shell,
+.admin-card,
+.admin-grid,
+.admin-form-grid,
+.admin-section > * {
+  min-width: 0;
+}
+
+.admin-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 32rem), 1fr));
+  align-items: start;
+}
+
+.admin-filter-grid {
+  flex-wrap: wrap;
+}
+
+.admin-filter-grid select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.admin-edit-account {
+  display: block;
+  margin-top: 0.4rem;
+}
+
+.admin-editor {
+  scroll-margin-top: 1rem;
 }
 
 .checkbox-grid {
@@ -5624,6 +5658,8 @@ textarea {
 }
 
 .admin-user-table-wrap {
+  min-width: 0;
+  max-width: 100%;
   overflow: auto;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -8328,6 +8364,8 @@ textarea {
 
   .mobile-filterbar-main {
     display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(6rem, 35%);
+    grid-template-areas: "property view" "search tools";
     gap: 0.55rem;
     grid-column: 1 / -1;
     grid-area: auto;
@@ -8335,10 +8373,21 @@ textarea {
     min-width: 0;
   }
 
-  .mobile-filterbar-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.45rem;
+  .mobile-filterbar-main > * {
+    min-width: 0;
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .mobile-filterbar-main > select { grid-area: property; }
+  .mobile-filterbar-main > input { grid-area: search; }
+  .mobile-filterbar-main > .mobile-view-toggle { grid-area: view; }
+  .mobile-filterbar-main > .mobile-tools-toggle { grid-area: tools; }
+
+  .mobile-filterbar-main .mobile-filter-toggle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .module-panel,

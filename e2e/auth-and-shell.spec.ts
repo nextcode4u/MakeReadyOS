@@ -8,6 +8,79 @@ const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
+test("email username checkbox preserves failed account drafts and creates a working login", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-admin").click();
+  await page.setViewportSize({ width: 412, height: 915 });
+  const email = `${uniqueTag("email-login")}+leasing@example.com`;
+  const username = page.getByTestId("admin-create-username");
+  await username.fill("manual-name");
+  await page.getByTestId("admin-use-email-as-username").check();
+  await expect(page.getByTestId("admin-create-user-button")).toBeDisabled();
+  await page.getByTestId("admin-create-email").fill("temporary@example.com");
+  await expect(username).toHaveValue("temporary@example.com");
+  await page.getByTestId("admin-use-email-as-username").uncheck();
+  await expect(username).toHaveValue("manual-name");
+  await page.getByTestId("admin-use-email-as-username").check();
+  await page.getByTestId("admin-create-email").fill(email);
+  await expect(username).toHaveValue(email);
+  await expect(username).toHaveAttribute("readonly", "");
+  await page.getByTestId("admin-create-full-name").fill("Email Username Test");
+  await page.getByTestId("admin-create-password").fill("TempUser!23456");
+  await page.getByTestId("admin-create-role").selectOption("VIEWER");
+  await page.route("**/api/admin/users", async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({ status: 409, json: { message: "That login is unavailable. Try again." } });
+  });
+  await page.getByTestId("admin-create-user-button").click();
+  await expect(page.getByTestId("admin-panel").getByRole("alert")).toContainText("That login is unavailable.");
+  await expect(username).toHaveValue(email);
+  await expect(page.getByTestId("admin-create-password")).toHaveValue("TempUser!23456");
+  await expect(page.getByText("Startup error", { exact: true })).toHaveCount(0);
+  await page.unroute("**/api/admin/users");
+  const saved = page.waitForResponse(response => response.url().endsWith("/api/admin/users") && response.request().method() === "POST");
+  await page.getByTestId("admin-create-user-button").click();
+  expect((await saved).status()).toBe(201);
+  await expect(page.getByTestId("admin-create-email")).toHaveValue("");
+  await page.getByTestId("mobile-tools-toggle").click();
+  await page.getByTestId("account-menu").click();
+  await page.getByTestId("logout-button").click();
+  await expect(page.getByTestId("login-email")).toBeVisible();
+  await page.getByTestId("login-email").fill(email);
+  await page.getByTestId("login-password").fill("TempUser!23456");
+  const signedIn = page.waitForResponse(response => response.url().endsWith("/api/auth/login"));
+  await page.getByTestId("login-submit").click();
+  expect((await signedIn).status()).toBe(200);
+  await page.getByTestId("mobile-tools-toggle").click();
+  await expect(page.getByTestId("account-menu")).toBeVisible();
+});
+
+test("mobile header stays compact and keeps navigation and account tools accessible", async ({ page }, testInfo) => {
+  await login(page, adminEmail, adminPassword);
+  for (const width of [320, 390, 540, 820]) {
+    await page.setViewportSize({ width, height: 915 });
+    const header = page.locator(".mobile-filterbar");
+    await expect(header).toBeVisible();
+    await expect(page.getByTestId("onboarding-open")).toHaveCount(0);
+    await expect(page.getByTestId("account-menu")).toHaveCount(0);
+    const size = await header.boundingBox();
+    expect(size!.height).toBeLessThan(140);
+    expect(size!.width).toBeLessThanOrEqual(width);
+    await expect(page.getByTestId("board-search")).toBeVisible();
+    await page.getByTestId("mobile-tools-toggle").click();
+    await page.getByTestId("account-menu").click();
+    await expect(page.getByTestId("logout-button")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.getByTestId("mobile-views-toggle").click();
+    await expect(page.getByTestId("mobile-tools-toggle")).toHaveAttribute("aria-expanded", "false");
+    await page.getByTestId("tab-table").click();
+    await expect(page.getByTestId("mobile-views-toggle")).toHaveAttribute("aria-expanded", "false");
+    if (width === 390) await page.screenshot({ path: testInfo.outputPath("compact-mobile-header.png") });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(page.getByTestId("onboarding-open")).toBeVisible();
+});
+
 for (const [tab, endpoint, empty, responseKey] of [
   ["Calendar", "calendar", "No tasks scheduled in this range.", "tasks"],
   ["Tasks", "tasks", "No PM tasks found", "tasks"],
@@ -1465,7 +1538,7 @@ test.describe("MakeReadyOS browser flows", () => {
 
   test("admin can create a user, update role, deactivate, and reactivate", async ({ page }) => {
     const userName = uniqueTag("qa-user");
-    const userEmail = `${userName}@example.com`;
+    let userEmail = `${userName}@example.com`;
     const userRowId = `admin-user-row-${slugify(userName)}`;
 
     await login(page, adminEmail, adminPassword);
@@ -1483,6 +1556,29 @@ test.describe("MakeReadyOS browser flows", () => {
     const userRow = page.getByTestId(userRowId);
     await expect(userRow).toBeVisible();
     await userRow.click();
+
+    for (const width of [1100, 820, 412]) {
+      await page.setViewportSize({ width, height: 915 });
+      const bounds = await userRow.locator("xpath=ancestor::div[contains(@class, 'admin-user-table-wrap')]").evaluate((element) => {
+        const table = element.getBoundingClientRect();
+        const section = element.closest(".admin-section")!.getBoundingClientRect();
+        return { tableRight: table.right, sectionRight: section.right, sectionLeft: section.left };
+      });
+      expect(bounds.tableRight).toBeLessThanOrEqual(bounds.sectionRight);
+      expect(bounds.sectionRight).toBeLessThanOrEqual(width);
+      expect(bounds.sectionLeft).toBeGreaterThanOrEqual(0);
+    }
+    await userRow.getByRole("button", { name: "Edit account" }).click();
+    await expect(page.getByTestId("admin-edit-email")).toBeInViewport();
+    userEmail = `${userName}-recovery@example.com`;
+    await page.getByTestId("admin-edit-email").fill(userEmail);
+    const emailSaved = page.waitForResponse(response => response.url().match(/\/api\/admin\/users\/[^/]+$/) !== null && response.request().method() === "PATCH");
+    await page.getByTestId("admin-save-user-button").click();
+    expect((await emailSaved).status()).toBe(200);
+    await page.getByTestId("admin-user-search").fill(userEmail);
+    await expect(userRow).toContainText(userEmail);
+    await expect(page.getByTestId("admin-edit-username")).toHaveValue(userName);
+    await page.setViewportSize({ width: 1440, height: 1000 });
 
     await page.getByTestId("admin-edit-role").selectOption("MANAGER");
     await page.getByTestId("admin-save-user-button").click();
