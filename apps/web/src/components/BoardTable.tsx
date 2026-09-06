@@ -1,4 +1,6 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
+import { orderBoardSections } from "../lib/boardSectionOrder";
 import type { BoardColumnDefinition, BoardSection, CustomField, FloorPlan, LabelDefinition, MakeReadyItem, Property, StaffOption, Unit, UserLanguage } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import { boardColumns, boardGroupLabel, configuredBoardColumns, customColumnKey, defaultHiddenTableColumnKeys, requiredTableColumnKeys } from "../lib/board";
@@ -199,12 +201,10 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
         .map((property) => occupiedGroupKey(property.id));
     }
     const sectionTypes = archiveState === "archived" ? new Set(["ARCHIVE"]) : archiveState === "active" ? new Set(["READY", "MAKE_READY", "DOWN"]) : new Set(["READY", "MAKE_READY", "DOWN", "ARCHIVE"]);
-    return boardSections
-      .filter((section) => section.isActive && allowedPropertyIds.has(section.propertyId) && sectionTypes.has(section.sectionType))
-      .sort((left, right) => {
-        const propertyCompare = (activeProperties.find((property) => property.id === left.propertyId)?.code ?? "").localeCompare(activeProperties.find((property) => property.id === right.propertyId)?.code ?? "");
-        return propertyCompare || left.sortOrder - right.sortOrder;
-      })
+    return orderBoardSections(
+      boardSections.filter((section) => section.isActive && allowedPropertyIds.has(section.propertyId) && sectionTypes.has(section.sectionType)),
+      activeProperties,
+    )
       .map((section) => section.key);
   }, [activeProperties, allowedPropertyIds, archiveState, boardSections]);
   const occupiedDirectoryItems = useMemo(() => {
@@ -322,7 +322,32 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const [confirmOptionArchiveSave, setConfirmOptionArchiveSave] = useState(false);
   const [dragColumn, setDragColumn] = useState<string | null>(null);
   const [renamingSection, setRenamingSection] = useState<{ id: string; value: string } | null>(null);
-  const [columnMenu, setColumnMenu] = useState<{ group: string; key: string } | null>(null);
+  const [columnMenu, setColumnMenu] = useState<{ group: string; key: string; left: number; top: number } | null>(null);
+  const [itemWidth, setItemWidth] = useState<number | null>(null);
+  const resizeStart = useRef<{ x: number; width: number } | null>(null);
+  const itemColumnStyle = itemWidth === null ? undefined : { width: itemWidth, minWidth: itemWidth, maxWidth: itemWidth };
+
+  useEffect(() => {
+    if (!columnMenu) return;
+    const dismiss = () => setColumnMenu(null);
+    const onPointer = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest(".column-header-menu, .column-menu-trigger")) dismiss();
+    };
+    const onKey = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") dismiss(); };
+    const onScroll = (event: Event) => {
+      if (!(event.target instanceof Element) || !event.target.closest(".column-header-menu")) dismiss();
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", dismiss);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", dismiss);
+    };
+  }, [columnMenu]);
   const [columnRename, setColumnRename] = useState<{ key: string; label: string; customField?: CustomField; defaultLabel?: string } | null>(null);
   const [floorPlanPropertyId, setFloorPlanPropertyId] = useState<string | null>(null);
   const [newPlan, setNewPlan] = useState({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
@@ -821,7 +846,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
             )}
           </header>
           <div className="table-wrap">
-            <table className={canManageItems ? "board-table has-selection" : "board-table"} data-testid={`board-group-table-${slug(group)}`}>
+            <table className={canManageItems ? "board-table has-selection" : "board-table"} data-item-width={itemWidth === null ? "auto" : "manual"} data-testid={`board-group-table-${slug(group)}`}>
               <thead>
                 <tr>
                   {canManageItems ? <th className="select-column"><input data-testid={`select-group-${slug(group)}`} type="checkbox" checked={groupItems.filter((item) => !isOccupiedDirectoryItem(item)).length > 0 && groupItems.filter((item) => !isOccupiedDirectoryItem(item)).every((item) => selectedSet.has(item.id))} disabled={groupItems.every(isOccupiedDirectoryItem)} onChange={() => toggleGroup(groupItems)} aria-label={`Select all in ${groupName(group)}`} /></th> : null}
@@ -832,6 +857,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                     return (
                       <th
                         key={key}
+                        style={fixed ? itemColumnStyle : undefined}
                         draggable={!fixed}
                         onDragStart={() => setDragColumn(key)}
                         onDragOver={(event) => { if (!fixed) event.preventDefault(); }}
@@ -852,12 +878,40 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                             aria-expanded={columnMenu?.group === group && columnMenu.key === key}
                             onClick={(event) => {
                               event.stopPropagation();
-                              setColumnMenu((current) => current?.group === group && current.key === key ? null : { group, key });
+                              const rect = event.currentTarget.getBoundingClientRect();
+                              setColumnMenu((current) => current?.group === group && current.key === key ? null : {
+                                group, key, left: Math.max(8, Math.min(rect.left, window.innerWidth - 248)),
+                                top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 160)),
+                              });
                             }}
                           >...</button>
                         ) : null}
-                        {columnMenu?.group === group && columnMenu.key === key ? (
-                          <div className="column-header-menu" role="menu" data-testid={`column-header-menu-${entry.custom ? entry.field.fieldKey : entry.column.key}`} onClick={(event) => event.stopPropagation()}>
+                        {fixed ? (
+                          <button type="button" className="item-column-resizer" aria-label={isSpanish ? "Ajustar ancho de Item" : "Resize Item column"}
+                            title="Drag to resize; double-click to fit contents"
+                            onDoubleClick={() => setItemWidth(null)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === "Home") setItemWidth(null);
+                              if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                                event.preventDefault();
+                                setItemWidth(Math.max(132, (itemWidth ?? event.currentTarget.parentElement!.getBoundingClientRect().width) + (event.key === "ArrowRight" ? 20 : -20)));
+                              }
+                            }}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              resizeStart.current = { x: event.clientX, width: event.currentTarget.parentElement!.getBoundingClientRect().width };
+                              event.currentTarget.setPointerCapture(event.pointerId);
+                            }}
+                            onPointerMove={(event) => {
+                              if (resizeStart.current) setItemWidth(Math.max(132, resizeStart.current.width + event.clientX - resizeStart.current.x));
+                            }}
+                            onPointerUp={(event) => { resizeStart.current = null; event.currentTarget.releasePointerCapture(event.pointerId); }}
+                            onLostPointerCapture={() => { resizeStart.current = null; }}
+                          />
+                        ) : null}
+                        {columnMenu?.group === group && columnMenu.key === key ? createPortal(
+                          <div className="column-header-menu column-header-menu-floating" style={{ left: columnMenu.left, top: columnMenu.top, maxHeight: window.innerHeight - columnMenu.top - 8 }} role="menu" data-testid={`column-header-menu-${entry.custom ? entry.field.fieldKey : entry.column.key}`} onClick={(event) => event.stopPropagation()}>
+                            {fixed ? <button type="button" role="menuitem" onClick={() => { setItemWidth(null); setColumnMenu(null); }}>{isSpanish ? "Ajustar al contenido" : "Fit Item to contents"}</button> : null}
                             <button type="button" role="menuitem" onClick={() => {
                               const defaultColumn = !entry.custom ? boardColumns.find((column) => column.key === entry.column.key) : undefined;
                               setColumnRename({ key, label, customField: entry.custom ? entry.field : undefined, defaultLabel: defaultColumn?.label });
@@ -874,7 +928,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                             {!entry.custom && entry.column.type === "floorplan" ? <button type="button" role="menuitem" onClick={() => { openFloorPlanManager(); setColumnMenu(null); }}>{isSpanish ? "Administrar planos" : "Manage floor plans"}</button> : null}
                             {!entry.custom ? <button type="button" role="menuitem" onClick={() => { onSortColumn(key, "asc"); setColumnMenu(null); }}>{isSpanish ? "Orden ascendente" : "Sort ascending"}</button> : null}
                             {!entry.custom ? <button type="button" role="menuitem" onClick={() => { onSortColumn(key, "desc"); setColumnMenu(null); }}>{isSpanish ? "Orden descendente" : "Sort descending"}</button> : null}
-                          </div>
+                          </div>, document.body
                         ) : null}
                       </th>
                     );
@@ -1180,7 +1234,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                       const noteText = column.key === "notes" ? displayValue : "";
                       const noteHasMore = column.key === "notes" && noteText.length > 72;
                       return (
-                        <td key={column.key} className={`${columnClassName(column.key)} ${editable ? "editable-cell" : "readonly-cell"}${column.key === "unitNumber" ? " identity-column" : ""}`}>
+                        <td key={column.key} style={column.key === "unitNumber" ? itemColumnStyle : undefined} className={`${columnClassName(column.key)} ${editable ? "editable-cell" : "readonly-cell"}${column.key === "unitNumber" ? " identity-column" : ""}`}>
                           {isEditing && editable ? (
                             <div className="cell-editor">
                               <input

@@ -4,7 +4,10 @@ import { z } from "zod";
 import { authConfig, deriveRequestOrigin, validateTrustedOrigin } from "../lib/config.js";
 import { clearAllSessionsForUser, clearSession, clientIpAddress, createSessionForUser, requireAuthenticated, requireCsrf, sanitizeUser } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
-import { verifyPassword } from "../lib/password.js";
+import { hashPassword, verifyPassword } from "../lib/password.js";
+import { assertStrongPassword } from "../lib/config.js";
+import { createPasswordLink, redeemPasswordLink } from "../lib/passwordLinks.js";
+import { inviteEmailConfigured, sendPasswordResetEmail } from "../lib/email.js";
 import { prisma } from "../lib/prisma.js";
 
 export const loginSchema = z.object({
@@ -17,6 +20,76 @@ const languageSchema = z.object({
 });
 
 export async function authRoutes(app: FastifyInstance) {
+  async function passwordRequestAllowed(request: FastifyRequest) {
+    const origin = deriveRequestOrigin({ host: request.headers.host, protocol: request.protocol,
+      forwardedHost: typeof request.headers["x-forwarded-host"] === "string" ? request.headers["x-forwarded-host"] : undefined,
+      forwardedProto: typeof request.headers["x-forwarded-proto"] === "string" ? request.headers["x-forwarded-proto"] : undefined });
+    if (!validateTrustedOrigin(request.headers.origin, origin)) return false;
+    const ipAddress = clientIpAddress(request);
+    return prisma.$transaction(async (tx) => {
+      // Serialize the limit across API instances; use the trusted client IP for both reads and writes.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`password:${ipAddress}`}))`;
+      const count = await tx.auditLog.count({ where: { action: "AUTH_PASSWORD_REQUEST", ipAddress, createdAt: { gte: new Date(Date.now() - 15 * 60 * 1000) } } });
+      if (count >= 10) return false;
+      await tx.auditLog.create({ data: { entityType: "AUTH", action: "AUTH_PASSWORD_REQUEST", message: "Password workflow requested", ipAddress } });
+      return true;
+    });
+  }
+
+  app.post("/forgot-password", async (request, reply) => {
+    if (!(await passwordRequestAllowed(request))) return reply.code(429).send({ message: "Too many requests or untrusted origin. Try again later." });
+    const { email } = z.object({ email: z.string().trim().email().max(254) }).parse(request.body);
+    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    // Do not expose account existence, inactive status, or SMTP delivery failures.
+    if (user?.isActive && inviteEmailConfigured()) {
+      try {
+        if (!user.passwordResetExpiresAt || user.passwordResetExpiresAt.getTime() < Date.now() + 59 * 60 * 1000) {
+          await sendPasswordResetEmail(email, user.fullName, user.language as "en" | "es", await createPasswordLink(user.id));
+        }
+      } catch {
+        request.log.warn("Password reset email delivery failed");
+      }
+    }
+    return { message: "If an active account matches that email, a password link will be sent. Check your inbox and spam folder." };
+  });
+
+  app.post("/reset-password", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    if (!(await passwordRequestAllowed(request))) return reply.code(429).send({ message: "Too many requests or untrusted origin. Try again later." });
+    const payload = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/), password: z.string().max(1024) }).parse(request.body);
+    try { assertStrongPassword(payload.password, "password"); } catch (error) {
+      return reply.code(400).send({ message: error instanceof Error ? error.message : "Invalid password" });
+    }
+    if (!(await redeemPasswordLink(payload.token, payload.password))) return reply.code(400).send({ message: "This link is invalid, expired, or already used. Request another from Forgot password." });
+    await clearSession(request, reply);
+    await writeAuditLog({ request, entityType: "AUTH", action: "AUTH_PASSWORD_RESET", message: "Password link redeemed; existing sessions revoked" });
+    return { ok: true };
+  });
+
+  app.post("/change-password", async (request, reply) => {
+    await requireAuthenticated(request, reply);
+    if (reply.sent) return;
+    await requireCsrf(request, reply);
+    if (reply.sent) return;
+    if (!(await passwordRequestAllowed(request))) return reply.code(429).send({ message: "Too many requests. Try again later." });
+    const payload = z.object({ currentPassword: z.string().max(1024), password: z.string().max(1024) }).parse(request.body);
+    try { assertStrongPassword(payload.password, "password"); } catch (error) {
+      return reply.code(400).send({ message: error instanceof Error ? error.message : "Invalid password" });
+    }
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: request.currentUser!.id } });
+    if (!user.isActive || !(await verifyPassword(payload.currentPassword, user.passwordHash))) return reply.code(400).send({ message: "Current password is incorrect." });
+    const passwordHash = await hashPassword(payload.password);
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.user.updateMany({ where: { id: user.id, isActive: true, passwordHash: user.passwordHash }, data: { passwordHash, passwordResetHash: null, passwordResetExpiresAt: null } });
+      if (result.count) await tx.session.deleteMany({ where: { userId: user.id } });
+      return result.count;
+    });
+    if (!updated) return reply.code(409).send({ message: "Your account changed. Please sign in again." });
+    await clearSession(request, reply);
+    await writeAuditLog({ request, actorUserId: user.id, entityType: "USER", entityId: user.id, action: "USER_PASSWORD_CHANGED", message: "User changed their password" });
+    return { ok: true };
+  });
+
   const rateLimitWindowMs = authConfig.loginRateLimitWindowMinutes * 60 * 1000;
 
   async function ensureLoginAllowed(request: FastifyRequest, identifier: string) {
@@ -153,12 +226,10 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/logout", async (request, reply) => {
-    if (await requireAuthenticated(request, reply)) {
-      return;
-    }
-    if (await requireCsrf(request, reply)) {
-      return;
-    }
+    await requireAuthenticated(request, reply);
+    if (reply.sent) return;
+    await requireCsrf(request, reply);
+    if (reply.sent) return;
 
     const currentUser = request.currentUser;
     await clearSession(request, reply);
@@ -177,12 +248,10 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/logout-all", async (request, reply) => {
-    if (await requireAuthenticated(request, reply)) {
-      return;
-    }
-    if (await requireCsrf(request, reply)) {
-      return;
-    }
+    await requireAuthenticated(request, reply);
+    if (reply.sent) return;
+    await requireCsrf(request, reply);
+    if (reply.sent) return;
 
     const currentUser = request.currentUser!;
     await clearAllSessionsForUser(request, reply);
@@ -212,12 +281,10 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.patch("/me/preferences", async (request, reply) => {
-    if (await requireAuthenticated(request, reply)) {
-      return;
-    }
-    if (await requireCsrf(request, reply)) {
-      return;
-    }
+    await requireAuthenticated(request, reply);
+    if (reply.sent) return;
+    await requireCsrf(request, reply);
+    if (reply.sent) return;
 
     const payload = languageSchema.parse(request.body);
     const currentUser = request.currentUser!;

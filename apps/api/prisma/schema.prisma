@@ -232,6 +232,8 @@ model User {
   username                     String                                @unique
   email                        String?                               @unique
   passwordHash                 String
+  passwordResetHash            String?                               @unique
+  passwordResetExpiresAt       DateTime?
   fullName                     String
   role                         UserRole
   language                     String                                @default("en")

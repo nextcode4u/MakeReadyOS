@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ChangePasswordButton } from "./PasswordForm";
 import { makeReadyExportCsvUrl, makeReadyPdfReportUrl, type CurrentUser, type MakeReadyItemFilters, type Property, type UserLanguage } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import type { ClockMode } from "../lib/dateTime";
@@ -279,6 +280,11 @@ export function FilterBar({
             aria-label={t(language, "nav.searchBoardItems")}
           />
           <div className="mobile-filterbar-actions">
+            {(showAdmin || showOperations) ? (
+              <button data-testid="onboarding-open" className="button button-secondary" type="button" onClick={onOpenOnboarding}>
+                {language === "es" ? "Lista de configuracion" : "Setup checklist"}
+              </button>
+            ) : null}
             <button type="button" className={mobileViewsOpen ? "button mobile-filter-toggle active" : "button button-secondary mobile-filter-toggle"} onClick={toggleMobileViews}>
               {t(language, "nav.view")}: {viewLabel(activeView)}
             </button>
@@ -302,11 +308,6 @@ export function FilterBar({
             <button data-testid="command-palette-button" className="button button-secondary command-button" type="button" onClick={onOpenCommandPalette} aria-label={t(language, "nav.openQuickSearch")}>
               {t(language, "nav.search")} <kbd>Ctrl K</kbd>
             </button>
-            {(showAdmin || showOperations) ? (
-              <button data-testid="onboarding-open" className="button button-secondary" type="button" onClick={onOpenOnboarding}>
-                {t(language, "nav.guide")}
-              </button>
-            ) : null}
             {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
               <button type="button" className="button button-secondary" data-testid="basic-board-mode" onClick={onApplyBasicMode}>
                 {basicModeActive ? (language === "es" ? "Restaurar tablero" : "Restore board") : (language === "es" ? "Modo basico" : "Basic board")}
@@ -389,6 +390,7 @@ export function FilterBar({
             <button data-testid="notifications-button" className="button button-secondary notification-button" onClick={onOpenNotifications} aria-label={`${notificationUnreadCount} ${t(language, "nav.notificationsUnread")}`}>
               {t(language, "nav.alerts")}{notificationUnreadCount > 0 ? <strong>{notificationUnreadCount}</strong> : null}
             </button>
+            <ChangePasswordButton language={language} />
             <button data-testid="logout-button" className="button button-secondary" onClick={() => void onLogout()}>
               {t(language, "nav.logout")}
             </button>
@@ -434,7 +436,7 @@ export function FilterBar({
         </button>
         {(showAdmin || showOperations) ? (
           <button data-testid="onboarding-open" className="button button-secondary" type="button" onClick={onOpenOnboarding}>
-            {t(language, "nav.guide")}
+            {language === "es" ? "Lista de configuracion" : "Setup checklist"}
           </button>
         ) : null}
         {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
@@ -519,6 +521,7 @@ export function FilterBar({
         <button data-testid="notifications-button" className="button button-secondary notification-button" onClick={onOpenNotifications} aria-label={`${notificationUnreadCount} ${t(language, "nav.notificationsUnread")}`}>
           {t(language, "nav.alerts")}{notificationUnreadCount > 0 ? <strong>{notificationUnreadCount}</strong> : null}
         </button>
+        <ChangePasswordButton language={language} />
         <button data-testid="logout-button" className="button button-secondary" onClick={() => void onLogout()}>
           {t(language, "nav.logout")}
         </button>

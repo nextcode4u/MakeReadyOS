@@ -1,6 +1,7 @@
 import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ActiveFilterBar } from "./components/ActiveFilterBar";
+import { PasswordForm } from "./components/PasswordForm";
 import { BoardTable } from "./components/BoardTable";
 import { CommandPalette, type CommandPaletteWorkspaceGroup } from "./components/CommandPalette";
 import { ConnectionStatus } from "./components/ConnectionStatus";
@@ -623,6 +624,10 @@ async function findChecklistParentItemId(
 }
 
 function App() {
+  const [passwordResetToken, setPasswordResetToken] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get("password-reset"));
+  useEffect(() => {
+    if (passwordResetToken) window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+  }, [passwordResetToken]);
   const [propertyId, setPropertyId] = useState("");
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
@@ -3545,6 +3550,10 @@ function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  if (passwordResetToken) {
+    return <main className="login-shell"><section className="login-panel"><p className="eyebrow">MakeReadyOS</p><h1>Set your password</h1><PasswordForm mode="reset-password" token={passwordResetToken} onClose={() => setPasswordResetToken(null)} /></section></main>;
+  }
 
   if (meQuery.isPending && !forceLoggedOut) {
     return (

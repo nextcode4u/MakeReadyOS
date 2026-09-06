@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import SMTPTransport from "nodemailer/lib/smtp-transport/index.js";
-import { authConfig, mailConfig } from "./config.js";
+import { mailConfig } from "./config.js";
+import { renderInviteHtml } from "./inviteTemplate.js";
 
 let transporter: nodemailer.Transporter | null = null;
 
@@ -31,10 +32,10 @@ export async function sendUserInviteEmail(input: {
   fullName: string;
   role: string;
   language: "en" | "es";
-  password: string;
+  setupUrl: string;
   propertyCodes: string[];
 }) {
-  const loginUrl = authConfig.appUrl || "your MakeReadyOS URL";
+  const loginUrl = input.setupUrl;
   const propertySummary = input.propertyCodes.length ? input.propertyCodes.join(", ") : "All assigned properties";
   const englishText = [
     `Hello ${input.fullName},`,
@@ -44,7 +45,7 @@ export async function sendUserInviteEmail(input: {
     `Sign in: ${loginUrl}`,
     `Username: ${input.username}`,
     `Email: ${input.to}`,
-    `Temporary password: ${input.password}`,
+    "Choose your own password using the link above. This single-use link expires in 1 hour.",
     `Role: ${input.role}`,
     `Property access: ${propertySummary}`,
     "",
@@ -58,54 +59,28 @@ export async function sendUserInviteEmail(input: {
     `Iniciar sesión: ${loginUrl}`,
     `Usuario: ${input.username}`,
     `Correo: ${input.to}`,
-    `Contraseña temporal: ${input.password}`,
+    "Elija su contrasena con el enlace anterior. El enlace es de un solo uso y vence en 1 hora.",
     `Rol: ${input.role}`,
     `Acceso a propiedades: ${propertySummary}`,
     "",
     "Mantenga este mensaje seguro. Si necesita restablecer la contraseña, contacte a su gerente o administrador.",
   ].join("\n");
-  const englishHtml = `
-    <p>Hello ${escapeHtml(input.fullName)},</p>
-    <p>A MakeReadyOS account has been created for you.</p>
-    <p><strong>Sign in:</strong> <a href="${escapeAttribute(loginUrl)}">${escapeHtml(loginUrl)}</a><br />
-    <strong>Username:</strong> ${escapeHtml(input.username)}<br />
-    <strong>Email:</strong> ${escapeHtml(input.to)}<br />
-    <strong>Temporary password:</strong> ${escapeHtml(input.password)}<br />
-    <strong>Role:</strong> ${escapeHtml(input.role)}<br />
-    <strong>Property access:</strong> ${escapeHtml(propertySummary)}</p>
-    <p>Keep this message secure. If you need a password reset, contact your manager or admin.</p>
-  `;
-  const spanishHtml = `
-    <p>Hola ${escapeHtml(input.fullName)},</p>
-    <p>Se creó una cuenta de MakeReadyOS para usted.</p>
-    <p><strong>Iniciar sesión:</strong> <a href="${escapeAttribute(loginUrl)}">${escapeHtml(loginUrl)}</a><br />
-    <strong>Usuario:</strong> ${escapeHtml(input.username)}<br />
-    <strong>Correo:</strong> ${escapeHtml(input.to)}<br />
-    <strong>Contraseña temporal:</strong> ${escapeHtml(input.password)}<br />
-    <strong>Rol:</strong> ${escapeHtml(input.role)}<br />
-    <strong>Acceso a propiedades:</strong> ${escapeHtml(propertySummary)}</p>
-    <p>Mantenga este mensaje seguro. Si necesita restablecer la contraseña, contacte a su gerente o administrador.</p>
-  `;
-
   await getTransporter().sendMail({
     from: mailConfig.from,
     to: input.to,
     replyTo: mailConfig.replyTo || undefined,
     subject: input.language === "es" ? "Su acceso a MakeReadyOS" : "Your MakeReadyOS access",
     text: input.language === "es" ? spanishText : englishText,
-    html: input.language === "es" ? spanishHtml : englishHtml,
+    html: renderInviteHtml(input, loginUrl),
   });
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function escapeAttribute(value: string) {
-  return escapeHtml(value);
+export async function sendPasswordResetEmail(to: string, fullName: string, language: "en" | "es", setupUrl: string) {
+  const es = language === "es";
+  await getTransporter().sendMail({
+    from: mailConfig.from, to, replyTo: mailConfig.replyTo || undefined,
+    subject: es ? "Restablecer su contrasena de MakeReadyOS" : "Reset your MakeReadyOS password",
+    text: `${es ? "Restablezca su contrasena" : "Reset your password"}: ${setupUrl}\n${es ? "El enlace vence en 1 hora. Si no lo solicito, ignore este mensaje." : "This single-use link expires in 1 hour. If you did not request it, ignore this message. Your password has not changed."}`,
+    html: renderInviteHtml({ fullName, username: "", to, role: "", propertyCodes: [], language }, setupUrl, true),
+  });
 }

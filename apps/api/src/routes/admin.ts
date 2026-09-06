@@ -7,6 +7,8 @@ import { z } from "zod";
 import { requireAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { assertStrongPassword, minimumPasswordLength } from "../lib/config.js";
+import { randomBytes } from "node:crypto";
+import { createPasswordLink } from "../lib/passwordLinks.js";
 import { inviteEmailConfigured, sendUserInviteEmail } from "../lib/email.js";
 import { hashPassword } from "../lib/password.js";
 import { prisma } from "../lib/prisma.js";
@@ -28,7 +30,7 @@ export const adminCreateUserSchema = z.object({
   email: optionalEmailSchema,
   role: editableRoles,
   language: languageSchema.default("en"),
-  password: z.string().min(minimumPasswordLength, `Password must be at least ${minimumPasswordLength} characters.`),
+  password: z.string().max(1024).default(""),
   isActive: z.boolean().default(true),
   propertyIds: z.array(z.string()).default([]),
   sendInviteEmail: z.boolean().default(false),
@@ -194,10 +196,8 @@ function serializeUser(user: {
 }
 
 async function ensureAdmin(request: FastifyRequest, reply: FastifyReply) {
-  if (await requireAdmin(request, reply)) {
-    return false;
-  }
-  return true;
+  await requireAdmin(request, reply);
+  return !reply.sent;
 }
 
 async function ensureUserExists(userId: string) {
@@ -408,7 +408,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const actor = request.currentUser!;
     const payload = adminCreateUserSchema.parse(request.body);
     try {
-      assertStrongPassword(payload.password, "password");
+      if (!payload.sendInviteEmail) assertStrongPassword(payload.password, "password");
       await ensurePropertiesExist(payload.propertyIds);
       if (payload.sendInviteEmail && !inviteEmailConfigured()) {
         throw new Error("SMTP invite email is not configured. Set SMTP_HOST and related mail settings before sending invite emails.");
@@ -437,7 +437,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
     }
 
-    const passwordHash = await hashPassword(payload.password);
+    const passwordHash = await hashPassword(payload.sendInviteEmail ? randomBytes(48).toString("hex") : payload.password);
     const created = await prisma.user.create({
       data: {
         username,
@@ -475,7 +475,7 @@ export async function adminRoutes(app: FastifyInstance) {
           fullName: created.fullName,
           role: created.role,
           language: created.language as "en" | "es",
-          password: payload.password,
+          setupUrl: await createPasswordLink(created.id),
           propertyCodes: properties.map((property) => property.code),
         });
         inviteSent = true;
@@ -588,6 +588,8 @@ export async function adminRoutes(app: FastifyInstance) {
         fullName: payload.fullName,
         username: nextUsername,
         email: nextEmail,
+        ...((nextEmail !== undefined && nextEmail !== existing.email) || payload.isActive === false
+          ? { passwordResetHash: null, passwordResetExpiresAt: null } : {}),
         role: payload.role,
         language: payload.language,
         isActive: payload.isActive,
@@ -651,12 +653,12 @@ export async function adminRoutes(app: FastifyInstance) {
     }
 
     const passwordHash = await hashPassword(payload.password);
-    await prisma.user.update({
-      where: { id: existing.id },
-      data: { passwordHash },
-    });
-    await prisma.session.deleteMany({
-      where: { userId: existing.id },
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: existing.id },
+        data: { passwordHash, passwordResetHash: null, passwordResetExpiresAt: null },
+      });
+      await tx.session.deleteMany({ where: { userId: existing.id } });
     });
 
     await writeAuditLog({

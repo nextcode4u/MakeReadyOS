@@ -3,6 +3,20 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
 const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 
+test("setup checklist can be reopened on mobile without opening Tools", async ({ page }) => {
+  await loginMobile(page);
+  await expect(page.locator(".mobile-filters-panel")).toHaveCount(0);
+  await expect(page.getByTestId("onboarding-open")).toHaveText("Setup checklist");
+  await page.getByTestId("onboarding-open").click();
+  await expect(page.getByTestId("onboarding-panel")).toBeVisible();
+  await page.getByTestId("onboarding-skip").click();
+  await page.reload();
+  await page.getByTestId("onboarding-open").click();
+  await expect(page.getByTestId("onboarding-panel")).toBeVisible();
+  await page.getByRole("button", { name: "Close setup guide" }).click();
+  await assertNoPageHorizontalOverflow(page);
+});
+
 function uniqueTag(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PasswordForm } from "./PasswordForm";
 import type { UserLanguage } from "../lib/api";
 import { languageOptions, normalizeLanguage, t } from "../lib/i18n";
 
@@ -33,17 +34,18 @@ type Props = {
 export function LoginScreen({ onSubmit, errorMessage, loading, infoMessage, language = "en" }: Props) {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [forgot, setForgot] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<UserLanguage>(() => readStoredLoginLanguage(language));
 
   return (
     <main className="login-shell">
       <section className="login-panel">
         <p className="eyebrow">MakeReadyOS</p>
-        <h1>{t(selectedLanguage, "auth.signIn")}</h1>
+        <h1>{forgot ? (selectedLanguage === "es" ? "Olvido su contrasena?" : "Forgot password?") : t(selectedLanguage, "auth.signIn")}</h1>
         <p className="login-copy">{t(selectedLanguage, "auth.copy")}</p>
         {infoMessage ? <div className="login-info">{infoMessage}</div> : null}
 
-        <form
+        {forgot ? <PasswordForm mode="forgot-password" language={selectedLanguage} onClose={() => setForgot(false)} /> : <form
           className="login-form"
           onSubmit={async (event) => {
             event.preventDefault();
@@ -100,7 +102,8 @@ export function LoginScreen({ onSubmit, errorMessage, loading, infoMessage, lang
           <button data-testid="login-submit" className="button button-primary login-button" type="submit" disabled={loading}>
             {loading ? t(selectedLanguage, "auth.submitting") : t(selectedLanguage, "auth.submit")}
           </button>
-        </form>
+          <button type="button" className="button button-secondary" onClick={() => setForgot(true)}>{selectedLanguage === "es" ? "Olvido su contrasena?" : "Forgot password?"}</button>
+        </form>}
       </section>
     </main>
   );

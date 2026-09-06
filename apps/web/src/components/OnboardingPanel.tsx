@@ -125,7 +125,7 @@ export function OnboardingPanel({ open, currentUser, properties, units, floorPla
         <div className="onboarding-progress" aria-label={`${completeCount} of ${visibleSteps.length} setup steps appear complete`}>
           <span style={{ width: `${Math.round((completeCount / Math.max(visibleSteps.length, 1)) * 100)}%` }} />
         </div>
-        <p className="onboarding-progress-copy">{completeCount} of {visibleSteps.length} setup checks detected from current data.</p>
+        <p className="onboarding-progress-copy">{completeCount} of {visibleSteps.length} setup checks detected from current data. Reopen this guide anytime using Setup checklist in the toolbar.</p>
 
         <div className="onboarding-steps">
           {visibleSteps.map((step) => (

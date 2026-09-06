@@ -1,9 +1,71 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
 
 const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
 const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
+
+test("light theme uses neutral surfaces and preserves the warm eye-strain option", async ({ page }, testInfo) => {
+  await page.setContent(`<html data-theme="light"><body><div class="app-shell compact-mode">
+    <header class="filterbar"><strong>MakeReadyOS</strong><button class="button button-primary">Table</button><button class="button button-secondary">Schedule</button><select aria-label="Property"><option>All properties</option></select></header>
+    <main style="padding:16px"><section class="primary-panel"><div class="board-group-title">TA / READY UNITS</div>
+    <div class="table-wrap"><table class="board-table"><thead><tr><th>Item</th><th>Floor plan</th><th>Vacancy</th><th>Assigned</th></tr></thead><tbody><tr><td>012</td><td><button class="cell-button">B1</button></td><td><span class="status-pill status-active">Vacant leased ready</span></td><td>Unassigned</td></tr></tbody></table></div>
+    <div class="calendar-day past">Previous day</div><button class="button" disabled>Unavailable</button></section></main>
+    </div></body></html>`);
+  await page.addStyleTag({ content: readFileSync("apps/web/src/styles/app.css", "utf8") });
+  await expect(page.locator(".primary-panel")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(page.locator(".filterbar")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(page.getByLabel("Property")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(page.locator(".board-table th").first()).toHaveCSS("background-color", "rgb(232, 238, 245)");
+  await expect(page.locator(".cell-button")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(page.locator(".calendar-day")).toHaveCSS("background-color", "rgb(237, 242, 247)");
+  await expect(page.getByRole("button", { name: "Unavailable" })).toHaveCSS("background-color", "rgb(237, 242, 247)");
+  await expect(page.locator(".status-active")).toHaveCSS("background-color", "rgb(210, 242, 224)");
+  await page.screenshot({ path: testInfo.outputPath("neutral-light-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 412, height: 915 });
+  await assertNoPageHorizontalOverflow(page);
+  await page.screenshot({ path: testInfo.outputPath("neutral-light-mobile.png"), fullPage: true });
+  await page.locator("html").evaluate((element) => element.classList.add("eye-strain-mode"));
+  await expect(page.locator(".primary-panel")).toHaveCSS("background-color", "rgb(255, 253, 248)");
+  await page.locator("html").evaluate((element) => { element.classList.remove("eye-strain-mode"); element.setAttribute("data-theme", "dark"); });
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(0, 0, 0)");
+});
+
+for (const width of [375, 1440]) {
+  test(`password recovery screens at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 950 });
+    let resets = 0;
+    await page.route("**/api/**", async (route) => {
+      const url = route.request().url();
+      if (url.endsWith("/auth/reset-password")) {
+        resets++;
+        expect(route.request().postDataJSON().token).toBe("a".repeat(64));
+        return route.fulfill({ json: { ok: true } });
+      }
+      if (url.endsWith("/auth/forgot-password")) return route.fulfill({ json: { message: "If an active account matches, a link will be sent." } });
+      return route.fulfill({ status: 401, json: { message: "Not authenticated" } });
+    });
+    await page.goto(`/#password-reset=${"a".repeat(64)}`);
+    await expect(page.getByRole("heading", { name: "Set your password" })).toBeVisible();
+    await expect(page).not.toHaveURL(/password-reset=/);
+    await page.getByLabel("New password", { exact: true }).fill("New-Password!123");
+    await page.getByLabel("Confirm password", { exact: true }).fill("Different-Password!123");
+    await page.getByRole("button", { name: "Save password", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("do not match");
+    expect(resets).toBe(0);
+    await page.getByLabel("Confirm password", { exact: true }).fill("New-Password!123");
+    await page.getByRole("button", { name: "Save password", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("Password saved");
+    expect(resets).toBe(1);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.getByRole("button", { name: "Forgot password?", exact: true }).click();
+    await page.getByLabel("Account email").fill("test@example.com");
+    await page.getByRole("button", { name: "Send password link" }).click();
+    await expect(page.getByRole("status")).toContainText("If an active account");
+    await assertNoPageHorizontalOverflow(page);
+  });
+}
 
 function slugify(value: string) {
   return value.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
@@ -113,6 +175,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("nav-group-visibility")).toContainText("Visibility");
     await expect(page.getByTestId("nav-group-management")).toContainText("Manage");
     await expect(page.getByTestId("nav-group-admin")).toContainText("Admin");
+    await expect(page.getByTestId("onboarding-open")).toHaveText("Setup checklist");
     await page.getByTestId("onboarding-open").click();
     await expect(page.getByTestId("onboarding-panel")).toBeVisible();
     await expect(page.getByTestId("onboarding-panel")).toContainText("Bring a property online");
@@ -485,6 +548,22 @@ test.describe("MakeReadyOS browser flows", () => {
 
   test("admin can rename a built-in display label without changing its board field", async ({ page }) => {
     await login(page, adminEmail, adminPassword);
+    await page.getByTestId("column-menu-unitNumber").first().click();
+    const itemMenu = page.getByTestId("column-header-menu-unitNumber");
+    await expect(itemMenu).toBeVisible();
+    expect(await itemMenu.evaluate((element) => element.parentElement === document.body)).toBe(true);
+    const menuBox = await itemMenu.boundingBox();
+    expect(menuBox!.x).toBeGreaterThanOrEqual(0);
+    expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    await page.keyboard.press("Escape");
+    await expect(itemMenu).toHaveCount(0);
+    const itemHeader = page.getByTestId("board-column-header-unitNumber").first();
+    const originalWidth = (await itemHeader.boundingBox())!.width;
+    await itemHeader.getByRole("button", { name: "Resize Item column" }).focus();
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(async () => (await itemHeader.boundingBox())!.width).toBeGreaterThan(originalWidth);
+    await page.keyboard.press("Home");
+    await expect(itemHeader.locator("xpath=ancestor::table")).toHaveAttribute("data-item-width", "auto");
     await page.getByTestId("column-menu-vacatedDate").first().click();
     await expect(page.getByTestId("column-header-menu-vacatedDate").first()).toBeVisible();
     await page.getByTestId("column-header-menu-vacatedDate").first().getByRole("menuitem", { name: "Rename column" }).click();
@@ -560,9 +639,28 @@ test.describe("MakeReadyOS browser flows", () => {
     const importedUnit = `IMP${Date.now()}`;
     await page.getByTestId("unit-import-csv").fill(`Unit Number\tBuilding Number\tFloor Plan\tBeds\tBaths\tSq Ft\tAvailability Status\tBudgeted\n${importedUnit}\t26\tQA \"B2\"\t2\t2\t1,246\tNTV Leased\tyes`);
     await expect(page.getByTestId("unit-import-preview")).toContainText("1 rows");
+    await expect(page.getByTestId("unit-import-property").locator("option:checked")).toHaveText(`${code} - ${propertyName}`);
+    await expect(page.getByTestId("availability-import-property").locator("option:checked")).toHaveText(`${code} - ${propertyName}`);
+    let cancelledImportRequests = 0;
+    const countImports = (request: import("@playwright/test").Request) => {
+      if (request.url().includes("/api/operations/units/import") && request.method() === "POST") cancelledImportRequests++;
+    };
+    page.on("request", countImports);
+    page.once("dialog", async (dialog) => {
+      expect(dialog.message()).toContain(`${code} - ${propertyName}`);
+      await dialog.dismiss();
+    });
+    await page.getByTestId("unit-import-submit").click();
+    await expect(page.getByTestId("unit-import-csv")).toHaveValue(new RegExp(importedUnit));
+    expect(cancelledImportRequests).toBe(0);
+    page.off("request", countImports);
     const importResponse = page.waitForResponse((response) =>
       response.url().includes("/api/operations/units/import") && response.request().method() === "POST",
     );
+    page.once("dialog", async (dialog) => {
+      expect(dialog.message()).toContain(`${code} - ${propertyName}`);
+      await dialog.accept();
+    });
     await page.getByTestId("unit-import-submit").click();
     await expect((await importResponse).status()).toBe(200);
     await expect(page.getByTestId(`unit-row-${importedUnit.toLowerCase()}`)).toContainText("NTV leased");
@@ -574,6 +672,7 @@ test.describe("MakeReadyOS browser flows", () => {
     const sparseImportResponse = page.waitForResponse((response) =>
       response.url().includes("/api/operations/units/import") && response.request().method() === "POST",
     );
+    page.once("dialog", (dialog) => dialog.accept());
     await page.getByTestId("unit-import-submit").click();
     await expect((await sparseImportResponse).status()).toBe(200);
     await expect(page.getByTestId(`unit-row-${sparseUnit.toLowerCase()}`)).toContainText("QA Sparse");

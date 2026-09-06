@@ -1443,13 +1443,13 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f5f2ed;
-  --bg-elevated: #fffdf9;
-  --panel: #fffdfa;
-  --panel-strong: #fffefa;
-  --panel-soft: #eee9df;
-  --border: #b6aa9c;
-  --border-strong: #7f7162;
+  --bg: #f1f5f9;
+  --bg-elevated: #ffffff;
+  --panel: #ffffff;
+  --panel-strong: #ffffff;
+  --panel-soft: #f3f6fa;
+  --border: #c6d1df;
+  --border-strong: #8295ae;
   --text: #182432;
   --text-soft: #394b5e;
   --text-muted: #526477;
@@ -1463,12 +1463,12 @@
   --shadow: 0 14px 38px rgba(30, 48, 66, 0.1);
   --input-bg: #ffffff;
   --hover-bg: #e5edf5;
-  --table-bg: #fffdfa;
-  --table-header: #e5e1d9;
-  --table-sticky: #f1ede6;
-  --calendar-cell: #fffdfa;
-  --calendar-line: #b9aa99;
-  --toast-bg: #fffdfa;
+  --table-bg: #ffffff;
+  --table-header: #e8eef5;
+  --table-sticky: #f5f8fc;
+  --calendar-cell: #ffffff;
+  --calendar-line: #c6d1df;
+  --toast-bg: #ffffff;
 }
 
 :root.eye-strain-mode {
@@ -1568,7 +1568,7 @@ body {
 :root[data-theme="light"] body {
   background:
     radial-gradient(circle at top left, rgba(20, 114, 182, 0.07), transparent 30%),
-    linear-gradient(180deg, #f3efe9 0%, #faf8f4 100%);
+    linear-gradient(180deg, var(--bg) 0%, var(--light-surface-raised) 100%);
 }
 
 :root[data-theme="dark"] body {
@@ -1673,7 +1673,7 @@ a:focus-visible {
 }
 
 :root[data-theme="light"] .module-rail-button {
-  background: #fffdfa;
+  background: var(--light-surface);
   color: #2f4557;
 }
 
@@ -2915,7 +2915,7 @@ textarea {
 }
 
 :root[data-theme="light"] .offline-queue-change-row {
-  background: #fffdf8;
+  background: var(--light-surface);
   border-color: var(--light-line);
   color: var(--light-body);
 }
@@ -2950,7 +2950,7 @@ textarea {
 }
 
 :root[data-theme="light"] .offline-queue-merge-row {
-  background: #fffdf8;
+  background: var(--light-surface);
   border-color: var(--light-line);
 }
 
@@ -3068,7 +3068,7 @@ textarea {
 }
 
 :root[data-theme="light"] .onboarding-panel {
-  background: #fffdf8;
+  background: var(--light-surface);
   box-shadow: 0 24px 80px rgba(54, 48, 40, 0.22);
 }
 
@@ -3420,6 +3420,58 @@ textarea {
 .column-header-menu button:focus-visible {
   background: var(--hover-bg);
   color: var(--text);
+}
+
+.column-header-menu-floating {
+  position: fixed;
+  right: auto;
+  z-index: 1200;
+  width: 240px;
+  min-width: 0;
+  max-width: calc(100vw - 16px);
+}
+
+.item-column-resizer {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 5;
+}
+
+.item-column-resizer:hover,
+.item-column-resizer:focus-visible {
+  background: var(--text-muted);
+}
+
+.board-table[data-item-width] th.identity-column,
+.board-table[data-item-width] td.identity-column {
+  width: auto;
+  min-width: 132px;
+  max-width: none;
+}
+
+.board-table[data-item-width="auto"] .identity-column .cell-display {
+  grid-template-columns: max-content auto;
+}
+
+.board-table[data-item-width] .identity-column .cell-button-text {
+  overflow: visible;
+  text-overflow: clip;
+  flex-shrink: 0;
+}
+
+.board-table[data-item-width="manual"] .identity-column .cell-button {
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .board-table .identity-column {
@@ -7275,12 +7327,12 @@ textarea {
 
 :root[data-theme="light"] .calendar-day,
 :root[data-theme="light"] .calendar-dow {
-  background: #fffdfa;
-  border-color: #bfb4a7;
+  background: var(--light-surface);
+  border-color: var(--light-line);
 }
 
 :root[data-theme="light"] .calendar-day.past {
-  background: #f1ede6;
+  background: var(--light-surface-muted);
 }
 
 :root[data-theme="light"] .calendar-day.today {
@@ -7328,8 +7380,8 @@ textarea {
 }
 
 :root[data-theme="light"] .dashboard-legend button {
-  border-color: #9f9485;
-  background: #fffaf2;
+  border-color: var(--light-line);
+  background: var(--light-surface-raised);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
 }
 
@@ -7376,12 +7428,12 @@ textarea {
 
 :root[data-theme="light"] .item-drawer,
 :root[data-theme="light"] .item-drawer-header {
-  background: #fffdfa;
+  background: var(--light-surface);
 }
 
 :root[data-theme="light"] .board-group-title {
-  background: #e5e1d9;
-  border-color: #b9b0a4;
+  background: var(--light-surface-muted);
+  border-color: var(--light-line);
   color: #124f74;
 }
 
@@ -7499,36 +7551,36 @@ textarea {
 
 :root[data-theme="light"] .button-secondary,
 :root[data-theme="light"] .button-ghost {
-  border-color: #aaa092;
-  background: #f7f2e9;
+  border-color: var(--light-line);
+  background: var(--light-surface-raised);
   color: #1c3348;
 }
 
 :root[data-theme="light"] .checkbox-pill,
 :root[data-theme="light"] .checkbox-row.wrap label,
 :root[data-theme="light"] .toggle-row {
-  border-color: #a99c8d;
-  background: #fffaf2;
+  border-color: var(--light-line);
+  background: var(--light-surface-raised);
   color: #26384b;
 }
 
 :root[data-theme="light"] .checkbox-pill input,
 :root[data-theme="light"] .checkbox-row input,
 :root[data-theme="light"] .toggle-row input {
-  border-color: #837668;
+  border-color: var(--light-line-strong);
 }
 
 :root[data-theme="light"] button:disabled,
 :root[data-theme="light"] input:disabled,
 :root[data-theme="light"] select:disabled {
   color: #647488;
-  background: #e6e1d9;
+  background: var(--light-surface-muted);
   opacity: 1;
 }
 
 :root[data-theme="light"] .board-table th {
-  background: #e2ddd3;
-  border-color: #c2b8ab;
+  background: var(--table-header);
+  border-color: var(--light-line);
   color: #1b3044;
 }
 
@@ -7555,7 +7607,7 @@ textarea {
 :root[data-theme="light"] .activity-table td,
 :root[data-theme="light"] .admin-user-table td {
   color: #172433;
-  border-color: #c2b8ab;
+  border-color: var(--light-line);
 }
 
 :root[data-theme="light"] .admin-user-table tbody tr.selected {
@@ -7566,7 +7618,7 @@ textarea {
 :root[data-theme="light"] .board-table tbody tr,
 :root[data-theme="light"] .board-group,
 :root[data-theme="light"] .add-item-row td {
-  background: #fffcf7;
+  background: var(--light-surface);
   color: var(--text);
 }
 
@@ -7657,7 +7709,7 @@ textarea {
 }
 
 :root[data-theme="light"] .record-row {
-  background: #f8f3eb;
+  background: var(--light-surface-raised);
 }
 
 :root[data-theme="light"] .record-row span:first-child,
@@ -7668,7 +7720,7 @@ textarea {
 }
 
 :root[data-theme="light"] .column-header-menu {
-  background: #fffefa;
+  background: var(--light-surface);
   border-color: #ada294;
   box-shadow: 0 16px 40px rgba(58, 48, 38, 0.16);
 }
@@ -10290,11 +10342,12 @@ textarea {
 
 /* Light theme QA layer: keep dense surfaces readable without weakening borders. */
 :root[data-theme="light"] {
-  --light-surface: #fffdf8;
-  --light-surface-raised: #f7f1e8;
-  --light-surface-muted: #eee8de;
-  --light-line: #a99b89;
-  --light-line-strong: #7e715f;
+  --light-surface: #ffffff;
+  --light-surface-raised: #f8fafc;
+  --light-surface-muted: #edf2f7;
+  --light-panel: var(--light-surface);
+  --light-line: #c6d1df;
+  --light-line-strong: #8295ae;
   --light-heading: #0d1b2a;
   --light-body: #172433;
   --light-muted-readable: #34485e;
@@ -10517,8 +10570,8 @@ textarea {
 :root[data-theme="light"] input:disabled,
 :root[data-theme="light"] select:disabled,
 :root[data-theme="light"] textarea:disabled {
-  border-color: #c2b8ab;
-  background: #e6e1d9;
+  border-color: var(--light-line);
+  background: var(--light-surface-muted);
   color: #5c6877;
   opacity: 1;
 }
@@ -10594,12 +10647,12 @@ textarea {
 }
 
 :root[data-theme="light"] .calendar-day.past:not(.today) {
-  background-color: #eee8de;
+  background-color: var(--light-surface-muted);
   color: var(--light-faint-readable);
 }
 
 :root[data-theme="light"] .calendar-day.dim {
-  background-color: #f2f0ea;
+  background-color: var(--light-surface-muted);
   color: var(--light-faint-readable);
 }
 
@@ -10611,7 +10664,7 @@ textarea {
 }
 
 :root[data-theme="light"] .calendar-day.has-events {
-  background-image: linear-gradient(180deg, #fffdf8, #f8f2e9);
+  background-image: linear-gradient(180deg, var(--light-surface), var(--light-surface-raised));
 }
 
 :root[data-theme="light"] .calendar-date,
@@ -10681,6 +10734,11 @@ textarea {
 }
 
 :root.eye-strain-mode[data-theme="light"] {
+  --light-surface: #fffdf8;
+  --light-surface-raised: #f7f1e8;
+  --light-surface-muted: #eee8de;
+  --light-line: #a99b89;
+  --light-line-strong: #7e715f;
   --bg: #f4f0e8;
   --bg-elevated: #fffdf8;
   --panel: #fffaf1;
@@ -10701,12 +10759,12 @@ textarea {
 }
 
 :root[data-theme="light"] .filterbar {
-  background: rgba(248, 244, 238, 0.96);
+  background: var(--light-surface);
 }
 
 :root[data-theme="light"] .tabset,
 :root[data-theme="light"] .filters {
-  scrollbar-color: #8c7c6a #e7dfd4;
+  scrollbar-color: var(--light-line-strong) var(--light-surface-muted);
 }
 
 :root[data-theme="light"] .nav-group-label,
@@ -10762,7 +10820,7 @@ textarea {
 
 :root[data-theme="light"] .calendar-day,
 :root[data-theme="light"] .calendar-dow {
-  box-shadow: inset 0 0 0 1px rgba(169, 155, 137, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(130, 149, 174, 0.18);
 }
 
 :root[data-theme="light"] .kanban-column,
@@ -10826,8 +10884,8 @@ textarea {
 :root[data-theme="light"] input,
 :root[data-theme="light"] select,
 :root[data-theme="light"] textarea {
-  border-color: #a99b89;
-  background: #fffefa;
+  border-color: var(--light-line-strong);
+  background: var(--light-surface);
   color: var(--light-body);
 }
 
@@ -10869,8 +10927,18 @@ textarea {
 :root[data-theme="light"] .sidebar-rail-button,
 :root[data-theme="light"] .sidebar-collapse-button {
   border-color: var(--light-line);
-  background: #f8f3eb;
+  background: var(--light-surface-raised);
   color: var(--light-body);
+}
+
+/* Let table cells provide the surface instead of boxing every value. */
+:root[data-theme="light"] .board-table .cell-button {
+  background: transparent;
+}
+
+:root[data-theme="light"] .board-table .cell-button:hover,
+:root[data-theme="light"] .board-table .cell-button:focus-visible {
+  background: var(--hover-bg);
 }
 
 :root[data-theme="light"] .button:hover,
@@ -10944,7 +11012,7 @@ textarea {
 
 :root[data-theme="light"] .calendar-day.past:not(.today),
 :root[data-theme="light"] .calendar-day.dim {
-  background: #eee8de;
+  background: var(--light-surface-muted);
   color: var(--light-faint-readable);
 }
 
@@ -11099,7 +11167,7 @@ textarea {
 }
 
 :root[data-theme="light"] .calendar-day.past:not(.today) {
-  background: #ece7df;
+  background: var(--light-surface-muted);
 }
 
 :root[data-theme="light"] .calendar-day.today {
@@ -11125,7 +11193,7 @@ textarea {
 
 :root[data-theme="light"] .kanban-column,
 :root[data-theme="light"] .kanban-card {
-  box-shadow: inset 0 0 0 1px rgba(126, 113, 95, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(130, 149, 174, 0.08);
 }
 
 :root[data-theme="light"] .eyebrow,
@@ -11177,10 +11245,10 @@ textarea {
 :root[data-theme="light"] .field-popover,
 :root[data-theme="light"] .dropdown-panel,
 :root[data-theme="light"] .option-pick {
-  background: #fffdf8;
+  background: var(--light-surface);
   border-color: var(--light-line-strong);
   color: var(--light-body);
-  box-shadow: 0 16px 36px rgba(43, 38, 32, 0.18);
+  box-shadow: 0 16px 36px rgba(30, 48, 66, 0.16);
 }
 
 :root[data-theme="light"] .column-header-menu button {
@@ -13300,18 +13368,18 @@ textarea {
 }
 
 :root[data-theme="light"] .refrigerant-context-banner {
-  background: #fffdf8;
+  background: var(--light-surface);
   border-color: var(--light-line);
 }
 
 :root[data-theme="light"] .pm-quick-filters button {
-  background: #fffdf8;
+  background: var(--light-surface);
   border-color: var(--light-line);
   color: var(--light-body);
 }
 
 :root[data-theme="light"] .subtab-row button {
-  background: #fffdf8;
+  background: var(--light-surface);
   border-color: var(--light-line);
   color: var(--light-body);
 }

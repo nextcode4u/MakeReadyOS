@@ -1560,6 +1560,9 @@ export function OperationsPanel({
     try {
       setUnitImportError("");
       const parsedUnits = parseUnitDirectoryRows();
+      if (!window.confirm(isSpanish
+        ? `Importar ${parsedUnits.length} unidades a ${selectedProperty.code} - ${selectedProperty.name}? Se actualizaran las unidades existentes de esta propiedad. Confirme que el reporte pertenece a esta propiedad.`
+        : `Import ${parsedUnits.length} units into ${selectedProperty.code} - ${selectedProperty.name}? Existing units in this property will be updated. Confirm that the report belongs to this property.`)) return;
       const result = await onImportUnits({ propertyId: selectedPropertyId, units: parsedUnits, updateExisting: true });
       setLastImport(result);
       setTurnArchiveMode("occupied");
@@ -1588,6 +1591,9 @@ export function OperationsPanel({
       setAvailabilityImportError("");
       if (!overrideConflicts) setAvailabilityImportConflicts(null);
       const parsedRows = parseAvailabilityRows();
+      if (!window.confirm(isSpanish
+        ? `Importar ${parsedRows.length} filas de disponibilidad a ${selectedProperty.code} - ${selectedProperty.name}? Se actualizaran la ocupacion y el tablero de esta propiedad.${overrideConflicts ? " Se sobrescribiran los conflictos locales." : ""}`
+        : `Import ${parsedRows.length} availability rows into ${selectedProperty.code} - ${selectedProperty.name}? This will update occupancy and board records for this property.${overrideConflicts ? " Local conflicts will be overwritten." : ""}`)) return;
       const result = await onImportAvailability({ propertyId: selectedPropertyId, rows: parsedRows, updateExisting: true, createTurns: true, overrideConflicts });
       setLastAvailabilityImport(result);
       setAvailabilityImportText("");
@@ -1602,6 +1608,23 @@ export function OperationsPanel({
       setAvailabilityImportError(error instanceof Error ? error.message : (isSpanish ? "No se pudo analizar el CSV de disponibilidad." : "Could not parse availability CSV."));
     }
   };
+
+  const importPropertySelector = (kind: string) => (
+    <label className="span-full unit-directory-target">
+      <strong>{isSpanish ? "Importar a la propiedad" : "Import into property"}</strong>
+      <select data-testid={`${kind}-import-property`} value={selectedPropertyId} disabled={loading}
+        onChange={(event) => {
+          setSelectedPropertyId(event.target.value);
+          setSelectedUnitId("");
+          setLastImport(null);
+          setLastAvailabilityImport(null);
+        }}>
+        <option value="">{isSpanish ? "Seleccione una propiedad" : "Select a property"}</option>
+        {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
+      </select>
+      <span className="helper-copy">{isSpanish ? "Verifique que el reporte corresponde a esta propiedad. Ambos importadores usan esta seleccion." : "Check that your report belongs to this property. Both importers use this selection; existing records may be updated."}</span>
+    </label>
+  );
 
   const occupancyCounts = unitsForProperty.reduce<Record<string, number>>((acc, unit) => {
     acc[unit.occupancyStatus] = (acc[unit.occupancyStatus] ?? 0) + 1;
@@ -1874,6 +1897,7 @@ export function OperationsPanel({
           ) : null}
           <div className="editor-block unit-import-block">
             <h4>{isSpanish ? "Pegar CSV/XML de disponibilidad" : "Paste Availability CSV / XML"}</h4>
+            {importPropertySelector("availability")}
             <p className="helper-copy">{isSpanish ? "Use esto para reportes de disponibilidad como NTV, NTV arrendado, vacante arrendado, vacante listo, fuera de servicio y unidades modelo. Puede pegar CSV o cargar XML compatibles. Esto actualiza la ocupación de la unidad y crea o actualiza filas activas de make-ready para registros de disponibilidad no ocupados." : "Use this for availability snapshots such as NTV, NTV leased, vacant leased, vacant ready, down, and model units. You can paste CSV or upload supported XML exports here. This updates unit occupancy and creates or updates active make-ready table rows for non-occupied availability records."}</p>
             <div className="unit-import-actions">
               <input
@@ -2039,6 +2063,7 @@ export function OperationsPanel({
           </div>
           <div className="editor-block unit-import-block">
             <h4>{isSpanish ? "Pegar CSV/XML del directorio de unidades" : "Paste Unit Directory CSV / XML"}</h4>
+            {importPropertySelector("unit")}
             <p className="helper-copy">{isSpanish ? "Use esto solo para inventario permanente. Puede pegar CSV o cargar XML compatibles. Actualiza el estado ocupado/vacante del directorio, pero no crea filas activas de make-ready. Para poblar el tablero, use la importación de disponibilidad de arriba." : "Use this for permanent inventory only. You can paste CSV or upload supported XML exports here. It updates occupied/vacant directory status but does not create active make-ready table rows. For board population, use Availability import above."}</p>
             <div className="unit-import-actions">
               <input

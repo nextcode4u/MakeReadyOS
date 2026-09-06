@@ -3265,6 +3265,10 @@ export function getCurrentUser() {
   return request<{ user: CurrentUser; roles: UserRole[]; csrfToken: string }>("/auth/me");
 }
 
+export function passwordAction(action: "forgot-password" | "reset-password" | "change-password", payload: Record<string, string>) {
+  return request<{ ok?: boolean; message?: string }>(`/auth/${action}`, { method: "POST", body: JSON.stringify(payload) });
+}
+
 export function login(identifier: string, password: string) {
   return request<{ user: CurrentUser; roles: UserRole[]; csrfToken: string }>("/auth/login", {
     method: "POST",

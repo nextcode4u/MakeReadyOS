@@ -3121,6 +3121,29 @@ export const openApiDocument = {
         },
       },
     },
+    "/api/auth/forgot-password": {
+      post: {
+        tags: ["Auth"], summary: "Email a single-use password link (expires in one hour)",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["email"], properties: { email: { type: "string", format: "email" } } } } } },
+        responses: { "200": { description: "Generic acknowledgement; does not disclose account existence." }, "429": { description: "Request throttled or origin rejected." } },
+      },
+    },
+    "/api/auth/reset-password": {
+      post: {
+        tags: ["Auth"], summary: "Redeem an invitation or reset token and revoke browser sessions",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["token", "password"], properties: { token: { type: "string", pattern: "^[a-f0-9]{64}$" }, password: { type: "string", format: "password", minLength: 8, maxLength: 1024 } } } } } },
+        responses: { "200": { description: "Password set; sign in again." }, "400": { description: "Invalid password or expired/used token." }, "429": { description: "Request throttled or origin rejected." } },
+      },
+    },
+    "/api/auth/change-password": {
+      post: {
+        tags: ["Auth"], summary: "Change password using current password and revoke browser sessions",
+        security: [{ cookieSession: [] }],
+        parameters: [{ in: "header", name: "X-CSRF-Token", required: true, schema: { type: "string" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["currentPassword", "password"], properties: { currentPassword: { type: "string", format: "password" }, password: { type: "string", format: "password", minLength: 8, maxLength: 1024 } } } } } },
+        responses: { "200": { description: "Password changed; sign in again." }, "400": { description: "Incorrect current password or weak new password." }, "401": { description: "Sign-in required." }, "403": { description: "Invalid CSRF token or origin." }, "409": { description: "Account changed concurrently." }, "429": { description: "Too many requests." } },
+      },
+    },
     "/api/auth/logout": {
       post: {
         tags: ["Auth"],

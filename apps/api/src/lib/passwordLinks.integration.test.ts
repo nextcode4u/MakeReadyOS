@@ -1,0 +1,80 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+test("password lifecycle: expiry, replay, concurrency, revocation, recovery and authenticated changes", { skip: !process.env.PASSWORD_LINK_TEST_DATABASE_URL }, async () => {
+  process.env.DATABASE_URL = process.env.PASSWORD_LINK_TEST_DATABASE_URL;
+  process.env.ADMIN_USERNAME = "password-test-admin";
+  process.env.ADMIN_PASSWORD = "Test-Only-Password!123";
+  process.env.SESSION_COOKIE_SECRET = "test-only-session-secret-12345678901234567890";
+  process.env.APP_URL = "http://localhost:8080";
+  process.env.SMTP_HOST = "";
+  const { prisma } = await import("./prisma.js");
+  const { createPasswordLink, redeemPasswordLink, digestPasswordToken } = await import("./passwordLinks.js");
+  const { hashPassword, verifyPassword } = await import("./password.js");
+  const { authRoutes } = await import("../routes/auth.js");
+  const { loadSessionUser } = await import("./auth.js");
+  const { default: Fastify } = await import("fastify");
+  const { default: cookie } = await import("@fastify/cookie");
+  const app = Fastify();
+  await app.register(cookie, { secret: process.env.SESSION_COOKIE_SECRET });
+  app.addHook("onRequest", loadSessionUser);
+  await app.register(authRoutes);
+  const user = await prisma.user.create({ data: { username: `password-test-${Date.now()}`, email: `password-test-${Date.now()}@example.com`, fullName: "Password Test", role: "TECH", passwordHash: await hashPassword("Original-Password!123") } });
+  const tokenFrom = (url: string) => new URLSearchParams(new URL(url).hash.slice(1)).get("password-reset")!;
+  const send = (url: string, payload: object, headers: Record<string, string> = {}) => app.inject({ method: "POST", url, payload, headers: { origin: "http://localhost:8080", ...headers } });
+  try {
+    const token = tokenFrom(await createPasswordLink(user.id));
+    assert.equal(token.length, 64);
+    assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).passwordResetHash, digestPasswordToken(token));
+    await prisma.session.create({ data: { userId: user.id, tokenHash: `test-${user.id}`, expiresAt: new Date(Date.now() + 60000) } });
+    const weak = await send("/reset-password", { token, password: "weak" });
+    assert.equal(weak.statusCode, 400);
+    const results = await Promise.all([redeemPasswordLink(token, "Changed-Password!123"), redeemPasswordLink(token, "Changed-Password!123")]);
+    assert.equal(results.filter(Boolean).length, 1);
+    assert.equal(await prisma.session.count({ where: { userId: user.id } }), 0);
+    assert.equal(await redeemPasswordLink(token, "Changed-Password!123"), false);
+    assert.ok(await verifyPassword("Changed-Password!123", (await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).passwordHash));
+
+    const expired = tokenFrom(await createPasswordLink(user.id));
+    await prisma.user.update({ where: { id: user.id }, data: { passwordResetExpiresAt: new Date(0) } });
+    assert.equal(await redeemPasswordLink(expired, "Changed-Password!123"), false);
+    const replaced = tokenFrom(await createPasswordLink(user.id));
+    let current = tokenFrom(await createPasswordLink(user.id));
+    assert.equal(await redeemPasswordLink(replaced, "Changed-Password!123"), false);
+    await prisma.user.update({ where: { id: user.id }, data: { isActive: false } });
+    assert.equal(await redeemPasswordLink(current, "Changed-Password!123"), false);
+    await prisma.user.update({ where: { id: user.id }, data: { isActive: true } });
+
+    const known = await send("/forgot-password", { email: user.email });
+    const unknown = await send("/forgot-password", { email: "not-found@example.com" });
+    assert.equal(known.statusCode, 200);
+    assert.equal(known.body, unknown.body);
+    assert.equal((await send("/reset-password", { token: current, password: "Changed-Password!123" })).statusCode, 200);
+    assert.equal((await send("/reset-password", { token: current, password: "Changed-Password!123" })).statusCode, 400);
+    current = tokenFrom(await createPasswordLink(user.id));
+    const denied = await send("/forgot-password", { email: user.email }, { origin: "https://untrusted.example" });
+    assert.equal(denied.statusCode, 429);
+    const login = await send("/login", { identifier: user.username, password: "Changed-Password!123" });
+    assert.equal(login.statusCode, 200, login.body);
+    const sessionCookie = login.headers["set-cookie"]!.toString().split(";")[0];
+    const csrf = login.json().csrfToken;
+    assert.equal((await send("/change-password", { currentPassword: "Changed-Password!123", password: "Final-Password!123" }, { cookie: sessionCookie })).statusCode, 403);
+    assert.ok(await verifyPassword("Changed-Password!123", (await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).passwordHash));
+    const wrong = await send("/change-password", { currentPassword: "Incorrect!123", password: "Final-Password!123" }, { cookie: sessionCookie, "x-csrf-token": csrf });
+    assert.equal(wrong.statusCode, 400);
+    const change = await send("/change-password", { currentPassword: "Changed-Password!123", password: "Final-Password!123" }, { cookie: sessionCookie, "x-csrf-token": csrf });
+    assert.equal(change.statusCode, 200, change.body);
+    assert.equal(await redeemPasswordLink(current, "Changed-Password!123"), false);
+    assert.equal((await app.inject({ url: "/me", headers: { cookie: sessionCookie } })).statusCode, 401);
+    assert.equal((await send("/login", { identifier: user.username, password: "Final-Password!123" })).statusCode, 200);
+    let limited = false;
+    for (let i = 0; i < 11; i++) if ((await send("/forgot-password", { email: "not-found@example.com" })).statusCode === 429) limited = true;
+    assert.ok(limited);
+  } finally {
+    await prisma.auditLog.deleteMany({ where: { action: "AUTH_PASSWORD_REQUEST", ipAddress: "127.0.0.1" } });
+    await prisma.auditLog.deleteMany({ where: { actorUserId: user.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+    await app.close();
+    await prisma.$disconnect();
+  }
+});

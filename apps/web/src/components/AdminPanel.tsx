@@ -300,9 +300,11 @@ export function AdminPanel({
                   data-testid="admin-create-password"
                   type="password"
                   value={createState.password}
+                  disabled={createState.sendInviteEmail}
                   onChange={(event) => setCreateState((current) => ({ ...current, password: event.target.value }))}
                 />
               </label>
+              {createState.sendInviteEmail ? <p className="helper-copy">{language === "es" ? "El usuario elegira su contrasena con un enlace de un solo uso. No se enviara ninguna contrasena." : "The invitee chooses their password through a single-use link. No password is emailed."}</p> : null}
               <label>
                 {t(language, "language.label")}
                 <select
