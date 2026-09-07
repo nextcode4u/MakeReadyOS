@@ -4313,6 +4313,24 @@ textarea {
   margin-top: 0.5rem;
 }
 
+.calendar-past-due-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.5rem;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.calendar-past-due-list .button {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.4rem;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
 .calendar-event .pill {
   width: 100%;
   justify-content: flex-start;

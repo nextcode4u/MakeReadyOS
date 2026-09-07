@@ -5,6 +5,7 @@ import { LabelPill } from "./LabelPill";
 import { StatusState } from "./StatusState";
 
 export type CalendarEvent = {
+  unfinished?: boolean;
   projected?: boolean;
   id: string;
   unitNumber: string;
@@ -217,6 +218,11 @@ function CalendarPanel({ track, events, labelsByField, month, onMonthChange, ind
 export function CalendarView({ eventsByTrack, labelsByField, fieldOptions, layout, language, selectedFields, onLayoutChange, onFieldChange, onOpenItem, startDateSourceField, onSetupScheduling }: Props) {
   const isSpanish = language === "es";
   const [month, setMonth] = useState(() => new Date());
+  const startTrack = fieldOptions.find(track => track.sourceField === startDateSourceField);
+  const today = todayInputValue();
+  const pastDueStarts = (startTrack ? eventsByTrack[startTrack.id] ?? [] : [])
+    .filter(event => event.unfinished && formatDateInput(event.date) < today)
+    .sort((a, b) => formatDateInput(a.date).localeCompare(formatDateInput(b.date)) || a.propertyCode.localeCompare(b.propertyCode) || a.unitNumber.localeCompare(b.unitNumber));
   const count = layout === "single" ? 1 : layout === "split" ? 2 : layout === "auto" ? Math.max(4, Math.min(5, selectedFields.length)) : 4;
   return (
     <section className={`calendar-shell calendar-layout-${layout}`} data-testid="calendar-view">
@@ -227,6 +233,16 @@ export function CalendarView({ eventsByTrack, labelsByField, fieldOptions, layou
         </select>
       </div>
       <p className="muted" data-testid="calendar-date-guide">{isSpanish ? "Muestra todas las unidades accesibles con los filtros actuales, no solo tus asignaciones. Sin inicio guardado, se proyecta el siguiente día laboral tras la salida prevista o desocupación. Expected Finish es una fecha distinta." : "Shows all accessible units matching your filters, not just your assignments. Without a saved start, Projected uses the next working day after NTV / Expected Vacate or Vacated, respecting property weekday restrictions. Expected Finish is separate. Projections update with vacate dates; saved starts are preserved."}</p>
+      {pastDueStarts.length ? <details className="calendar-legend" open data-testid="calendar-past-due-starts">
+        <summary><strong>{isSpanish ? "Inicios vencidos" : "Past-due starts"} ({pastDueStarts.length})</strong></summary>
+        <p className="muted">{isSpanish ? "Unidades sin terminar, incluso de meses anteriores. Abre una unidad para revisar o reprogramar. Las fechas originales no cambian." : "Unfinished units, including previous months. Open a unit to review or reschedule. Original dates are unchanged."}</p>
+        <div className="calendar-past-due-list">
+          {pastDueStarts.map(event => <button key={event.id} type="button" className="button button-secondary" data-testid={`calendar-past-due-${event.id}`} onClick={() => onOpenItem(event.id)}>
+            <strong>{event.propertyCode} {event.unitNumber}</strong>
+            <span>{formatDateInput(event.date)}{event.projected ? (isSpanish ? " (proyectado)" : " (projected)") : ""}</span>
+          </button>)}
+        </div>
+      </details> : null}
       <div className="calendar-panels">
         {Array.from({ length: count }, (_, index) => {
           const id = selectedFields[index] ?? fieldOptions[index]?.id ?? fieldOptions[0]?.id;

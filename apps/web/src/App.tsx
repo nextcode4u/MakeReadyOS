@@ -1,5 +1,6 @@
 import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isReadyLikeOccupancy } from "./lib/availabilityStatus";
 import { ActiveFilterBar } from "./components/ActiveFilterBar";
 import { PasswordForm } from "./components/PasswordForm";
 import { BoardTable } from "./components/BoardTable";
@@ -3488,6 +3489,9 @@ function App() {
           propertyCode: item.property.code,
           date: typeof date === "string" ? date : "",
           projected,
+          unfinished: !item.isArchived && !isReadyLikeOccupancy(item.vacancyStatus)
+            && item.vacancyStatus?.trim().toUpperCase() !== "OCCUPIED"
+            && !["DONE", "YES", "GOOD", "COMPLETE", "COMPLETED"].includes((item.completionStatus ?? "").trim().toUpperCase()),
           moveInSoon: Boolean(track.moveInSoonEnabled && item.moveInSoon),
           overdue: Boolean(track.overdueEnabled && item.overdue),
           trackLabel: track.displayName,
