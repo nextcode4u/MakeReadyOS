@@ -405,6 +405,15 @@ test("frog sprite sequences use painted tiles and cycle actions, not just transf
   const reduced = await body.evaluate(el => getComputedStyle(el).backgroundPosition);
   await page.waitForTimeout(700);
   expect(await body.evaluate(el => getComputedStyle(el).backgroundPosition)).toBe(reduced);
+  await expect(page.getByRole("button", { name: "Resume motion", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Play animations anyway", exact: true }).click();
+  await expect(page.getByTestId("pond-motion-status")).toHaveText("Animations playing");
+  await expect.poll(() => body.evaluate(el => getComputedStyle(el).backgroundPosition)).not.toBe(reduced);
+  await expect.poll(() => body.evaluate(el => getComputedStyle(el).animationName)).not.toBe("none");
+  await page.getByRole("button", { name: "Use device motion preference", exact: true }).click();
+  const stopped = await body.evaluate(el => getComputedStyle(el).backgroundPosition);
+  await page.waitForTimeout(700);
+  expect(await body.evaluate(el => getComputedStyle(el).backgroundPosition)).toBe(stopped);
 });
 
 test("calendar date-only values stay on the saved day in Central time", async ({ browser }) => {
