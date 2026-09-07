@@ -37,6 +37,7 @@ function SummaryLinks({
   onAttach,
   showAttach,
   showRecommend,
+  saving = false,
   language,
 }: {
   items: PropertyWikiRecordSummary[];
@@ -44,6 +45,7 @@ function SummaryLinks({
   onAttach?: (targetType: PropertyWikiTargetType, id: string) => void;
   showAttach?: boolean;
   showRecommend?: boolean;
+  saving?: boolean;
   language: UserLanguage;
 }) {
   if (!items.length) return <p className="muted">{t(language, "wikiWorkflow.noMatches")}</p>;
@@ -57,7 +59,7 @@ function SummaryLinks({
             <p>{item.snippet || t(language, "common.noPreview")}</p>
           </div>
           <div className="pool-entry-actions">
-            {showAttach && onAttach ? <button type="button" className="button button-secondary" onClick={() => onAttach(item.targetType, item.id)}>{attachLabel ?? t(language, "common.attach")}</button> : null}
+            {showAttach && onAttach ? <button type="button" className="button button-secondary" disabled={saving} onClick={() => onAttach(item.targetType, item.id)}>{attachLabel ?? t(language, "common.attach")}</button> : null}
             {showRecommend ? (
               <button
                 type="button"
@@ -86,7 +88,7 @@ function SummaryLinks({
   );
 }
 
-export function PropertyWikiWorkflowPanel({
+function PropertyWikiWorkflowContent({
   title,
   module,
   propertyId,
@@ -154,15 +156,29 @@ export function PropertyWikiWorkflowPanel({
     return (contextQuery.data?.knownIssues ?? []).filter((item) => !dismissedIssues.includes(item.id));
   }, [contextQuery.data?.knownIssues, dismissedIssues]);
 
-  if (!propertyId || contextQuery.isLoading || !contextQuery.data) {
-    return null;
-  }
-
   const attachable = Boolean(canEdit && recordType && recordId);
   const recommendable = Boolean(canEdit);
+  const saving = attachMutation.isPending || detachMutation.isPending;
+  const saveError = attachMutation.error || detachMutation.error;
+  if (!propertyId) return null;
+  if (!contextQuery.data) return <section className="wiki-workflow-status" data-testid={`wiki-workflow-${module.toLowerCase()}`}>
+    <strong>{title}</strong>
+    {contextQuery.isError ? <p role="alert">{t(language, "wikiWorkflow.loadFailed")} <button type="button" className="button button-secondary" onClick={() => void contextQuery.refetch()}>{t(language, "status.reload")}</button></p> : <p role="status">{t(language, "wikiWorkflow.loading")}</p>}
+  </section>;
+  const related = [
+    { key: "sops", label: "wiki.relatedSops", items: contextQuery.data.related.sops },
+    { key: "vendors", label: "wiki.relatedVendors", items: contextQuery.data.related.vendors },
+    { key: "equipment", label: "wiki.relatedEquipment", items: contextQuery.data.related.equipment },
+    { key: "documents", label: "wiki.relatedDocuments", items: contextQuery.data.related.documents },
+  ].filter(group => group.items.length);
+  const hasContent = attachable || visibleKnownIssues.length || visibleSuggestions.length || contextQuery.data.attached.length || contextQuery.data.emergencyRecords.length || contextQuery.data.makeReadyStandards.length || related.length;
+  if (!hasContent && !contextQuery.isError) return null;
 
   return (
     <section className="pool-card wiki-workflow-panel" data-testid={`wiki-workflow-${module.toLowerCase()}`}>
+      {contextQuery.isError ? <p role="alert">{t(language, "wikiWorkflow.refreshFailed")} <button type="button" className="button button-secondary" onClick={() => void contextQuery.refetch()}>{t(language, "status.reload")}</button></p> : null}
+      {saveError ? <p role="alert">{t(language, "wikiWorkflow.saveFailed")} {saveError instanceof Error ? saveError.message : ""}</p> : null}
+      {saving ? <p role="status">{t(language, "wikiWorkflow.saving")}</p> : null}
       <div className="wiki-workflow-header">
         <div>
           <h2>{title}</h2>
@@ -213,7 +229,7 @@ export function PropertyWikiWorkflowPanel({
                 </div>
                 <div className="pool-entry-actions">
                   <button type="button" className="button button-secondary" onClick={() => openWikiRecord({ targetType: item.targetType, id: item.id, propertyId: item.propertyId })}>{t(language, "common.open")} Wiki</button>
-                  {attachable ? <button type="button" className="button button-secondary" onClick={() => detachMutation.mutate(item.referenceId)}>{t(language, "common.remove")}</button> : null}
+                  {attachable ? <button type="button" className="button button-secondary" disabled={saving} onClick={() => { attachMutation.reset(); detachMutation.mutate(item.referenceId); }}>{t(language, "common.remove")}</button> : null}
                 </div>
               </article>
             ))}
@@ -225,20 +241,25 @@ export function PropertyWikiWorkflowPanel({
         <div className="wiki-workflow-block">
           <div className="drawer-section-title"><h3>{t(language, "wikiWorkflow.attachContent")}</h3></div>
           <input
+            aria-label={t(language, "wikiWorkflow.searchToAttach")}
+            disabled={saving}
             value={attachQuery}
             onChange={(event) => setAttachQuery(event.target.value)}
             placeholder={t(language, "wikiWorkflow.searchToAttach")}
           />
-          {searchQuery.data?.results?.length ? (
+          {attachQuery.trim().length >= 2 && searchQuery.isFetching ? <p role="status">{t(language, "wikiWorkflow.searching")}</p> : null}
+          {attachQuery.trim().length >= 2 && searchQuery.isError ? <p role="alert">{t(language, "wikiWorkflow.searchFailed")} <button type="button" className="button button-secondary" onClick={() => void searchQuery.refetch()}>{t(language, "status.reload")}</button></p> : null}
+          {searchQuery.data?.results?.length && !searchQuery.isError ? (
             <SummaryLinks
               items={searchQuery.data.results}
               attachLabel={t(language, "common.attach")}
               showAttach
+              saving={saving}
               showRecommend={recommendable}
               language={language}
-              onAttach={(targetType, id) => attachMutation.mutate({ recordType: recordType!, recordId: recordId!, targetType, targetId: id })}
+              onAttach={(targetType, id) => { detachMutation.reset(); attachMutation.mutate({ recordType: recordType!, recordId: recordId!, targetType, targetId: id }); }}
             />
-          ) : attachQuery.trim().length >= 2 ? <p className="muted">{t(language, "wikiWorkflow.noSearchMatches")}</p> : null}
+          ) : attachQuery.trim().length >= 2 && searchQuery.isSuccess && !searchQuery.isFetching ? <p className="muted">{t(language, "wikiWorkflow.noSearchMatches")}</p> : null}
         </div>
       ) : null}
 
@@ -261,7 +282,7 @@ export function PropertyWikiWorkflowPanel({
                   <p>{item.snippet || t(language, "common.noPreview")}</p>
                 </div>
                 <div className="pool-entry-actions">
-                  {attachable ? <button type="button" className="button button-secondary" onClick={() => attachMutation.mutate({ recordType: recordType!, recordId: recordId!, targetType: item.targetType, targetId: item.id })}>{t(language, "common.attach")}</button> : null}
+                  {attachable ? <button type="button" className="button button-secondary" disabled={saving} onClick={() => { detachMutation.reset(); attachMutation.mutate({ recordType: recordType!, recordId: recordId!, targetType: item.targetType, targetId: item.id }); }}>{t(language, "common.attach")}</button> : null}
                   <button type="button" className="button button-secondary" onClick={() => openWikiRecord({ targetType: item.targetType, id: item.id, propertyId: item.propertyId })}>{t(language, "common.open")} Wiki</button>
                   <button type="button" className="button button-secondary" onClick={() => setDismissedSuggestions((current) => [...current, `${item.targetType}:${item.id}`])}>{t(language, "common.dismiss")}</button>
                 </div>
@@ -278,24 +299,16 @@ export function PropertyWikiWorkflowPanel({
         </div>
       ) : null}
 
-      <div className="wiki-workflow-related-grid">
-        <div className="wiki-workflow-block">
-          <div className="drawer-section-title"><h3>{t(language, "wiki.relatedSops")}</h3></div>
-          <SummaryLinks items={contextQuery.data.related.sops} showRecommend={recommendable} language={language} />
-        </div>
-        <div className="wiki-workflow-block">
-          <div className="drawer-section-title"><h3>{t(language, "wiki.relatedVendors")}</h3></div>
-          <SummaryLinks items={contextQuery.data.related.vendors} showRecommend={recommendable} language={language} />
-        </div>
-        <div className="wiki-workflow-block">
-          <div className="drawer-section-title"><h3>{t(language, "wiki.relatedEquipment")}</h3></div>
-          <SummaryLinks items={contextQuery.data.related.equipment} showRecommend={recommendable} language={language} />
-        </div>
-        <div className="wiki-workflow-block">
-          <div className="drawer-section-title"><h3>{t(language, "wiki.relatedDocuments")}</h3></div>
-          <SummaryLinks items={contextQuery.data.related.documents} showRecommend={recommendable} language={language} />
-        </div>
-      </div>
+      {related.length ? <div className="wiki-workflow-related-grid">
+        {related.map(group => <div className="wiki-workflow-block" key={group.key}>
+          <div className="drawer-section-title"><h3>{t(language, group.label)}</h3></div>
+          <SummaryLinks items={group.items} showRecommend={recommendable} language={language} />
+        </div>)}
+      </div> : null}
     </section>
   );
+}
+
+export function PropertyWikiWorkflowPanel(props: Props) {
+  return <PropertyWikiWorkflowContent key={JSON.stringify([props.module, props.propertyId, props.recordType, props.recordId])} {...props} />;
 }

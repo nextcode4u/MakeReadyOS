@@ -1,0 +1,33 @@
+# End-User Interaction And Ease-Of-Use Audit
+
+Started 2026-09-07. Deployment authorized by the user after the audit batch.
+Preserve the existing visual language; prioritize orientation, safe saves, and fewer unnecessary steps over new modules.
+
+## Verified Findings And Queue
+
+- [x] UX-01: Embedded Property Wiki panels render four empty related-record sections, obscuring the actual task on phones. Empty sections are now hidden and optional panels omitted when there is no context or attach action. Verified at 412px in browser regression.
+- [x] UX-02: Wiki context/search now distinguish loading, errors and empty results, with retry controls and a stale label on cached context after refresh failure. Focused browser regressions pass.
+- [x] UX-03: Wiki attach/remove failures are inline; failed attachment preserves the search, and save controls are disabled while pending. Attachment and removal failure regressions pass.
+- [x] UX-04: Final-walk handoff is now behind an explicit disclosure. Inspection completion stays primary; the disclosure shows the next person or exhaustion explanation without an unusable form. Mobile assignment/handoff regression and screenshot inspection pass.
+- [ ] UX-05: Final-walk and turn-assignment guides explain complex policy behavior in long paragraphs. Reduce initial copy and move policy details into a disclosure without hiding activation, scope, or effects on existing assignments.
+- [x] UX-06: My Work now has one primary inspection-opening action and omits progress bars for zero checklist tasks. Explicit browser assertions pass.
+- [ ] UX-07: Final-walk signoff still lacks a structured, source-backed inspection record and resident report. Do not imply a recorded checklist exists; implement the staged workflow described in DIGITAL_TURN_WORKFLOW.md before claiming verified resident handoff.
+- [ ] UX-08: Audit keyboard focus, accessible names, touch targets, error recovery, and interrupted saves across create/edit dialogs. Record concrete failures before changing shared components.
+- [ ] UX-09: Audit property/record switching with an unsaved draft, especially configuration guides and quick capture. Do not discard work silently or apply a late success callback to a different record.
+
+## Verification
+
+- [ ] UX-10: Pool facility/chemical/daily form rejections escape to the global nonfatal action-error notice, and upload rejection is unhandled. (The current app no longer replaces the workspace on these errors.) Local error recovery with preserved inputs is implemented; facility failure/retry regression passes in `logs/e2e-20260907-005406.txt`. Chemical/daily/upload and other archive/delete/offline queue action errors still need review.
+- [x] UX-11: Shared Modal now traps/restores focus, uses unique title IDs and only handles Escape in the topmost dialog. Keyboard-only and nested attachment preview/gallery regressions pass. Full browser suite is running to check other callers.
+- [ ] UX-12: Guided scheduling and turn assignment use different eligibility rules. Scheduling (`routes/turnSetup.ts`, `lib/turnSetup.ts`) only requires an active/incomplete item with a Vacated date; assignment also checks vacancy state/date. Audit stale historical vacate dates on occupied/NTV items before allowing automatic scheduling for them. Add parity tests and explicit skipped-item reasons rather than assuming these two guides affect the same units.
+- [ ] UX-13: Scheduling stage durations are editable, but the introduction always promises five working days. Painting/cleaning dates use cumulative stage-end offsets when durations exceed one day, while Make Ready is explicitly a start date. Clarify start/finish semantics for every calendar track and test multi-day stages before presenting them as actual vendor start bookings. Current UI correctly says it does not book vendors.
+- [ ] UX-14: CommandPalette and ItemDrawer use custom overlays outside shared Modal, so the shared keyboard fix does not cover them. Audit their focus boundary, accessible dialog name, Escape nesting and restoration before consolidating behavior.
+- [ ] UX-15: Login fields lack explicit username/current-password autocomplete hints, and admin account creation/reset fields lack new-password hints. Add those without disabling password managers; verify attributes and successful authentication. Consider an accessible show-password toggle for mobile entry separately.
+
+Findings above are source-inspected; completed boxes require browser or focused regression evidence below. Real-device field testing is separate from browser emulation. No production records are changed during this audit.
+
+2026-09-07 first local batch: lint and production image build passed. `logs/e2e-20260907-004926.txt`: 3/3 focused browser tests passed (reference loading/failure/retry/empty state, search and attachment failure preserving the draft with pending controls, final-walk assignment/handoff/signoff). UX-02/03 are implemented but cached-refresh, remove failure and context-switch regressions remain before closing those entries. UX-06 is implemented; add explicit duplicate-action/zero-checklist assertions. UX-09: final-walk property-switch confirmation, save-time switching lock and browser-unload warning are implemented; test pending. In-app navigation remains a separate unsaved-draft gap.
+
+Second checkpoint: `logs/e2e-20260907-005703.txt`, 7/7 browser tests passed, including cached-refresh/removal failure, inspector unsaved-property-switch cancellation, explicit My Work action/progress assertions, pool facility rejection/retry, keyboard focus and nested-dialog Escape. The earlier pending statements above are historical; remaining work is reflected by unchecked entries. No push or deployment has occurred for this audit.
+
+Release candidate: full production-image browser suite passed 94/94 (`logs/e2e-20260907-005907.txt`), including desktop/mobile/PWA and nested dialogs; lint and diff checks passed. No API/schema changes in this release. Remaining unchecked findings are TODOs, not completed functionality.

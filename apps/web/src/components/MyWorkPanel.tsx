@@ -103,6 +103,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
         <div className="my-work-list">
           {workItems.map(({ item, tasks, done }) => {
             const activeSession = activeSessionBySourceKey.get(`MAKE_READY_ITEM:${item.id}`) ?? null;
+            const isInspection = item.workAssignmentBlocks?.some(block => block.category === "FINAL_WALK_INSPECTION");
             return (
               <article key={item.id} className={item.overdue ? "my-work-card overdue" : "my-work-card"} data-testid={`my-work-item-${item.id}`}>
                 <div>
@@ -114,14 +115,14 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                   {item.moveInSoon ? <b className="warning">{t(language, "myWork.moveInSoon")}</b> : null}
                   {item.riskLevel && item.riskLevel !== "NONE" ? <b className={item.riskLevel === "CRITICAL" || item.riskLevel === "HIGH" ? "risk" : "warning"}>{item.riskLevel} {t(language, "myWork.riskSuffix")}</b> : null}
                   <span>{item.makeReadyStatus ?? t(language, "myWork.statusUnset")}</span>
-                  {item.workAssignmentBlocks?.map(block => <span key={block.id}>{tWithVars(language, "myWork.planned", { date: block.plannedDate.slice(0, 10), category: block.category === "FINAL_WALK_INSPECTION" ? "Final walk inspection" : block.category })}{block.category === "FINAL_WALK_INSPECTION" ? <button type="button" className="button button-secondary" onClick={() => onOpenItem(item.id)}>Inspect or hand off</button> : null}</span>)}
+                  {item.workAssignmentBlocks?.map(block => <span key={block.id}>{tWithVars(language, "myWork.planned", { date: block.plannedDate.slice(0, 10), category: block.category === "FINAL_WALK_INSPECTION" ? "Final walk inspection" : block.category })}</span>)}
                 </div>
-                <div className="my-work-progress">
+                {tasks.length || activeSession ? <div className="my-work-progress">
                   <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${startedLabel(activeSession.startedAt)}` : tWithVars(language, "myWork.checklist", { done: done.toString(), total: tasks.length.toString() })}</span>
-                  <progress value={done} max={tasks.length || 1} />
-                </div>
+                  {tasks.length ? <progress value={done} max={tasks.length} /> : null}
+                </div> : null}
                 <div className="my-work-actions">
-                  <button className="button button-primary" type="button" onClick={() => onOpenItem(item.id)}>{t(language, "myWork.openWorkItem")}</button>
+                  <button className="button button-primary" type="button" onClick={() => onOpenItem(item.id)}>{isInspection ? (language === "es" ? "Inspeccionar o delegar" : "Inspect or hand off") : t(language, "myWork.openWorkItem")}</button>
                   {!activeSession ? <button className="button button-secondary" type="button" onClick={() => void onStartWork({ sourceType: "MAKE_READY_ITEM", sourceId: item.id })}>{language === "es" ? "Iniciar trabajo" : "Start Work"}</button> : null}
                   {activeSession && (activeSession.userId === currentUser.id || canManageSessions) ? <button className="button button-secondary" type="button" onClick={() => void onEndWork(activeSession.id)}>{language === "es" ? "Finalizar trabajo" : "End Work"}</button> : null}
                   {canQuickUpdate ? (
