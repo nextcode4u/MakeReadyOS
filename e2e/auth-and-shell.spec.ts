@@ -10,6 +10,121 @@ const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
+test("pond audio plays automatically after opt-in and stays quiet when paused or hidden", async ({ page }) => {
+  await page.clock.install();
+  await page.addInitScript(() => {
+    const audio = { starts: 0, contexts: 0, volumes: [] as number[] };
+    Object.assign(window, { pondAudioTest: audio });
+    class FakeAudioContext {
+      state = "suspended";
+      destination = {};
+      get currentTime() { return Date.now() / 1000; }
+      constructor() { audio.contexts++; }
+      async resume() { this.state = "running"; }
+      async suspend() { this.state = "suspended"; }
+      async close() { this.state = "closed"; }
+      createGain() { return { gain: { value: 0, setValueAtTime: (v: number) => audio.volumes.push(v), linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() {} }; }
+      createOscillator() { return { frequency: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() {}, start() { audio.starts++; }, stop() {} }; }
+    }
+    Object.assign(window, { AudioContext: FakeAudioContext });
+  });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  const stats = () => page.evaluate(() => (window as unknown as { pondAudioTest: { starts: number; contexts: number; volumes: number[] } }).pondAudioTest);
+  await page.clock.runFor(9000);
+  expect((await stats()).contexts).toBe(0);
+  await page.getByRole("button", { name: "Sound: off", exact: true }).click();
+  await expect(page.getByRole("slider", { name: "Pond volume" })).toBeVisible();
+  await page.clock.runFor(26000);
+  expect((await stats()).starts).toBeGreaterThan(0);
+  await page.getByRole("slider", { name: "Pond volume" }).press("Home");
+  for (let i = 0; i < 4; i++) await page.getByRole("slider", { name: "Pond volume" }).press("ArrowRight");
+  expect((await stats()).volumes).toContain(.2);
+  await page.getByRole("button", { name: "Pause motion", exact: true }).click();
+  const paused = (await stats()).starts;
+  await page.clock.runFor(9000);
+  expect((await stats()).starts).toBe(paused);
+  await page.getByRole("button", { name: "Resume motion", exact: true }).click();
+  await page.evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, value: true }); document.dispatchEvent(new Event("visibilitychange")); });
+  const hidden = (await stats()).starts;
+  await page.clock.runFor(9000);
+  expect((await stats()).starts).toBe(hidden);
+  await page.evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, value: false }); document.dispatchEvent(new Event("visibilitychange")); });
+  await page.getByRole("button", { name: "Sound: on", exact: true }).click();
+  const muted = (await stats()).starts;
+  await page.clock.runFor(9000);
+  expect((await stats()).starts).toBe(muted);
+});
+
+test("pond offers brown and monochrome starters plus animated pirate and viking unlocks", async ({ page }) => {
+  await page.clock.install();
+  await page.route("**/api/make-ready-items?*", async route => {
+    const response = await route.fetch(); const items = await response.json();
+    await route.fulfill({ response, json: items.map((item: Record<string, unknown>) => ({ ...item, riskLevel: "NONE", overdue: false, completionStatus: "NO", vacancyStatus: "VACANT_NOT_LEASED_NOT_READY" })) });
+  });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  await page.getByTestId("pond-collection").locator("summary").click();
+  for (const id of ["brown", "bw"]) await expect(page.getByTestId(`pond-reward-${id}`)).toBeEnabled();
+  for (const id of ["pirate", "viking"]) await expect(page.getByTestId(`pond-reward-${id}`)).toBeDisabled();
+  await page.evaluate(() => {
+    const key = Object.keys(localStorage).find(key => key.startsWith("makereadyos.frogPond.collection."))!;
+    localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key)!), readyPeak: 7, feeds: 6 }));
+  });
+  await page.reload();
+  await page.getByTestId("tab-pond").click();
+  await page.getByTestId("pond-collection").locator("summary").click();
+  for (const id of ["brown", "bw", "pirate", "viking"]) {
+    await page.getByTestId(`pond-reward-${id}`).click();
+    const body = page.locator(".frog-body").first();
+    await expect.poll(() => body.evaluate(el => getComputedStyle(el).backgroundImage)).toContain(`frog-${id}.png`);
+    const initial = await body.evaluate(el => getComputedStyle(el).backgroundPosition);
+    await page.clock.runFor(880);
+    expect(await body.evaluate(el => getComputedStyle(el).backgroundPosition)).not.toBe(initial);
+    const image = await page.evaluate(async id => {
+      const img = new Image(); img.src = `/frogs/sprites/frog-${id}.png`; await img.decode();
+      return [img.naturalWidth, img.naturalHeight];
+    }, id);
+    expect(image).toEqual(id === "brown" ? [512, 512] : [256, 128]);
+  }
+  await page.reload();
+  await page.getByTestId("tab-pond").click();
+  await expect.poll(() => page.locator(".frog-body").first().evaluate(el => getComputedStyle(el).backgroundImage)).toContain("frog-viking.png");
+  await page.getByTestId("pond-collection").locator("summary").click();
+  await page.getByRole("button", { name: "Natural pond", exact: true }).click();
+  await expect.poll(() => page.locator(".frog-body").first().evaluate(el => getComputedStyle(el).backgroundImage)).toMatch(/frog-(green|brown)\.png/);
+});
+
+test("pond pixel backgrounds load, retain saved themes and fit mobile", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  await page.getByTestId("frog-settings-toggle").click();
+  const theme = page.getByTestId("frog-theme");
+  await expect(theme.locator("option")).toHaveCount(15);
+  for (const id of ["01", "02", "11", "12", "13", "14", "15"]) {
+    await theme.selectOption(`pond-${id}`);
+    await expect(page.getByTestId("frog-pond-scene")).toHaveCSS("image-rendering", "pixelated");
+    const url = `/frogs/ponds/pond-${id}.png?v=pixel-20260907`;
+    await expect.poll(() => page.getByTestId("frog-pond-scene").evaluate(el => getComputedStyle(el).backgroundImage)).toContain(url);
+    const loaded = await page.evaluate(async url => {
+      const image = new Image(); image.src = url; await image.decode();
+      return image.naturalWidth > image.naturalHeight && image.naturalWidth >= 1024;
+    }, url);
+    expect(loaded).toBeTruthy();
+  }
+  await theme.selectOption("pond-12");
+  await page.getByTestId("frog-settings-toggle").click();
+  await page.getByTestId("frog-pond-scene").screenshot({ path: "/tmp/mros-pixel-coffee.png" });
+  await page.reload();
+  await page.getByTestId("tab-pond").click();
+  await expect(page.getByTestId("frog-pond-panel")).toHaveClass(/frog-theme-pond-12/);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByTestId("frog-settings-toggle").click();
+  await expect(page.getByTestId("frog-theme")).toHaveValue("pond-12");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.getByTestId("frog-pond-panel").screenshot({ path: "/tmp/mros-pixel-pond-mobile.png" });
+});
+
 test("pond journeys stay bounded and tadpoles never croak", () => {
   for (const seed of [0, 1, 2, 3]) {
     expect(pondPads({ x: 50, y: 50 }, 960, 600)).toContainEqual(pondJourney({ x: 50, y: 50 }, seed, 0, false, 960, 600));
@@ -169,6 +284,15 @@ test("living pond supports tadpoles, targeted snacks, atmosphere and discoveries
   await expect(page.locator(".pond-rain")).toBeVisible();
   await page.getByTestId("pond-feed").click();
   await expect(page.locator(".pond-snack-guest")).toHaveCount(3);
+  const foodFly = page.locator(".pond-food-flies i").first();
+  await expect(foodFly).toHaveCSS("width", "64px");
+  const flySprite = await foodFly.evaluate(el => {
+    const sprite = getComputedStyle(el, "::before");
+    return { image: sprite.backgroundImage, size: sprite.backgroundSize, animation: sprite.animationName };
+  });
+  expect(flySprite.image).toContain("/frogs/decor/fly.png");
+  expect(flySprite.size).toBe("64px 128px");
+  expect(flySprite.animation).toContain("pond-food-flap");
   const guest = page.locator(".pond-snack-guest").last();
   const before = await guest.evaluate(el => (el as HTMLElement).style.left);
   await page.clock.runFor(1800);

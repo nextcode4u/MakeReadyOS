@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { BoardSection, LabelDefinition, MakeReadyItem, Property, UserLanguage } from "../lib/api";
 import { boardGroupLabel, displayUnitNumber } from "../lib/board";
 import { t } from "../lib/i18n";
 import { StatusState } from "./StatusState";
 import { frogSpriteFrame, type FrogSpriteFrame } from "../lib/frogSprites";
+import { PondAudio, type PondSound } from "../lib/pondAudio";
 import { approachSnack, pondElapsed, pondGreeting, pondJourney, pondLight, pondPads, pondPersonality, selectPondHunter, type PondSnack } from "../lib/pondLife";
 
 type MetricSource = "active" | "risk" | "techWorkload" | "vacant" | "moveInsWeek";
@@ -47,11 +48,15 @@ const storageKey = "makereadyos.frogPond.config";
 const presetsKey = "makereadyos.frogPond.presets";
 const positionsKey = "makereadyos.frogPond.positions";
 const pondRewards = [
+  { id: "brown", name: "Woodland brown", goal: 0, hint: "Starter style", sheet: "brown" },
+  { id: "bw", name: "Game Boy B&W", goal: 0, hint: "Starter style", sheet: "bw" },
   { id: "tophat", name: "Dapper pond", goal: 1, hint: "1 ready unit", sheet: "tophat" },
   { id: "cowboy", name: "Rodeo frogs", goal: 3, hint: "3 ready units together", sheet: "cowboy" },
   { id: "blue", name: "Blue lagoon", goal: 5, hint: "5 ready units together", sheet: "blue" },
+  { id: "viking", name: "Viking voyagers", goal: 7, hint: "7 ready units together", sheet: "viking" },
   { id: "clown", name: "Pond carnival", goal: 10, hint: "10 ready units together", sheet: "clown" },
   { id: "funnyglasses", name: "Secret shades", goal: 3, hint: "A snack-loving secret...", sheet: "funnyglasses" },
+  { id: "pirate", name: "Pirate pond", goal: 6, hint: "Feed the pond 6 times", sheet: "pirate" },
   { id: "purple", name: "Dragonfly dusk", goal: 1, hint: "Befriend the shimmering visitor...", sheet: "purple" },
 ] as const;
 type PondCollection = { readyPeak: number; feeds: number; outfit: string; visitor: boolean; greeted: boolean; outfits: Record<string, string>; discovered: Record<string, string> };
@@ -66,7 +71,7 @@ function loadCollection(key: string): PondCollection {
 }
 function rewardUnlocked(reward: typeof pondRewards[number], collection: PondCollection) {
   if (reward.id === "purple") return collection.visitor;
-  return (reward.id === "funnyglasses" ? collection.feeds : collection.readyPeak) >= reward.goal;
+  return (reward.id === "funnyglasses" || reward.id === "pirate" ? collection.feeds : collection.readyPeak) >= reward.goal;
 }
 function pondReady(item: MakeReadyItem) {
   const vacancy = (item.vacancyStatus ?? "").toUpperCase().replace(/[ _-]+/g, "_");
@@ -94,6 +99,8 @@ const defaultConfig: FrogPondConfig = {
 };
 
 const pondThemes = [
+  { key: "pond-01", label: "Pond 1 - Moonlit woodland", url: "/frogs/ponds/pond-01.png?v=pixel-20260907" },
+  { key: "pond-02", label: "Pond 2 - Lotus garden", url: "/frogs/ponds/pond-02.png?v=pixel-20260907" },
   { key: "pond-03", label: "Pond 3", url: "/frogs/ponds/pond-03.png" },
   { key: "pond-04", label: "Pond 4", url: "/frogs/ponds/pond-04.png" },
   { key: "pond-05", label: "Pond 5", url: "/frogs/ponds/pond-05.png" },
@@ -102,11 +109,11 @@ const pondThemes = [
   { key: "pond-08", label: "Pond 8", url: "/frogs/ponds/pond-08.png" },
   { key: "pond-09", label: "Pond 9", url: "/frogs/ponds/pond-09.png" },
   { key: "pond-10", label: "Pond 10", url: "/frogs/ponds/pond-10.png" },
-  { key: "pond-11", label: "Pond 11", url: "/frogs/ponds/pond-11.png" },
-  { key: "pond-12", label: "Pond 12", url: "/frogs/ponds/pond-12.png" },
-  { key: "pond-13", label: "Pond 13", url: "/frogs/ponds/pond-13.png" },
-  { key: "pond-14", label: "Pond 14", url: "/frogs/ponds/pond-14.png" },
-  { key: "pond-15", label: "Pond 15", url: "/frogs/ponds/pond-15.png" },
+  { key: "pond-11", label: "Pond 11 - Cozy frog home", url: "/frogs/ponds/pond-11.png?v=pixel-20260907" },
+  { key: "pond-12", label: "Pond 12 - Coffee shop", url: "/frogs/ponds/pond-12.png?v=pixel-20260907" },
+  { key: "pond-13", label: "Pond 13 - Frog warehouse", url: "/frogs/ponds/pond-13.png?v=pixel-20260907" },
+  { key: "pond-14", label: "Pond 14 - Cozy frog village", url: "/frogs/ponds/pond-14.png?v=pixel-20260907" },
+  { key: "pond-15", label: "Pond 15 - Frog farm", url: "/frogs/ponds/pond-15.png?v=pixel-20260907" },
 ];
 
 type SpriteSheet = { url: string; width: number; height: number; achievement?: string };
@@ -116,6 +123,7 @@ const frogSheets: Record<string, SpriteSheet> = {
   blue: { url: "/frogs/sprites/frog-blue.png", width: 512, height: 512 },
   purple: { url: "/frogs/sprites/frog-purple.png", width: 512, height: 512 },
   brown: { url: "/frogs/sprites/frog-brown.png", width: 512, height: 512 },
+  bw: { url: "/frogs/sprites/frog-bw.png", width: 256, height: 128 },
   tan: { url: "/frogs/sprites/frog-tan.png", width: 256, height: 128 },
   tophat: { url: "/frogs/sprites/frog-tophat.png", width: 256, height: 128, achievement: "Ready for move-in" },
   cowboy: { url: "/frogs/sprites/frog-cowboy.png", width: 256, height: 128, achievement: "Assigned tech" },
@@ -351,7 +359,8 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
   const [snack, setSnack] = useState<PondSnack | null>(null);
   const [held, setHeld] = useState<{ id: string; x: number; y: number } | null>(null);
   const [sound, setSound] = useState(false);
-  const audioRef = useRef<AudioContext | null>(null);
+  const audioRef = useRef<PondAudio | null>(null);
+  const [volume, setVolume] = useState(.4);
   const [hour, setHour] = useState(() => new Date().getHours());
   const [celebration, setCelebration] = useState(false);
   const readyHistory = useRef<Map<string, boolean> | null>(null);
@@ -373,7 +382,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
   }, [celebration]);
   useEffect(() => {
     const timer = window.setInterval(() => setHour(new Date().getHours()), 60000);
-    return () => { window.clearInterval(timer); void audioRef.current?.close(); };
+    return () => { window.clearInterval(timer); void audioRef.current?.close().catch(() => {}); audioRef.current = null; };
   }, []);
   useEffect(() => {
     try { localStorage.setItem(collectionKey, JSON.stringify(collection)); setCollectionSaved(true); }
@@ -409,24 +418,25 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
     if (snack && (pondElapsed(frameTick, snack.tick) >= 16 || !motionEnabled)) { setFeeding(false); setSnack(null); }
   }, [frameTick, snack, motionEnabled]);
 
-  const playSound = (tadpole: boolean) => {
-    if (!sound) return;
-    try {
-      const context = audioRef.current ?? new AudioContext();
-      audioRef.current = context;
-      void context.resume().catch(() => setSound(false));
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(tadpole ? 620 : 170, context.currentTime);
-      oscillator.frequency.exponentialRampToValueAtTime(tadpole ? 260 : 95, context.currentTime + .18);
-      gain.gain.setValueAtTime(.035, context.currentTime);
-      gain.gain.exponentialRampToValueAtTime(.001, context.currentTime + .22);
-      oscillator.connect(gain); gain.connect(context.destination);
-      oscillator.start(); oscillator.stop(context.currentTime + .23);
-      oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
-    } catch { setSound(false); }
+  const playSound = (cue: PondSound) => {
+    if (!sound || !pageVisible) return;
+    try { audioRef.current?.play(cue); } catch { setSound(false); }
   };
+  const automaticSound = useEffectEvent((cue: PondSound) => {
+    if (motionEnabled) playSound(cue);
+  });
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (sound && motionEnabled) void audio.resume(volume).catch(() => setSound(false));
+    else void audio.pause().catch(() => setSound(false));
+  }, [sound, motionEnabled, volume]);
+  useEffect(() => {
+    if (celebration) automaticSound("ready");
+  }, [celebration]);
+  useEffect(() => {
+    if (visitorVisible) automaticSound("visitor");
+  }, [visitorVisible]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -523,7 +533,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
   const hiddenCount = Math.max(0, scopedItems.length - visibleItems.length);
   const groups = Object.keys(grouped).sort();
   const legendValues = Array.from(new Set(visibleItems.map((item) => colorValue(item, config.colorBy))));
-  const activePond = pondThemes.find((theme) => theme.key === config.theme) ?? pondThemes[0];
+  const activePond = pondThemes.find((theme) => theme.key === config.theme) ?? pondThemes.find(theme => theme.key === defaultConfig.theme)!;
   const hiddenGroupSummary = useMemo(() => orderedItems.slice(visibleLimit).reduce<Array<{ group: string; count: number; units: string[] }>>((acc, item) => {
     const group = groupValue(item, config.groupBy, boardSections);
     const existing = acc.find((entry) => entry.group === group);
@@ -576,12 +586,30 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
     setSnack({ ...target, tick: frameTick, guests, food: selectedFood });
     setFeeding(true);
     setCollection(current => ({ ...current, feeds: Math.min(10000, current.feeds + 1) }));
-    playSound(true);
+    playSound("splash");
   };
   const greetedTadpole = renderedFrogs.some(frog => frog.item.id === greetingId && frog.pose === "tadpole");
   const selectedCreature = renderedFrogs.find(frog => frog.item.id === greetingId);
   const hasFoodGuests = renderedFrogs.some(frog => (frog.pose === "tadpole") === (food === "algae"));
-  const discoveryDate = (key: string) => collection.discovered[key] ? new Date(collection.discovered[key]).toLocaleDateString(isSpanish ? "es" : "en") : (isSpanish ? "Fecha anterior no registrada" : "Earlier discovery; date not recorded");
+  const discoveryDate = (key: string) => pondRewards.some(reward => reward.id === key && reward.goal === 0)
+    ? (isSpanish ? "Disponible desde el inicio" : "Available from the start")
+    : collection.discovered[key] ? new Date(collection.discovered[key]).toLocaleDateString(isSpanish ? "es" : "en") : (isSpanish ? "Fecha anterior no registrada" : "Earlier discovery; date not recorded");
+
+  const ambientTick = useRef(0);
+  const heardCatches = useRef(new Set<number>());
+  useEffect(() => {
+    const caught = flies.filter(fly => fly.caught);
+    if (caught.some(fly => !heardCatches.current.has(fly.id))) automaticSound("catch");
+    heardCatches.current = new Set(caught.map(fly => fly.id));
+  }, [flies]);
+  useEffect(() => {
+    if (pondElapsed(frameTick, ambientTick.current) < 36) return;
+    ambientTick.current = frameTick;
+    if (!renderedFrogs.length) return;
+    const beat = Math.floor(frameTick / 36);
+    const awakeAdult = renderedFrogs.some(frog => frog.pose !== "tadpole" && frog.pose !== "sleeping");
+    automaticSound(raining && beat % 2 === 0 ? "rain" : awakeAdult && beat % 3 === 0 ? "frog" : "bubble");
+  }, [frameTick, renderedFrogs, raining]);
 
   useEffect(() => {
     if (!motionEnabled || flies.length === 0 || renderedFrogs.length === 0) return;
@@ -694,7 +722,16 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
         <label className="pond-food-choice">{isSpanish ? "Comida" : "Food"}<select data-testid="pond-food" value={food} onChange={event => setFood(event.target.value as "flies" | "algae")}><option value="flies">{isSpanish ? "Moscas para ranas" : "Flies for frogs"}</option><option value="algae">{isSpanish ? "Algas para renacuajos" : "Algae for tadpoles"}</option></select></label>
         <button type="button" className="button button-primary" data-testid="pond-feed" disabled={feeding || rearranging || !hasFoodGuests} onClick={() => feedPond()}>{feeding ? (isSpanish ? "Hora de comer!" : "Snack time!") : (isSpanish ? "Dar comida" : "Feed the pond")}</button>
         {!hasFoodGuests ? <small>{isSpanish ? "No hay vecinos visibles para esa comida." : "No visible neighbors eat this food."}</small> : null}
-        <button type="button" className="button button-secondary" aria-pressed={sound} onClick={() => { setSound(!sound); }}>{sound ? (isSpanish ? "Sonido: activo" : "Sound: on") : (isSpanish ? "Sonido: apagado" : "Sound: off")}</button>
+        <button type="button" className="button button-secondary" aria-pressed={sound} onClick={() => {
+          if (sound) { setSound(false); return; }
+          try {
+            audioRef.current ??= new PondAudio();
+            // Unlock audio in the user gesture so later pond events can play on mobile.
+            void audioRef.current.resume(volume).catch(() => setSound(false));
+            setSound(true);
+          } catch { setSound(false); }
+        }}>{sound ? (isSpanish ? "Sonido: activo" : "Sound: on") : (isSpanish ? "Sonido: apagado" : "Sound: off")}</button>
+        {sound ? <label className="pond-food-choice">{isSpanish ? "Volumen" : "Pond volume"}<input type="range" min="0" max="100" step="5" value={Math.round(volume * 100)} onChange={event => setVolume(Number(event.target.value) / 100)} /></label> : null}
         <button type="button" className="button button-secondary" disabled={deviceMotionBlocked || rearranging} aria-pressed={!motionEnabled} onClick={() => updateConfig({ animated: !config.animated })}>{motionEnabled ? (isSpanish ? "Pausar movimiento" : "Pause motion") : (isSpanish ? "Activar movimiento" : "Resume motion")}</button>
         <button type="button" className="button button-secondary" aria-pressed={rearranging} onClick={() => setRearranging(!rearranging)}>{rearranging ? (isSpanish ? "Terminar" : "Done arranging") : (isSpanish ? "Organizar ranas" : "Arrange frogs")}</button>
         <small role="status" data-testid="pond-motion-status">{deviceMotionBlocked
@@ -827,7 +864,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
           {renderedFrogs.filter(frog => frog.pose !== "tadpole").flatMap(frog => (rearranging ? [naturalPositions[frog.item.id]] : pondPads(naturalPositions[frog.item.id], sceneWidth, sceneHeight)).map((point, i) => <span key={`${frog.item.id}-${i}`} className="pond-resting-pad" aria-hidden="true" style={{ left: `${point.x}%`, top: `${point.y}%` }} />))}
           {raining ? <div className="pond-rain" aria-hidden="true">{Array.from({ length: 22 }, (_, i) => <i key={i} style={{ left: `${i * 4.5}%`, "--drop": i } as CSSProperties} />)}</div> : null}
           {celebration ? <div className="pond-celebration" role="status" data-testid="pond-celebration">{isSpanish ? "Otra unidad lista! Un chapuzon de celebracion." : "Another home ready! A little celebration splash."}<span aria-hidden="true">{Array.from({ length: 10 }, (_, i) => <i key={i} style={{ "--drop": i } as CSSProperties} />)}</span></div> : null}
-          {visitorVisible ? <button type="button" className="pond-visitor" data-testid="pond-visitor" aria-label={isSpanish ? "Descubrir libelula visitante" : "Discover dragonfly visitor"} onClick={() => { setCollection(current => ({ ...current, visitor: true })); playSound(true); }}><svg aria-hidden="true" viewBox="0 0 64 40"><path d="M30 18Q0 0 5 18L29 23M34 18Q64 0 59 18L35 23M30 24Q6 24 13 34L30 27M34 24Q58 24 51 34L34 27" fill="#ade7d6" stroke="#397d78" strokeWidth="2"/><path d="M32 10V38" stroke="#e4b44f" strokeWidth="5"/><circle cx="32" cy="9" r="5" fill="#9bd7a3"/></svg><span>{collection.visitor ? (isSpanish ? "Descubierta!" : "Discovered!") : (isSpanish ? "Una visita..." : "A visitor...")}</span></button> : null}
+          {visitorVisible ? <button type="button" className="pond-visitor" data-testid="pond-visitor" aria-label={isSpanish ? "Descubrir libelula visitante" : "Discover dragonfly visitor"} onClick={() => { setCollection(current => ({ ...current, visitor: true })); playSound("visitor"); }}><svg aria-hidden="true" viewBox="0 0 64 40"><path d="M30 18Q0 0 5 18L29 23M34 18Q64 0 59 18L35 23M30 24Q6 24 13 34L30 27M34 24Q58 24 51 34L34 27" fill="#ade7d6" stroke="#397d78" strokeWidth="2"/><path d="M32 10V38" stroke="#e4b44f" strokeWidth="5"/><circle cx="32" cy="9" r="5" fill="#9bd7a3"/></svg><span>{collection.visitor ? (isSpanish ? "Descubierta!" : "Discovered!") : (isSpanish ? "Una visita..." : "A visitor...")}</span></button> : null}
           <div className="pond-scene-caption" aria-hidden="true">{rearranging ? (isSpanish ? "Arrastre las ranas para organizarlas" : "Drag frogs to arrange your pond") : (isSpanish ? "Toque una rana para saludar" : "Tap a frog to say hello")}</div>
           {snack ? <div className={`pond-snacks pond-food-${snack.food}`} data-testid="pond-snack-target" aria-hidden="true">{Array.from({ length: 6 }, (_, i) => <i key={i} style={{ left: `${snack.x + Math.cos(i) * 2}%`, top: `${snack.y + Math.sin(i) * 2}%`, "--snack": i } as CSSProperties} />)}</div> : null}
           {renderedFrogs.map(({ item, index, group, colorLabel, color, pose, sheet, achievementLabel, frame, tadpoleUrl, x, y }) => {
@@ -861,7 +898,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
                   }
                   setGreetingId(item.id);
                   setCollection(current => ({ ...current, greeted: true }));
-                  playSound(pose === "tadpole");
+                  playSound(pose === "tadpole" ? "bubble" : "frog");
                 }}
                 onPointerEnter={() => setHeld({ id: item.id, x, y })}
                 onPointerLeave={event => { if (document.activeElement !== event.currentTarget) setHeld(null); }}

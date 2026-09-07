@@ -11,6 +11,7 @@ Local implementation, not deployed. The pond remains a decorative view of access
 - Pond-only view hides the pond's summary/settings/legend panels while retaining play controls and unit access. Exit pond-only view and Escape restore the normal view; Escape returns focus to the toggle. It is not browser fullscreen, and global app navigation remains available.
 
 - Natural pond is strictly accessory-free (plain green/brown frogs), independent of assignment, risk or readiness. Hats only appear when an unlocked outfit is selected. Rodeo frogs unlocks at a peak of three simultaneously ready accessible units and uses the cowboy sheet; unlocking never auto-equips it. Returning to Natural pond removes hats without losing unlocks.
+- Woodland brown and Game Boy B&W are selectable starter styles. Pirate pond unlocks after six feedings; Viking voyagers unlocks at a peak of seven ready units together. All four work as pond-wide or individual outfits and use their sheet-specific animation clips. B&W is imported unchanged from the supplied frog sprite pack; pirate, viking and brown reuse the bundled originals.
 
 - Creatures follow bounded, seeded paths. Frogs rest between legs; tadpoles swim curved paths with pauses. Hover/focus holds a creature still so it remains selectable. Arrange mode retains manual placement.
 - Tap a creature for a greeting and an explicit Open unit action. Tadpoles bubble (bloop), nibble, and do not catch airborne flies or ribbit. Nearby creatures react to a greeting; frogs also nap and use the existing animated sprite sequences.
@@ -21,7 +22,7 @@ Local implementation, not deployed. The pond remains a decorative view of access
 - Lighting follows the browser's local hour, with manual day/dusk/night choices. Fireflies appear at dusk/night. Decorative rain is occasional, forced on, or disabled; it is not a real weather feed.
 - A dragonfly visits after about a minute of active pond time. Discovering it unlocks Dragonfly dusk cosmetics. The journal provides hints for greetings, feeding and visitors. Collections are per-user browser storage, not server-synchronized achievements.
 - A not-ready to ready transition observed while the pond is mounted produces a brief celebration. Initial historical readiness does not replay celebrations. Existing peak-ready rewards persist; this is not a historical completion ledger.
-- Optional short synthesized greeting/bubble sounds require explicit enablement each visit. No autoplay, remote audio assets, or background music. Tadpoles use the bubble tone, not the frog tone.
+- Optional synthesized pond sounds require explicit enablement each visit, with a volume slider (40% initially). Enabling unlocks audio in the click gesture for subsequent automatic events. Sparse ambient bubbles/adult calls/rain patter play about every eight seconds; fly catches, visitor arrivals, feeding and readiness celebrations have short cues. Tadpoles never trigger frog calls. Cues are rate-limited to avoid overlapping catch noise. Muting, pausing motion, arranging, or hiding the tab silences audio; leaving the pond closes its audio context. No remote audio assets or background music.
 
 ## Motion And Reliability
 
