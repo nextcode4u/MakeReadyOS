@@ -9761,6 +9761,7 @@ textarea {
 
 .frog-pond-scene {
   position: relative;
+  image-rendering: pixelated;
   min-height: min(55vw, 34rem);
   height: var(--pond-height, 34rem);
   isolation: isolate;
@@ -9985,7 +9986,12 @@ textarea {
 .pond-creature-actions .button, .pond-creature-actions select { min-height: 44px; }
 .pond-only > .panel-heading, .pond-only > .frog-settings, .pond-only > .frog-group-summary, .pond-only > .frog-legend, .pond-only > .frog-cluster { display: none; }
 .pond-food-algae i { width: 6px; height: 4px; background: #8aaa40; border-radius: 0; box-shadow: 2px 2px #42672e; }
-.pond-food-flies i { width: 12px; height: 12px; background: url('/frogs/decor/fly.png') center / contain no-repeat; border-radius: 0; box-shadow: none; image-rendering: pixelated; }
+.pond-food-flies i { width: 64px; height: 64px; translate: -50% -50%; background: none; border-radius: 0; box-shadow: none; }
+/* Crop one frame of the two-frame sheet; the artwork includes transparent padding. */
+.pond-food-flies i::before { content: ""; display: block; width: 100%; height: 100%; background: url('/frogs/decor/fly.png') 0 0 / 64px 128px no-repeat; image-rendering: pixelated; filter: drop-shadow(0 2px 1px #0008); }
+.frog-animated .pond-food-flies i::before { animation: pond-food-flap .18s steps(2) infinite, pond-food-hover .7s ease-in-out infinite alternate; animation-delay: calc(var(--snack) * -.07s); }
+@keyframes pond-food-flap { to { background-position: 0 -128px; } }
+@keyframes pond-food-hover { from { translate: -3px -4px; } to { translate: 3px 4px; } }
 .pond-idle-note { position: absolute; bottom: 100%; color: #e8efb6; font-size: .75rem; pointer-events: none; }
 .pond-tongue { position: absolute; left: 55%; top: 12px; height: 3px; width: 0; background: #e6a5a2; border-radius: 3px; pointer-events: none; }
 .frog-animated .pond-tongue { animation: pond-tongue-flick 1.1s ease-out infinite; }
