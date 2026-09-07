@@ -2,6 +2,8 @@ export type PondPoint = { x: number; y: number };
 export type PondSnack = PondPoint & { tick: number; guests: string[]; food?: "flies" | "algae" };
 const bound = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 export const pondElapsed = (tick: number, start: number) => (tick - start + 10000) % 10000;
+export const pondSnackDuration = (snack: PondSnack) => snack.food === "flies" ? 26 : 16;
+export const snackCatchAge = (snack: PondSnack, index: number, tick: number) => pondElapsed(tick, snack.tick) - (9 + index * 3);
 export const pondPersonality = (seed: number) => (["curious", "sleepy", "shy", "energetic"] as const)[seed % 4];
 
 export function pondPads(base: PondPoint, width: number, height: number): PondPoint[] {
@@ -36,14 +38,15 @@ export function pondJourney(base: PondPoint, seed: number, tick: number, tadpole
   };
 }
 
-export function approachSnack(point: PondPoint, snack: PondSnack | null, id: string, tick: number): PondPoint {
+export function approachSnack(point: PondPoint, snack: PondSnack | null, id: string, tick: number, width = 960, height = 600): PondPoint {
   if (!snack || !snack.guests.includes(id)) return point;
   const age = pondElapsed(tick, snack.tick);
-  if (age >= 16) return point;
-  const amount = Math.sin(age / 16 * Math.PI) ** 2;
+  if (age >= pondSnackDuration(snack)) return point;
+  const progress = age < 7 ? age / 7 : age <= 21 ? 1 : (26 - age) / 5;
+  const amount = snack.food === "flies" ? progress * progress * (3 - 2 * progress) : Math.sin(age / 16 * Math.PI) ** 2;
   const index = snack.guests.indexOf(id);
   const angle = index / snack.guests.length * Math.PI * 2;
-  return { x: point.x + (snack.x + Math.cos(angle) * 2 - point.x) * amount, y: point.y + (snack.y + Math.sin(angle) * 2 - point.y) * amount };
+  return { x: point.x + (snack.x + Math.cos(angle) * (snack.food === "flies" ? 32 / width * 100 : 2) - point.x) * amount, y: point.y + (snack.y + Math.sin(angle) * (snack.food === "flies" ? 32 / height * 100 : 2) - point.y) * amount };
 }
 
 export function pondLight(hour: number): "day" | "dusk" | "night" {
