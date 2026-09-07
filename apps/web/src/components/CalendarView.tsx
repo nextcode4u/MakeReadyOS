@@ -147,7 +147,7 @@ function CalendarPanel({ track, events, labelsByField, month, onMonthChange, ind
       {!events.length ? <div className="calendar-legend" role="status" data-testid={`calendar-empty-${index}`}>
         <strong>{isSpanish ? "No hay fechas para esta pista con los filtros actuales." : "No dates for this track with the current filters."}</strong>
         {track.sourceField === startDateSourceField ? <>
-          <p>{isSpanish ? "Las fechas de inicio son independientes de las fechas de finalización. Configura el plan por propiedad y registra la fecha de desocupación; las fechas existentes se conservan." : "Start dates are separate from finish dates. Set up the plan for each property and record its units' Vacated dates. Existing dates are preserved."}</p>
+          <p>{isSpanish ? "El plan predeterminado llena fechas faltantes cada cinco minutos. Revisa la fecha de desocupación, los filtros y si el plan está pausado. Las unidades listas, ocupadas o con aviso de salida se omiten." : "The default plan fills missing dates every five minutes. Check Vacated dates, filters, and whether scheduling is paused. Ready, occupied and notice-to-vacate units are skipped; existing dates are preserved."}</p>
           {onSetupScheduling ? <button type="button" className="button button-primary" onClick={onSetupScheduling}>{isSpanish ? "Configurar programación" : "Set up turn scheduling"}</button> : <p>{isSpanish ? "Pide a un administrador que revise la programación." : "Ask a manager to review turn scheduling."}</p>}
         </> : <p>{isSpanish ? "Revisa los filtros y las fechas de las unidades." : "Check the filters and the dates saved on your units."}</p>}
       </div> : null}

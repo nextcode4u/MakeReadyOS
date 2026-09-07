@@ -14,6 +14,8 @@ function localDateStamp(date = new Date()) {
   return offsetDate.toISOString().slice(0, 10);
 }
 
+import { brandingLogoSchema } from "./propertyBranding.js";
+
 const propertySchema = z.object({
   code: z.string().trim().min(1).max(40),
   name: z.string().trim().min(1).max(120),
@@ -955,6 +957,8 @@ const backupSchema = z.object({
   }),
   data: z.object({
     properties: z.array(propertySchema),
+    managementCompanies: z.array(z.object({ name: z.string().trim().min(2).max(120), logo: brandingLogoSchema })).optional().default([]),
+    propertyBranding: z.array(z.object({ propertyCode: z.string(), companyName: z.string().nullable(), logo: brandingLogoSchema })).optional().default([]),
     floorPlans: z.array(floorPlanSchema).optional().default([]),
     boardOptions: z.array(boardOptionSchema).optional().default([]),
     boardColumns: z.array(boardColumnSchema).optional().default([]),
@@ -1055,6 +1059,8 @@ function emptySummary(): ImportSummary {
   const bucket = (): SummaryBucket => ({ created: 0, skipped: 0, conflicts: 0, errors: [] });
   return {
     properties: bucket(),
+    managementCompanies: bucket(),
+    propertyBranding: bucket(),
     floorPlans: bucket(),
     boardOptions: bucket(),
     boardColumns: bucket(),
@@ -1273,6 +1279,8 @@ async function ensureAdmin(request: FastifyRequest, reply: FastifyReply) {
 }
 
 async function buildExport(): Promise<NativeBackup> {
+  const managementCompanies = await prisma.managementCompany.findMany({ orderBy: { name: "asc" } });
+  const propertyBranding = await prisma.propertyBranding.findMany({ include: { property: true, managementCompany: true }, orderBy: { propertyId: "asc" } });
   const [properties, floorPlans, boardOptions, boardColumns, boardSections, scheduleTracks, operatingCalendars, riskPolicies, units, items, fields, savedViews, rules, templates, chargePriceSheetItems, comments, vendors, vendorAssignments, propertyMaps, propertyMapAreas, propertyMapPins, propertyMapPinAttachments, unitMapLocations, checklistInstances, notes, propertyTemplates, refrigerantTypes, refrigerantCylinders, refrigerantTransactions, refrigerantLeakFlags, poolFacilities, poolChemicals, poolChemistryTargets, poolLogEntries, poolSafetyChecks, poolChemicalAdditions, propertyWikiReferences, preventiveMaintenanceTemplates, preventiveMaintenanceTasks, preventiveMaintenanceWikiReferences, wikiEntries, wikiVendors, wikiAssets, projectCategories, projectRecords, pestVendors, pestIssues, leaseComplianceIssueTypes, leaseComplianceSettings, leaseComplianceIssues] = await Promise.all([
     prisma.property.findMany({ orderBy: { code: "asc" } }),
     prisma.floorPlan.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }, { code: "asc" }] }),
@@ -1607,6 +1615,8 @@ async function buildExport(): Promise<NativeBackup> {
     exportedAt: new Date().toISOString(),
     source: { app: "MakeReadyOS", schemaVersion: "prisma-v1" },
     data: {
+      managementCompanies: managementCompanies.map(company => ({ name: company.name, logo: company.logo })),
+      propertyBranding: propertyBranding.map(branding => ({ propertyCode: branding.property.code, companyName: branding.managementCompany?.name ?? null, logo: branding.logo })),
       properties: properties.map((property) => ({
         code: property.code,
         name: property.name,
@@ -2519,6 +2529,12 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
     }
   };
   rejectDuplicates("properties", backup.data.properties.map((property) => property.code));
+  rejectDuplicates("managementCompanies", backup.data.managementCompanies.map(company => company.name));
+  rejectDuplicates("propertyBranding", backup.data.propertyBranding.map(branding => branding.propertyCode));
+  for (const branding of backup.data.propertyBranding) {
+    if (!propertyCodes.has(branding.propertyCode)) summary.propertyBranding.errors.push(`Missing property ${branding.propertyCode} for branding`);
+    if (branding.companyName && !backup.data.managementCompanies.some(company => company.name === branding.companyName)) summary.propertyBranding.errors.push(`Missing management company ${branding.companyName}`);
+  }
   rejectDuplicates("floorPlans", backup.data.floorPlans.map((floorPlan) => floorPlanKey(floorPlan.propertyCode, backupFloorPlanCode(floorPlan))));
   rejectDuplicates("boardOptions", backup.data.boardOptions.map((option) => `${option.fieldKey}|${option.value}`));
   rejectDuplicates("boardColumns", backup.data.boardColumns.map((column) => column.fieldKey));
@@ -3001,6 +3017,18 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
   if (Object.values(summary).some((bucket) => bucket.errors.length > 0)) return summary;
 
   const run = async (tx: Prisma.TransactionClient | typeof prisma) => {
+    const companyMap = new Map<string, string>();
+    for (const company of backup.data.managementCompanies) {
+      const existing = await tx.managementCompany.findUnique({ where: { name: company.name } });
+      if (existing) {
+        companyMap.set(company.name, existing.id);
+        summary.managementCompanies.skipped++;
+        if (existing.logo !== company.logo) { summary.managementCompanies.conflicts++; summary.managementCompanies.errors.push(`Existing logo retained for ${company.name}; incoming logo differs`); }
+      } else {
+        summary.managementCompanies.created++;
+        companyMap.set(company.name, dryRun ? `__new_company__${company.name}` : (await tx.managementCompany.create({ data: company })).id);
+      }
+    }
     const propertyMap = new Map<string, string>();
     for (const property of backup.data.properties) {
       const existing = await tx.property.findUnique({ where: { code: property.code } });
@@ -3020,6 +3048,18 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
       existingProperties.forEach((property) => propertyMap.set(property.code, property.id));
     }
 
+    for (const branding of backup.data.propertyBranding) {
+      const propertyId = propertyMap.get(branding.propertyCode);
+      const existing = propertyId ? await tx.propertyBranding.findUnique({ where: { propertyId } }) : null;
+      const managementCompanyId = branding.companyName ? companyMap.get(branding.companyName)! : null;
+      if (existing) {
+        summary.propertyBranding.skipped++;
+        if (existing.logo !== branding.logo || existing.managementCompanyId !== managementCompanyId) { summary.propertyBranding.conflicts++; summary.propertyBranding.errors.push(`Existing branding retained for ${branding.propertyCode}`); }
+      } else {
+        summary.propertyBranding.created++;
+        if (!dryRun && propertyId) await tx.propertyBranding.create({ data: { propertyId, managementCompanyId, logo: branding.logo } });
+      }
+    }
     const floorPlanMap = new Map<string, string>();
     for (const floorPlan of backup.data.floorPlans) {
       const propertyId = propertyMap.get(floorPlan.propertyCode);

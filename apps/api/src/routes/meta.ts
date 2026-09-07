@@ -144,7 +144,7 @@ export async function metaRoutes(app: FastifyInstance) {
       prisma.user.findMany({
         where: {
           isActive: true,
-          role: { in: assignableStaffRoles },
+          role: { in: [...assignableStaffRoles, UserRole.LEASING] },
           ...(propertyIds === null ? {} : {
             OR: [{ role: UserRole.ADMIN }, { propertyAccess: { some: { propertyId: { in: propertyIds } } } }],
           }),
@@ -171,7 +171,8 @@ export async function metaRoutes(app: FastifyInstance) {
       automations,
       units,
       customFields,
-      staff,
+      staff: staff.filter(member => assignableStaffRoles.some(role => role === member.role)),
+      workStaff: staff,
       columns,
       scheduleTracks,
       boardSections,

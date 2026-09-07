@@ -17,7 +17,10 @@ test("metadata staff choices only include shared property staff or admins", asyn
     const delegate = (prisma as any)[name];
     const original = delegate.findMany;
     delegate.findMany = async (query: any) => {
-      if (name === "user") staffQuery = query;
+      if (name === "user") {
+        staffQuery = query;
+        return [{ id: "leasing", fullName: "Leasing Staff", role: "LEASING" }, { id: "tech", fullName: "Tech Staff", role: "TECH" }];
+      }
       if (name === "automationRule") automationQuery = query;
       return [];
     };
@@ -39,6 +42,9 @@ test("metadata staff choices only include shared property staff or admins", asyn
       assert.equal(response.statusCode, 200, response.body);
       assert.deepEqual(staffQuery.select, { id: true, fullName: true, role: true });
       assert.equal(staffQuery.where.isActive, true);
+      assert.ok(staffQuery.where.role.in.includes("LEASING"));
+      assert.deepEqual(response.json().workStaff.map((member: any) => member.id), ["leasing", "tech"]);
+      assert.deepEqual(response.json().staff.map((member: any) => member.id), ["tech"]);
       if (role === "TECH") {
         assert.equal(automationQuery, undefined, "non-managers must not load automation definitions");
       } else {

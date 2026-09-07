@@ -3834,7 +3834,7 @@ function App() {
               loading={myWorkQuery.isLoading}
               error={myWorkQuery.isError}
               currentUser={currentUser}
-              staff={metaQuery.data?.staff ?? []}
+              staff={metaQuery.data?.workStaff ?? metaQuery.data?.staff ?? []}
               labelsByField={labelsByField}
               selectedUserId={myWorkUserId}
               onUserChange={setMyWorkUserId}
