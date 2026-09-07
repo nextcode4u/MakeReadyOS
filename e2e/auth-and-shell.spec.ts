@@ -125,6 +125,32 @@ test("pond pixel backgrounds load, retain saved themes and fit mobile", async ({
   await page.getByTestId("frog-pond-panel").screenshot({ path: "/tmp/mros-pixel-pond-mobile.png" });
 });
 
+test("dropped flies are caught one at a time with a tongue reaching the mouth", async ({ page }) => {
+  await page.clock.install();
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  await page.getByTestId("pond-feed").click();
+  const food = page.locator(".pond-food-flies i");
+  await expect(food).toHaveCount(3);
+  await expect(food.first()).toHaveCSS("width", "32px");
+  await expect(page.locator(".pond-food-tongue")).toHaveCount(0);
+  const counts = new Set([3]);
+  let tongueSeen = false;
+  let reachedMouth = false;
+  let chewingSeen = false;
+  for (let tick = 0; tick < 26; tick++) {
+    await page.clock.runFor(220);
+    counts.add(await food.count());
+    const lines = await page.locator(".pond-food-tongue").evaluateAll(els => els.map(el => ({ x1: el.getAttribute("x1"), x2: el.getAttribute("x2"), y1: el.getAttribute("y1"), y2: el.getAttribute("y2") })));
+    tongueSeen ||= lines.some(line => line.x1 !== line.x2 || line.y1 !== line.y2);
+    reachedMouth ||= tongueSeen && lines.some(line => line.x1 === line.x2 && line.y1 === line.y2);
+    chewingSeen ||= await page.locator(".pond-snack-guest.pond-catching .frog-hello").count() > 0;
+  }
+  expect([...counts].sort()).toEqual([0, 1, 2, 3]);
+  expect(tongueSeen && reachedMouth && chewingSeen).toBeTruthy();
+  await expect(page.getByTestId("pond-snack-target")).toHaveCount(0);
+});
+
 test("pond journeys stay bounded and tadpoles never croak", () => {
   for (const seed of [0, 1, 2, 3]) {
     expect(pondPads({ x: 50, y: 50 }, 960, 600)).toContainEqual(pondJourney({ x: 50, y: 50 }, seed, 0, false, 960, 600));
@@ -285,22 +311,35 @@ test("living pond supports tadpoles, targeted snacks, atmosphere and discoveries
   await page.getByTestId("pond-feed").click();
   await expect(page.locator(".pond-snack-guest")).toHaveCount(3);
   const foodFly = page.locator(".pond-food-flies i").first();
-  await expect(foodFly).toHaveCSS("width", "64px");
+  await expect(foodFly).toHaveCSS("width", "32px");
   const flySprite = await foodFly.evaluate(el => {
     const sprite = getComputedStyle(el, "::before");
     return { image: sprite.backgroundImage, size: sprite.backgroundSize, animation: sprite.animationName };
   });
   expect(flySprite.image).toContain("/frogs/decor/fly.png");
-  expect(flySprite.size).toBe("64px 128px");
+  expect(flySprite.size).toBe("32px 64px");
   expect(flySprite.animation).toContain("pond-food-flap");
   const guest = page.locator(".pond-snack-guest").last();
   const before = await guest.evaluate(el => (el as HTMLElement).style.left);
   await page.clock.runFor(1800);
   expect(await guest.evaluate(el => (el as HTMLElement).style.left)).not.toBe(before);
-  await page.clock.runFor(2200);
+  await page.clock.runFor(4400);
   await expect(page.getByTestId("pond-snack-target")).toHaveCount(0);
   await page.clock.runFor(61000);
-  await page.getByTestId("pond-visitor").click();
+  const visitor = page.getByTestId("pond-visitor");
+  await expect(visitor).toHaveCSS("border-top-width", "0px");
+  await expect(visitor).toHaveCSS("border-radius", "0px");
+  await expect(visitor).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(visitor.locator("svg")).toHaveAttribute("shape-rendering", "crispEdges");
+  await expect(visitor.locator(".pond-visitor-wings-open")).toHaveCSS("animation-name", "pond-visitor-flap");
+  const wings = await visitor.locator(".pond-visitor-wings-open").evaluate(el => getComputedStyle(el).opacity);
+  await page.clock.runFor(80);
+  await expect.poll(() => visitor.locator(".pond-visitor-wings-open").evaluate(el => getComputedStyle(el).opacity)).not.toBe(wings);
+  await page.keyboard.press("Tab");
+  await visitor.focus();
+  await expect(visitor).toHaveCSS("outline-style", "dashed");
+  await visitor.screenshot({ path: "/tmp/mros-pixel-dragonfly.png" });
+  await visitor.press("Enter");
   await page.getByTestId("pond-collection").locator("summary").click();
   await expect(page.getByTestId("pond-reward-purple")).toBeEnabled();
   await page.getByTestId("frog-settings-toggle").click();
