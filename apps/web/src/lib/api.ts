@@ -3300,7 +3300,7 @@ export function updateCurrentUserPreferences(input: { language: UserLanguage }) 
 }
 
 export function getAdminUsers() {
-  return request<{ users: ManagedUser[] }>("/admin/users");
+  return request<{ users: ManagedUser[]; hasAdditionalActiveUser: boolean }>("/admin/users");
 }
 
 export function getAdminProperties() {

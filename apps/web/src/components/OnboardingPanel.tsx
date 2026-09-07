@@ -5,6 +5,7 @@ type OnboardingView = "dashboard" | "table" | "calendar" | "operations" | "autom
 
 type Props = {
   open: boolean;
+  hasAdditionalActiveUser: boolean;
   currentUser: CurrentUser;
   properties: Property[];
   units: Unit[];
@@ -26,7 +27,7 @@ type Step = {
   adminOnly?: boolean;
 };
 
-export function OnboardingPanel({ open, currentUser, properties, units, floorPlans, savedViews, scheduleTracks, firstRunDetected, onNavigate, onClose, onSkip }: Props) {
+export function OnboardingPanel({ open, hasAdditionalActiveUser, currentUser, properties, units, floorPlans, savedViews, scheduleTracks, firstRunDetected, onNavigate, onClose, onSkip }: Props) {
   useEffect(() => {
     if (!open) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -59,12 +60,12 @@ export function OnboardingPanel({ open, currentUser, properties, units, floorPla
       complete: hasUnitDirectory && hasFloorPlanData,
     },
     {
-      title: "Invite staff and set roles",
-      description: "Create managers, techs, cleaners, leasing users, and viewers with property-scoped access.",
+      title: "Add a user",
+      description: "Create or invite at least one active user besides the default admin. Any role counts; you do not need one of every role.",
       action: isAdmin ? "Open Admin" : "Ask an admin",
       view: "admin",
       adminOnly: true,
-      complete: currentUser.role !== "ADMIN" ? false : currentUser.propertyAccess.length > 0,
+      complete: hasAdditionalActiveUser,
     },
     {
       title: "Apply a property template",

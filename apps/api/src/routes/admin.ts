@@ -6,7 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { requireAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
-import { assertStrongPassword, minimumPasswordLength } from "../lib/config.js";
+import { assertStrongPassword, authConfig, minimumPasswordLength } from "../lib/config.js";
 import { randomBytes } from "node:crypto";
 import { createPasswordLink } from "../lib/passwordLinks.js";
 import { inviteEmailConfigured, sendUserInviteEmail } from "../lib/email.js";
@@ -281,6 +281,9 @@ export async function adminRoutes(app: FastifyInstance) {
 
     return {
       users: users.map(serializeUser),
+      hasAdditionalActiveUser: users.some((user) => user.isActive
+        && user.username.toLowerCase() !== authConfig.adminUsername.toLowerCase()
+        && (!authConfig.adminEmail || user.email?.toLowerCase() !== authConfig.adminEmail.toLowerCase())),
     };
   });
 

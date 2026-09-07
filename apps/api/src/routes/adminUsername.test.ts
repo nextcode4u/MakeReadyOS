@@ -44,6 +44,20 @@ test("account creation accepts email usernames and rejects conflicting login ide
   app.addHook("onRequest", async request => { request.currentUser = { id: "admin", role, propertyAccess: [] } as any; });
   await app.register(adminRoutes);
   t.after(() => app.close());
+  let setupUsers: any[] = [{ id: "bootstrap", username: "username-test", email: null, isActive: true, role: "ADMIN", propertyAccess: [] }];
+  stub(prisma.user, "findMany", async () => setupUsers);
+  const staffSetup = async () => {
+    const response = await app.inject({ method: "GET", url: "/admin/users" });
+    assert.equal(response.statusCode, 200, response.body);
+    return response.json().hasAdditionalActiveUser;
+  };
+  assert.equal(await staffSetup(), false, "default admin alone is not staff setup");
+  for (const userRole of ["ADMIN", "MANAGER", "TECH", "CLEANER", "LEASING", "VIEWER"]) {
+    setupUsers = [setupUsers[0], { id: "staff", username: "staff", email: null, isActive: true, role: userRole, propertyAccess: [] }];
+    assert.equal(await staffSetup(), true, `one active ${userRole} counts without property assignments`);
+  }
+  setupUsers[1].isActive = false;
+  assert.equal(await staffSetup(), false, "inactive additional accounts do not count");
   const created = await app.inject({ method: "POST", url: "/admin/users", payload: input });
   assert.equal(created.statusCode, 201, created.body);
   assert.equal(created.json().user.username, input.email.toLowerCase());

@@ -1663,7 +1663,7 @@ function App() {
   const adminUsersQuery = useQuery({
     queryKey: ["admin", "users"],
     queryFn: getAdminUsers,
-    enabled: meQuery.isSuccess && meQuery.data?.user.role === "ADMIN" && activeView === "admin",
+    enabled: meQuery.isSuccess && meQuery.data?.user.role === "ADMIN" && (activeView === "admin" || onboardingOpen),
   });
 
   const adminPropertiesQuery = useQuery({
@@ -4732,6 +4732,7 @@ function App() {
       />
       <OnboardingPanel
         open={onboardingOpen}
+        hasAdditionalActiveUser={adminUsersQuery.data?.hasAdditionalActiveUser ?? false}
         currentUser={currentUser}
         properties={metaQuery.data?.properties ?? []}
         units={metaQuery.data?.units ?? []}
