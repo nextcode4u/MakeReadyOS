@@ -381,8 +381,51 @@ test("calendar date-only values stay on the saved day in Central time", async ({
     await page.getByTestId("tab-calendar").click();
     const event = page.getByTestId("calendar-panel-0").getByTestId(`calendar-event-${itemId}`);
     await expect(event).toBeVisible();
+    await expect(event.getByTestId(`calendar-projected-${itemId}`)).toHaveCount(0);
     await expect(event.locator("xpath=ancestor::div[contains(@class,'calendar-day')][1]").locator(".calendar-date")).toHaveText(/15$/);
   } finally { await context.close(); }
+});
+
+test("start calendar projects upcoming unassigned notices across properties without saving dates", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("makereadyos.boardWindowedMode", "true"));
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const { csrfToken } = await (await session).json();
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers: { "x-csrf-token": csrfToken }, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const now = new Date();
+  const source = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-10`;
+  const expected = new Date(`${source}T12:00:00`);
+  do { expected.setDate(expected.getDate() + 1); } while ([0, 6].includes(expected.getDay()));
+  const ids: string[] = [];
+  for (const suffix of ["A", "B"]) {
+    const { property } = await post("/operations/properties", { code: `FC${Date.now()}${suffix}`, name: `Forecast ${suffix}` });
+    const { unit } = await post("/operations/units", { propertyId: property.id, number: `NOTICE-${suffix}` });
+    const meta = await (await page.request.get("/api/meta")).json();
+    const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+    const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, moveOutDate: source, vacancyStatus: "NTV LEASED", completionStatus: "NO" });
+    ids.push(item.id);
+    const saved = await (await page.request.get(`/api/make-ready-items/${item.id}`)).json();
+    expect(saved.projectedTurnStartDate.slice(0, 10)).toBe(`${source.slice(0, 8)}${String(expected.getDate()).padStart(2, "0")}`);
+    expect(saved.assignedTech).toBeNull();
+    expect(saved.vacatedDate).toBeNull();
+    expect(saved.customFieldValues).toHaveLength(0);
+  }
+  await page.reload();
+  const calendarItems = page.waitForResponse(response => response.url().includes("/api/make-ready-items") && !new URL(response.url()).searchParams.has("limit") && response.ok());
+  await page.getByTestId("tab-calendar").click();
+  await calendarItems;
+  const panel = page.getByTestId("calendar-panel-0");
+  await expect(page.getByTestId("board-window-controls")).toHaveCount(0);
+  for (const id of ids) {
+    const event = panel.getByTestId(`calendar-event-${id}`);
+    await expect(event).toBeVisible();
+    await expect(event.getByTestId(`calendar-projected-${id}`)).toHaveText("Projected");
+    await expect(event.locator("xpath=ancestor::div[contains(@class,'calendar-day')][1]").locator(".calendar-date")).toHaveText(new RegExp(`${expected.getDate()}$`));
+  }
+  await expect(page.getByTestId("calendar-date-guide")).toContainText("not just your assignments");
 });
 
 test("schedule separates repair starts from existing finish deadlines by default", async ({ page }) => {

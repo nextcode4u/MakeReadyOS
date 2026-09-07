@@ -1,6 +1,7 @@
 import { stringify } from "csv-stringify/sync";
 import { customExportHeaders } from "../lib/exportHeaders.js";
 import { readyVacancyStatus } from "../lib/readyVacancyStatus.js";
+import { projectedTurnStart } from "../lib/turnStartProjection.js";
 import { Prisma, UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -855,7 +856,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       prisma.makeReadyItem.findMany({
         where: finalWhere,
         include: {
-          property: true,
+          property: { include: { operatingCalendar: true } },
           unit: { include: { floorPlanRecord: true } },
           customFieldValues: true,
         },
@@ -874,6 +875,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     return items.map((item) => ({
       ...item,
       ...computeDerivedFields(item),
+      projectedTurnStartDate: projectedTurnStart(item, item.property.operatingCalendar),
     }));
   });
 
@@ -883,7 +885,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     const item = await prisma.makeReadyItem.findUnique({
       where: { id },
       include: {
-        property: true,
+        property: { include: { operatingCalendar: true } },
         unit: { include: { floorPlanRecord: true } },
         customFieldValues: true,
       },
@@ -902,6 +904,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     return {
       ...item,
       ...computeDerivedFields(item),
+      projectedTurnStartDate: projectedTurnStart(item, item.property.operatingCalendar),
     };
   });
 

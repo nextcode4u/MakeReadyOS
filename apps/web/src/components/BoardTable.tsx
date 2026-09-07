@@ -274,7 +274,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
         customFieldValues: [],
       } satisfies MakeReadyItem));
   }, [allowedPropertyIds, archiveState, searchText, units]);
-  const tableItems = archiveState === "occupied" ? occupiedDirectoryItems : items;
+  const tableItems: MakeReadyItem[] = archiveState === "occupied" ? occupiedDirectoryItems : items;
   const activeTurnByPropertyAndUnit = useMemo(() => new Map(
     items
       .filter((item) => !item.isArchived)
