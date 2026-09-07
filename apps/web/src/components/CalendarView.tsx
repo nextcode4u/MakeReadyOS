@@ -214,6 +214,7 @@ export function CalendarView({ eventsByTrack, labelsByField, fieldOptions, layou
           <option value="single">{isSpanish ? "1 calendario" : "1 calendar"}</option><option value="split">{isSpanish ? "2 calendarios divididos" : "2 calendar split"}</option><option value="grid">{isSpanish ? "Cuadricula de 4 calendarios" : "4 calendar grid"}</option><option value="auto">{isSpanish ? "Auto adaptable" : "Auto responsive"}</option>
         </select>
       </div>
+      <p className="muted" data-testid="calendar-date-guide">{isSpanish ? "Make Ready (Start): inicio de reparaciones. Expected Finish: fecha prevista para terminar la unidad. Son fechas distintas; una fecha de fin no programa el inicio. Configure las fechas faltantes en Automations." : "Make Ready (Start) is when tech repairs begin. Expected Finish is when the whole unit should be ready. A finish date does not schedule a start; fill missing dates through Automations."}</p>
       <div className="calendar-panels">
         {Array.from({ length: count }, (_, index) => {
           const id = selectedFields[index] ?? fieldOptions[index]?.id ?? fieldOptions[0]?.id;

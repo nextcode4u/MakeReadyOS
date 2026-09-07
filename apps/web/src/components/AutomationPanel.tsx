@@ -5,6 +5,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusState } from "./StatusState";
 import { TurnSchedulingGuide } from "./TurnSchedulingGuide";
 import { TurnAssignmentGuide } from "./TurnAssignmentGuide";
+import { FinalWalkGuide } from "./FinalWalkGuide";
 
 const triggers: AutomationTriggerType[] = [
   "ITEM_CREATED",
@@ -969,6 +970,7 @@ export function AutomationPanel({ onOpenSchedule, role, language = "en", propert
     <div className="automation-shell" data-testid="automation-panel">
       <TurnSchedulingGuide properties={properties} onOpenSchedule={onOpenSchedule} />
       <TurnAssignmentGuide properties={properties} />
+      <FinalWalkGuide properties={properties} />
       <details className="automation-advanced span-full">
       <summary data-testid="automation-advanced-toggle">Advanced: rule templates, library packs, and run history</summary>
       <div className="automation-shell">

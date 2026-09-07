@@ -15,6 +15,7 @@ import { analyticsRoutes } from "./routes/analytics.js";
 import { automationRoutes } from "./routes/automations.js";
 import { turnSetupRoutes } from "./routes/turnSetup.js";
 import { turnAssignmentRoutes } from "./routes/turnAssignments.js";
+import { finalWalkRoutes } from "./routes/finalWalks.js";
 import { startTurnScheduler } from "./lib/turnScheduler.js";
 import { backupTransferRoutes } from "./routes/backupTransfer.js";
 import { customFieldRoutes } from "./routes/customFields.js";
@@ -144,6 +145,7 @@ app.register(async (api) => {
   await automationRoutes(api);
   await turnSetupRoutes(api);
   await turnAssignmentRoutes(api);
+  await finalWalkRoutes(api);
   await backupTransferRoutes(api);
   await customFieldRoutes(api);
   await collaborationRoutes(api);

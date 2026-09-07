@@ -156,7 +156,7 @@ const builtInColumnKeys = new Set([
 const defaultColumnLabels: Record<string, string> = {
   unitNumber: "Item", floorPlan: "Floor Plan", applicant: "Applicant", moveOutDate: "NTV / Expected Vacate",
   vacancyStatus: "Vacancy", vacatedDate: "Vacated", daysVacant: "Days Vacant", assignedTech: "Assigned",
-  scopeLevel: "Scope", makeReadyDate: "Make Ready", moveInDate: "Move-In", paintStatus: "Paint",
+  scopeLevel: "Scope", makeReadyDate: "Expected Finish", moveInDate: "Move-In", paintStatus: "Paint",
   doorsStatus: "Doors", completionStatus: "Completed", sheetrockStatus: "Sheetrock", pestStatus: "Pest",
   pestTreated: "Pest Treated", trashOutStatus: "Trash Out", floorsStatus: "Floors", flooringDate: "Flooring Date",
   makeReadyStatus: "Make Ready Status", cleaningStatus: "Cleaning", keysMadeStatus: "Keys Made",

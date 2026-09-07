@@ -10,13 +10,21 @@ The default sequence starts on the first eligible workday after the recorded Vac
 
 | Working Day | Stage | Stored Date |
 | --- | --- | --- |
-| 1 | Make-ready work | Custom `turnMaintenanceDate` |
+| 1 | Make Ready (Start) | Custom `turnMaintenanceDate` |
 | 2 | Painting | Custom `turnPaintingDate` |
 | 3 | Cleaning | Custom `turnCleaningDate` |
 | 4 | Flooring repairs / carpet cleaning contingency | `flooringDate` |
-| 5 | Final check / ready target | `makeReadyDate` |
+| 5 | Expected Finish / final check target | `makeReadyDate` |
 
-Each stage defaults to one working day. Stage durations are editable per property; offsets accumulate from Vacated, not from potentially conflicting existing stage dates. The board's Make Ready date remains the overall target, avoiding an overdue whole turn after only the first workday.
+Each stage defaults to one working day. Stage durations are editable per property. The repair start is always the first eligible workday after Vacated, including when repairs need several days. Later stage targets accumulate the allotted durations from Vacated, not from potentially conflicting existing stage dates. The board's Expected Finish date remains the overall target, avoiding an overdue whole turn after only the first workday.
+
+## Start And Finish Calendars
+
+Schedule defaults to separate **Make Ready (Start)** and **Move-In** calendars. Select **Expected Finish** in either calendar or use the four-calendar layout to see all three together. Saved calendar selections are preserved.
+
+The standard seed creates the repair-start DATE field and calendar even before automatic scheduling is enabled. It renames only known built-in legacy finish/start labels, preserving custom names, track IDs, archived settings, and all existing dates. A unit with only the old `makeReadyDate` appears under Expected Finish, not under Make Ready (Start). Set its start date manually using the custom date field or use the property scheduling guide to fill missing dates. No start dates are inferred by copying or subtracting from an existing finish date. No new database migration is needed.
+
+The finish target is an estimate, not proof of a completed final walk. This change does not add move-in deadline enforcement or automatically reschedule a conflicting existing plan.
 
 Setup enables no-weekend scheduling for the selected property and preserves its existing Monday/Friday exclusions. Five workdays normally fit seven calendar days; extra excluded weekdays extend that window. The current operating-calendar engine does not account for holidays or staff leave.
 
@@ -61,7 +69,25 @@ Manager/admin routes, all property-scoped:
 
 Migration `20260907040000_turn_assignment_policy` adds the per-property policy and persisted credits. PostgreSQL backups include both. Native JSON transfer does not yet include this configuration; reconfigure splits after a native transfer (which starts a new balancing cycle).
 
-## Follow-Up
+## Final Walk Inspectors
+
+In Automations, use **Who does the final walk?** for each property. Add the primary inspector first, then backups in escalation order (for example, leasing, assistant manager, manager). Managers/admins configure the order; only active staff with property access can be selected. Named inspectors are independent of the repair tech assignment.
+
+As requested, future scheduled dates do not create inspections. Assignment and an in-app notification happen when the turn enters **FINAL WALK**. Normal completion updates assign immediately; the five-minute worker also reconciles status changes from other paths. Notification preferences and quiet hours are respected. With no named inspector, the existing completion flow alerts managers/admins instead.
+
+My Work shows **Final walk inspection** and **Inspect or hand off**. The drawer shows the inspector, target date, next eligible backup, and a required handoff reason. The current inspector or a manager/admin may hand off; the current inspector (including leasing) may sign off once the turn is in Final Walk. Handoff is transactional, audited, and rejects stale duplicate requests. Inactive/out-of-property backups are skipped. The chain never loops: at the end it leaves the current assignment in place and asks the user to contact a manager.
+
+Each inspection snapshots its original order. Changing property settings applies to new inspections only; pausing stops new assignments without dropping existing ones. Signoff completes the inspection block; archiving or moving back out of Final Walk cancels pending inspection work during reconciliation. Planning controls cannot independently reassign or complete managed inspection blocks.
+
+Migration `20260907060000_final_walk_assignment` adds policy storage and inspection-chain fields on existing planning blocks. PostgreSQL backups preserve this state. Native JSON transfer does not currently include planning blocks or these policies; use database backups for a complete restore.
+
+### Inspection Follow-Up
+
+- Add explicit manager replacement of an existing inspection chain when all backups are unavailable, preserving the audit trail.
+- Include final walk policies/blocks in native transfer with destination-user mapping.
+- Translate inspector-specific controls and add operational alerts for chains that become entirely ineligible after configuration.
+
+## Other Follow-Up
 
 - Extend percentage assignment with capacity limits, staff leave, vendor booking, conflict-aware rescheduling, and Planning work blocks without presenting tentative dates as confirmed bookings.
 - Include assignment policies and balance credits in native JSON transfer with destination-user mapping; migrate board assignments from display names to stable user IDs.

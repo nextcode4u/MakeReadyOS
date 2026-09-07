@@ -881,7 +881,7 @@ const translations = {
     "drawer.yes": "Yes",
     "drawer.no": "No",
     "drawer.completionFinalWalk": "Completion & Final Walk",
-    "drawer.completionHelp": "Tech completion moves this turn to Final Walk and notifies managers/admins. A manager/admin final walk is required before the unit moves to Ready Units.",
+    "drawer.completionHelp": "Tech completion moves this turn to Final Walk. The assigned inspector is notified and can inspect or hand off in My Work. A manager or the assigned inspector signs off before the unit moves to Ready Units.",
     "drawer.readinessWarnings": "Readiness warnings",
     "drawer.noReadinessBlockers": "No common readiness blockers detected.",
     "drawer.completed": "Completed",

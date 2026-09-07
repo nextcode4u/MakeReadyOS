@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { enableTurnSetup, pauseTurnSetup, previewTurnSetup, runAutomationNow, type Property, type TurnSetupPreview } from "../lib/api";
 
-const stages = ["Make-ready work", "Painting", "Cleaning", "Flooring / carpet contingency", "Final check / ready target"];
+const stages = ["Make Ready (Start)", "Painting", "Cleaning", "Flooring / carpet contingency", "Expected Finish"];
 
 export function TurnSchedulingGuide({ properties, onOpenSchedule }: { properties: Property[]; onOpenSchedule: (propertyId: string) => void }) {
   const queryClient = useQueryClient();
@@ -63,7 +63,7 @@ export function TurnSchedulingGuide({ properties, onOpenSchedule }: { properties
       <p>The first workday is after the recorded <strong>Vacated</strong> date. Weekends are excluded; existing Monday/Friday restrictions are respected.</p>
       <div className="turn-setup-stages">{stages.map((stage, index) => {
         cumulative += Number(days[index]) || 0;
-        return <label key={stage}><strong>{stage}</strong><span>Target: working day {cumulative || "-"}</span><span className="turn-setup-duration"><input aria-label={`${stage} days`} type="number" min="1" max="10" value={Number.isNaN(days[index]) ? "" : days[index]} onChange={(event) => { setDays(days.map((day, i) => i === index ? event.target.valueAsNumber : day)); resetReview(); }} /> day(s)</span></label>;
+        return <label key={stage}><strong>{stage}</strong><span>{index === 0 ? "Start: working day 1" : `Target: working day ${cumulative || "-"}`}</span><span className="turn-setup-duration"><input aria-label={`${stage} days`} type="number" min="1" max="10" value={Number.isNaN(days[index]) ? "" : days[index]} onChange={(event) => { setDays(days.map((day, i) => i === index ? event.target.valueAsNumber : day)); resetReview(); }} /> day(s)</span></label>;
       })}</div>
       <p><strong>{days.reduce((sum, day) => sum + (Number(day) || 0), 0)} working days total.</strong> Five working days usually fits seven calendar days. Extra closed weekdays extend it.</p>
       <button className="button button-secondary" disabled={!valid || busy} onClick={() => void review()} data-testid="turn-setup-preview">{busy ? "Working..." : "2. Preview my calendar dates"}</button>
@@ -74,7 +74,7 @@ export function TurnSchedulingGuide({ properties, onOpenSchedule }: { properties
       <p>{preview.changes} missing dates across {preview.total} active, incomplete turns with a vacate date. {preview.missingVacateDate} turn(s) need a Vacated date first.</p>
       {preview.configured ? <p>{preview.configured} guided rules are already on. Applying this plan updates their offsets for missing dates only.</p> : null}
       {(preview.calendar.avoidMondayScheduling || preview.calendar.avoidFridayScheduling) ? <p>This property also excludes {preview.calendar.avoidMondayScheduling ? "Mondays " : ""}{preview.calendar.avoidFridayScheduling ? "Fridays" : ""}.</p> : null}
-      <p><strong>Included and enabled:</strong> all five scheduling rules and their calendar tracks. Work, painting, and cleaning fields are created automatically. The board's Make Ready date is the final ready target, not the first workday. Tracks are shared across properties; dates stay property-scoped.</p>
+      <p><strong>Included and enabled:</strong> all five scheduling rules and their calendar tracks. Make Ready (Start) schedules the first repair day; Expected Finish is the separate whole-unit ready target. Painting and cleaning fields are created automatically. Existing finish dates are not copied into start dates. Tracks are shared across properties; dates stay property-scoped.</p>
       <p>Existing dates stay unchanged, even if they conflict with this sequence. Past vacate dates can produce overdue targets. This is a date plan, not a completed-work status, staff/vendor booking, or capacity-checked Planning work block.</p>
       <details><summary>Review proposed dates ({Math.min(preview.total, 25)} of {preview.total} units)</summary><div className="turn-setup-preview-list">{preview.rows.map((row) => <article key={row.unitNumber}><strong>Unit {row.unitNumber}</strong>{row.dates.map((date) => <p key={date.label}>{date.label}: <strong>{date.date}</strong>{date.preserved ? " (keep existing)" : " (new)"}</p>)}</article>)}</div></details>
       <button className="button button-primary" disabled={busy || !valid} onClick={() => void enable()} data-testid="turn-setup-enable">{busy ? "Applying plan..." : enabledRules ? "Retry / fill remaining dates" : "Enable scheduling and fill calendar"}</button>

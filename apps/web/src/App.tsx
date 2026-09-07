@@ -640,7 +640,7 @@ function App() {
   const [kanbanCardFields, setKanbanCardFields] = useState<string[]>(["floorPlan", "vacancyStatus", "scopeLevel", "assignedTech", "moveInDate"]);
   const [kanbanSortBy, setKanbanSortBy] = useState("moveInDate");
   const [kanbanHideEmpty, setKanbanHideEmpty] = useState(false);
-  const [calendarLayout, setCalendarLayout] = useState<"single" | "split" | "grid" | "auto">("single");
+  const [calendarLayout, setCalendarLayout] = useState<"single" | "split" | "grid" | "auto">("split");
   const [calendarPanelFields, setCalendarPanelFields] = useState<string[]>([]);
   const [dashboardLayout, setDashboardLayout] = useState<"overview" | "focus">("overview");
   const [sortKey, setSortKey] = useState("moveInDate");
@@ -1787,6 +1787,9 @@ function App() {
         : t(meQuery.data?.user.language ?? "en", "updates.itemUpdated");
       pushToast(title, tWithVars(meQuery.data?.user.language ?? "en", "updates.fieldSaved", { field: humanizeField(field) }), "success");
       queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
+      queryClient.invalidateQueries({ queryKey: ["final-walk"] });
+      queryClient.invalidateQueries({ queryKey: ["my-work"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
     },
     onError: (error) => {
       if (isApiError(error) && error.status === 401) {
@@ -1800,6 +1803,9 @@ function App() {
   const markReadyMutation = useMutation({
     mutationFn: markMakeReadyItemReady,
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["final-walk"] });
+      await queryClient.invalidateQueries({ queryKey: ["my-work"] });
+      await queryClient.invalidateQueries({ queryKey: ["planning"] });
       await queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
       await queryClient.invalidateQueries({ queryKey: ["activity"] });
       await queryClient.invalidateQueries({ queryKey: ["notifications"] });
@@ -3154,6 +3160,10 @@ function App() {
   const columnLabels = useMemo(() => Object.fromEntries((metaQuery.data?.columns ?? []).map((column) => [column.fieldKey, column.label])), [metaQuery.data?.columns]);
   const scheduleFieldOptions = useMemo(() => configuredScheduleTracks(metaQuery.data?.scheduleTracks ?? [], metaQuery.data?.customFields ?? []), [metaQuery.data?.customFields, metaQuery.data?.scheduleTracks]);
   const activeScheduleTrack = scheduleFieldOptions.find((track) => track.id === activeCalendarField || track.sourceField === activeCalendarField) ?? scheduleFieldOptions[0];
+  const turnStartField = metaQuery.data?.customFields.find(field => field.fieldKey === "turnMaintenanceDate" && !field.isArchived);
+  const defaultCalendarFields = [turnStartField ? `custom:${turnStartField.id}` : "", "moveInDate", "makeReadyDate", "flooringDate"]
+    .map(source => scheduleFieldOptions.find(track => track.sourceField === source)?.id)
+    .filter((id): id is string => Boolean(id));
   const currentUser = forceLoggedOut ? undefined : meQuery.data?.user;
   const basicBoardColumns = useMemo(
     () => normalizeVisibleColumns(
@@ -3401,7 +3411,7 @@ function App() {
         kanbanHideEmpty,
         calendarField: activeCalendarField,
         calendarLayout,
-        calendarFields: calendarPanelFields,
+        calendarFields: calendarPanelFields.length ? calendarPanelFields : defaultCalendarFields,
         dashboardLayout,
       },
       visibleColumns,
@@ -3526,7 +3536,11 @@ function App() {
     setKanbanHideEmpty(Boolean(grouping.kanbanHideEmpty));
     setActiveCalendarField(typeof grouping.calendarField === "string" ? grouping.calendarField : "moveInDate");
     setCalendarLayout((typeof grouping.calendarLayout === "string" ? grouping.calendarLayout : "single") as typeof calendarLayout);
-    setCalendarPanelFields(Array.isArray(grouping.calendarFields) ? grouping.calendarFields.map(String) : []);
+    setCalendarPanelFields(Array.isArray(grouping.calendarFields) && grouping.calendarFields.length
+      ? grouping.calendarFields.map(String)
+      : typeof grouping.calendarField === "string"
+        ? [scheduleFieldOptions.find(track => track.id === grouping.calendarField || track.sourceField === grouping.calendarField)?.id ?? ""]
+        : []);
     setDashboardLayout(grouping.dashboardLayout === "focus" ? "focus" : "overview");
     setVisibleColumns(normalizeVisibleColumns(view.visibleColumns, metaQuery.data?.customFields ?? [], metaQuery.data?.columns ?? []));
   };
@@ -3978,6 +3992,8 @@ function App() {
             />
           ) : activeView === "pond" ? (
             <FrogPondPanel
+              key={currentUser.id}
+              viewerId={currentUser.id}
               items={sortedItems}
               properties={metaQuery.data?.properties ?? []}
               boardSections={metaQuery.data?.boardSections ?? []}
@@ -4675,10 +4691,10 @@ function App() {
               fieldOptions={scheduleFieldOptions}
               layout={calendarLayout}
               language={currentUser.language}
-              selectedFields={calendarPanelFields.length ? calendarPanelFields : [activeScheduleTrack?.id ?? ""]}
+              selectedFields={calendarPanelFields.length ? calendarPanelFields : defaultCalendarFields}
               onLayoutChange={setCalendarLayout}
               onFieldChange={(index, value) => {
-                const next = [...calendarPanelFields];
+                const next = [...(calendarPanelFields.length ? calendarPanelFields : defaultCalendarFields)];
                 next[index] = value;
                 setCalendarPanelFields(next);
                 if (index === 0) setActiveCalendarField(value);

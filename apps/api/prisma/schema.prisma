@@ -28,6 +28,7 @@ enum CustomFieldType {
 }
 
 model Property {
+  finalWalkPolicy           FinalWalkPolicy?
   turnAssignmentPolicy      TurnAssignmentPolicy?
   id                        String                                @id @default(cuid())
   name                      String
@@ -506,6 +507,8 @@ model UserCapacity {
 }
 
 model WorkAssignmentBlock {
+  inspectorQueue String[]      @default([])
+  readyNotified  Boolean       @default(false)
   id             String        @id @default(cuid())
   assignedUserId String
   assignedUser   User          @relation(fields: [assignedUserId], references: [id], onDelete: Cascade)
@@ -526,6 +529,14 @@ model WorkAssignmentBlock {
   @@index([assignedUserId, plannedDate])
   @@index([itemId, status])
   @@index([status, plannedDate])
+}
+
+model FinalWalkPolicy {
+  propertyId String   @id
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  inspectors String[]
+  enabled    Boolean  @default(true)
+  updatedAt  DateTime @updatedAt
 }
 
 model WorkSession {

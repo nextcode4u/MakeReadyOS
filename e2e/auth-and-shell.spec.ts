@@ -8,6 +8,94 @@ const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
+test("final walks assign only when ready, appear in My Work and hand off safely", async ({ page, browser }, testInfo) => {
+  const loginResponse = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const response = await loginResponse;
+  const origin = new URL(response.url()).origin;
+  const { csrfToken } = await response.json();
+  const headers = { "x-csrf-token": csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const result = await page.request.post(`${origin}/api${path}`, { headers, data });
+    expect(result.ok(), await result.text()).toBeTruthy(); return result.json();
+  };
+  const stamp = Date.now();
+  const { property } = await post("/operations/properties", { code: `FW${stamp}`, name: "Final Walk Test" });
+  const password = "Test-Only-Inspector!123";
+  const users = [];
+  for (const suffix of ["primary", "backup"]) {
+    const { user } = await post("/admin/users", { username: `walk${suffix}${stamp}`, fullName: `Walk ${suffix} ${stamp}`, role: "LEASING", propertyIds: [property.id], password });
+    users.push(user);
+  }
+  const { unit } = await post("/operations/units", { propertyId: property.id, number: "WALK-1" });
+  const meta = await (await page.request.get(`${origin}/api/meta`)).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, unitNumber: "WALK-1", itemName: "WALK-1", completionStatus: "NO", vacancyStatus: "VACANT NOT LEASED NOT READY", makeReadyDate: "2099-01-01" });
+  await page.reload();
+  await page.getByTestId("tab-automations").click();
+  const guide = page.getByTestId("final-walk-guide");
+  await guide.getByLabel("Final walks for").selectOption(property.id);
+  for (const user of users) await guide.getByLabel("Add inspector").selectOption(user.id);
+  await guide.getByRole("button", { name: "Save and assign final walks" }).click();
+  await expect(guide.getByRole("status")).toContainText("0 final walks assigned");
+  await page.setViewportSize({ width: 412, height: 915 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await guide.screenshot({ path: testInfo.outputPath("final-walk-setup-mobile.png") });
+  const assignmentUrl = `${origin}/api/make-ready-items/${item.id}/final-walk`;
+  expect((await (await page.request.get(assignmentUrl)).json()).block).toBeNull();
+  const complete = await page.request.patch(`${origin}/api/make-ready-items/${item.id}`, { headers, data: { completionStatus: "YES" } });
+  expect(complete.ok(), await complete.text()).toBeTruthy();
+  const assigned = await (await page.request.get(assignmentUrl)).json();
+  expect(assigned.block.assignedUserId).toBe(users[0].id);
+  const contexts = [];
+  try {
+    for (const user of users) {
+      const context = await browser.newContext({ viewport: { width: 412, height: 915 } }); contexts.push(context);
+      const staffPage = await context.newPage();
+      const signingIn = staffPage.waitForResponse(result => result.url().endsWith("/api/auth/login") && result.request().method() === "POST");
+      await staffPage.goto("/");
+      await staffPage.getByTestId("login-email").fill(user.username);
+      await staffPage.getByTestId("login-password").fill(password);
+      await staffPage.getByTestId("login-submit").click();
+      await expect(staffPage.getByTestId("property-filter")).toBeVisible();
+      const staffHeaders = { "x-csrf-token": (await (await signingIn).json()).csrfToken };
+      if (user.id === users[0].id) {
+        const notifications = await (await context.request.get(`${origin}/api/notifications`)).json();
+        expect(JSON.stringify(notifications)).toContain("Final walk ready for inspection");
+        await staffPage.getByRole("button", { name: /View:/ }).click();
+        await staffPage.getByTestId("tab-my-work").click();
+        await staffPage.getByRole("button", { name: "Inspect or hand off", exact: true }).click();
+        const controls = staffPage.getByTestId("final-walk-controls");
+        await expect(controls).toContainText(users[1].fullName);
+        await expect.poll(() => staffPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+        await controls.screenshot({ path: testInfo.outputPath("final-walk-handoff-mobile.png") });
+        await controls.getByLabel("Handoff reason").fill("Unavailable for this inspection");
+        await controls.getByRole("button", { name: "Hand off to next inspector" }).click();
+        await expect(controls).toContainText(`Final walk: ${users[1].fullName}`);
+        const retry = await context.request.post(`${assignmentUrl}/handoff`, { headers: staffHeaders, data: { blockId: assigned.block.id, expectedAssigneeId: user.id, reason: "Duplicate handoff" } });
+        expect(retry.status()).toBe(409);
+        const denied = await context.request.post(`${origin}/api/make-ready-items/${item.id}/mark-ready`, { headers: staffHeaders });
+        expect(denied.status()).toBe(403);
+        const work = await (await context.request.get(`${origin}/api/my-work`)).json();
+        expect(work.items.some((entry: any) => entry.id === item.id)).toBeFalsy();
+      } else {
+        const work = await (await context.request.get(`${origin}/api/my-work`)).json();
+        expect(work.items.some((entry: any) => entry.id === item.id)).toBeTruthy();
+        const end = await context.request.post(`${assignmentUrl}/handoff`, { headers: staffHeaders, data: { blockId: assigned.block.id, expectedAssigneeId: user.id, reason: "No more backups" } });
+        expect(end.status()).toBe(409);
+        await staffPage.getByRole("button", { name: /View:/ }).click();
+        await staffPage.getByTestId("tab-my-work").click();
+        await staffPage.getByRole("button", { name: "Inspect or hand off", exact: true }).click();
+        const finishing = staffPage.waitForResponse(result => result.url().endsWith(`/make-ready-items/${item.id}/mark-ready`));
+        await staffPage.getByRole("button", { name: "Final walk passed / mark ready", exact: true }).click();
+        const done = await finishing;
+        expect(done.ok(), await done.text()).toBeTruthy();
+        expect((await (await context.request.get(assignmentUrl)).json()).block).toBeNull();
+      }
+    }
+  } finally { for (const context of contexts) await context.close(); }
+});
+
 test("connection banner clears after verified recovery but not a failed retry", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
   let fail = true;
@@ -117,6 +205,28 @@ test("property turn splits assign 25/75 and 100 percent independently with safe 
   expect(notices.filter((notice: any) => notice.propertyId === vab.id)).toHaveLength(1);
 });
 
+test("schedule separates repair starts from existing finish deadlines by default", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const meta = await (await page.request.get("/api/meta")).json();
+  const startField = meta.customFields.find((field: any) => field.fieldKey === "turnMaintenanceDate");
+  const start = meta.scheduleTracks.find((track: any) => track.sourceField === `custom:${startField.id}`);
+  const finish = meta.scheduleTracks.find((track: any) => track.sourceField === "makeReadyDate");
+  const moveIn = meta.scheduleTracks.find((track: any) => track.sourceField === "moveInDate");
+  const items = await (await page.request.get("/api/make-ready-items")).json();
+  const item = items.find((entry: any) => entry.property.code === "TA" && entry.unitNumber === "TA 284");
+  expect(item).toBeTruthy();
+  expect(item.makeReadyDate).toBeTruthy();
+  expect(item.customFieldValues.some((value: any) => value.customFieldId === startField.id && value.value)).toBe(false);
+  await page.getByTestId("tab-calendar").click();
+  await expect(page.getByTestId("calendar-panel-track-0")).toHaveValue(start.id);
+  await expect(page.getByTestId("calendar-panel-track-1")).toHaveValue(moveIn.id);
+  await page.getByTestId("calendar-panel-track-0").selectOption(finish.id);
+  await expect(page.getByTestId("calendar-panel-track-0").locator("option:checked")).toHaveText("Expected Finish");
+  await expect(page.getByTestId("calendar-panel-track-1")).toHaveValue(moveIn.id);
+  await page.setViewportSize({ width: 412, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+});
+
 test("guided weekday scheduling populates all five calendar tracks without duplicate rules or overwritten dates", async ({ page }) => {
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
   await login(page, adminEmail, adminPassword);
@@ -132,6 +242,10 @@ test("guided weekday scheduling populates all five calendar tracks without dupli
   const { unit } = await post("/operations/units", { propertyId: property.id, number: "TURN-101" });
   const meta = await (await page.request.get(`${origin}/api/meta`)).json();
   const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  const initialStart = meta.customFields.find((field: any) => field.fieldKey === "turnMaintenanceDate");
+  expect(initialStart).toBeTruthy();
+  expect(meta.scheduleTracks.find((track: any) => track.sourceField === `custom:${initialStart.id}`).displayName).toBe("Make Ready (Start)");
+  expect(meta.scheduleTracks.find((track: any) => track.sourceField === "makeReadyDate").displayName).toBe("Expected Finish");
   const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, vacatedDate: "2026-09-04", completionStatus: "NO" });
   const skipped: string[] = [];
   for (const status of ["DONE", "ARCHIVED"]) {
@@ -166,6 +280,7 @@ test("guided weekday scheduling populates all five calendar tracks without dupli
   }
   const saved = await (await page.request.get(`${origin}/api/make-ready-items/${item.id}`)).json();
   expect(saved.makeReadyDate).toContain("2026-09-11");
+  expect(saved.customFieldValues.find((value: any) => value.customFieldId === initialStart.id)?.value).toBe("2026-09-07");
   expect(saved.flooringDate).toContain("2026-09-10");
   for (const id of skipped) {
     const skippedItem = await (await page.request.get(`${origin}/api/make-ready-items/${id}`)).json();
@@ -181,6 +296,8 @@ test("guided weekday scheduling populates all five calendar tracks without dupli
   await page.getByRole("button", { name: "Open Schedule calendar" }).click();
   await expect(page.getByTestId("calendar-view")).toBeVisible();
   await expect(page.locator(".calendar-panel")).toHaveCount(5);
+  await expect(page.getByTestId("calendar-panel-track-0").locator("option:checked")).toHaveText("Make Ready (Start)");
+  await expect(page.getByTestId("calendar-panel-track-4").locator("option:checked")).toHaveText("Expected Finish");
   await post("/automations/turn-setup/pause", { propertyId: property.id });
   const paused = await post("/automations/turn-setup/preview", { propertyId: property.id });
   expect(paused.configured).toBe(0);
@@ -1196,9 +1313,13 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("frog-pond-scene")).toBeVisible();
     await expect(page.getByTestId("frog-config")).not.toBeVisible();
     const frog = page.locator('[data-testid^="frog-marker-"]').first();
-    await frog.scrollIntoViewIfNeeded();
+    await page.getByTestId("frog-pond-scene").scrollIntoViewIfNeeded();
+    await page.mouse.move(0, 0);
+    const initialTranslate = await frog.evaluate(el => getComputedStyle(el).translate);
+    await expect.poll(() => frog.evaluate(el => getComputedStyle(el).translate)).not.toBe(initialTranslate);
+    const moving = await frog.boundingBox();
+    await page.mouse.move(moving!.x + moving!.width / 2, moving!.y + moving!.height / 2);
     const original = await frog.boundingBox();
-    await frog.hover();
     await page.waitForTimeout(600);
     const hovered = await frog.boundingBox();
     expect(Math.abs(hovered!.x - original!.x)).toBeLessThan(2);
@@ -1210,12 +1331,15 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("frog-animation-toggle").check();
     await expect(page.getByTestId("frog-legend")).toContainText("vacancy Status");
     await page.getByTestId("frog-settings-toggle").click();
+    await page.getByRole("button", { name: "Pause motion", exact: true }).click();
     await page.locator('[data-testid^="frog-marker-"]').first().click();
+    await expect(page.getByTestId("pond-greeting")).toContainText("Ribbit!");
+    await expect(page.getByTestId("item-drawer")).not.toBeVisible();
+    await page.getByTestId("pond-open-unit").click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("item-drawer")).not.toBeVisible();
     await page.getByTestId("frog-pond-scene").screenshot({ path: testInfo.outputPath("pond-desktop.png") });
-    await page.getByRole("button", { name: "Pause motion", exact: true }).click();
     await expect(page.getByTestId("frog-pond-panel")).not.toHaveClass(/frog-animated/);
     await page.getByRole("button", { name: "Resume motion", exact: true }).click();
     await expect(page.getByTestId("frog-pond-panel")).toHaveClass(/frog-animated/);
@@ -1226,7 +1350,54 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("frog-pond-panel").screenshot({ path: testInfo.outputPath("pond-mobile.png") });
     expect(await page.locator('[data-testid^="frog-marker-"]').first().evaluate(el => getComputedStyle(el).touchAction)).toBe("pan-y");
     await page.locator('[data-testid^="frog-marker-"]').first().click();
+    await page.getByTestId("pond-open-unit").click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
+  });
+
+  test("pond collection rewards feeding and remembers the chosen outfit", async ({ page }) => {
+    await login(page, adminEmail, adminPassword);
+    await page.getByTestId("tab-pond").click();
+    await page.getByTestId("pond-collection").locator("summary").click();
+    await expect(page.getByTestId("pond-reward-funnyglasses")).toBeDisabled();
+    const mutations: string[] = [];
+    page.on("request", request => {
+      if (["POST", "PATCH", "PUT", "DELETE"].includes(request.method()) && request.url().includes("/api/make-ready-items")) mutations.push(request.url());
+    });
+    for (let i = 0; i < 3; i++) {
+      await page.getByTestId("pond-feed").click();
+      await expect.poll(() => page.locator(".frog-marker:not(.frog-pose-tadpole) .frog-body").first().evaluate(el => getComputedStyle(el).animationName)).toBe("pond-munch");
+      await expect(page.getByTestId("pond-feed")).toBeEnabled({ timeout: 5000 });
+    }
+    await expect(page.getByTestId("pond-reward-funnyglasses")).toBeEnabled();
+    await page.getByTestId("pond-reward-funnyglasses").click();
+    await expect(page.getByTestId("pond-reward-funnyglasses")).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => page.locator(".frog-marker:not(.frog-pose-tadpole)").first().evaluate(el => getComputedStyle(el).getPropertyValue("--frog-sprite"))).toContain("frog-funnyglasses.png");
+    await page.reload();
+    await page.getByTestId("tab-pond").click();
+    await page.getByTestId("pond-collection").locator("summary").click();
+    await expect(page.getByTestId("pond-reward-funnyglasses")).toHaveAttribute("aria-pressed", "true");
+    expect(mutations).toEqual([]);
+  });
+
+  test("pond collection counts ready units without counting not-ready units", async ({ page }) => {
+    let readyUnits = 5;
+    await page.route("**/api/make-ready-items?*", async route => {
+      const response = await route.fetch();
+      const items = await response.json();
+      await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, completionStatus: "NO", vacancyStatus: index < readyUnits ? "VACANT LEASED READY" : "VACANT LEASED NOT READY" })) });
+    });
+    await login(page, adminEmail, adminPassword);
+    await page.getByTestId("tab-pond").click();
+    await page.getByTestId("pond-collection").locator("summary").click();
+    await expect(page.getByTestId("pond-reward-tophat")).toBeEnabled();
+    await expect(page.getByTestId("pond-reward-blue")).toBeEnabled();
+    await expect(page.getByTestId("pond-reward-clown")).toBeDisabled();
+    readyUnits = 0;
+    await page.reload();
+    await page.getByTestId("tab-pond").click();
+    await page.getByTestId("pond-collection").locator("summary").click();
+    await expect(page.getByTestId("pond-reward-blue")).toBeEnabled();
+    await expect(page.getByTestId("pond-reward-clown")).toBeDisabled();
   });
 
   test("Dashboard opens the Frog Pond preview path", async ({ page }) => {
@@ -2091,7 +2262,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByText("Installed template Major Scope Priority Flag")).toBeVisible();
   });
 
-  test("admin can preview and install an operational library pack", async ({ page }) => {
+  test("admin can preview and install an operational library pack", async ({ page }, testInfo) => {
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-automations").click();
     await page.getByTestId("automation-advanced-toggle").click();
@@ -2102,6 +2273,23 @@ test.describe("MakeReadyOS browser flows", () => {
       response.url().includes("/api/operational-library/preview") && response.request().method() === "POST",
     );
     await page.getByTestId("library-pack-use-make-ready-operations-starter").click();
+    const mapping = page.getByTestId("library-mapping-grid");
+    for (const width of [1600, 412]) {
+      await page.setViewportSize({ width, height: 950 });
+      await expect(mapping).toBeVisible();
+      const gaps = await mapping.locator(".library-mapping-card").evaluateAll(cards => cards.map(card => {
+        const heading = card.querySelector(":scope > strong")!.getBoundingClientRect();
+        const description = card.querySelector(":scope > small")!.getBoundingClientRect();
+        const list = card.querySelector(".library-mapping-list")!.getBoundingClientRect();
+        return Math.max(description.top - heading.bottom, list.top - description.bottom);
+      }));
+      expect(Math.max(...gaps)).toBeLessThan(20);
+      await expect.poll(() => mapping.evaluate(el => el.scrollWidth <= el.clientWidth)).toBeTruthy();
+      const firstCard = mapping.locator(".library-mapping-card").first();
+      expect((await firstCard.boundingBox())!.height).toBeLessThan(260);
+      await firstCard.scrollIntoViewIfNeeded();
+      await firstCard.screenshot({ path: testInfo.outputPath(`library-mapping-${width}.png`) });
+    }
     await page.getByTestId("library-import-preview").click();
     await expect((await previewResponse).status()).toBe(200);
     await expect(page.getByTestId("library-preview-summary")).toContainText("Automation Templates");

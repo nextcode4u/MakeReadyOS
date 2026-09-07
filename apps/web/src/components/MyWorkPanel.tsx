@@ -114,7 +114,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                   {item.moveInSoon ? <b className="warning">{t(language, "myWork.moveInSoon")}</b> : null}
                   {item.riskLevel && item.riskLevel !== "NONE" ? <b className={item.riskLevel === "CRITICAL" || item.riskLevel === "HIGH" ? "risk" : "warning"}>{item.riskLevel} {t(language, "myWork.riskSuffix")}</b> : null}
                   <span>{item.makeReadyStatus ?? t(language, "myWork.statusUnset")}</span>
-                  {item.workAssignmentBlocks?.[0] ? <span>{tWithVars(language, "myWork.planned", { date: item.workAssignmentBlocks[0].plannedDate.slice(0, 10), category: item.workAssignmentBlocks[0].category })}</span> : null}
+                  {item.workAssignmentBlocks?.map(block => <span key={block.id}>{tWithVars(language, "myWork.planned", { date: block.plannedDate.slice(0, 10), category: block.category === "FINAL_WALK_INSPECTION" ? "Final walk inspection" : block.category })}{block.category === "FINAL_WALK_INSPECTION" ? <button type="button" className="button button-secondary" onClick={() => onOpenItem(item.id)}>Inspect or hand off</button> : null}</span>)}
                 </div>
                 <div className="my-work-progress">
                   <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${startedLabel(activeSession.startedAt)}` : tWithVars(language, "myWork.checklist", { done: done.toString(), total: tasks.length.toString() })}</span>
