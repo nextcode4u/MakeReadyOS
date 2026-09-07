@@ -1,4 +1,4 @@
-import { UserRole } from "@prisma/client";
+import { UserRole, type Prisma } from "@prisma/client";
 import { prisma } from "./prisma.js";
 
 export const notificationCategories = [
@@ -54,12 +54,12 @@ export async function createNotification(input: {
   title: string;
   message: string;
   dedupeKey?: string | null;
-}) {
+}, db: Prisma.TransactionClient = prisma) {
   const [settings, preferences] = await Promise.all([
-    prisma.userNotificationSettings.findUnique({
+    db.userNotificationSettings.findUnique({
       where: { userId: input.userId },
     }),
-    prisma.notificationPreference.findMany({
+    db.notificationPreference.findMany({
       where: {
         userId: input.userId,
         category: input.category,
@@ -87,8 +87,8 @@ export async function createNotification(input: {
     message: input.message,
     dedupeKey: input.dedupeKey ?? null,
   };
-  if (!input.dedupeKey) return prisma.notification.create({ data });
-  return prisma.notification.upsert({
+  if (!input.dedupeKey) return db.notification.create({ data });
+  return db.notification.upsert({
     where: { userId_dedupeKey: { userId: input.userId, dedupeKey: input.dedupeKey } },
     create: data,
     update: { ...data, isRead: false, readAt: null, createdAt: new Date() },

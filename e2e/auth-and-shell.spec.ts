@@ -8,6 +8,185 @@ const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
+test("connection banner clears after verified recovery but not a failed retry", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  let fail = true;
+  await page.route("**/api/auth/me?connection-check=*", route => fail ? route.abort("failed") : route.continue());
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("makereadyos:api-unreachable", { detail: { at: new Date().toISOString() } })));
+  await expect(page.getByTestId("connection-banner")).toBeVisible();
+  await page.getByTestId("connection-retry").click();
+  await expect(page.getByTestId("connection-banner")).toBeVisible();
+  await page.waitForTimeout(1800);
+  await expect(page.getByTestId("connection-banner")).toBeVisible();
+  fail = false;
+  await expect(page.getByTestId("connection-banner")).toHaveCount(0, { timeout: 20000 });
+});
+
+test("property turn splits assign 25/75 and 100 percent independently with safe retries", async ({ page }) => {
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const response = await session;
+  const origin = new URL(response.url()).origin;
+  const { csrfToken } = await response.json();
+  const headers = { "x-csrf-token": csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const result = await page.request.post(`${origin}/api${path}`, { headers, data });
+    expect(result.ok(), await result.text()).toBeTruthy();
+    return result.json();
+  };
+  const get = async (path: string) => {
+    const result = await page.request.get(`${origin}/api${path}`);
+    expect(result.ok(), await result.text()).toBeTruthy();
+    return result.json();
+  };
+  const stamp = Date.now();
+  const { property: ta } = await post("/operations/properties", { code: `SPLITTA${stamp}`, name: "Split TA" });
+  const { property: vab } = await post("/operations/properties", { code: `SPVAB${stamp}`, name: "Split VAB" });
+  const { user: manager } = await post("/admin/users", { username: `splitmanager${stamp}`, fullName: `Split Manager ${stamp}`, role: "MANAGER", propertyIds: [ta.id, vab.id], password: "Test-Only-Split!123" });
+  const { user: tech } = await post("/admin/users", { username: `splittech${stamp}`, fullName: `Split Tech ${stamp}`, role: "TECH", propertyIds: [ta.id], password: "Test-Only-Split!123" });
+  const meta = await get("/meta");
+  const create = async (propertyId: string, number: string, extra: Record<string, unknown> = {}) => {
+    const { unit } = await post("/operations/units", { propertyId, number });
+    const section = meta.boardSections.find((entry: any) => entry.propertyId === propertyId && entry.sectionType === "MAKE_READY");
+    return post("/make-ready-items", { propertyId, unitId: unit.id, boardGroup: section.key, itemName: number, unitNumber: number, vacatedDate: "2020-01-01", completionStatus: "NO", vacancyStatus: "VACANT NOT LEASED NOT READY", ...extra });
+  };
+  const taItems = [];
+  for (let i = 0; i < 2; i++) taItems.push(await create(ta.id, `TA-${i}`));
+  const vabItem = await create(vab.id, "VAB-1");
+  const manual = await create(ta.id, "MANUAL", { assignedTech: manager.fullName });
+  const ready = await create(ta.id, "READY", { vacancyStatus: "VACANT LEASED READY" });
+  const completed = await create(ta.id, "DONE", { completionStatus: "DONE" });
+  const archived = await create(ta.id, "ARCHIVED");
+  await post("/make-ready-items/batch", { action: "ARCHIVE", ids: [archived.id] });
+  const endpoint = (id: string) => `/automations/turn-assignment/${id}`;
+  expect((await get(endpoint(vab.id))).staff.some((user: any) => user.id === tech.id)).toBeFalsy();
+  const bad = await page.request.put(`${origin}/api${endpoint(vab.id)}`, { headers, data: { enabled: true, shares: [{ userId: tech.id, percent: 100 }] } });
+  expect(bad.status()).toBe(409);
+  await page.reload();
+  await page.getByTestId("tab-automations").click();
+  const guide = page.getByTestId("turn-assignment-guide");
+  await guide.getByLabel("Assign turns for").selectOption(ta.id);
+  await guide.getByLabel("Add person").selectOption(manager.id);
+  await guide.getByLabel(`Share for ${manager.fullName}`).fill("25");
+  await guide.getByLabel("Add person").selectOption(tech.id);
+  await expect(guide.getByLabel(`Share for ${tech.fullName}`)).toHaveValue("75");
+  await guide.getByLabel(`Share for ${tech.fullName}`).fill("74");
+  await expect(guide.getByRole("button", { name: "Enable split and assign eligible turns" })).toBeDisabled();
+  await guide.getByLabel(`Share for ${tech.fullName}`).fill("75");
+  await page.setViewportSize({ width: 412, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await guide.getByRole("button", { name: "Enable split and assign eligible turns" }).click();
+  await expect(guide.getByRole("status")).toContainText("2 turn(s) assigned");
+  const counts = async () => {
+    const items = await Promise.all(taItems.map(item => get(`/make-ready-items/${item.id}`)));
+    return [items.filter(item => item.assignedTech === manager.fullName).length, items.filter(item => item.assignedTech === tech.fullName).length];
+  };
+  expect(await counts()).toEqual([1, 1]);
+  // Saving identical shares must keep the nonzero balance from this partial cycle.
+  const resave = await page.request.put(`${origin}/api${endpoint(ta.id)}`, { headers, data: { enabled: true, shares: [{ userId: tech.id, percent: 75 }, { userId: manager.id, percent: 25 }] } });
+  expect(resave.ok(), await resave.text()).toBeTruthy();
+  for (let i = 2; i < 4; i++) taItems.push(await create(ta.id, `TA-${i}`));
+  expect((await post(`${endpoint(ta.id)}/run`, {})).assigned).toBe(2);
+  expect(await counts()).toEqual([1, 3]);
+  await guide.getByLabel("Assign turns for").selectOption(vab.id);
+  await guide.getByLabel("Add person").selectOption(manager.id);
+  await guide.getByRole("button", { name: "Enable split and assign eligible turns" }).click();
+  await expect(guide.getByRole("status")).toContainText("1 turn(s) assigned");
+  expect((await get(`/make-ready-items/${vabItem.id}`)).assignedTech).toBe(manager.fullName);
+  for (const item of [ready, completed, archived]) expect((await get(`/make-ready-items/${item.id}`)).assignedTech).toBeNull();
+  expect((await get(`/make-ready-items/${manual.id}`)).assignedTech).toBe(manager.fullName);
+  for (let i = 4; i < 8; i++) taItems.push(await create(ta.id, `TA-${i}`));
+  const runs = await Promise.all(Array.from({ length: 3 }, () => post(`${endpoint(ta.id)}/run`, {})));
+  expect(runs.reduce((sum, run) => sum + run.assigned, 0)).toBe(4);
+  expect(await counts()).toEqual([2, 6]);
+  await guide.getByRole("button", { name: "Pause automatic assignment" }).click();
+  await expect(guide.getByRole("status")).toContainText("paused");
+  await create(vab.id, "VAB-PAUSED");
+  expect((await post(`${endpoint(vab.id)}/run`, {})).assigned).toBe(0);
+  // Revoked TA access must block the whole split, not silently give its share to the manager.
+  const revoke = await page.request.put(`${origin}/api/admin/users/${tech.id}/property-access`, { headers, data: { propertyIds: [] } });
+  expect(revoke.ok(), await revoke.text()).toBeTruthy();
+  await create(ta.id, "TA-BLOCKED");
+  const blocked = await post(`${endpoint(ta.id)}/run`, {});
+  expect(blocked.assigned).toBe(0);
+  expect(blocked.warning).toContain("no longer has assignment access");
+  await post("/auth/login", { identifier: manager.username, password: "Test-Only-Split!123" });
+  const notices = (await get("/notifications")).notifications.filter((notice: any) => notice.dedupeKey?.startsWith("turn-split:"));
+  expect(notices).toHaveLength(3);
+  expect(notices.filter((notice: any) => notice.propertyId === ta.id)).toHaveLength(2);
+  expect(notices.filter((notice: any) => notice.propertyId === vab.id)).toHaveLength(1);
+});
+
+test("guided weekday scheduling populates all five calendar tracks without duplicate rules or overwritten dates", async ({ page }) => {
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const response = await session;
+  const origin = new URL(response.url()).origin;
+  const { csrfToken } = await response.json();
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`${origin}/api${path}`, { headers: { "x-csrf-token": csrfToken }, data });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `QATURN${Date.now()}`, name: "Weekday Turn Test" });
+  const { unit } = await post("/operations/units", { propertyId: property.id, number: "TURN-101" });
+  const meta = await (await page.request.get(`${origin}/api/meta`)).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, vacatedDate: "2026-09-04", completionStatus: "NO" });
+  const skipped: string[] = [];
+  for (const status of ["DONE", "ARCHIVED"]) {
+    const { unit: other } = await post("/operations/units", { propertyId: property.id, number: `TURN-${status}` });
+    const skip = await post("/make-ready-items", { propertyId: property.id, unitId: other.id, boardGroup: section.key, itemName: other.number, unitNumber: other.number, vacatedDate: "2026-09-04", completionStatus: status === "DONE" ? "DONE" : "NO" });
+    skipped.push(skip.id);
+    if (status === "ARCHIVED") await post("/make-ready-items/batch", { action: "ARCHIVE", ids: [skip.id] });
+  }
+  await page.reload();
+  await page.getByTestId("tab-automations").click();
+  await expect(page.getByTestId("turn-scheduling-guide")).toBeVisible();
+  await expect(page.getByTestId("automation-template-library")).not.toBeVisible();
+  await page.getByTestId("turn-setup-property").selectOption(property.id);
+  await page.getByTestId("turn-setup-preview").click();
+  await expect(page.getByTestId("turn-scheduling-guide")).toContainText("5 missing dates");
+  await page.getByText("Review proposed dates (1 of 1 units)").click();
+  await expect(page.getByTestId("turn-scheduling-guide")).toContainText("2026-09-11");
+  await page.setViewportSize({ width: 412, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.route("**/api/automations/turn-setup/enable", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Setup temporarily unavailable" }) }));
+  await page.getByTestId("turn-setup-enable").click();
+  await expect(page.getByTestId("turn-scheduling-guide").getByRole("alert")).toContainText("Setup temporarily unavailable");
+  await expect(page.getByTestId("turn-setup-property")).toHaveValue(property.id);
+  await page.unroute("**/api/automations/turn-setup/enable");
+  await page.getByTestId("turn-setup-enable").click();
+  await expect(page.getByTestId("turn-scheduling-guide").getByRole("status")).toContainText("5 missing calendar dates filled");
+  const repeats = await Promise.all(Array.from({ length: 3 }, () => post("/automations/turn-setup/enable", { propertyId: property.id, days: [1, 1, 1, 1, 1] })));
+  expect(new Set(repeats.flatMap(result => result.rules.map((rule: any) => rule.id))).size).toBe(5);
+  for (const rule of repeats[0].rules) {
+    const { execution } = await post(`/automations/${rule.id}/run`, {});
+    expect(execution.actionCount).toBe(0);
+  }
+  const saved = await (await page.request.get(`${origin}/api/make-ready-items/${item.id}`)).json();
+  expect(saved.makeReadyDate).toContain("2026-09-11");
+  expect(saved.flooringDate).toContain("2026-09-10");
+  for (const id of skipped) {
+    const skippedItem = await (await page.request.get(`${origin}/api/make-ready-items/${id}`)).json();
+    expect(skippedItem.makeReadyDate).toBeNull();
+    expect(skippedItem.flooringDate).toBeNull();
+  }
+  const refreshed = await (await page.request.get(`${origin}/api/meta`)).json();
+  for (const fieldKey of ["turnMaintenanceDate", "turnPaintingDate", "turnCleaningDate"]) {
+    const field = refreshed.customFields.find((field: any) => field.fieldKey === fieldKey);
+    expect(field).toBeTruthy();
+    expect(refreshed.scheduleTracks.some((track: any) => track.sourceField === `custom:${field.id}` && track.isEnabled)).toBeTruthy();
+  }
+  await page.getByRole("button", { name: "Open Schedule calendar" }).click();
+  await expect(page.getByTestId("calendar-view")).toBeVisible();
+  await expect(page.locator(".calendar-panel")).toHaveCount(5);
+  await post("/automations/turn-setup/pause", { propertyId: property.id });
+  const paused = await post("/automations/turn-setup/preview", { propertyId: property.id });
+  expect(paused.configured).toBe(0);
+  expect(paused.changes).toBe(0);
+});
+
 test("partial mobile pool logs never default unchecked safety to pass", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
   await page.getByTestId("module-rail-pool").click();
@@ -1010,17 +1189,43 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.keyboard.press("Escape");
   });
 
-  test("Frog Pond renders, updates config, and opens item details", async ({ page }) => {
+  test("Frog Pond renders, updates config, and opens item details", async ({ page }, testInfo) => {
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-pond").click();
     await expect(page.getByTestId("frog-pond-panel")).toBeVisible();
     await expect(page.getByTestId("frog-pond-scene")).toBeVisible();
+    await expect(page.getByTestId("frog-config")).not.toBeVisible();
+    const frog = page.locator('[data-testid^="frog-marker-"]').first();
+    await frog.scrollIntoViewIfNeeded();
+    const original = await frog.boundingBox();
+    await frog.hover();
+    await page.waitForTimeout(600);
+    const hovered = await frog.boundingBox();
+    expect(Math.abs(hovered!.x - original!.x)).toBeLessThan(2);
+    expect(Math.abs(hovered!.y - original!.y)).toBeLessThan(2);
+    await page.getByTestId("frog-settings-toggle").click();
     await page.getByTestId("frog-group-by").selectOption("riskLevel");
     await page.getByTestId("frog-color-by").selectOption("vacancyStatus");
     await page.getByTestId("frog-animation-toggle").uncheck();
     await page.getByTestId("frog-animation-toggle").check();
     await expect(page.getByTestId("frog-legend")).toContainText("vacancy Status");
-    await page.locator('[data-testid^="frog-marker-"]').first().click({ force: true });
+    await page.getByTestId("frog-settings-toggle").click();
+    await page.locator('[data-testid^="frog-marker-"]').first().click();
+    await expect(page.getByTestId("item-drawer")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("item-drawer")).not.toBeVisible();
+    await page.getByTestId("frog-pond-scene").screenshot({ path: testInfo.outputPath("pond-desktop.png") });
+    await page.getByRole("button", { name: "Pause motion", exact: true }).click();
+    await expect(page.getByTestId("frog-pond-panel")).not.toHaveClass(/frog-animated/);
+    await page.getByRole("button", { name: "Resume motion", exact: true }).click();
+    await expect(page.getByTestId("frog-pond-panel")).toHaveClass(/frog-animated/);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(page.getByTestId("frog-pond-panel")).not.toHaveClass(/frog-animated/);
+    await page.setViewportSize({ width: 412, height: 900 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    await page.getByTestId("frog-pond-panel").screenshot({ path: testInfo.outputPath("pond-mobile.png") });
+    expect(await page.locator('[data-testid^="frog-marker-"]').first().evaluate(el => getComputedStyle(el).touchAction)).toBe("pan-y");
+    await page.locator('[data-testid^="frog-marker-"]').first().click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
   });
 
@@ -1597,6 +1802,7 @@ test.describe("MakeReadyOS browser flows", () => {
   test("schedule exposes NTV terminology and an active custom date track", async ({ page }) => {
     const fieldLabel = `QA Cleaning Date ${Date.now()}`;
     const fieldKey = customFieldKey(fieldLabel);
+    const month = new Date().toISOString().slice(0, 7);
 
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-fields").click();
@@ -1610,7 +1816,7 @@ test.describe("MakeReadyOS browser flows", () => {
     const writeResponse = page.waitForResponse((response) =>
       response.url().includes("/custom-fields/") && response.request().method() === "PUT",
     );
-    await page.getByTestId(`custom-field-input-${fieldKey}-ta-284`).fill("2026-05-14");
+    await page.getByTestId(`custom-field-input-${fieldKey}-ta-284`).fill(`${month}-14`);
     await page.getByTestId(`custom-field-input-${fieldKey}-ta-284`).press("Enter");
     await expect((await writeResponse).status()).toBe(200);
 
@@ -1618,8 +1824,8 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("custom-filter-field-add").selectOption({ label: fieldLabel });
     await page.getByTestId("custom-filter-add").click();
     await page.getByTestId(`custom-filter-operator-${fieldKey}`).selectOption("before");
-    await page.getByTestId(`custom-filter-value-${fieldKey}`).fill("2026-05-15");
-    await expect(page.getByTestId("active-filter-bar")).toContainText(`${fieldLabel}: Before 2026-05-15`);
+    await page.getByTestId(`custom-filter-value-${fieldKey}`).fill(`${month}-15`);
+    await expect(page.getByTestId("active-filter-bar")).toContainText(`${fieldLabel}: Before ${month}-15`);
     await expect(page.getByTestId(`custom-field-cell-${fieldKey}-ta-284`)).toBeVisible();
 
     await page.getByTestId("tab-operations").click();
@@ -1635,7 +1841,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect((await createTrackResponse).status()).toBe(201);
 
     await page.getByTestId("tab-calendar").click();
-    await expect(page.getByTestId("active-filter-bar")).toContainText(`${fieldLabel}: Before 2026-05-15`);
+    await expect(page.getByTestId("active-filter-bar")).toContainText(`${fieldLabel}: Before ${month}-15`);
     await expect(page.locator(".calendar-dow").first()).toHaveText(/sun/i);
     if (await page.getByTestId("calendar-today").count()) {
       await expect(page.getByTestId("calendar-today").first()).toBeVisible();
@@ -1835,6 +2041,7 @@ test.describe("MakeReadyOS browser flows", () => {
   test("admin can open the structured automation workspace", async ({ page }) => {
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-automations").click();
+    await page.getByTestId("automation-advanced-toggle").click();
     await expect(page.getByTestId("automation-panel")).toBeVisible();
     await expect(page.getByText("JavaScript is never executed.")).toBeVisible();
     await expect(page.getByTestId("automation-run-history")).toBeVisible();
@@ -1850,6 +2057,7 @@ test.describe("MakeReadyOS browser flows", () => {
   test("admin can preview and install a disabled operational rule template", async ({ page }) => {
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-automations").click();
+    await page.getByTestId("automation-advanced-toggle").click();
     await expect(page.getByTestId("automation-template-library")).toBeVisible();
     await expect(page.getByTestId("automation-template-requirements-pest-follow-up-needed")).toContainText("Pest Follow-Up Date");
     await page.getByTestId("automation-template-category").selectOption("Scheduling");
@@ -1886,6 +2094,7 @@ test.describe("MakeReadyOS browser flows", () => {
   test("admin can preview and install an operational library pack", async ({ page }) => {
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-automations").click();
+    await page.getByTestId("automation-advanced-toggle").click();
     await expect(page.getByTestId("operational-library")).toBeVisible();
     await expect(page.getByTestId("library-pack-make-ready-operations-starter")).toContainText("Make Ready Operations Starter");
 
@@ -1910,6 +2119,7 @@ test.describe("MakeReadyOS browser flows", () => {
     const templateName = uniqueTag("QA Property Template");
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-automations").click();
+    await page.getByTestId("automation-advanced-toggle").click();
     await expect(page.getByTestId("property-template-library")).toBeVisible();
     await page.getByTestId("property-template-name").fill(templateName);
     await page.getByTestId("property-template-category").fill("Make Ready");
@@ -1948,6 +2158,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("custom-field-save").click();
 
     await page.getByTestId("tab-automations").click();
+    await page.getByTestId("automation-advanced-toggle").click();
     await page.getByTestId("automation-new").click();
     await page.getByTestId("automation-name").fill(`QA Custom Date Rule ${Date.now()}`);
     await page.getByTestId("automation-trigger").selectOption("SCHEDULED_CHECK");
@@ -1968,6 +2179,7 @@ test.describe("MakeReadyOS browser flows", () => {
   test("admin can run a scheduled automation check and see manual history", async ({ page }) => {
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-automations").click();
+    await page.getByTestId("automation-advanced-toggle").click();
     await expect(page.getByTestId("automation-panel")).toBeVisible();
 
     await page.getByRole("button", { name: /Scheduled move-in soon check/ }).click();
@@ -2005,6 +2217,7 @@ test.describe("MakeReadyOS browser flows", () => {
     // The fixture has a matching turn but no staff, independent of seeded board edits.
     await page.reload();
     await page.getByTestId("tab-automations").click();
+    await page.getByTestId("automation-advanced-toggle").click();
     await expect(page.getByTestId("automation-panel")).toBeVisible();
 
     await page.getByTestId("automation-template-category").selectOption("Assignment");

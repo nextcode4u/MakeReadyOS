@@ -1344,7 +1344,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       entityType: "MAKE_READY_ITEM",
       entityId: item.id,
       action: "BOARD_ITEM_MARKED_READY",
-      message: `${item.unitNumber} passed final walk and moved to Ready Units.`,
+      message: `${item.unitNumber} was marked ready and moved to Ready Units.`,
     });
     await notifyAssignedStaff({
       assignedTech: item.assignedTech,
@@ -1352,7 +1352,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       itemId: item.id,
       category: "ITEM_LIFECYCLE",
       title: "Unit marked ready",
-      message: `${item.unitNumber} passed final walk and moved to Ready Units.`,
+      message: `${item.unitNumber} was marked ready and moved to Ready Units.`,
       dedupeKey: `marked-ready:${item.id}`,
     });
     await queueWebhookEvent({

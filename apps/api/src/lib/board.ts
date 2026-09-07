@@ -103,6 +103,13 @@ export type RuleAction =
       value: string;
     }
   | {
+      type: "setCustomDateFromField";
+      fieldId: string;
+      sourceField: DateOffsetField;
+      offsetDays: number;
+      respectOperatingCalendar?: boolean;
+    }
+  | {
       type: "setDateFromField";
       sourceField: DateOffsetField;
       targetField: DateOffsetField;
@@ -311,6 +318,15 @@ export function applyRules(
             action.offsetDays,
             action.respectOperatingCalendar === false ? null : options.operatingCalendar,
           ) as never;
+        }
+      }
+      if (action.type === "setCustomDateFromField") {
+        const sourceValue = next[action.sourceField];
+        const sourceDate = sourceValue instanceof Date ? sourceValue : sourceValue ? new Date(String(sourceValue)) : null;
+        if (sourceDate && !Number.isNaN(sourceDate.getTime())) {
+          const date = applyBusinessDayOffset(sourceDate, action.offsetDays, action.respectOperatingCalendar === false ? null : options.operatingCalendar);
+          const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+          customFieldUpdates.push({ ruleId: rule.id, fieldId: action.fieldId, value });
         }
       }
     }

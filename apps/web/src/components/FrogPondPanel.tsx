@@ -81,18 +81,18 @@ const frogSheets: Record<string, SpriteSheet> = {
   purple: { url: "/frogs/sprites/frog-purple.png", width: 512, height: 512 },
   brown: { url: "/frogs/sprites/frog-brown.png", width: 512, height: 512 },
   tan: { url: "/frogs/sprites/frog-tan.png", width: 256, height: 128 },
-  tophat: { url: "/frogs/sprites/frog-tophat.png", width: 256, height: 128, achievement: "Ready-stock goal" },
-  cowboy: { url: "/frogs/sprites/frog-cowboy.png", width: 256, height: 128, achievement: "Fast-turn streak" },
-  pirate: { url: "/frogs/sprites/frog-pirate.png", width: 256, height: 128, achievement: "Recovered unit" },
-  viking: { url: "/frogs/sprites/frog-viking.png", width: 256, height: 128, achievement: "Major scope cleared" },
-  clown: { url: "/frogs/sprites/frog-clown.png", width: 256, height: 128, achievement: "Team fun unlock" },
-  funnyglasses: { url: "/frogs/sprites/frog-funnyglasses.png", width: 256, height: 128, achievement: "Inspection streak" },
+  tophat: { url: "/frogs/sprites/frog-tophat.png", width: 256, height: 128, achievement: "Ready for move-in" },
+  cowboy: { url: "/frogs/sprites/frog-cowboy.png", width: 256, height: 128, achievement: "Assigned tech" },
+  pirate: { url: "/frogs/sprites/frog-pirate.png", width: 256, height: 128, achievement: "Critical risk" },
+  viking: { url: "/frogs/sprites/frog-viking.png", width: 256, height: 128, achievement: "Major scope" },
+  clown: { url: "/frogs/sprites/frog-clown.png", width: 256, height: 128, achievement: "Full / partial scope" },
+  funnyglasses: { url: "/frogs/sprites/frog-funnyglasses.png", width: 256, height: 128, achievement: "Move-in this week" },
 };
 
 const tadpoleSprites = ["/frogs/tadpoles/tadpole-1.png", "/frogs/tadpoles/tadpole-2.png", "/frogs/tadpoles/tadpole-3.png", "/frogs/tadpoles/tadpole-4.png", "/frogs/tadpoles/tadpole-5.png", "/frogs/tadpoles/tadpole-6.png"];
 
 type PondPosition = { x: number; y: number };
-type DragState = { id: string; pointerId: number; moved: boolean };
+type DragState = { id: string; pointerId: number; moved: boolean; startX: number; startY: number };
 type FrogFrame = { col: number; row: number };
 type FrogRun = { row: number; startCol: number; frames: number };
 type Fly = { id: number; startTick: number; top: number; duration: number; delay: number; reverse: boolean; loopSize: number; loopSpeed: number; drift: number };
@@ -242,44 +242,17 @@ function validRunsForSheet(sheet: SpriteSheet, pose: string): FrogRun[] {
 function spriteFrameForItem(item: MakeReadyItem, pose: string, index: number, tick: number, sheet: SpriteSheet): FrogFrame {
   const seed = stableNumber(`${item.id}:${item.unitNumber}:${index}`);
   const runs = validRunsForSheet(sheet, pose);
-  const run = runs[(seed + Math.floor(tick / 18)) % runs.length] ?? runs[0];
+  const run = runs[seed % runs.length] ?? runs[0];
   const frameInRun = (Math.floor(tick / (pose === "sleeping" ? 2 : 1)) + index) % run.frames;
   return { col: run.startCol + frameInRun, row: run.row };
 }
 
-function frogPosition(index: number, groupIndex: number, totalGroups: number, density: DensityMode) {
-  const columns = density === "dense" ? 9 : 7;
+function frogPosition(index: number, columns: number, count: number) {
   const row = Math.floor(index / columns);
   const column = index % columns;
-  const bandTop = 38 + ((groupIndex % Math.max(totalGroups, 1)) * (34 / Math.max(totalGroups, 1)));
   return {
-    x: clamp(10 + column * (80 / columns) + ((row % 2) * 3), pondMinX, pondMaxX),
-    y: clamp(bandTop + row * (density === "dense" ? 6 : 8), pondMinY, pondMaxY),
-  };
-}
-
-function motionOffset(index: number, pose: string, tick: number, enabled: boolean) {
-  if (!enabled) return { x: 0, y: 0 };
-  const seed = index * 7;
-  if (pose === "tadpole") {
-    const phase = (tick + seed) / 4;
-    return {
-      x: Math.sin(phase) * 1.8,
-      y: Math.sin(phase * 2) * .18,
-    };
-  }
-  const cycle = (tick + seed) % 34;
-  if (cycle < 7 && pose !== "sleeping") {
-    const progress = cycle / 6;
-    const direction = index % 2 === 0 ? 1 : -1;
-    return {
-      x: direction * progress * 1.1,
-      y: -Math.sin(progress * Math.PI) * 1.9,
-    };
-  }
-  return {
-    x: 0,
-    y: Math.sin((tick + seed) / 6) * .18,
+    x: 8 + (column + .5) * (84 / columns),
+    y: 40 + (row + .5) * (46 / Math.max(1, Math.ceil(count / columns))),
   };
 }
 
@@ -376,7 +349,6 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
   const sceneRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const suppressClickRef = useRef(false);
-  const evadeTimersRef = useRef<Record<string, number>>({});
   const frameTickRef = useRef(0);
   const [config, setConfig] = useState<FrogPondConfig>(() => {
     return { ...loadConfig(), propertyId: selectedPropertyId };
@@ -384,11 +356,30 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
   const [presets, setPresets] = useState(loadPresets);
   const [presetName, setPresetName] = useState("");
   const [positions, setPositions] = useState<Record<string, PondPosition>>(loadPositions);
-  const [evaded, setEvaded] = useState<Record<string, PondPosition>>({});
   const [frameTick, setFrameTick] = useState(0);
   const [flies, setFlies] = useState<Fly[]>([]);
 
-  const motionEnabled = config.animated;
+  const [rearranging, setRearranging] = useState(false);
+  const [sceneWidth, setSceneWidth] = useState(960);
+  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const [pageVisible, setPageVisible] = useState(() => !document.hidden);
+  const motionEnabled = config.animated && !reducedMotion && pageVisible && !rearranging;
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const motion = () => setReducedMotion(media.matches);
+    const visibility = () => setPageVisible(!document.hidden);
+    media.addEventListener("change", motion);
+    document.addEventListener("visibilitychange", visibility);
+    return () => { media.removeEventListener("change", motion); document.removeEventListener("visibilitychange", visibility); };
+  }, []);
+
+  useEffect(() => {
+    if (!sceneRef.current) return;
+    const observer = new ResizeObserver(([entry]) => setSceneWidth(entry.contentRect.width));
+    observer.observe(sceneRef.current);
+    return () => observer.disconnect();
+  }, [loading, error, items, config.propertyId, config.metricSource]);
 
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(config));
@@ -414,6 +405,7 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
       return undefined;
     }
     let nextFlyId = 1;
+    const expiryTimers = new Set<number>();
     const spawnFly = () => {
       const id = nextFlyId;
       nextFlyId += 1;
@@ -428,23 +420,21 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
         loopSpeed: 2 + Math.random() * 3,
         drift: 2 + Math.random() * 7,
       };
-      setFlies((current) => [...current.slice(-11), fly]);
-      window.setTimeout(() => {
+      setFlies((current) => [...current.slice(-4), fly]);
+      const expiry = window.setTimeout(() => {
         setFlies((current) => current.filter((entry) => entry.id !== id));
+        expiryTimers.delete(expiry);
       }, (fly.duration + fly.delay + 1) * 1000);
+      expiryTimers.add(expiry);
     };
     const initialTimers = [700, 1600, 2800].map((delay) => window.setTimeout(spawnFly, delay));
     const timer = window.setInterval(spawnFly, 2100);
     return () => {
       initialTimers.forEach((initial) => window.clearTimeout(initial));
+      expiryTimers.forEach((expiry) => window.clearTimeout(expiry));
       window.clearInterval(timer);
     };
   }, [motionEnabled]);
-
-  useEffect(() => () => {
-    Object.values(evadeTimersRef.current).forEach((timer) => window.clearTimeout(timer));
-    evadeTimersRef.current = {};
-  }, []);
 
   useEffect(() => {
     setConfig((current) => current.propertyId === selectedPropertyId ? current : { ...current, propertyId: selectedPropertyId });
@@ -461,12 +451,15 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
     return acc;
   }, {}), [boardSections, config.groupBy, scopedItems]);
 
-  const visibleItems = scopedItems.slice(0, Math.max(1, config.maxFrogs));
+  const columns = Math.max(3, Math.min(config.density === "dense" ? 9 : 7, Math.floor(sceneWidth / 92)));
+  const visibleLimit = Math.min(Math.max(1, config.maxFrogs), columns * (sceneWidth < 600 ? 3 : 6));
+  const orderedItems = useMemo(() => [...scopedItems].sort((a, b) => groupValue(a, config.groupBy, boardSections).localeCompare(groupValue(b, config.groupBy, boardSections))), [scopedItems, config.groupBy, boardSections]);
+  const visibleItems = orderedItems.slice(0, visibleLimit);
   const hiddenCount = Math.max(0, scopedItems.length - visibleItems.length);
   const groups = Object.keys(grouped).sort();
   const legendValues = Array.from(new Set(visibleItems.map((item) => colorValue(item, config.colorBy))));
   const activePond = pondThemes.find((theme) => theme.key === config.theme) ?? pondThemes[0];
-  const hiddenGroupSummary = useMemo(() => scopedItems.slice(Math.max(1, config.maxFrogs)).reduce<Array<{ group: string; count: number; units: string[] }>>((acc, item) => {
+  const hiddenGroupSummary = useMemo(() => orderedItems.slice(visibleLimit).reduce<Array<{ group: string; count: number; units: string[] }>>((acc, item) => {
     const group = groupValue(item, config.groupBy, boardSections);
     const existing = acc.find((entry) => entry.group === group);
     if (existing) {
@@ -476,20 +469,17 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
     }
     acc.push({ group, count: 1, units: [displayUnitNumber(item.property.code, item.unitNumber)] });
     return acc;
-  }, []).sort((left, right) => right.count - left.count), [boardSections, config.groupBy, config.maxFrogs, scopedItems]);
+  }, []).sort((left, right) => right.count - left.count), [boardSections, config.groupBy, visibleLimit, orderedItems]);
   const achievementLegend = useMemo(() => Array.from(new Set(visibleItems.map((item) => sheetForItem(item).achievementLabel).filter((value): value is string => Boolean(value)))), [visibleItems]);
   const renderedFrogs = useMemo<FrogRender[]>(() => visibleItems.map((item, index) => {
     const group = groupValue(item, config.groupBy, boardSections);
-    const groupIndex = Math.max(0, groups.indexOf(group));
     const colorLabel = colorValue(item, config.colorBy);
     const color = colorForValue(colorLabel, config.colorBy, labelsByField, legendValues.indexOf(colorLabel));
     const pose = poseForItem(item, config.poseBy);
     const { sheet, achievementLabel } = sheetForItem(item);
     const frame = spriteFrameForItem(item, pose, index, frameTick, sheet);
     const tadpoleUrl = tadpoleSprites[(frameTick + index) % tadpoleSprites.length];
-    const basePosition = positions[item.id] ?? frogPosition(index, groupIndex, groups.length, config.density);
-    const wander = motionOffset(index, pose, frameTick, motionEnabled && !positions[item.id]);
-    const evade = evaded[item.id] ?? { x: 0, y: 0 };
+    const basePosition = positions[item.id] ?? frogPosition(index, columns, visibleItems.length);
     return {
       item,
       index,
@@ -501,10 +491,10 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
       achievementLabel,
       frame,
       tadpoleUrl,
-      x: clamp(basePosition.x + wander.x + evade.x, pondMinX, pondMaxX),
-      y: clamp(basePosition.y + wander.y + evade.y, pondMinY, pondMaxY),
+      x: clamp(basePosition.x, Math.max(pondMinX, 48 / Math.max(sceneWidth, 1) * 100), Math.min(pondMaxX, 100 - 48 / Math.max(sceneWidth, 1) * 100)),
+      y: clamp(basePosition.y, pondMinY, pondMaxY),
     };
-  }), [boardSections, config.colorBy, config.density, config.groupBy, config.poseBy, evaded, frameTick, groups, labelsByField, legendValues, motionEnabled, positions, visibleItems]);
+  }), [boardSections, columns, sceneWidth, config.colorBy, config.density, config.groupBy, config.poseBy, frameTick, groups, labelsByField, legendValues, motionEnabled, positions, visibleItems]);
 
   useEffect(() => {
     if (!motionEnabled || flies.length === 0 || renderedFrogs.length === 0) return;
@@ -533,7 +523,6 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
 
   const resetPositions = () => {
     setPositions({});
-    setEvaded({});
     window.localStorage.removeItem(positionsKey);
   };
 
@@ -547,7 +536,8 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
   };
 
   const startDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: string) => {
-    dragRef.current = { id, pointerId: event.pointerId, moved: false };
+    if (!rearranging) return;
+    dragRef.current = { id, pointerId: event.pointerId, moved: false, startX: event.clientX, startY: event.clientY };
     suppressClickRef.current = false;
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -555,6 +545,7 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
   const moveDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const drag = dragRef.current;
     if (!drag) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 8) return;
     const next = positionFromPointer(event);
     if (!next) return;
     drag.moved = true;
@@ -575,51 +566,31 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
     }, 0);
   };
 
-  const evadeOnce = (event: ReactPointerEvent<HTMLButtonElement>, id: string, index: number, pose: string, current: PondPosition) => {
-    if (!motionEnabled || evaded[id]) return;
-    const pointer = positionFromPointer(event);
-    const fallbackDirection = index % 2 === 0 ? 1 : -1;
-    const awayX = pointer ? current.x - pointer.x : fallbackDirection;
-    const awayY = pointer ? current.y - pointer.y : 1;
-    const length = Math.max(.01, Math.hypot(awayX, awayY));
-    const horizontal = awayX / length || fallbackDirection;
-    const vertical = awayY / length || .2;
-    const distance = pose === "tadpole" ? 5.2 : 4.2;
-    setEvaded((current) => ({
-      ...current,
-      [id]: {
-        x: horizontal * distance,
-        y: pose === "tadpole" ? vertical * 2.2 : -2.6 - (index % 2),
-      },
-    }));
-    if (evadeTimersRef.current[id]) window.clearTimeout(evadeTimersRef.current[id]);
-    evadeTimersRef.current[id] = window.setTimeout(() => {
-      setEvaded((current) => {
-        const next = { ...current };
-        delete next[id];
-        return next;
-      });
-      delete evadeTimersRef.current[id];
-    }, 5000);
-  };
-
   if (loading) return <StatusState title={isSpanish ? "Cargando Frog Pond" : "Loading Frog Pond"} description={isSpanish ? "Reuniendo datos del tablero para la visualizacion del estanque." : "Gathering board data for the pond visualization."} />;
   if (error) return <StatusState title={isSpanish ? "Frog Pond no disponible" : "Frog Pond unavailable"} description={isSpanish ? "Actualice los datos del tablero e intentelo de nuevo." : "Refresh the board data and try again."} tone="error" />;
 
   return (
-    <section className={`frog-pond-shell frog-theme-${config.theme} frog-density-${config.density}${motionEnabled ? " frog-animated" : ""}`} data-testid="frog-pond-panel">
+    <section className={`frog-pond-shell frog-theme-${config.theme} frog-density-${config.density}${motionEnabled ? " frog-animated" : ""}${rearranging ? " frog-rearranging" : ""}`} data-testid="frog-pond-panel">
       <header className="panel-heading">
         <div>
           <h2>Frog Pond</h2>
-          <p>{isSpanish ? "Vista operativa visual: las ranas representan registros reales de make-ready. Use la tabla para ediciones precisas." : "Whimsical operations view: frogs represent real make-ready records. Use the table for precision edits."}</p>
+          <p>{isSpanish ? "Cada rana es una unidad. Seleccione una para ver su trabajo." : "Every frog is a unit. Select one to see its work."}</p>
         </div>
         <div className="frog-summary" data-testid="frog-summary">
           <strong>{scopedItems.length}</strong><span>{config.metricSource.replace(/([A-Z])/g, " $1")} {isSpanish ? "ranas" : "frogs"}</span>
           <strong>{groups.length}</strong><span>{isSpanish ? "grupos" : "groups"}</span>
-          <strong>{hiddenCount}</strong><span>{isSpanish ? "agrupadas" : "clustered"}</span>
+          <strong>{visibleItems.length}</strong><span>{isSpanish ? "visibles" : "on the pond"}</span>
         </div>
       </header>
 
+      <div className="frog-scene-tools">
+        <span>{isSpanish ? "Su tablero, con un poco de vida." : "A little life in your workday."}</span>
+        <button type="button" className="button button-secondary" aria-pressed={!config.animated} onClick={() => updateConfig({ animated: !config.animated })}>{config.animated ? (isSpanish ? "Pausar movimiento" : "Pause motion") : (isSpanish ? "Activar movimiento" : "Resume motion")}</button>
+        <button type="button" className="button button-secondary" aria-pressed={rearranging} onClick={() => setRearranging(!rearranging)}>{rearranging ? (isSpanish ? "Terminar" : "Done arranging") : (isSpanish ? "Organizar ranas" : "Arrange frogs")}</button>
+        {reducedMotion ? <small>{isSpanish ? "Movimiento reducido del dispositivo activo" : "Device reduced-motion setting is on"}</small> : null}
+      </div>
+      <details className="frog-settings">
+        <summary data-testid="frog-settings-toggle">{isSpanish ? "Ajustes del estanque" : "Pond settings"}<span>{isSpanish ? "Vista, colores y temas" : "View, colors & scenery"}</span></summary>
       <div className="frog-config" data-testid="frog-config">
         <div className="frog-playbooks" data-testid="frog-playbooks">
           {pondPlaybooks.map((playbook) => (
@@ -688,6 +659,7 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
           <button data-testid="frog-save-preset" type="button" className="button button-secondary" onClick={savePreset} disabled={!presetName.trim()}>{isSpanish ? "Guardar" : "Save"}</button>
         </div>
       </div>
+      </details>
 
       {scopedItems.length === 0 ? (
         <div className="frog-empty" data-testid="frog-empty-state">
@@ -695,7 +667,9 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
           <span>{isSpanish ? "Pruebe un filtro de propiedad mas amplio o cambie la metrica." : "Try a broader property filter or switch the metric source."}</span>
         </div>
       ) : (
-        <div ref={sceneRef} className="frog-pond-scene" data-testid="frog-pond-scene" aria-label={isSpanish ? "Visualizacion operativa de Frog Pond" : "Frog Pond operational visualization"} style={{ "--pond-image": `url("${activePond.url}")` } as CSSProperties}>
+        <div ref={sceneRef} className="frog-pond-scene" data-testid="frog-pond-scene" aria-label={isSpanish ? "Visualizacion operativa de Frog Pond" : "Frog Pond operational visualization"} style={{ "--pond-image": `url("${activePond.url}")`, "--pond-height": `${Math.max(460, Math.ceil(visibleItems.length / columns) * 170 + 120)}px` } as CSSProperties}>
+          <div className="pond-atmosphere" aria-hidden="true"><div className="pond-water-light" />{Array.from({ length: 7 }, (_, i) => <i key={i} style={{ "--mote": i, left: `${12 + i * 12}%`, top: `${24 + (i % 3) * 15}%` } as CSSProperties} />)}</div>
+          <div className="pond-scene-caption" aria-hidden="true">{rearranging ? (isSpanish ? "Arrastre las ranas para organizarlas" : "Drag frogs to arrange your pond") : (isSpanish ? "Seleccione una rana para abrir la unidad" : "Select a frog to open its unit")}</div>
           {renderedFrogs.map(({ item, index, group, colorLabel, color, pose, sheet, achievementLabel, frame, tadpoleUrl, x, y }) => {
             return (
               <button
@@ -714,7 +688,7 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
                   "--sprite-col": frame.col,
                   "--sprite-row": frame.row,
                   "--frog-index": index,
-                  zIndex: 300 - index,
+                  zIndex: Math.round(y),
                 } as CSSProperties}
                 onClick={() => {
                   if (suppressClickRef.current || dragRef.current?.moved) {
@@ -727,12 +701,13 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
                 onPointerMove={moveDrag}
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
-                onPointerEnter={(event) => evadeOnce(event, item.id, index, pose, { x, y })}
                 title={`${displayUnitNumber(item.property.code, item.unitNumber)} / ${group} / ${colorLabel}${achievementLabel ? ` / ${achievementLabel}` : ""}`}
               >
+                <span className="frog-water-ring" aria-hidden="true" />
+                <span className="frog-lily-pad" aria-hidden="true" />
                 <span className="frog-body" aria-hidden="true"><i /><b /></span>
                 <strong>{displayUnitNumber(item.property.code, item.unitNumber)}</strong>
-                <em>{pose.replace("-", " ")}</em>
+                <em><i style={{ background: color }} />{colorLabel}</em>
                 {achievementLabel ? <small>{achievementLabel}</small> : null}
               </button>
             );
@@ -748,10 +723,12 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
               } as CSSProperties}
             />
           ))}
+        </div>
+      )}
           {hiddenCount > 0 ? (
             <div className="frog-cluster" data-testid="frog-cluster">
               <strong>+{hiddenCount}</strong>
-              <span>{isSpanish ? "ranas ocultas por el límite actual" : "frogs hidden by the current limit"}</span>
+              <span>{isSpanish ? "unidades adicionales; abra un grupo para verlas" : "more units; open a group to see them"}</span>
               <div className="frog-cluster-list">
                 {hiddenGroupSummary.slice(0, 4).map((entry) => (
                   <button key={entry.group} type="button" className="frog-cluster-chip" onClick={() => onGroupDrillDown({ type: config.groupBy, value: entry.group })} title={entry.units.join(", ")}>
@@ -762,8 +739,6 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
               </div>
             </div>
           ) : null}
-        </div>
-      )}
 
       <div className="frog-group-summary" data-testid="frog-group-summary">
         <strong>Groups: {config.groupBy.replace(/([A-Z])/g, " $1")}</strong>
@@ -778,7 +753,7 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
         <strong>Legend: {config.colorBy.replace(/([A-Z])/g, " $1")}</strong>
         {legendValues.map((value, index) => <span key={value}><i style={{ background: colorForValue(value, config.colorBy, labelsByField, index) }} />{value}</span>)}
         {achievementLegend.length ? <small>{isSpanish ? "Accesorios activos:" : "Active accessories:"} {achievementLegend.join(" · ")}</small> : null}
-        <small>{isSpanish ? "Los sprites usan cuadros 32x32 y los accesorios ahora se activan por señales operativas reales como listo, trabajo mayor, riesgo crítico o mudanza cercana." : "Sprites use 32x32 frames, and accessories now activate from real operating signals such as ready units, major scope, critical risk, or near-term move-ins."}</small>
+        <small>{isSpanish ? "Los accesorios indican el estado del trabajo, no premios." : "Accessories reflect work status, not earned awards."}</small>
       </div>
     </section>
   );

@@ -54,6 +54,9 @@ mkdir -p "$LOG_DIR"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/adminUsername.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/dashboardDates.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/notifications.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/turnSetup.test.ts"
+  node --test "$ROOT_DIR/e2e/connection-recovery.test.mjs"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/turnAssignments.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/notificationScope.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/metaStaffScope.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/leaseAssignment.test.ts"
@@ -975,6 +978,11 @@ mkdir -p "$LOG_DIR"
       curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/make-ready-items/$READY_ITEM_ID" \
         | node -e 'let s=""; process.stdin.on("data", c=>s+=c); process.stdin.on("end",()=>{const item=JSON.parse(s); if(item.vacancyStatus!==process.argv[1] || item.makeReadyStatus!=="DONE" || item.completionStatus!=="YES") throw new Error("Mark Ready changed leasing/occupancy facts or failed to finish work");});' "$READY_EXPECTED"
     done
+
+    echo "Checking Mark Ready records status without inventing a final inspection"
+    curl -fsS -b "$COOKIE_JAR" \
+      "http://localhost:${API_PORT:-4000}/api/activity?action=BOARD_ITEM_MARKED_READY&propertyId=$TEST_PROPERTY_ID&limit=100" \
+      | node -e 'let s=""; process.stdin.on("data", c=>s+=c); process.stdin.on("end",()=>{const rows=JSON.parse(s).activity; if(rows.length!==4 || rows.some(row=>!row.description.includes("was marked ready and moved to Ready Units.") || row.description.includes("passed final walk"))) throw new Error("Ready status must not claim an unrecorded inspection");});'
 
     echo "Checking a database failure rolls back the whole archive batch"
     # The temporary constraint rejects the later ID only in this disposable database.

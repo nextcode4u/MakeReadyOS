@@ -5,6 +5,7 @@ import { PasswordForm } from "./components/PasswordForm";
 import { BoardTable } from "./components/BoardTable";
 import { CommandPalette, type CommandPaletteWorkspaceGroup } from "./components/CommandPalette";
 import { ConnectionStatus } from "./components/ConnectionStatus";
+import { startConnectionRecovery } from "./lib/connectionRecovery";
 import { FilterBar, type ThemeMode } from "./components/FilterBar";
 import { LoginScreen } from "./components/LoginScreen";
 import { Modal } from "./components/Modal";
@@ -76,6 +77,7 @@ import {
   getOperationalLibraryPacks,
   getAutomationRuns,
   getCurrentUser,
+  probeApiConnection,
   getCustomFields,
   getDashboard,
   getAssignedWork,
@@ -691,6 +693,7 @@ function App() {
   const [defaultWorkspaceAppliedForUser, setDefaultWorkspaceAppliedForUser] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
   const [apiDegraded, setApiDegraded] = useState(false);
+  const connectionIssueVersion = useRef(0);
   const [lastConnectionIssueAt, setLastConnectionIssueAt] = useState<string | null>(null);
   const [offlineQueuePendingCount, setOfflineQueuePendingCount] = useState(0);
   const [offlineQueueSyncing, setOfflineQueueSyncing] = useState(false);
@@ -778,7 +781,6 @@ function App() {
   };
 
   const retryConnection = () => {
-    setApiDegraded(false);
     void queryClient.invalidateQueries();
     pushToast(t(meQuery.data?.user.language ?? "en", "connection.retrying"), t(meQuery.data?.user.language ?? "en", "connection.retryingCopy"), "info");
     void syncQueuedOfflineChanges();
@@ -3081,19 +3083,30 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!apiDegraded || !isOnline) return;
+    return startConnectionRecovery(async signal => {
+      const version = connectionIssueVersion.current;
+      const healthy = await probeApiConnection(signal);
+      return healthy && version === connectionIssueVersion.current;
+    }, () => setApiDegraded(false));
+  }, [apiDegraded, isOnline]);
+
+  useEffect(() => {
     const online = () => {
       setIsOnline(true);
-      setApiDegraded(false);
+      setApiDegraded(true);
       pushToast(t(meQuery.data?.user.language ?? "en", "connection.backOnline"), t(meQuery.data?.user.language ?? "en", "connection.backOnlineCopy"), "success");
       void queryClient.invalidateQueries();
       void syncQueuedOfflineChanges();
     };
     const offline = () => {
+      connectionIssueVersion.current++;
       setIsOnline(false);
       setLastConnectionIssueAt(new Date().toISOString());
       pushToast(t(meQuery.data?.user.language ?? "en", "connection.offlineToast"), t(meQuery.data?.user.language ?? "en", "connection.offlineToastCopy"), "error");
     };
     const unreachable = (event: Event) => {
+      connectionIssueVersion.current++;
       const detail = event instanceof CustomEvent ? event.detail as { at?: string } : {};
       setApiDegraded(true);
       setLastConnectionIssueAt(detail.at ?? new Date().toISOString());
@@ -4116,6 +4129,17 @@ function App() {
               </div>
             ) : (
               <AutomationPanel
+                onOpenSchedule={(targetPropertyId) => {
+                  const customSource = (key: string) => `custom:${metaQuery.data?.customFields.find(field => field.fieldKey === key)?.id}`;
+                  const sources = [customSource("turnMaintenanceDate"), customSource("turnPaintingDate"), customSource("turnCleaningDate"), "flooringDate", "makeReadyDate"];
+                  const tracks = sources.map(source => scheduleFieldOptions.find(track => track.sourceField === source)?.id).filter((id): id is string => Boolean(id));
+                  clearBoardFilters();
+                  setPropertyId(targetPropertyId);
+                  setCalendarPanelFields(tracks);
+                  setCalendarLayout("auto");
+                  if (tracks[0]) setActiveCalendarField(tracks[0]);
+                  setActiveView("calendar");
+                }}
                 role={currentUser.role}
                 language={currentUser.language}
                 properties={metaQuery.data?.properties ?? []}

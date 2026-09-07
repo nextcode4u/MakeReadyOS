@@ -268,6 +268,8 @@ test.describe("mobile workflow coverage", () => {
     await assertNoPageHorizontalOverflow(page);
 
     await openWorkspaceFromViews(page, "tab-automations", "automations", "automation-panel");
+    await expect(page.getByTestId("turn-scheduling-guide")).toBeVisible();
+    await page.getByTestId("automation-advanced-toggle").click();
     await expect(page.getByTestId("automation-template-library")).toBeVisible();
     await expect(page.getByTestId("property-template-library")).toBeVisible();
     await assertNoPageHorizontalOverflow(page);
