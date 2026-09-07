@@ -1505,12 +1505,12 @@ function App() {
 
   const effectiveItemServerFilters = useMemo(() => ({
     ...itemServerFilters,
-    ...(boardWindowedMode ? {
+    ...(boardWindowedMode && activeView !== "calendar" ? {
       limit: boardWindowLimit,
       offset: 0,
       ...(serverSortableItemFields.has(sortKey) ? { sortBy: sortKey as NonNullable<Parameters<typeof getMakeReadyItemPage>[0]["sortBy"]>, sortDirection } : {}),
     } : {}),
-  }), [boardWindowLimit, boardWindowedMode, itemServerFilters, sortDirection, sortKey]);
+  }), [activeView, boardWindowLimit, boardWindowedMode, itemServerFilters, sortDirection, sortKey]);
 
   const makeReadyExportFilters = useMemo(() => ({
     ...itemServerFilters,
@@ -3465,9 +3465,11 @@ function App() {
         : undefined;
     const events = sortedItems
       .map((item) => {
-        const date = customFieldId
+        const savedDate = customFieldId
           ? item.customFieldValues.find((value) => value.customFieldId === customFieldId)?.value
           : item[sourceField as keyof typeof item];
+        const projected = customFieldId === turnStartField?.id && !savedDate && Boolean(item.projectedTurnStartDate);
+        const date = projected ? item.projectedTurnStartDate : savedDate;
         const customColorFieldId = track.colorBasis === "FIELD" && track.colorSourceField?.startsWith("custom:")
           ? track.colorSourceField.slice(7)
           : null;
@@ -3485,6 +3487,7 @@ function App() {
           boardGroup: item.boardGroup,
           propertyCode: item.property.code,
           date: typeof date === "string" ? date : "",
+          projected,
           moveInSoon: Boolean(track.moveInSoonEnabled && item.moveInSoon),
           overdue: Boolean(track.overdueEnabled && item.overdue),
           trackLabel: track.displayName,
@@ -3501,7 +3504,7 @@ function App() {
       .filter((event) => !track.visibilityFilter?.boardGroups?.length || track.visibilityFilter.boardGroups.includes(event.boardGroup))
       .filter((event) => !track.visibilityFilter?.statusValues?.length || Boolean(event.statusValue && track.visibilityFilter.statusValues.includes(event.statusValue)));
     return [track.id, events];
-  })), [scheduleFieldOptions, metaQuery.data?.customFields, sortedItems, vendorAssignmentsQuery.data?.assignments, itemsById]);
+  })), [scheduleFieldOptions, metaQuery.data?.customFields, sortedItems, vendorAssignmentsQuery.data?.assignments, itemsById, turnStartField?.id]);
 
   const applySavedView = (view: SavedView) => {
     const filters = (view.filters ?? {}) as Record<string, unknown>;
@@ -4321,7 +4324,7 @@ function App() {
                   onSaveContext={dashboardDrilldownContext && currentUser.role !== "VIEWER" ? () => void saveDashboardDrilldownView() : undefined}
                   savingContext={createViewMutation.isPending}
                 />
-                <div className="board-window-controls" data-testid="board-window-controls">
+                {activeView !== "calendar" ? <div className="board-window-controls" data-testid="board-window-controls">
                   <div className="board-window-header">
                     <label className="toggle-row">
                       <input
@@ -4383,7 +4386,7 @@ function App() {
                       </button>
                     ) : null}
                   </div>
-                </div>
+                </div> : null}
               </>
             ) : null}
             {activeView === "table" ? (

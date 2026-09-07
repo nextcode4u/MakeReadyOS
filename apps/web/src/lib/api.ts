@@ -2345,6 +2345,7 @@ export type PropertyMapArea = {
 };
 
 export type MakeReadyItem = {
+  projectedTurnStartDate?: string | null;
   id: string;
   propertyId: string;
   unitId: string | null;

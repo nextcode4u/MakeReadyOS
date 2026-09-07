@@ -5,6 +5,7 @@ import { LabelPill } from "./LabelPill";
 import { StatusState } from "./StatusState";
 
 export type CalendarEvent = {
+  projected?: boolean;
   id: string;
   unitNumber: string;
   boardGroup: string;
@@ -147,7 +148,7 @@ function CalendarPanel({ track, events, labelsByField, month, onMonthChange, ind
       {!events.length ? <div className="calendar-legend" role="status" data-testid={`calendar-empty-${index}`}>
         <strong>{isSpanish ? "No hay fechas para esta pista con los filtros actuales." : "No dates for this track with the current filters."}</strong>
         {track.sourceField === startDateSourceField ? <>
-          <p>{isSpanish ? "El plan predeterminado llena fechas faltantes cada cinco minutos. Revisa la fecha de desocupación, los filtros y si el plan está pausado. Las unidades listas, ocupadas o con aviso de salida se omiten." : "The default plan fills missing dates every five minutes. Check Vacated dates, filters, and whether scheduling is paused. Ready, occupied and notice-to-vacate units are skipped; existing dates are preserved."}</p>
+          <p>{isSpanish ? "Revisa las fechas de salida prevista o desocupación y los filtros. Las unidades con aviso de salida muestran un inicio proyectado; las unidades listas o completadas se omiten." : "Check NTV / Expected Vacate or Vacated dates and your filters. Notice-to-vacate units appear with projected starts; ready and completed units are skipped."}</p>
           {onSetupScheduling ? <button type="button" className="button button-primary" onClick={onSetupScheduling}>{isSpanish ? "Configurar programación" : "Set up turn scheduling"}</button> : <p>{isSpanish ? "Pide a un administrador que revise la programación." : "Ask a manager to review turn scheduling."}</p>}
         </> : <p>{isSpanish ? "Revisa los filtros y las fechas de las unidades." : "Check the filters and the dates saved on your units."}</p>}
       </div> : null}
@@ -199,7 +200,8 @@ function CalendarPanel({ track, events, labelsByField, month, onMonthChange, ind
               <div className="calendar-events">
                 {dayEvents.map((event) => (
                   <button type="button" className="calendar-event" data-testid={`calendar-event-${event.id}`} onClick={() => onOpenItem(event.id)} key={`${track.id}-${event.id}`} aria-label={isSpanish ? `Abrir detalles para ${event.propertyCode} ${event.unitNumber}` : `Open details for ${event.propertyCode} ${event.unitNumber}`}>
-                    <LabelPill value={event.unitNumber} label={eventLabel(event, labelsByField)} />
+                    <LabelPill value={`${event.propertyCode} ${event.unitNumber}`} label={eventLabel(event, labelsByField)} />
+                    {event.projected ? <span data-testid={`calendar-projected-${event.id}`}>{isSpanish ? "Proyectado" : "Projected"}</span> : null}
                     <small className="calendar-event-context">{event.riskLevel && event.riskLevel !== "NONE" ? (isSpanish ? `Riesgo ${event.riskLevel}` : `${event.riskLevel} risk`) : event.overdue ? (isSpanish ? "Atrasado" : "Overdue") : event.moveInSoon ? (isSpanish ? "Mudanza proxima" : "Move-in soon") : event.customColorLabel || event.statusValue || event.trackLabel}</small>
                   </button>
                 ))}
@@ -224,7 +226,7 @@ export function CalendarView({ eventsByTrack, labelsByField, fieldOptions, layou
           <option value="single">{isSpanish ? "1 calendario" : "1 calendar"}</option><option value="split">{isSpanish ? "2 calendarios divididos" : "2 calendar split"}</option><option value="grid">{isSpanish ? "Cuadricula de 4 calendarios" : "4 calendar grid"}</option><option value="auto">{isSpanish ? "Auto adaptable" : "Auto responsive"}</option>
         </select>
       </div>
-      <p className="muted" data-testid="calendar-date-guide">{isSpanish ? "Make Ready (Start): inicio de reparaciones. Expected Finish: fecha prevista para terminar la unidad. Son fechas distintas; una fecha de fin no programa el inicio. Configure las fechas faltantes en Automations." : "Make Ready (Start) is when tech repairs begin. Expected Finish is when the whole unit should be ready. A finish date does not schedule a start; fill missing dates through Automations."}</p>
+      <p className="muted" data-testid="calendar-date-guide">{isSpanish ? "Muestra todas las unidades accesibles con los filtros actuales, no solo tus asignaciones. Sin inicio guardado, se proyecta el siguiente día laboral tras la salida prevista o desocupación. Expected Finish es una fecha distinta." : "Shows all accessible units matching your filters, not just your assignments. Without a saved start, Projected uses the next working day after NTV / Expected Vacate or Vacated, respecting property weekday restrictions. Expected Finish is separate. Projections update with vacate dates; saved starts are preserved."}</p>
       <div className="calendar-panels">
         {Array.from({ length: count }, (_, index) => {
           const id = selectedFields[index] ?? fieldOptions[index]?.id ?? fieldOptions[0]?.id;
