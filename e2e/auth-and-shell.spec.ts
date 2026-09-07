@@ -8,6 +8,95 @@ const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
+test("partial mobile pool logs never default unchecked safety to pass", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("module-rail-pool").click();
+  await page.getByRole("combobox", { name: "Pool log property" }).selectOption("");
+  await page.getByTestId("pool-tab-setup").click();
+  await expect(page.getByTestId("pool-property-required")).toBeVisible();
+  await expect(page.getByTestId("pool-facility-submit")).toBeDisabled();
+  await page.getByTestId("pool-tab-chemicals").click();
+  await expect(page.getByTestId("pool-chemical-submit")).toBeDisabled();
+  await page.getByTestId("pool-tab-daily").click();
+  await expect(page.getByTestId("pool-daily-submit")).toBeDisabled();
+  await page.getByRole("combobox", { name: "Pool log property" }).selectOption({ index: 1 });
+  await page.getByTestId("pool-tab-setup").click();
+  await page.getByTestId("pool-facility-name").fill(uniqueTag("Partial Pool"));
+  const facility = page.waitForResponse(response => response.url().includes("/api/pool/facilities") && response.request().method() === "POST");
+  await page.getByTestId("pool-facility-submit").click();
+  expect((await facility).status()).toBe(201);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByTestId("pool-tab-daily").click();
+  await expect(page.getByTestId("pool-safety-0")).toHaveValue("NOT_CHECKED");
+  const saved = page.waitForResponse(response => response.url().includes("/api/pool/entries") && response.request().method() === "POST");
+  await page.getByTestId("pool-daily-submit").click();
+  const result = await saved;
+  expect(result.status()).toBe(201);
+  const body = await result.json();
+  expect(body.entry.evaluationJson.status).toBe("INCOMPLETE");
+  expect(body.entry.safetyChecks.every((check: { value: string }) => check.value === "NOT_CHECKED")).toBe(true);
+  await page.getByTestId("pool-tab-history").click();
+  await expect(page.getByTestId("pool-history-row").first()).toContainText("INCOMPLETE");
+  await expect(page.getByTestId("pool-history-row").first()).toContainText("Record missing readings and checks");
+});
+
+test("admin can resend an invite and sees delivery failures inline", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-admin").click();
+  await page.getByTestId("admin-user-search").fill(adminEmail);
+  await page.locator(".admin-user-table tbody tr").first().click();
+  const resend = page.getByTestId("admin-resend-invite");
+  await expect(resend).toBeEnabled();
+  await page.getByTestId("admin-edit-email").fill("unsaved@example.com");
+  await expect(resend).toBeDisabled();
+  await page.getByTestId("admin-edit-email").fill(adminEmail);
+  let fail = true;
+  await page.route("**/api/admin/users/*/resend-invite", route => route.fulfill({
+    status: fail ? 502 : 200, json: fail ? { message: "Test email delivery failure" } : { ok: true },
+  }));
+  await resend.click();
+  await expect(page.getByRole("alert")).toContainText("Test email delivery failure");
+  await expect(resend).toBeEnabled();
+  fail = false;
+  await resend.click();
+  await expect(page.getByRole("status").filter({ hasText: "Invite sent." })).toBeVisible();
+});
+
+test("invite mode clears and disables the manual password", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-admin").click();
+  const password = page.getByTestId("admin-create-password");
+  const invite = page.getByTestId("admin-create-send-invite");
+  const submit = page.getByTestId("admin-create-user-button");
+  await page.getByTestId("admin-create-full-name").fill("Invite Test");
+  await page.getByTestId("admin-create-username").fill("invite-test");
+  await page.getByTestId("admin-create-email").fill("invite-test@example.com");
+  await password.fill("TempUser!23456");
+  await invite.check();
+  await expect(password).toBeDisabled();
+  await expect(password).toHaveValue("");
+  await expect(submit).toBeEnabled();
+  await invite.uncheck();
+  await expect(password).toBeEnabled();
+  await expect(password).toHaveValue("");
+  await expect(submit).toBeDisabled();
+  await password.fill("AnotherTemp!23456");
+  await invite.check();
+  await page.route("**/api/admin/users", async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    expect(route.request().postDataJSON()).toMatchObject({ sendInviteEmail: true, password: "" });
+    await route.fulfill({ status: 400, json: { message: "Test submission intercepted; no invite sent." } });
+  });
+  await submit.click();
+  await expect(page.getByTestId("admin-panel").getByRole("alert")).toContainText("Test submission intercepted");
+  await expect(password).toBeDisabled();
+  await expect(password).toHaveValue("");
+  await page.getByTestId("admin-create-email").fill("");
+  await expect(invite).not.toBeChecked();
+  await expect(password).toBeEnabled();
+  await expect(submit).toBeDisabled();
+});
+
 test("email username checkbox preserves failed account drafts and creates a working login", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
   await page.getByTestId("tab-admin").click();
@@ -310,12 +399,17 @@ test("failed bulk archive keeps its selection and blocks duplicate confirmation"
   let release!: () => void;
   const pending = new Promise<void>(resolve => { release = resolve; });
   await page.route("**/api/make-ready-items/batch", async route => {
+    expect(route.request().postDataJSON().ids).toHaveLength(1);
     requests++;
     await pending;
     await route.fulfill({ status: 503, json: { message: "Test archive unavailable" } });
   });
   await page.getByTestId("select-item-ta-284").check();
   await page.getByTestId("batch-archive").click();
+  await expect(page.getByTestId("confirm-dialog")).toContainText("TA / TA 284");
+  const another = page.locator('input[data-testid^="select-item-"]:not([data-testid="select-item-ta-284"])').first();
+  await another.evaluate(element => (element as HTMLInputElement).click());
+  await expect(page.getByTestId("confirm-dialog")).toContainText("archive 1 selected");
   const confirm = page.getByTestId("confirm-dialog-confirm");
   await confirm.click();
   await expect(confirm).toBeDisabled();
@@ -331,6 +425,34 @@ test("failed bulk archive keeps its selection and blocks duplicate confirmation"
   await page.getByTestId("board-search").fill("");
   await expect(page.getByTestId("select-item-ta-284")).not.toBeChecked();
   expect(requests).toBe(1);
+});
+
+test("move confirmation preserves its original unit selection after a failed request", async ({ page }) => {
+  const loaded = page.waitForResponse(response => response.url().includes("/api/make-ready-items") && response.request().method() === "GET" && response.ok());
+  await login(page, adminEmail, adminPassword);
+  const response = await loaded;
+  const body = await response.json();
+  const selectedItem = (Array.isArray(body) ? body : body.items).find((item: { unitNumber: string }) => item.unitNumber === "TA 284");
+  expect(selectedItem).toBeTruthy();
+  await page.getByTestId("select-item-ta-284").check();
+  const groups = page.getByTestId("batch-group-select");
+  await groups.selectOption({ index: 1 });
+  const destination = await groups.inputValue();
+  await page.getByTestId("batch-move").click();
+  const dialog = page.getByTestId("confirm-dialog");
+  await expect(dialog).toContainText("TA / TA 284");
+  await page.locator('input[data-testid^="select-item-"]:not([data-testid="select-item-ta-284"])').first()
+    .evaluate(element => (element as HTMLInputElement).click());
+  await expect(dialog).toContainText("Move 1 selected items");
+  const submitted: unknown[] = [];
+  await page.route("**/api/make-ready-items/batch", async route => {
+    submitted.push(route.request().postDataJSON());
+    await route.fulfill({ status: 503, json: { message: "Test move unavailable" } });
+  });
+  await page.getByTestId("confirm-dialog-confirm").click();
+  await expect(dialog.getByRole("alert")).toHaveText("Test move unavailable");
+  expect(submitted).toEqual([{ action: "MOVE_GROUP", ids: [selectedItem.id], boardGroup: destination }]);
+  await expect(page.getByTestId("select-item-ta-284")).toBeChecked();
 });
 
 test("literal translation keys have user-facing labels", () => {
@@ -1467,6 +1589,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("drawer-risk-section")).toBeVisible();
     await expect(page.getByTestId("drawer-risk-section")).toContainText(/risk|RISK/i);
     await expect(page.getByTestId("unit-history-section")).toBeVisible();
+    await expect(page.getByTestId("history-coverage-notice")).toContainText("This is not a full audit");
   });
 
   test("schedule exposes NTV terminology and an active custom date track", async ({ page }) => {
@@ -1950,6 +2073,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("pool-log-panel")).toBeVisible();
     await expect(page.getByTestId("pool-report-printable")).toBeVisible();
     await expect(page.getByTestId("pool-export-csv")).toBeVisible();
+    await page.getByRole("combobox", { name: "Pool log property" }).selectOption({ index: 1 });
 
     await page.getByTestId("pool-tab-setup").click();
     await page.getByTestId("pool-facility-name").fill(uniqueTag("QA Pool"));

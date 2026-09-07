@@ -307,14 +307,17 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const [editing, setEditing] = useState<EditingCell | null>(null);
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const batchLock = useRef(false);
+  const [batchPending, setBatchPending] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
   const [mobileBatchModalOpen, setMobileBatchModalOpen] = useState(false);
-  const [confirmBatchArchiveOpen, setConfirmBatchArchiveOpen] = useState(false);
+  const [archiveTargets, setArchiveTargets] = useState<{ id: string; label: string }[] | null>(null);
   const [addGroup, setAddGroup] = useState<string | null>(null);
   const [newItem, setNewItem] = useState({ propertyId: "", unitNumber: "", assignedTech: "", vacancyStatus: "VACANT NOT LEASED NOT READY", makeReadyStatus: "" });
   const [batchTech, setBatchTech] = useState("");
   const [batchStatus, setBatchStatus] = useState("");
   const [batchGroup, setBatchGroup] = useState("");
-  const [pendingGroupMove, setPendingGroupMove] = useState<string | null>(null);
+  const [pendingGroupMove, setPendingGroupMove] = useState<{ boardGroup: string; targets: { id: string; label: string }[] } | null>(null);
   const [optionTarget, setOptionTarget] = useState<{ fieldKey: string; label: string; customField?: CustomField } | null>(null);
   const [quickOption, setQuickOption] = useState({ value: "", color: "#58a6de" });
   const [optionDrafts, setOptionDrafts] = useState<Record<string, { value: string; color: string; isArchived: boolean }>>({});
@@ -559,14 +562,34 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   };
 
   const applyBatch = async (input: Parameters<Props["onBatch"]>[0]) => {
-    await onBatch(input);
-    setSelectedIds([]);
-    setMobileBatchModalOpen(false);
+    if (batchLock.current) throw new Error(isSpanish ? "Una accion masiva esta en curso." : "A bulk action is already in progress.");
+    batchLock.current = true;
+    setBatchPending(true);
+    setBatchError(null);
+    try {
+      await onBatch(input);
+      setSelectedIds(current => current.filter(id => !input.ids.includes(id)));
+      setMobileBatchModalOpen(false);
+    } finally {
+      batchLock.current = false;
+      setBatchPending(false);
+    }
+  };
+
+  const applyDirectBatch = (input: Parameters<Props["onBatch"]>[0]) => {
+    void applyBatch(input).catch(error => setBatchError(error instanceof Error ? error.message : (isSpanish ? "No se pudo guardar. Intente de nuevo." : "Could not save. Please retry.")));
   };
 
   const requestBatchArchive = () => {
-    if (selectedIds.length === 0) return;
-    setConfirmBatchArchiveOpen(true);
+    if (selectedItems.length === 0) return;
+    setArchiveTargets(selectedItems.map(item => ({ id: item.id, label: `${item.property.code} / ${item.unitNumber}` })));
+    setMobileBatchModalOpen(false);
+  };
+
+  const requestGroupMove = () => {
+    if (!batchGroup || selectedItems.length === 0) return;
+    setPendingGroupMove({ boardGroup: batchGroup, targets: selectedItems.map(item => ({ id: item.id, label: `${item.property.code} / ${item.unitNumber}` })) });
+    setMobileBatchModalOpen(false);
   };
 
   const openOptionManager = (fieldKey: string, label: string, customField?: CustomField) => {
@@ -718,6 +741,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
     return (
       <div className="board-scroll" data-testid="board-table-view">
         {workflowTools}
+        {batchError ? <p role="alert" data-testid="batch-error">{batchError}</p> : null}
         <StatusState
           title={isSpanish ? "No hay items del tablero en esta vista" : "No board items match this view"}
           description={isSpanish ? "Pruebe limpiar filtros, cambiar la propiedad o cargar otra vista guardada." : "Try clearing filters, changing the property, or loading a different saved view."}
@@ -731,26 +755,27 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
     <div className="board-scroll" data-testid="board-table-view">
       {workflowTools}
       {mobileBoardToolbar}
+      {batchError && !mobileBatchModalOpen ? <p role="alert" data-testid="batch-error">{batchError}</p> : null}
       {selectedIds.length > 0 && canManageItems ? (
         <div className="batch-action-bar desktop-batch-action-bar" data-testid="batch-action-bar" role="toolbar" aria-label={isSpanish ? "Acciones para elementos de make-ready seleccionados" : "Actions for selected make-ready items"}>
           <strong>{selectedIds.length} {isSpanish ? "seleccionados" : "selected"}</strong>
           <button data-testid="batch-archive" className="button button-danger" onClick={requestBatchArchive}>{isSpanish ? "Archivar" : "Archive"}</button>
-          {selectedItems.some((item) => item.isArchived) ? <button data-testid="batch-restore" className="button button-secondary" onClick={() => void applyBatch({ action: "RESTORE", ids: selectedIds })}>{isSpanish ? "Restaurar" : "Restore"}</button> : null}
+          {selectedItems.some((item) => item.isArchived) ? <button data-testid="batch-restore" className="button button-secondary" disabled={batchPending} onClick={() => applyDirectBatch({ action: "RESTORE", ids: selectedIds })}>{isSpanish ? "Restaurar" : "Restore"}</button> : null}
           <select data-testid="batch-tech-select" value={batchTech} onChange={(event) => setBatchTech(event.target.value)}>
             <option value="">{isSpanish ? "Asignar tecnico..." : "Assign tech..."}</option>
             {staff.map((person) => <option key={person.id} value={person.fullName}>{person.fullName} - {person.role}</option>)}
           </select>
-          <button data-testid="batch-assign-tech" className="button button-secondary" disabled={!batchTech} onClick={() => void applyBatch({ action: "ASSIGN_TECH", ids: selectedIds, value: batchTech || null })}>{isSpanish ? "Asignar" : "Assign"}</button>
+          <button data-testid="batch-assign-tech" className="button button-secondary" disabled={!batchTech || batchPending} onClick={() => applyDirectBatch({ action: "ASSIGN_TECH", ids: selectedIds, value: batchTech || null })}>{isSpanish ? "Asignar" : "Assign"}</button>
           <select data-testid="batch-status-select" value={batchStatus} onChange={(event) => setBatchStatus(event.target.value)}>
             <option value="">{isSpanish ? "Definir make-ready..." : "Set make-ready..."}</option>
             {Object.values(labelsByField.makeReadyStatus ?? {}).filter((label) => !label.isArchived).map((label) => <option key={label.id} value={label.value}>{label.value}</option>)}
           </select>
-          <button className="button button-secondary" disabled={!batchStatus} onClick={() => void applyBatch({ action: "SET_FIELD", ids: selectedIds, field: "makeReadyStatus", value: batchStatus || null })}>{isSpanish ? "Definir" : "Set"}</button>
+          <button className="button button-secondary" disabled={!batchStatus || batchPending} onClick={() => applyDirectBatch({ action: "SET_FIELD", ids: selectedIds, field: "makeReadyStatus", value: batchStatus || null })}>{isSpanish ? "Definir" : "Set"}</button>
           <select data-testid="batch-group-select" value={batchGroup} onChange={(event) => setBatchGroup(event.target.value)}>
             <option value="">{isSpanish ? "Mover a seccion..." : "Move to section..."}</option>
             {boardGroups.map((group) => <option key={group} value={group}>{groupName(group)}</option>)}
           </select>
-          <button data-testid="batch-move" className="button button-secondary" disabled={!batchGroup} onClick={() => setPendingGroupMove(batchGroup)}>{isSpanish ? "Mover" : "Move"}</button>
+          <button data-testid="batch-move" className="button button-secondary" disabled={!batchGroup} onClick={requestGroupMove}>{isSpanish ? "Mover" : "Move"}</button>
           <button className="button button-ghost" onClick={() => setSelectedIds([])}>{isSpanish ? "Limpiar" : "Clear"}</button>
         </div>
       ) : null}
@@ -1616,32 +1641,33 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
         }}
       />
       <ConfirmDialog
-        open={confirmBatchArchiveOpen}
+        open={archiveTargets !== null}
         language={isSpanish ? "es" : "en"}
         title={isSpanish ? "Archivar items seleccionados?" : "Archive selected items?"}
         description={
           isSpanish
-            ? `Esto archivara ${selectedIds.length} item${selectedIds.length === 1 ? "" : "s"} de make-ready seleccionado${selectedIds.length === 1 ? "" : "s"}. Use esta accion solo cuando quiera sacar esos items de la vista activa.`
-            : `This will archive ${selectedIds.length} selected make-ready item${selectedIds.length === 1 ? "" : "s"}. Use this only when you want to remove those items from the active board view.`
+            ? `Esto archivara ${archiveTargets?.length ?? 0} items de make-ready: ${archiveTargets?.slice(0, 10).map(item => item.label).join(", ")}${(archiveTargets?.length ?? 0) > 10 ? ", ..." : ""}. Se quitaran de la vista activa.`
+            : `This will archive ${archiveTargets?.length ?? 0} selected make-ready items: ${archiveTargets?.slice(0, 10).map(item => item.label).join(", ")}${(archiveTargets?.length ?? 0) > 10 ? ", ..." : ""}. They will be removed from the active board view.`
         }
         confirmLabel={isSpanish ? "Archivar items" : "Archive items"}
         tone="danger"
-        onClose={() => setConfirmBatchArchiveOpen(false)}
+        onClose={() => setArchiveTargets(null)}
         onConfirm={async () => {
-          await applyBatch({ action: "ARCHIVE", ids: selectedIds });
-          setConfirmBatchArchiveOpen(false);
+          if (!archiveTargets?.length) return;
+          await applyBatch({ action: "ARCHIVE", ids: archiveTargets.map(item => item.id) });
+          setArchiveTargets(null);
         }}
       />
       <ConfirmDialog
         open={Boolean(pendingGroupMove)}
         language={isSpanish ? "es" : "en"}
         title={isSpanish ? "Mover items seleccionados?" : "Move selected items?"}
-        description={isSpanish ? `Mover ${selectedIds.length} item${selectedIds.length === 1 ? "" : "s"} de make-ready seleccionado${selectedIds.length === 1 ? "" : "s"} a ${pendingGroupMove ? groupName(pendingGroupMove) : "la seccion seleccionada"}?` : `Move ${selectedIds.length} selected make-ready item${selectedIds.length === 1 ? "" : "s"} to ${pendingGroupMove ? groupName(pendingGroupMove) : "the selected section"}?`}
+        description={pendingGroupMove ? `${isSpanish ? "Mover" : "Move"} ${pendingGroupMove.targets.length} ${isSpanish ? "items seleccionados a" : "selected items to"} ${groupName(pendingGroupMove.boardGroup)}: ${pendingGroupMove.targets.slice(0, 10).map(item => item.label).join(", ")}${pendingGroupMove.targets.length > 10 ? ", ..." : ""}?` : ""}
         confirmLabel={isSpanish ? "Mover items" : "Move items"}
         onClose={() => setPendingGroupMove(null)}
         onConfirm={async () => {
           if (!pendingGroupMove) return;
-          await applyBatch({ action: "MOVE_GROUP", ids: selectedIds, boardGroup: pendingGroupMove });
+          await applyBatch({ action: "MOVE_GROUP", ids: pendingGroupMove.targets.map(item => item.id), boardGroup: pendingGroupMove.boardGroup });
           setBatchGroup("");
           setPendingGroupMove(null);
         }}
@@ -1663,6 +1689,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
         )}
       >
         <div className="mobile-batch-sheet">
+          {batchError ? <p role="alert" data-testid="mobile-batch-error">{batchError}</p> : null}
           <div className="mobile-batch-summary">
             <strong>{selectedIds.length} {isSpanish ? "items listos" : "items ready"}</strong>
             <span>{isSpanish ? "Use acciones masivas sin volver al escritorio." : "Run bulk actions without falling back to the desktop table."}</span>
@@ -1672,7 +1699,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
               {isSpanish ? "Archivar seleccionados" : "Archive selected"}
             </button>
             {selectedItems.some((item) => item.isArchived) ? (
-              <button type="button" className="button button-secondary" onClick={() => void applyBatch({ action: "RESTORE", ids: selectedIds })}>
+              <button type="button" className="button button-secondary" disabled={batchPending} onClick={() => applyDirectBatch({ action: "RESTORE", ids: selectedIds })}>
                 {isSpanish ? "Restaurar seleccionados" : "Restore selected"}
               </button>
             ) : null}
@@ -1682,7 +1709,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                 {staff.map((person) => <option key={person.id} value={person.fullName}>{person.fullName} - {person.role}</option>)}
               </select>
             </label>
-            <button type="button" className="button button-secondary" disabled={!batchTech} onClick={() => void applyBatch({ action: "ASSIGN_TECH", ids: selectedIds, value: batchTech || null })}>
+            <button type="button" className="button button-secondary" disabled={!batchTech || batchPending} onClick={() => applyDirectBatch({ action: "ASSIGN_TECH", ids: selectedIds, value: batchTech || null })}>
               {isSpanish ? "Aplicar tecnico" : "Apply tech"}
             </button>
             <label>{isSpanish ? "Estado make-ready" : "Make-ready status"}
@@ -1691,7 +1718,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                 {Object.values(labelsByField.makeReadyStatus ?? {}).filter((label) => !label.isArchived).map((label) => <option key={label.id} value={label.value}>{label.value}</option>)}
               </select>
             </label>
-            <button type="button" className="button button-secondary" disabled={!batchStatus} onClick={() => void applyBatch({ action: "SET_FIELD", ids: selectedIds, field: "makeReadyStatus", value: batchStatus || null })}>
+            <button type="button" className="button button-secondary" disabled={!batchStatus || batchPending} onClick={() => applyDirectBatch({ action: "SET_FIELD", ids: selectedIds, field: "makeReadyStatus", value: batchStatus || null })}>
               {isSpanish ? "Aplicar estado" : "Apply status"}
             </button>
             <label>{isSpanish ? "Mover a seccion" : "Move to section"}
@@ -1700,7 +1727,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                 {boardGroups.map((group) => <option key={group} value={group}>{groupName(group)}</option>)}
               </select>
             </label>
-            <button type="button" className="button button-secondary" disabled={!batchGroup} onClick={() => { setMobileBatchModalOpen(false); setPendingGroupMove(batchGroup); }}>
+            <button type="button" className="button button-secondary" disabled={!batchGroup} onClick={requestGroupMove}>
               {isSpanish ? "Revisar movimiento" : "Review move"}
             </button>
           </div>

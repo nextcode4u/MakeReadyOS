@@ -10,8 +10,10 @@ function queue(options = {}) {
   let checks = 0;
   const context = {
     exports,
-    require: () => ({ ApiError: class ApiError extends Error {} }),
+    require: () => ({ ApiError: class ApiError extends Error {}, ...options.api }),
     Error,
+    File,
+    structuredClone,
     navigator: { get onLine() { checks++; return online; } },
   };
   const source = ts.transpileModule(readFileSync("apps/web/src/lib/offlineSync.ts", "utf8"), {
@@ -24,16 +26,16 @@ function queue(options = {}) {
     // Test delivery orchestration separately from IndexedDB transaction mechanics.
     vm.runInNewContext(`
       withStore = async (_mode, work) => work({});
-      readAll = async () => testJobs.slice();
+      readAll = async () => testJobs.map(job => structuredClone(job));
       writeJob = async (_store, job) => {
         const index = testJobs.findIndex(entry => entry.id === job.id);
-        if (index >= 0) testJobs[index] = job;
+        if (index >= 0) testJobs[index] = structuredClone(job);
       };
       deleteJob = async (_store, id) => {
         const index = testJobs.findIndex(entry => entry.id === id);
         if (index >= 0) testJobs.splice(index, 1);
       };
-      syncJob = testDeliver;
+      if (testDeliver) syncJob = testDeliver;
     `, context);
   }
   return { exports, context, connect: () => { online = true; }, checks: () => checks };
@@ -94,4 +96,57 @@ test("queue storage failures do not permanently lock automatic sync", async () =
   const result = await fixture.exports.syncOfflineJobs();
   assert.equal(result.remaining, 0);
   assert.equal(fixture.checks(), 2);
+});
+
+for (const [kind, create, upload, responseKey] of [
+  ["projectCreate", "createProjectRecord", "uploadProjectAttachment", "record"],
+  ["leaseCreate", "createLeaseComplianceIssue", "uploadLeaseComplianceIssuePhoto", "issue"],
+  ["pestCreate", "createPestIssue", "uploadPestIssueAttachment", "issue"],
+]) {
+  for (const failureIndex of [0, 1]) {
+    test(`${kind} resumes confirmed creation and uploads after photo ${failureIndex + 1} fails`, async () => {
+      let creates = 0;
+      let fail = true;
+      const attempts = [];
+      const files = ["first.jpg", "second.jpg"].map(name => ({ name, mimeType: "image/jpeg", lastModified: 1, blob: new Blob([name]), attachmentType: "PHOTO", caption: null }));
+      const jobs = [{ id: "job", createdAt: "2026-09-06", attemptCount: 0, payload: { kind, input: {}, files } }];
+      const api = {
+        [create]: async () => { creates++; return { [responseKey]: { id: "confirmed" } }; },
+        [upload]: async (id, file) => {
+          assert.equal(id, "confirmed");
+          attempts.push(file.name);
+          if (fail && file.name === files[failureIndex].name) throw new Error("Upload interrupted");
+        },
+      };
+      let fixture = queue({ jobs, api });
+      fixture.connect();
+      await assert.rejects(fixture.exports.retryOfflineSyncJob("job"), /Upload interrupted/);
+      assert.equal(jobs[0].serverRecordId, "confirmed");
+      assert.equal(jobs[0].payload.files.length, 2 - failureIndex);
+      fail = false;
+      // A fresh module instance models a reload, using only durable queue state.
+      fixture = queue({ jobs, api });
+      fixture.connect();
+      await fixture.exports.retryOfflineSyncJob("job");
+      assert.equal(creates, 1);
+      assert.equal(attempts.filter(name => name === "first.jpg").length, failureIndex === 0 ? 2 : 1);
+      assert.equal(jobs.length, 0);
+    });
+  }
+}
+
+test("queue deletion failure retries cleanup without repeating a confirmed action", async () => {
+  let calls = 0;
+  const jobs = [{ id: "job", createdAt: "2026-09-06", attemptCount: 0, payload: { kind: "poolCreate", input: {} } }];
+  const api = { createPoolLogEntry: async () => { calls++; return { entry: { id: "saved" } }; } };
+  let fixture = queue({ jobs, api });
+  fixture.connect();
+  vm.runInNewContext('deleteJob = async () => { throw new Error("Cleanup failed"); };', fixture.context);
+  await assert.rejects(fixture.exports.retryOfflineSyncJob("job"), /Cleanup failed/);
+  assert.equal(jobs[0].deliveryComplete, true);
+  fixture = queue({ jobs, api });
+  fixture.connect();
+  await fixture.exports.retryOfflineSyncJob("job");
+  assert.equal(calls, 1);
+  assert.equal(jobs.length, 0);
 });

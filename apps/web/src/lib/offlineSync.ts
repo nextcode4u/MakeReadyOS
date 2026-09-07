@@ -157,6 +157,8 @@ type OfflineSyncJobPayload =
 
 export type OfflineSyncJob = {
   id: string;
+  serverRecordId?: string;
+  deliveryComplete?: boolean;
   createdAt: string;
   updatedAt: string;
   attemptCount: number;
@@ -443,16 +445,29 @@ async function updateFailedJob(job: OfflineSyncJob, error: unknown) {
   await withStore("readwrite", (store) => writeJob(store, failed));
 }
 
+async function checkpointJob(job: OfflineSyncJob) {
+  job.updatedAt = new Date().toISOString();
+  await withStore("readwrite", (store) => writeJob(store, job));
+}
+
+async function uploadQueuedFiles<T extends QueuedBlob>(job: OfflineSyncJob, payload: { files: T[] }, upload: (file: T) => Promise<unknown>) {
+  while (payload.files.length) {
+    await upload(payload.files[0]);
+    payload.files = payload.files.slice(1);
+    await checkpointJob(job);
+  }
+}
+
 async function syncJob(job: OfflineSyncJob) {
   switch (job.payload.kind) {
     case "makeReadyPatch":
       await patchMakeReadyItem(job.payload.itemId, job.payload.data);
       return;
-    case "makeReadyUpload":
-      for (const file of job.payload.files) {
-        await uploadItemAttachment(job.payload.itemId, restoreFile(file));
-      }
+    case "makeReadyUpload": {
+      const payload = job.payload;
+      await uploadQueuedFiles(job, payload, file => uploadItemAttachment(payload.itemId, restoreFile(file)));
       return;
+    }
     case "makeReadyCommentCreate":
       await createItemComment(job.payload.itemId, job.payload.body);
       return;
@@ -469,72 +484,66 @@ async function syncJob(job: OfflineSyncJob) {
       await updateChecklistItem(job.payload.checklistItemId, job.payload.input);
       return;
     case "projectCreate": {
-      const { record } = await createProjectRecord(job.payload.input);
-      for (const file of job.payload.files) {
-        await uploadProjectAttachment(record.id, restoreFile(file), file.attachmentType, file.caption ?? undefined);
+      if (!job.serverRecordId) {
+        const { record } = await createProjectRecord(job.payload.input);
+        job.serverRecordId = record.id;
+        await checkpointJob(job);
       }
+      await uploadQueuedFiles(job, job.payload, file => uploadProjectAttachment(job.serverRecordId!, restoreFile(file), file.attachmentType, file.caption ?? undefined));
       return;
     }
-    case "projectUpload":
-      for (const file of job.payload.files) {
-        await uploadProjectAttachment(job.payload.recordId, restoreFile(file), file.attachmentType, file.caption ?? undefined);
-      }
+    case "projectUpload": {
+      const payload = job.payload;
+      await uploadQueuedFiles(job, payload, file => uploadProjectAttachment(payload.recordId, restoreFile(file), file.attachmentType, file.caption ?? undefined));
       return;
+    }
     case "leaseCreate": {
-      const { issue } = await createLeaseComplianceIssue(job.payload.input);
-      for (const file of job.payload.files) {
-        await uploadLeaseComplianceIssuePhoto(issue.id, restoreFile(file), {
-          photoCategory: file.photoCategory ?? undefined,
-          caption: file.caption ?? undefined,
-        });
+      if (!job.serverRecordId) {
+        const { issue } = await createLeaseComplianceIssue(job.payload.input);
+        job.serverRecordId = issue.id;
+        await checkpointJob(job);
       }
+      await uploadQueuedFiles(job, job.payload, file => uploadLeaseComplianceIssuePhoto(job.serverRecordId!, restoreFile(file), { photoCategory: file.photoCategory ?? undefined, caption: file.caption ?? undefined }));
       return;
     }
-    case "leaseUpload":
-      for (const file of job.payload.files) {
-        await uploadLeaseComplianceIssuePhoto(job.payload.issueId, restoreFile(file), {
-          photoCategory: file.photoCategory ?? undefined,
-          caption: file.caption ?? undefined,
-        });
-      }
+    case "leaseUpload": {
+      const payload = job.payload;
+      await uploadQueuedFiles(job, payload, file => uploadLeaseComplianceIssuePhoto(payload.issueId, restoreFile(file), { photoCategory: file.photoCategory ?? undefined, caption: file.caption ?? undefined }));
       return;
+    }
     case "pestCreate": {
-      const { issue } = await createPestIssue(job.payload.input);
-      for (const file of job.payload.files) {
-        await uploadPestIssueAttachment(issue.id, restoreFile(file), {
-          photoType: file.photoType ?? undefined,
-          caption: file.caption ?? undefined,
-        });
+      if (!job.serverRecordId) {
+        const { issue } = await createPestIssue(job.payload.input);
+        job.serverRecordId = issue.id;
+        await checkpointJob(job);
       }
+      await uploadQueuedFiles(job, job.payload, file => uploadPestIssueAttachment(job.serverRecordId!, restoreFile(file), { photoType: file.photoType ?? undefined, caption: file.caption ?? undefined }));
       return;
     }
-    case "pestUpload":
-      for (const file of job.payload.files) {
-        await uploadPestIssueAttachment(job.payload.issueId, restoreFile(file), {
-          photoType: file.photoType ?? undefined,
-          caption: file.caption ?? undefined,
-        });
-      }
+    case "pestUpload": {
+      const payload = job.payload;
+      await uploadQueuedFiles(job, payload, file => uploadPestIssueAttachment(payload.issueId, restoreFile(file), { photoType: file.photoType ?? undefined, caption: file.caption ?? undefined }));
       return;
+    }
     case "poolCreate":
       await createPoolLogEntry(job.payload.input);
       return;
-    case "poolUpload":
-      for (const file of job.payload.files) {
-        await uploadPoolLogAttachment(job.payload.entryId, restoreFile(file));
-      }
+    case "poolUpload": {
+      const payload = job.payload;
+      await uploadQueuedFiles(job, payload, file => uploadPoolLogAttachment(payload.entryId, restoreFile(file)));
       return;
+    }
     case "pmComplete":
       await completePreventiveMaintenanceTask(job.payload.taskId, job.payload.input);
       return;
     case "pmSkip":
       await skipPreventiveMaintenanceTask(job.payload.taskId, job.payload.input);
       return;
-    case "pmUpload":
-      for (const file of job.payload.files) {
-        await uploadPreventiveMaintenanceAttachment(job.payload.taskId, restoreFile(file));
-      }
+    case "pmUpload": {
+      const payload = job.payload;
+      await uploadQueuedFiles(job, payload, file => uploadPreventiveMaintenanceAttachment(payload.taskId, restoreFile(file)));
       return;
+    }
   }
 }
 
@@ -581,7 +590,11 @@ function deliverQueuedJob(id: string) {
     const job = await getOfflineSyncJob(id);
     if (!job) return false;
     try {
-      await syncJob(job);
+      if (!job.deliveryComplete) {
+        await syncJob(job);
+        job.deliveryComplete = true;
+        await checkpointJob(job);
+      }
       await withStore("readwrite", (store) => deleteJob(store, id));
       return true;
     } catch (error) {

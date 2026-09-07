@@ -52,6 +52,12 @@ mkdir -p "$LOG_DIR"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/riskScope.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/audit.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/adminUsername.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/dashboardDates.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/readyVacancyStatus.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/exportHeaders.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/boardExport.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/boardBatch.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/unitHistory.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/refrigerantReports.test.ts" "$ROOT_DIR/apps/api/src/routes/planningAccess.test.ts" "$ROOT_DIR/apps/api/src/lib/inviteTemplate.test.ts" "$ROOT_DIR/apps/api/src/lib/pdf.test.ts" "$ROOT_DIR/apps/api/src/lib/booleanFlag.test.ts" "$ROOT_DIR/apps/api/src/lib/planningDates.test.ts"
   echo
 
@@ -912,6 +918,52 @@ mkdir -p "$LOG_DIR"
     fi
     node -e 'const fs=require("fs"); const items=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const category=process.argv[2]; if (!Array.isArray(items) || items.length < 1 || items.length > 5 || items.some((item) => !Array.isArray(item.riskReasons) || !item.riskReasons.some((reason) => reason.category === category))) process.exit(1);' /tmp/makereadyos-risk-category-items.json "$RISK_QUERY_CATEGORY"
 
+    echo "Checking Mark Ready preserves leasing and occupied notice statuses"
+    READY_INDEX=0
+    READY_ITEM_IDS=()
+    for READY_SOURCE in "VACANT NOT LEASED NOT READY" "VACANT LEASED NOT READY" "NTV LEASED" "NTV NOT LEASED"; do
+      READY_INDEX=$((READY_INDEX + 1))
+      READY_NUMBER="READY${TIMESTAMP//-/}${READY_INDEX}"
+      READY_EXPECTED="$READY_SOURCE"
+      case "$READY_SOURCE" in
+        "VACANT NOT LEASED NOT READY") READY_EXPECTED="VACANT NOT LEASED READY" ;;
+        "VACANT LEASED NOT READY") READY_EXPECTED="VACANT LEASED READY" ;;
+      esac
+      READY_UNIT_ID="$(curl -fsS -b "$COOKIE_JAR" -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+        -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"number\":\"$READY_NUMBER\"}" \
+        "http://localhost:${API_PORT:-4000}/api/operations/units" | node -e 'let s=""; process.stdin.on("data", c=>s+=c); process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).unit.id));')"
+      READY_ITEM_ID="$(curl -fsS -b "$COOKIE_JAR" -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+        -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"unitId\":\"$READY_UNIT_ID\",\"itemName\":\"$READY_NUMBER\",\"unitNumber\":\"$READY_NUMBER\",\"boardGroup\":\"$TEST_MAKE_READY_GROUP\",\"vacancyStatus\":\"$READY_SOURCE\"}" \
+        "http://localhost:${API_PORT:-4000}/api/make-ready-items" | node -e 'let s=""; process.stdin.on("data", c=>s+=c); process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).id));')"
+      READY_ITEM_IDS+=("$READY_ITEM_ID")
+      curl -fsS -b "$COOKIE_JAR" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X POST \
+        "http://localhost:${API_PORT:-4000}/api/make-ready-items/$READY_ITEM_ID/mark-ready" >/dev/null
+      curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/make-ready-items/$READY_ITEM_ID" \
+        | node -e 'let s=""; process.stdin.on("data", c=>s+=c); process.stdin.on("end",()=>{const item=JSON.parse(s); if(item.vacancyStatus!==process.argv[1] || item.makeReadyStatus!=="DONE" || item.completionStatus!=="YES") throw new Error("Mark Ready changed leasing/occupancy facts or failed to finish work");});' "$READY_EXPECTED"
+    done
+
+    echo "Checking a database failure rolls back the whole archive batch"
+    # The temporary constraint rejects the later ID only in this disposable database.
+    docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
+      -c "ALTER TABLE \"MakeReadyItem\" ADD CONSTRAINT test_reject_archive CHECK (\"id\" <> '${READY_ITEM_IDS[1]}' OR NOT \"isArchived\");" >/dev/null
+    ROLLBACK_STATUS="$(curl -s -o /tmp/makereadyos-batch-rollback.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"action\":\"ARCHIVE\",\"ids\":[\"${READY_ITEM_IDS[0]}\",\"${READY_ITEM_IDS[1]}\"]}" \
+      "http://localhost:${API_PORT:-4000}/api/make-ready-items/batch")"
+    docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
+      -c 'ALTER TABLE "MakeReadyItem" DROP CONSTRAINT test_reject_archive;' >/dev/null
+    if [ "$ROLLBACK_STATUS" != "500" ]; then echo "Expected injected batch failure, got $ROLLBACK_STATUS"; exit 1; fi
+    for ROLLBACK_ID in "${READY_ITEM_IDS[0]}" "${READY_ITEM_IDS[1]}"; do
+      curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/make-ready-items/$ROLLBACK_ID" \
+        | node -e 'let s=""; process.stdin.on("data", c=>s+=c); process.stdin.on("end",()=>{const item=JSON.parse(s); if(item.isArchived || item.archivedAt!==null) throw new Error("Failed archive batch left a partial update");});'
+    done
+    for RETRY_ACTION in ARCHIVE RESTORE; do
+      curl -fsS -b "$COOKIE_JAR" -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+        -d "{\"action\":\"$RETRY_ACTION\",\"ids\":[\"${READY_ITEM_IDS[0]}\",\"${READY_ITEM_IDS[1]}\"]}" \
+        "http://localhost:${API_PORT:-4000}/api/make-ready-items/batch" \
+        | node -e 'let s=""; process.stdin.on("data", c=>s+=c); process.stdin.on("end",()=>{if(JSON.parse(s).count!==2) throw new Error("Batch retry did not update both records");});'
+    done
+
     TURN_UNIT_NUMBER="QA${TIMESTAMP//-/}"
     TURN_UNIT_JSON="$(mktemp)"
     CREATE_TURN_UNIT_STATUS="$(curl -s -o "$TURN_UNIT_JSON" -b "$COOKIE_JAR" -w "%{http_code}" \
@@ -1127,8 +1179,10 @@ mkdir -p "$LOG_DIR"
     node -e 'const fs=require("fs"); const csv=fs.readFileSync(process.argv[1],"utf8"); if (!csv.includes("Property,Unit,Type") || !csv.includes("Wall damage") || !csv.includes("QA Blind Replacement") || !csv.includes("90.00")) process.exit(1);' /tmp/makereadyos-charge-report.csv
 
     echo "Checking workload planning assignment and coverage foundation"
+    PLANNING_TEST_DATE="$(date -u +%F)"
+    PLANNING_TEST_END="$(node -e 'const date = new Date(process.argv[1]); date.setUTCDate(date.getUTCDate() + 7); process.stdout.write(date.toISOString().slice(0, 10));' "$PLANNING_TEST_DATE")"
     PLANNING_BEFORE_STATUS="$(curl -s -o /tmp/makereadyos-planning-before.json -b "$COOKIE_JAR" -w "%{http_code}" \
-      "http://localhost:${API_PORT:-4000}/api/planning?propertyId=$TEST_PROPERTY_ID")"
+      "http://localhost:${API_PORT:-4000}/api/planning?propertyId=$TEST_PROPERTY_ID&from=$PLANNING_TEST_DATE&to=$PLANNING_TEST_END")"
     CAPACITY_STATUS="$(curl -s -o /tmp/makereadyos-capacity.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PUT \
       -d '{"defaultDailyHours":1,"tradeCategories":["QA"],"unavailableDays":[]}' \
@@ -1144,7 +1198,7 @@ mkdir -p "$LOG_DIR"
       -d '{"status":"IN_PROGRESS","actualHours":0.5}' \
       "http://localhost:${API_PORT:-4000}/api/planning/blocks/$WORK_BLOCK_ID")"
     PLANNING_AFTER_STATUS="$(curl -s -o /tmp/makereadyos-planning-after.json -b "$COOKIE_JAR" -w "%{http_code}" \
-      "http://localhost:${API_PORT:-4000}/api/planning?propertyId=$TEST_PROPERTY_ID")"
+      "http://localhost:${API_PORT:-4000}/api/planning?propertyId=$TEST_PROPERTY_ID&from=$PLANNING_TEST_DATE&to=$PLANNING_TEST_END")"
     MY_WORK_PLANNING_STATUS="$(curl -s -o /tmp/makereadyos-my-work-planning.json -b "$COOKIE_JAR" -w "%{http_code}" "http://localhost:${API_PORT:-4000}/api/my-work")"
     DASHBOARD_PLANNING_STATUS="$(curl -s -o /tmp/makereadyos-dashboard-planning.json -b "$COOKIE_JAR" -w "%{http_code}" \
       "http://localhost:${API_PORT:-4000}/api/dashboard?propertyId=$TEST_PROPERTY_ID")"

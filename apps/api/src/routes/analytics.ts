@@ -94,14 +94,14 @@ export async function analyticsRoutes(app: FastifyInstance) {
     }
 
     const items = await prisma.makeReadyItem.findMany({
-      where: { OR: [{ unitId: unit.id }, { propertyId: unit.propertyId, unitNumber: unit.number }] },
+      where: { propertyId: unit.propertyId, OR: [{ unitId: unit.id }, { unitNumber: unit.number }] },
       include: {
         property: true,
         comments: { where: { isDeleted: false }, orderBy: { createdAt: "desc" } },
         attachments: { orderBy: { createdAt: "desc" } },
         checklistInstances: { include: { items: { include: { completedBy: true } } } },
         vendorAssignments: { include: { vendor: true } },
-        automationRuns: { orderBy: { ranAt: "desc" }, take: 20, include: { rule: true } },
+        automationRuns: { orderBy: { ranAt: "desc" }, take: 21, include: { rule: true } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -114,9 +114,9 @@ export async function analyticsRoutes(app: FastifyInstance) {
           { entityType: "MAKE_READY_ITEM", entityId: { in: itemIds } },
         ],
       },
-      include: { actorUser: true },
+      include: { actorUser: { select: { fullName: true } } },
       orderBy: { createdAt: "desc" },
-      take: 200,
+      take: 201,
     });
     const leaseComplianceIssues = await prisma.leaseComplianceIssue.findMany({
       where: { unitId: unit.id },
@@ -143,7 +143,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         ...item.attachments.map((attachment) => event("ATTACHMENT", attachment.createdAt, "Attachment uploaded", attachment.originalName, "attachment", { itemId: item.id, attachmentId: attachment.id })),
         ...item.vendorAssignments.map((assignment) => event("VENDOR_ASSIGNMENT", assignment.updatedAt, `Vendor ${assignment.status.toLowerCase().replace(/_/g, " ")}`, `${assignment.vendor.name} / ${assignment.trade}`, "vendor", { itemId: item.id, vendorAssignmentId: assignment.id })),
         ...item.checklistInstances.flatMap((instance) => instance.items.filter((task) => task.completed && task.completedAt).map((task) => event("CHECKLIST_COMPLETED", task.completedAt!, "Checklist task completed", `${instance.name}: ${task.title}`, "checklist", { itemId: item.id, taskId: task.id, completedBy: task.completedBy?.fullName ?? null }))),
-        ...item.automationRuns.map((run) => event("AUTOMATION_RUN", run.ranAt, "Automation run", `${run.rule.name}: ${run.message}`, "automation", { itemId: item.id, ruleId: run.ruleId })),
+        ...item.automationRuns.slice(0, 20).map((run) => event("AUTOMATION_RUN", run.ranAt, "Automation run", `${run.rule.name}: ${run.message}`, "automation", { itemId: item.id, ruleId: run.ruleId })),
       ]),
       ...leaseComplianceIssues.flatMap((issue) => [
         event("LEASE_COMPLIANCE_CREATED", issue.createdAt, "Lease-compliance issue created", `${issue.issueTypeName} logged for ${unit.number}.`, "leaseCompliance", { issueId: issue.id, status: issue.status, noticeStage: issue.noticeStage }),
@@ -154,7 +154,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         ...(issue.resolvedDate ? [event("LEASE_COMPLIANCE_RESOLVED", issue.resolvedDate, "Lease-compliance issue resolved", issue.resolutionNotes || issue.issueTypeName, "leaseCompliance", { issueId: issue.id })] : []),
         ...(issue.archiveDate ? [event("LEASE_COMPLIANCE_ARCHIVED", issue.archiveDate, "Lease-compliance issue archived", issue.archiveNotes || issue.issueTypeName, "leaseCompliance", { issueId: issue.id })] : []),
       ]),
-      ...audit.map((entry) => event(entry.action, entry.createdAt, entry.action.replace(/_/g, " "), entry.message, "audit", { auditId: entry.id, actor: entry.actorUser?.fullName ?? null, entityType: entry.entityType, entityId: entry.entityId })),
+      ...audit.slice(0, 200).map((entry) => event(entry.action, entry.createdAt, entry.action.replace(/_/g, " "), entry.message, "audit", { auditId: entry.id, actor: entry.actorUser?.fullName ?? null, entityType: entry.entityType, entityId: entry.entityId })),
     ].sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
 
     const turns = items.map((item) => {
@@ -183,6 +183,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
       vendor: items.filter((item) => item.vendorAssignments.length > 0).length,
       highRisk: items.filter((item) => ["HIGH", "CRITICAL"].includes(item.riskLevel)).length,
     };
-    return { unit, turns, recurringSignals, events: events.slice(0, 250) };
+    return { unit, turns, recurringSignals, events: events.slice(0, 250), coverage: {
+      scope: "recent-timeline",
+      eventLimit: 250, auditLimit: 200, automationRunsPerTurnLimit: 20,
+      truncated: events.length > 250 || audit.length > 200 || items.some(item => item.automationRuns.length > 20),
+    } };
   });
 }

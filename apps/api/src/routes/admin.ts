@@ -646,6 +646,37 @@ export async function adminRoutes(app: FastifyInstance) {
     };
   });
 
+  app.post("/admin/users/:id/resend-invite", async (request, reply) => {
+    if (!(await ensureAdmin(request, reply))) return;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const user = await ensureUserExists(id);
+    if (!user) return reply.code(404).send({ message: "User not found" });
+    if (!user.isActive || !user.email) return reply.code(400).send({ message: "An active account with a saved email is required." });
+    if (!inviteEmailConfigured()) return reply.code(400).send({ message: "SMTP invite email is not configured." });
+    const recent = await prisma.auditLog.count({ where: {
+      entityType: "USER", entityId: id, action: "USER_INVITE_EMAIL_SENT",
+      createdAt: { gte: new Date(Date.now() - 60_000) },
+    } });
+    if (recent) return reply.code(429).send({ message: "Wait one minute before resending this invite." });
+    try {
+      const properties = user.role === UserRole.ADMIN ? [] : await prisma.property.findMany({
+        where: { id: { in: user.propertyAccess.map(access => access.propertyId) } }, select: { code: true },
+      });
+      await sendUserInviteEmail({
+        to: user.email, username: user.username, fullName: user.fullName,
+        role: user.role, language: user.language as "en" | "es",
+        setupUrl: await createPasswordLink(user.id), propertyCodes: properties.map(property => property.code),
+      });
+    } catch {
+      await writeAuditLog({ request, actorUserId: request.currentUser!.id, entityType: "USER", entityId: id,
+        action: "USER_INVITE_EMAIL_FAILED", message: `Invite resend failed for ${user.username}` });
+      return reply.code(502).send({ message: "Could not send the invite. Check email settings and try again." });
+    }
+    await writeAuditLog({ request, actorUserId: request.currentUser!.id, entityType: "USER", entityId: id,
+      action: "USER_INVITE_EMAIL_SENT", message: `Resent invite email to ${user.email}` });
+    return { ok: true };
+  });
+
   app.post("/admin/users/:id/reset-password", async (request, reply) => {
     if (!(await ensureAdmin(request, reply))) {
       return;

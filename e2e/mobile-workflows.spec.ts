@@ -3,17 +3,14 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
 const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 
-test("setup checklist can be reopened on mobile without opening Tools", async ({ page }) => {
+test("mobile header omits setup checklist while Setup remains reachable through Views", async ({ page }) => {
   await loginMobile(page);
   await expect(page.locator(".mobile-filters-panel")).toHaveCount(0);
-  await expect(page.getByTestId("onboarding-open")).toHaveText("Setup checklist");
-  await page.getByTestId("onboarding-open").click();
-  await expect(page.getByTestId("onboarding-panel")).toBeVisible();
-  await page.getByTestId("onboarding-skip").click();
+  await expect(page.getByTestId("onboarding-open")).toHaveCount(0);
+  await openWorkspaceFromViews(page, "tab-operations", "operations", "operations-panel");
   await page.reload();
-  await page.getByTestId("onboarding-open").click();
-  await expect(page.getByTestId("onboarding-panel")).toBeVisible();
-  await page.getByRole("button", { name: "Close setup guide" }).click();
+  await expect(page.getByTestId("onboarding-open")).toHaveCount(0);
+  await openWorkspaceFromViews(page, "tab-operations", "operations", "operations-panel");
   await assertNoPageHorizontalOverflow(page);
 });
 
@@ -121,6 +118,7 @@ test.describe("mobile workflow coverage", () => {
 
     await openModuleRailPanel(page, "module-rail-refrigerant", "refrigerant", "refrigerant-panel");
     await openModuleRailPanel(page, "module-rail-pool", "pool", "pool-log-panel");
+    await page.getByRole("combobox", { name: "Pool log property" }).selectOption({ index: 1 });
     await openModuleRailPanel(page, "module-rail-pest", "pest", "pest-control-panel");
     await openModuleRailPanel(page, "module-rail-lease-compliance", "lease", "lease-compliance-panel");
     await openModuleRailPanel(page, "module-rail-pm", "pm", "preventive-maintenance-panel");
@@ -170,7 +168,7 @@ test.describe("mobile workflow coverage", () => {
     }
     await page.getByTestId("lease-quick-capture-description").fill("Mobile lease issue coverage.");
     await page.getByTestId("lease-quick-capture-submit").click();
-    await expect(page.getByText(leaseArea, { exact: false })).toBeVisible();
+    await expect(page.locator("section").filter({ has: page.getByRole("heading", { name: "Recent Issues", exact: true }) }).getByText(leaseArea, { exact: false })).toBeVisible();
     await assertNoPageHorizontalOverflow(page);
 
     await openModuleRailPanel(page, "module-rail-projects", "projects", "projects-panel");

@@ -229,13 +229,17 @@ export async function riskRoutes(app: FastifyInstance) {
       reply.code(403);
       return { message: "Property access denied" };
     }
-    const ids = payload.itemIds?.length
-      ? payload.itemIds
+    const explicitSelection = Boolean(payload.itemIds?.length);
+    const candidates = explicitSelection
+      ? [...new Set(payload.itemIds!)]
       : (await prisma.makeReadyItem.findMany({
           where: { propertyId: scope.propertyId, isArchived: false, property: { isActive: true } },
           select: { id: true },
-          take: 500,
+          orderBy: { id: "asc" },
+          take: 501,
         })).map((item) => item.id);
+    const truncated = !explicitSelection && candidates.length > 500;
+    const ids = explicitSelection ? candidates : candidates.slice(0, 500);
     const items = await prisma.makeReadyItem.findMany({ where: { id: { in: ids } }, select: { id: true, propertyId: true } });
     const accessible = allowedPropertyIds(request.currentUser!);
     if (accessible !== null && items.some((item) => !accessible.includes(item.propertyId))) {
@@ -250,6 +254,13 @@ export async function riskRoutes(app: FastifyInstance) {
       const result = await evaluateAndPersistItemRisk(item.id, { notify: payload.notify });
       if (result) results.push(result);
     }
+    const coverage = {
+      scope: explicitSelection ? "selected-items" : "active-items",
+      limit: explicitSelection ? 200 : 500,
+      selectedCount: ids.length,
+      skippedCount: ids.length - results.length,
+      truncated,
+    };
     await writeAuditLog({
       request,
       actorUserId: request.currentUser!.id,
@@ -257,10 +268,11 @@ export async function riskRoutes(app: FastifyInstance) {
       action: "RISK_EVALUATED",
       message: `Evaluated risk for ${results.length} make-ready items`,
       propertyId: payload.propertyId,
-      metadata: { itemIds: ids, notify: payload.notify },
+      metadata: { itemIds: ids, notify: payload.notify, coverage },
     });
     return {
       evaluated: results.length,
+      coverage,
       byLevel: Object.fromEntries(riskLevels.map((level) => [level, results.filter((entry) => entry.riskLevel === level).length])),
       items: results.map((entry) => ({
         itemId: entry.item.id,

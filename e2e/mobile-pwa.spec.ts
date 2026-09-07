@@ -19,6 +19,7 @@ test("production PWA clears private offline data when signing out", async ({ pag
     const cache = await caches.open("makereadyos-api-v2");
     return Boolean(await cache.match("/api/meta"));
   })).toBe(true);
+  await page.getByRole("button", { name: "Tools", exact: true }).click();
   await page.getByTestId("account-menu").click();
   await page.getByTestId("logout-button").click();
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();

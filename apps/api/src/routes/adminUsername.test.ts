@@ -7,6 +7,15 @@ test("account creation accepts email usernames and rejects conflicting login ide
   process.env.ADMIN_PASSWORD = "Test-Only-Password!123";
   process.env.SESSION_COOKIE_SECRET = "test-only-session-secret-12345678901234567890";
   process.env.APP_URL = "http://localhost:8080";
+  process.env.SMTP_HOST = "smtp.example.com";
+  process.env.SMTP_FROM = "invites@example.com";
+  const { default: nodemailer } = await import("nodemailer");
+  const messages: any[] = [];
+  let mailFails = false;
+  t.mock.method(nodemailer, "createTransport", () => ({ sendMail: async (message: any) => {
+    if (mailFails) throw new Error("Test SMTP unavailable");
+    messages.push(message);
+  } }));
   const { prisma } = await import("../lib/prisma.js");
   const { adminRoutes, adminCreateUserSchema } = await import("./admin.js");
   const { loginSchema } = await import("./auth.js");
@@ -30,8 +39,9 @@ test("account creation accepts email usernames and rejects conflicting login ide
   });
   stub(prisma.auditLog, "create", async () => ({}));
   const app = Fastify();
+  let role = "ADMIN";
   app.decorateRequest("currentUser", null);
-  app.addHook("onRequest", async request => { request.currentUser = { id: "admin", role: "ADMIN", propertyAccess: [] } as any; });
+  app.addHook("onRequest", async request => { request.currentUser = { id: "admin", role, propertyAccess: [] } as any; });
   await app.register(adminRoutes);
   t.after(() => app.close());
   const created = await app.inject({ method: "POST", url: "/admin/users", payload: input });
@@ -45,4 +55,39 @@ test("account creation accepts email usernames and rejects conflicting login ide
   const reversed = await app.inject({ method: "POST", url: "/admin/users", payload: { ...input, username: "another-user", email: input.email } });
   assert.equal(reversed.statusCode, 409);
   assert.equal(users.length, 2, "rejected requests must not create accounts");
+  let recent = 0;
+  stub(prisma.auditLog, "count", async () => recent);
+  stub(prisma.property, "findMany", async () => []);
+  stub(prisma.user, "update", async ({ where, data }: any) => Object.assign(users.find(user => user.id === where.id), data));
+  const resend = () => app.inject({ method: "POST", url: "/admin/users/new/resend-invite" });
+  assert.equal((await resend()).statusCode, 400, "missing email must block resend");
+  users[0].email = "recipient@example.com";
+  users[0].isActive = false;
+  assert.equal((await resend()).statusCode, 400, "inactive users cannot receive invites");
+  users[0].isActive = true;
+  const oldPassword = users[0].passwordHash;
+  assert.equal((await resend()).statusCode, 200);
+  const firstHash = users[0].passwordResetHash;
+  assert.ok(firstHash);
+  assert.ok(users[0].passwordResetExpiresAt.getTime() > Date.now() + 59 * 60_000);
+  assert.equal(messages[0].to, "recipient@example.com");
+  assert.equal(users[0].passwordHash, oldPassword, "sending must not change the current password");
+  recent = 1;
+  assert.equal((await resend()).statusCode, 429);
+  recent = 0;
+  assert.equal((await resend()).statusCode, 200);
+  assert.notEqual(users[0].passwordResetHash, firstHash, "resending replaces the old link");
+  const beforeRejected = messages.length;
+  const latestHash = users[0].passwordResetHash;
+  for (role of ["MANAGER", "TECH", "VIEWER"]) {
+    assert.equal((await resend()).statusCode, 403);
+  }
+  assert.equal(messages.length, beforeRejected, "unauthorized requests must not send email");
+  assert.equal(users[0].passwordResetHash, latestHash, "unauthorized requests must not replace links");
+  role = "ADMIN";
+  assert.equal((await app.inject({ method: "POST", url: "/admin/users/missing/resend-invite" })).statusCode, 404);
+  mailFails = true;
+  assert.equal((await resend()).statusCode, 502);
+  assert.equal(users[0].passwordHash, oldPassword, "delivery failure must preserve the current password");
+  assert.equal(messages.length, beforeRejected);
 });

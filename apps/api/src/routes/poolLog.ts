@@ -9,6 +9,7 @@ import { z } from "zod";
 import { stringify } from "csv-stringify/sync";
 import { booleanFlag } from "../lib/booleanFlag.js";
 import { validatePoolChemicalAdditions } from "../lib/poolChemicalAdditions.js";
+import { poolObservationGaps, poolSafetyObservations } from "../lib/poolObservations.js";
 import { prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { notifyPropertyRoles } from "../lib/notifications.js";
@@ -20,7 +21,7 @@ import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, 
 const poolTypes = ["POOL", "SPA", "WADING_POOL", "SPLASH_PAD", "OTHER"] as const;
 const chemicalCategories = ["CHLORINE", "PH_UP", "PH_DOWN", "ALKALINITY_UP", "STABILIZER", "CALCIUM_HARDNESS", "OTHER"] as const;
 const chemicalUnits = ["POUNDS", "OUNCES", "GALLONS", "QUARTS", "TABLETS"] as const;
-const safetyValues = ["PASS", "FAIL", "NA"] as const;
+const safetyValues = ["PASS", "FAIL", "NA", "NOT_CHECKED"] as const;
 const allowedAttachmentExtensions = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".heic", ".heif", ".bmp", ".tif", ".tiff", ".pdf"]);
 const allowedAttachmentTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/heic", "image/heif", "image/bmp", "image/tiff", "application/pdf"]);
 
@@ -440,11 +441,13 @@ export const poolLogEntrySchema = z.object({
   algaePresent: z.boolean().optional(),
   notes: z.string().nullable().optional(),
   safetyChecks: z.array(z.object({
-    label: z.string().min(1),
+    label: z.string().trim().min(1),
     value: z.enum(safetyValues),
     notes: z.string().nullable().optional(),
     sortOrder: z.number().int().optional(),
-  })).optional(),
+  })).refine(checks => new Set(checks.map(check => check.label)).size === checks.length, {
+    message: "Each safety checklist item may only be submitted once",
+  }).optional(),
   chemicalAdditions: z.array(z.object({
     chemicalId: z.string().nullable().optional(),
     chemicalName: z.string().min(1),
@@ -724,9 +727,14 @@ export async function poolLogRoutes(app: FastifyInstance) {
     const targetOverride = await prisma.poolChemistryTarget.findUnique({ where: { propertyId_facilityType: { propertyId: input.propertyId, facilityType: facility.type } } });
     const targets = targetFor(facility.type, targetOverride);
     const evaluation = evaluateChemistry(input, targets, facility, propertyChemicals);
-    const safetyChecks = input.safetyChecks?.length
-      ? input.safetyChecks
-      : defaultSafetyItems.map((label, index) => ({ label, value: "PASS" as const, notes: null, sortOrder: index }));
+    const safetyChecks = poolSafetyObservations(defaultSafetyItems, input.safetyChecks);
+    const missingObservations = poolObservationGaps(input, safetyChecks);
+    if (missingObservations.length) {
+      if (evaluation.status === "OK") evaluation.status = "INCOMPLETE";
+      evaluation.issues.push({ code: "INCOMPLETE_LOG", severity: "LOW", message: `Not recorded: ${missingObservations.join(", ")}.` });
+    }
+    if (safetyChecks.some(check => check.value === "FAIL")) evaluation.status = "REVIEW";
+    evaluation.issueCount = evaluation.issues.length;
     const entry = await prisma.poolLogEntry.create({
       data: {
         propertyId: input.propertyId,
@@ -818,7 +826,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
       orderBy: [{ logDate: "desc" }, { createdAt: "desc" }],
     });
     const scopeLabel = await reportScopeLabel(query.propertyId);
-    const reviewCount = entries.filter((entry) => (entry.evaluationJson as { status?: string } | null)?.status === "REVIEW" || entry.safetyChecks.some((check) => check.value === "FAIL")).length;
+    const reviewCount = entries.filter((entry) => ["REVIEW", "INCOMPLETE"].includes((entry.evaluationJson as { status?: string } | null)?.status ?? "") || entry.safetyChecks.some((check) => check.value === "FAIL")).length;
     const rows = entries.map((entry) => {
       const evaluation = entry.evaluationJson as { status?: string; issues?: Array<{ message?: string }> } | null;
       return `<tr>
@@ -878,7 +886,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
       orderBy: [{ logDate: "desc" }, { createdAt: "desc" }],
     });
     const scopeLabel = await reportScopeLabel(query.propertyId);
-    const reviewCount = entries.filter((entry) => (entry.evaluationJson as { status?: string } | null)?.status === "REVIEW" || entry.safetyChecks.some((check) => check.value === "FAIL")).length;
+    const reviewCount = entries.filter((entry) => ["REVIEW", "INCOMPLETE"].includes((entry.evaluationJson as { status?: string } | null)?.status ?? "") || entry.safetyChecks.some((check) => check.value === "FAIL")).length;
     const rows = entries.map((entry) => {
       const evaluation = entry.evaluationJson as { status?: string; issues?: Array<{ message?: string }> } | null;
       return `<tr>

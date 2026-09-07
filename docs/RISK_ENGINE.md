@@ -59,6 +59,8 @@ The evaluator is structured TypeScript logic, not user-provided JavaScript. Curr
 - `GET /api/risk/items`: paged scoped risk item list with optional level/category filters.
 - `POST /api/risk/evaluate`: admin/manager evaluation that persists current risk state and can create deduped notifications.
 
+Risk evaluation returns `coverage` alongside its results. Requests without a nonempty `itemIds` selection evaluate at most 500 active items, ordered by ID; `coverage.truncated` is true when more matching items exist. Explicit selections accept at most 200 IDs. `selectedCount` counts the unique selected IDs in this request and `skippedCount` counts selected IDs that produced no evaluation (for example, deleted records). The same coverage metadata is retained in the evaluation audit event. A truncated response is not a full-board audit; repeating the default request evaluates the same first page, not the next page. Complete background evaluation remains separate work.
+
 All routes respect existing property permissions. Evaluation is manager/admin only; scoped users can read risk through the same board/dashboard visibility they already have.
 
 ## UI Integration

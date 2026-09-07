@@ -5,6 +5,7 @@ import type { ArchiveFilter } from "../lib/structuredFilters";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
 import { StatusState } from "./StatusState";
+import { HistoryCoverageNotice } from "./HistoryCoverageNotice";
 import { UnitSearchSelect } from "./UnitSearchSelect";
 
 function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
@@ -1105,6 +1106,7 @@ export function OperationsPanel({
       eventsCsv,
       exportJson: {
         exportedAt: new Date().toISOString(),
+        coverage: history.coverage ?? { scope: "recent-timeline", eventLimit: 250, auditLimit: 200, automationRunsPerTurnLimit: 20, truncated: "unknown" },
         unit: history.unit,
         recurringSignals: history.recurringSignals,
         turns: history.turns,
@@ -2494,7 +2496,7 @@ export function OperationsPanel({
               </label>
             </div>
             {!historyInspectorUnitId ? (
-              <StatusState title={isSpanish ? "Seleccione una unidad" : "Select a unit"} description={isSpanish ? "Use la búsqueda o el botón Historial desde una rotación/unidad ocupada para revisar toda su línea de tiempo." : "Use search or the History button from a turn/occupied unit to review its full timeline."} tone="subtle" />
+              <StatusState title={isSpanish ? "Seleccione una unidad" : "Select a unit"} description={isSpanish ? "Use la busqueda o el boton Historial para revisar rotaciones y eventos recientes." : "Use search or the History button to review turns and recent timeline events."} tone="subtle" />
             ) : unitHistoryQuery.isLoading ? (
               <StatusState title={isSpanish ? "Cargando historial" : "Loading history"} description={isSpanish ? "Reuniendo rotaciones, evidencia y actividad de esta unidad." : "Collecting turns, evidence, and activity for this unit."} tone="subtle" />
             ) : unitHistoryQuery.isError ? (
@@ -2532,7 +2534,7 @@ export function OperationsPanel({
                         className="button button-secondary"
                         onClick={() => downloadBlob(`makereadyos-unit-history-${historyInspectorUnit?.property.code ?? "property"}-${historyInspectorUnit?.number ?? "unit"}-events.csv`, new Blob([unitHistorySummary.eventsCsv], { type: "text/csv;charset=utf-8" }))}
                       >
-                        {isSpanish ? "Exportar eventos CSV" : "Export Events CSV"}
+                        {isSpanish ? "Exportar eventos recientes CSV" : "Export Recent Events CSV"}
                       </button>
                       <button
                         type="button"
@@ -2585,6 +2587,7 @@ export function OperationsPanel({
                   ))}
                 </div>
                 <div className="unit-history-event-list">
+                  <HistoryCoverageNotice history={unitHistoryQuery.data} shownEvents={40} language={language} />
                   {unitHistoryQuery.data?.events.slice(0, 40).map((entry, index) => (
                     <div key={`${entry.type}-${entry.occurredAt}-${index}`} className="drawer-timeline-row">
                       <strong>{entry.title}</strong>

@@ -177,6 +177,7 @@ function summarizePoolCorrection(
   language: UserLanguage,
 ) {
   const actions: string[] = [];
+  if (issue?.code === "INCOMPLETE_LOG") return [language === "es" ? "Completar lecturas y revisiones pendientes" : "Record missing readings and checks"];
   dosage.forEach((entry) => {
     const label = poolChemicalCategoryActionLabel(entry.chemicalCategory, language);
     if (!actions.includes(label)) actions.push(label);
@@ -263,7 +264,7 @@ function poolQueueStatusSummary(jobs: OfflineSyncJobSummary[], language: UserLan
 function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: PoolLogEntry; canEdit: boolean; onUpload: (entryId: string, files: FileList | null) => void; language?: UserLanguage }) {
   const isSpanish = language === "es";
   const evaluation = entry.evaluationJson;
-  const needsFollowUp = evaluation?.status === "REVIEW" || entry.safetyChecks.some((check) => check.value === "FAIL");
+  const needsFollowUp = evaluation?.status === "REVIEW" || evaluation?.status === "INCOMPLETE" || entry.safetyChecks.some((check) => check.value === "FAIL");
   const recommendationLines = evaluation?.recommendations ?? [];
   const dosageLines = evaluation?.dosage ?? [];
   const actionSummary = summarizePoolCorrection(evaluation?.issues?.[0], dosageLines, recommendationLines, language);
@@ -284,7 +285,7 @@ function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: Po
           </span>
         ) : null}
       </div>
-      <span className={`status-pill ${evaluation?.status === "REVIEW" ? "risk-high" : ""}`}>{evaluation?.status ?? "Logged"}</span>
+      <span className={`status-pill ${needsFollowUp ? "risk-high" : ""}`}>{evaluation?.status ?? "Logged"}</span>
       {actionSummary.length ? (
         <div className="pool-reading-stack" style={{ alignItems: "flex-start" }}>
           <span className="muted">
@@ -536,7 +537,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
       notes: String(formData.get("notes") ?? "").trim() || null,
       safetyChecks: (overviewQuery.data?.safetyItems ?? []).map((label, index) => ({
         label,
-        value: String(formData.get(`safety-${index}`) ?? "PASS") as "PASS" | "FAIL" | "NA",
+        value: String(formData.get(`safety-${index}`) ?? "NOT_CHECKED") as "PASS" | "FAIL" | "NA" | "NOT_CHECKED",
         notes: String(formData.get(`safety-notes-${index}`) ?? "").trim() || null,
         sortOrder: index,
       })),
@@ -633,6 +634,12 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
           </button>
         ))}
       </div>
+
+      {!propertyId && ["daily", "setup", "chemicals"].includes(tab) ? (
+        <p role="status" data-testid="pool-property-required">
+          {isSpanish ? "Seleccione una propiedad arriba antes de guardar registros, piscinas o quimicos." : "Select a property above before saving logs, pools, or chemicals."}
+        </p>
+      ) : null}
 
       {queuedPoolJobs.length ? (
         <div className="pool-card projects-sync-banner" style={{ marginBottom: 12 }}>
@@ -753,7 +760,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
               <legend>{isSpanish ? "Lista de seguridad" : "Safety checklist"}</legend>
               {(overviewQuery.data?.safetyItems ?? []).map((label, index) => (
                 <label key={label}>{label}
-                <select name={`safety-${index}`} data-testid={`pool-safety-${index}`} defaultValue="PASS">
+                <select name={`safety-${index}`} data-testid={`pool-safety-${index}`} defaultValue="NOT_CHECKED">
+                    <option value="NOT_CHECKED">{isSpanish ? "Sin revisar" : "Not checked"}</option>
                     <option value="PASS">{isSpanish ? "Pasa" : "Pass"}</option>
                     <option value="FAIL">{isSpanish ? "Falla" : "Fail"}</option>
                     <option value="NA">N/A</option>
@@ -850,7 +858,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
               </p>
             ) : null}
             <label>{isSpanish ? "Notas" : "Notes"} <textarea name="notes" placeholder={isSpanish ? "Agua turbia, problema con la puerta, acción química, seguimiento..." : "Cloudy water, gate issue, chemical action, follow-up..."} /></label>
-            <button type="submit" data-testid="pool-daily-submit" disabled={!canEdit || !facilities.length || entryCreateMutation.isPending}>{isSpanish ? "Guardar registro diario de piscina" : "Save daily pool log"}</button>
+            <button type="submit" data-testid="pool-daily-submit" disabled={!canEdit || !propertyId || !facilities.length || entryCreateMutation.isPending}>{isSpanish ? "Guardar registro diario de piscina" : "Save daily pool log"}</button>
             {!canEdit ? <p className="muted">{isSpanish ? "Su rol puede ver registros de piscina, pero no crear entradas." : "Your role can view pool logs but cannot create entries."}</p> : null}
           </form>
           <PropertyWikiWorkflowPanel
@@ -876,7 +884,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
             <input name="capacityGallons" type="number" step="1" placeholder={isSpanish ? "Capacidad en galones (opcional)" : "Capacity gallons (optional)"} disabled={!canManage} />
             <input name="surfaceType" placeholder={isSpanish ? "Tipo de superficie (opcional)" : "Surface type (optional)"} disabled={!canManage} />
             <textarea name="notes" placeholder={isSpanish ? "Notas" : "Notes"} disabled={!canManage} />
-            <button type="submit" data-testid="pool-facility-submit" disabled={!canManage || facilityCreateMutation.isPending}>{isSpanish ? "Agregar piscina/spa" : "Add pool/spa"}</button>
+            <button type="submit" data-testid="pool-facility-submit" disabled={!canManage || !propertyId || facilityCreateMutation.isPending}>{isSpanish ? "Agregar piscina/spa" : "Add pool/spa"}</button>
             <p className="muted">{isSpanish ? "La capacidad es opcional. Las estimaciones de dosificación no están disponibles hasta conocer la capacidad." : "Capacity is optional. Dosage estimates are unavailable until capacity is known."}</p>
           </form>
           <article className="pool-card">
@@ -952,7 +960,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
             </fieldset>
             <input name="concentrationPercent" type="number" step="0.01" min="0" max="100" placeholder={isSpanish ? "Concentración % (opcional)" : "Concentration % (optional)"} disabled={!canManage} />
             <textarea name="notes" placeholder={isSpanish ? "Notas" : "Notes"} disabled={!canManage} />
-            <button type="submit" data-testid="pool-chemical-submit" disabled={!canManage || chemicalCreateMutation.isPending}>{isSpanish ? "Agregar químico" : "Add chemical"}</button>
+            <button type="submit" data-testid="pool-chemical-submit" disabled={!canManage || !propertyId || chemicalCreateMutation.isPending}>{isSpanish ? "Agregar químico" : "Add chemical"}</button>
             <p className="muted">{isSpanish ? "La concentración es opcional, pero las estimaciones exactas de dosificación la necesitan." : "Concentration is optional, but exact dosage estimates need it."}</p>
           </form>
           <article className="pool-card">

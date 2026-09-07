@@ -447,6 +447,7 @@ export type AnalyticsSnapshotsResponse = {
 };
 
 export type UnitHistoryResponse = {
+  coverage?: { scope: "recent-timeline"; eventLimit: number; auditLimit: number; automationRunsPerTurnLimit: number; truncated: boolean };
   unit: Unit;
   turns: Array<{ itemId: string; current: boolean; createdAt: string; vacatedDate: string | null; makeReadyDate: string | null; moveInDate: string | null; completedAt: string | null; daysVacant: number; turnDuration: number | null; riskLevel: string; assignedTech: string | null; vendorWorkCount: number; checklistCompletionPercent: number }>;
   recurringSignals: Record<"pest" | "flooring" | "paint" | "vendor" | "highRisk", number>;
@@ -656,7 +657,7 @@ export type PoolSafetyCheck = {
   id: string;
   entryId: string;
   label: string;
-  value: "PASS" | "FAIL" | "NA";
+  value: "PASS" | "FAIL" | "NA" | "NOT_CHECKED";
   notes: string | null;
   sortOrder: number;
 };
@@ -687,7 +688,7 @@ export type PoolLogAttachment = {
 };
 
 export type PoolEvaluation = {
-  status: "OK" | "REVIEW";
+  status: "OK" | "REVIEW" | "INCOMPLETE";
   issueCount: number;
   issues: Array<{ code: string; severity: "LOW" | "MEDIUM" | "HIGH"; message: string }>;
   recommendations: string[];
@@ -2533,7 +2534,7 @@ export function updateRiskPolicy(propertyId: string, policy: Partial<RiskPolicy>
 }
 
 export function evaluateRisk(input: { propertyId?: string; itemIds?: string[]; notify?: boolean }) {
-  return request<{ evaluated: number; byLevel: Record<string, number>; items: Array<{ itemId: string; riskScore: number; riskLevel: string; riskReasons: RiskReason[] }> }>("/risk/evaluate", {
+  return request<{ evaluated: number; coverage: { scope: "selected-items" | "active-items"; limit: number; selectedCount: number; skippedCount: number; truncated: boolean }; byLevel: Record<string, number>; items: Array<{ itemId: string; riskScore: number; riskLevel: string; riskReasons: RiskReason[] }> }>("/risk/evaluate", {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -3364,6 +3365,10 @@ export function resetAdminUserPassword(id: string, password: string) {
     method: "POST",
     body: JSON.stringify({ password }),
   });
+}
+
+export function resendAdminUserInvite(id: string) {
+  return request<{ ok: true }>(`/admin/users/${id}/resend-invite`, { method: "POST" });
 }
 
 export function deactivateAdminUser(id: string) {

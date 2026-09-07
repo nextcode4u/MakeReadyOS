@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ManagedUser, MetaResponse, Property, UserLanguage, UserRole } from "../lib/api";
+import { resendAdminUserInvite } from "../lib/api";
 import { languageOptions, t, translateUserRole } from "../lib/i18n";
 import { BackupTransferPanel } from "./BackupTransferPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -72,6 +73,9 @@ export function AdminPanel({
   const createInFlight = useRef(false);
   const editorRef = useRef<HTMLElement>(null);
   const [editError, setEditError] = useState("");
+  const [invitePending, setInvitePending] = useState(false);
+  const inviteInFlight = useRef(false);
+  const [inviteResult, setInviteResult] = useState<{ id: string; error: boolean; message: string } | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<(typeof roleFilterOptions)[number]>("ALL");
   const [statusFilter, setStatusFilter] = useState<(typeof statusFilterOptions)[number]>("ALL");
@@ -319,7 +323,7 @@ export function AdminPanel({
                 <input
                   data-testid="admin-create-password"
                   type="password"
-                  value={createState.password}
+                  value={createState.sendInviteEmail ? "" : createState.password}
                   disabled={createState.sendInviteEmail}
                   onChange={(event) => setCreateState((current) => ({ ...current, password: event.target.value }))}
                 />
@@ -357,7 +361,10 @@ export function AdminPanel({
                 type="checkbox"
                 checked={createState.sendInviteEmail}
                 disabled={!createState.email.trim()}
-                onChange={(event) => setCreateState((current) => ({ ...current, sendInviteEmail: event.target.checked }))}
+                onChange={(event) => {
+                  const sendInviteEmail = event.target.checked;
+                  setCreateState((current) => ({ ...current, sendInviteEmail, password: sendInviteEmail ? "" : current.password }));
+                }}
               />
               {t(language, "admin.sendInviteEmail")}
             </label>
@@ -388,14 +395,14 @@ export function AdminPanel({
             <button
               data-testid="admin-create-user-button"
               className="button button-primary"
-              disabled={loading || createPending || (useEmailAsUsername && !createState.email.trim())}
+              disabled={loading || createPending || (!createState.sendInviteEmail && !createState.password) || (useEmailAsUsername && !createState.email.trim())}
               onClick={async () => {
                 if (createInFlight.current) return;
                 createInFlight.current = true;
                 setCreatePending(true);
                 setCreateError("");
                 try {
-                  await onCreateUser({ ...createState, username: useEmailAsUsername ? createState.email.trim() : createState.username });
+                  await onCreateUser({ ...createState, password: createState.sendInviteEmail ? "" : createState.password, username: useEmailAsUsername ? createState.email.trim() : createState.username });
                 setCreateState({
                   fullName: "",
                   username: "",
@@ -635,6 +642,29 @@ export function AdminPanel({
             </div>
 
             <div className="property-access-block">
+              <p className="section-label">{language === "es" ? "Invitacion y recuperacion" : "Invite and account recovery"}</p>
+              <p className="field-help">{language === "es" ? "Envia un enlace nuevo de una hora al correo guardado. Reemplaza los enlaces anteriores; no cambia la contrasena actual hasta que se use." : "Send a fresh one-hour link to the saved email. It replaces previous links; the current password stays unchanged until the link is used."}</p>
+              <p>{selectedUser.email || t(language, "admin.noEmail")}</p>
+              <button type="button" className="button button-secondary" data-testid="admin-resend-invite"
+                disabled={loading || invitePending || !selectedUser.isActive || !selectedUser.email || editState.email !== (selectedUser.email ?? "")}
+                onClick={async () => {
+                  if (inviteInFlight.current) return;
+                  inviteInFlight.current = true;
+                  setInvitePending(true);
+                  setInviteResult(null);
+                  const id = selectedUser.id;
+                  try {
+                    await resendAdminUserInvite(id);
+                    setInviteResult({ id, error: false, message: language === "es" ? "Invitacion enviada. El enlace vence en una hora." : "Invite sent. The link expires in one hour." });
+                  } catch (error) {
+                    setInviteResult({ id, error: true, message: error instanceof Error ? error.message : "Could not send invite." });
+                  } finally {
+                    inviteInFlight.current = false;
+                    setInvitePending(false);
+                  }
+                }}>{invitePending ? (language === "es" ? "Enviando..." : "Sending...") : (language === "es" ? "Reenviar invitacion" : "Resend invite email")}</button>
+              {editState.email !== (selectedUser.email ?? "") ? <p className="field-help">{language === "es" ? "Guarda el correo antes de enviar." : "Save the email change before sending."}</p> : null}
+              {inviteResult?.id === selectedUser.id ? <p className={`admin-message ${inviteResult.error ? "error" : "success"}`} role={inviteResult.error ? "alert" : "status"}>{inviteResult.message}</p> : null}
               <p className="section-label">{t(language, "admin.resetPassword")}</p>
               <div className="admin-inline-form">
                 <input

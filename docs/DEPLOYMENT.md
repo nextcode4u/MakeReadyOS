@@ -73,7 +73,7 @@ Set `TRUST_PROXY=true` when MakeReadyOS is running behind Caddy, Nginx, Traefik,
 
 ## Optional User Invite Emails
 
-If admins should email new users their login details from `Admin -> User Management`, configure SMTP in `.env`:
+To send account invitations from `Admin -> User Management`, configure SMTP in `.env`:
 
 ```bash
 SMTP_HOST=smtp.example.com
@@ -87,9 +87,11 @@ SMTP_REPLY_TO=operations@example.com
 
 Notes:
 
-- Invite delivery is optional and only runs when the admin checks `Send invite email` during user creation.
+- Invite delivery is optional. Select `Send invite email` during user creation to send a one-hour password-setting link. The manual password field is cleared and disabled; passwords are not included in the email.
 - If SMTP is not configured, user creation still works; the invite checkbox should be left off.
-- If the user account is created but SMTP delivery fails, MakeReadyOS keeps the user and reports that invite delivery failed so credentials can be shared another way.
+- If SMTP delivery fails after account creation, the account remains saved. Correct the email settings and resend the invitation rather than creating a duplicate account.
+- Admins can select an existing active user and choose `Resend invite email`. Save any email-address changes first. The action issues a fresh one-hour link and replaces the previous link; the current password does not change until a valid link is redeemed.
+- A successful invite send is followed by a one-minute resend cooldown for that user. Delivery failures appear inline so admins can retry after correcting the problem.
 
 ## Common Self-Hosted Origin Setups
 

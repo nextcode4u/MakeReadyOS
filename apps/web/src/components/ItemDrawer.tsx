@@ -11,6 +11,7 @@ import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { LabelPill } from "./LabelPill";
 import { Modal } from "./Modal";
 import { StatusState } from "./StatusState";
+import { HistoryCoverageNotice } from "./HistoryCoverageNotice";
 
 function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
   return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
@@ -1300,6 +1301,7 @@ export function ItemDrawer({
                 ))}
               </div>
               <div className="drawer-timeline unit-history-timeline">
+                <HistoryCoverageNotice history={historyQuery.data} shownEvents={16} language={language} />
                 {historyQuery.data?.events.slice(0, 16).map((entry, index) => (
                   <div key={`${entry.type}-${entry.occurredAt}-${index}`} className="drawer-timeline-row">
                     <strong>{entry.title}</strong>

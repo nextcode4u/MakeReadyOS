@@ -1,4 +1,6 @@
 import { stringify } from "csv-stringify/sync";
+import { customExportHeaders } from "../lib/exportHeaders.js";
+import { readyVacancyStatus } from "../lib/readyVacancyStatus.js";
 import { Prisma, UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -150,13 +152,6 @@ async function sectionFor(propertyId: string, key: string) {
 
 async function lifecycleSection(propertyId: string, type: "ARCHIVE" | "MAKE_READY" | "READY") {
   return prisma.boardSection.findFirst({ where: { propertyId, sectionType: type, isActive: true } });
-}
-
-function readyVacancyStatus(value: string | null | undefined) {
-  const normalized = (value ?? "").toUpperCase();
-  if (normalized.includes("LEASED")) return "VACANT LEASED READY";
-  if (normalized === "DOWN") return "DOWN";
-  return "VACANT NOT LEASED READY";
 }
 
 function startOfWeek(date: Date) {
@@ -1055,7 +1050,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     }
     const payload = makeReadyBatchSchema.parse(request.body);
     const propertyIds = scopedAllowedPropertyIds(request);
-    const items = await prisma.makeReadyItem.findMany({ where: { id: { in: payload.ids } } });
+    const items = await prisma.makeReadyItem.findMany({ where: { id: { in: payload.ids } }, orderBy: { id: "asc" } });
     if (items.length !== new Set(payload.ids).size) {
       reply.code(404);
       return { message: "One or more selected items were not found" };
@@ -1091,16 +1086,18 @@ export async function makeReadyRoutes(app: FastifyInstance) {
 
     let data: Prisma.MakeReadyItemUpdateManyMutationInput;
     if (payload.action === "ARCHIVE" || payload.action === "RESTORE") {
+      const archiving = payload.action === "ARCHIVE";
+      const targets = await Promise.all(items.map(item => lifecycleSection(item.propertyId, archiving ? "ARCHIVE" : "MAKE_READY")));
+      if (targets.some(target => !target)) {
+        reply.code(409);
+        return { message: `Required ${payload.action.toLowerCase()} section is not configured for a selected property` };
+      }
+      const archivedAt = archiving ? new Date() : null;
+      await prisma.$transaction(items.map((item, index) => prisma.makeReadyItem.update({
+        where: { id: item.id },
+        data: { boardGroup: targets[index]!.key, isArchived: archiving, archivedAt },
+      })));
       for (const item of items) {
-        const target = await lifecycleSection(item.propertyId, payload.action === "ARCHIVE" ? "ARCHIVE" : "MAKE_READY");
-        if (!target) {
-          reply.code(409);
-          return { message: `Required ${payload.action.toLowerCase()} section is not configured for a selected property` };
-        }
-        await prisma.makeReadyItem.update({
-          where: { id: item.id },
-          data: { boardGroup: target.key, isArchived: payload.action === "ARCHIVE", archivedAt: payload.action === "ARCHIVE" ? new Date() : null },
-        });
         await notifyAssignedStaff({
           assignedTech: item.assignedTech, propertyId: item.propertyId, itemId: item.id,
           category: "BATCH_CHANGE", title: `Item ${payload.action === "ARCHIVE" ? "archived" : "restored"}`,
@@ -1535,8 +1532,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     const { items, customFields } = await getMakeReadyExportBundle(request, query);
     const scopeLabel = await makeReadyReportScopeLabel(query.propertyId);
 
-    const csv = stringify(
-      items.map((item) => ({
+    const baseRows = items.map((item) => ({
         property: item.property.code,
         boardGroup: item.boardGroup,
         unitNumber: item.unitNumber,
@@ -1568,9 +1564,14 @@ export async function makeReadyRoutes(app: FastifyInstance) {
         countertopsStatus: item.countertopsStatus ?? "",
         appliancesStatus: item.appliancesStatus ?? "",
         notes: item.notes ?? "",
+      }));
+    const customHeaders = customExportHeaders(customFields, Object.keys(baseRows[0] ?? {}));
+    const csv = stringify(
+      baseRows.map((row, index) => ({
+        ...row,
         ...Object.fromEntries(customFields.map((field) => {
-          const customValue = item.customFieldValues.find((value) => value.customFieldId === field.id)?.value;
-          return [field.label, Array.isArray(customValue) ? customValue.join(", ") : customValue ?? ""];
+          const customValue = items[index].customFieldValues.find((value) => value.customFieldId === field.id)?.value;
+          return [customHeaders.get(field.id)!, Array.isArray(customValue) ? customValue.join(", ") : customValue ?? ""];
         })),
       })),
       { header: true, escape_formulas: true },

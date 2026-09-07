@@ -3,24 +3,9 @@ import { z } from "zod";
 import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { evaluateItemRisk } from "../lib/risk.js";
+import { availabilityChangeTitle, dashboardDateWindow } from "../lib/dashboardDates.js";
 
 export const dashboardQuerySchema = z.object({ propertyId: z.string().optional() });
-
-function daysBetween(left: Date, right: Date) {
-  return Math.ceil((right.getTime() - left.getTime()) / (24 * 60 * 60 * 1000));
-}
-
-function nowStart() {
-  const value = new Date();
-  value.setHours(0, 0, 0, 0);
-  return value;
-}
-
-function daysFromNow(days: number) {
-  const value = nowStart();
-  value.setDate(value.getDate() + days);
-  return value;
-}
 
 function formatDisplayDate(value: Date | null | undefined) {
   return value ? value.toLocaleDateString() : "";
@@ -36,6 +21,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
     }
     const propertyId = query.propertyId ?? (accessible === null ? undefined : { in: accessible });
     const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const dates = dashboardDateWindow();
     const [items, archivedCount, sections, vendorAssignments, unitsCount, mapLocations, workBlocks, directoryUnits, propertyMaps, propertyMapPins, recentAudit] = await Promise.all([
       prisma.makeReadyItem.findMany({
         where: { propertyId, property: { isActive: true } },
@@ -59,7 +45,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
         select: { unitId: true, area: true },
       }),
       prisma.workAssignmentBlock.findMany({
-        where: { propertyId, status: { in: ["PLANNED", "IN_PROGRESS"] }, plannedDate: { gte: nowStart(), lt: daysFromNow(7) } },
+        where: { propertyId, status: { in: ["PLANNED", "IN_PROGRESS"] }, plannedDate: { gte: dates.today, lt: dates.nextSeven } },
         include: { assignedUser: { select: { id: true, fullName: true, role: true, capacity: true } } },
       }),
       prisma.unit.findMany({
@@ -88,16 +74,9 @@ export async function dashboardRoutes(app: FastifyInstance) {
         take: 80,
       }),
     ]);
-    const now = new Date();
-    const inDays = (date: Date | null, days: number) => date && daysBetween(now, date) >= 0 && daysBetween(now, date) <= days;
-    const weekStart = new Date(now);
-    weekStart.setHours(0, 0, 0, 0);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 7);
-    const inCurrentWeek = (date: Date | null) => Boolean(date && date >= weekStart && date < weekEnd);
+    const { inDays, inCurrentWeek } = dates;
     const vendorScheduledThisWeek = vendorAssignments.filter((assignment) => inCurrentWeek(assignment.scheduledDate)).length;
-    const vendorOverdue = vendorAssignments.filter((assignment) => assignment.dueDate && assignment.dueDate < weekStart).length;
+    const vendorOverdue = vendorAssignments.filter((assignment) => dates.isOverdue(assignment.dueDate)).length;
     const vendorFollowUpNeeded = vendorAssignments.filter((assignment) => assignment.status === "FOLLOW_UP_NEEDED").length;
     const sectionType = new Map(sections.map((section) => [`${section.propertyId}:${section.key}`, section.sectionType]));
     const mappedUnitIds = new Set(mapLocations.map((location) => location.unitId));
@@ -288,13 +267,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
           if (entry.action === "AVAILABILITY_SYNCED") {
             const metadata = (entry.metadata ?? {}) as Record<string, unknown>;
             const vacancyStatus = typeof metadata.vacancyStatus === "string" ? metadata.vacancyStatus : item.vacancyStatus;
-            const title = vacancyStatus?.includes("READY")
-              ? "Availability marked ready"
-              : vacancyStatus?.startsWith("NTV")
-                ? "Availability updated notice"
-                : vacancyStatus?.includes("VACANT")
-                  ? "Availability updated vacancy"
-                  : "Availability synced";
+            const title = availabilityChangeTitle(vacancyStatus);
             const reportDate = typeof metadata.reportDate === "string" ? metadata.reportDate : null;
             return [{
               key: `availability:${entry.id}`,

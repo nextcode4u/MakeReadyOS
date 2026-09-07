@@ -45,4 +45,26 @@ test("risk evaluation rejects item IDs outside its explicitly selected property"
   });
   assert.equal(allowed.statusCode, 200, allowed.body);
   assert.equal(evaluations, 1, "matching requests still reach the evaluator");
+  assert.deepEqual(allowed.json().coverage, { scope: "selected-items", limit: 200, selectedCount: 1, skippedCount: 1, truncated: false });
+  let candidateCount = 501;
+  prisma.makeReadyItem.findMany = (async ({ where, take, orderBy }: any) => {
+    if (take) {
+      assert.equal(take, 501, "fetch one extra row to detect the silent cap");
+      assert.deepEqual(orderBy, { id: "asc" });
+      assert.equal(where.propertyId, "b");
+      assert.equal(where.isArchived, false);
+      return Array.from({ length: candidateCount }, (_, index) => ({ id: `item-${index}` }));
+    }
+    return where.id.in.map((id: string) => ({ id, propertyId: "b" }));
+  }) as any;
+  for (candidateCount of [501, 500, 0]) {
+    const before: number = evaluations;
+    const response = await app.inject({ method: "POST", url: "/risk/evaluate", payload: { propertyId: "b", notify: false } });
+    assert.equal(response.statusCode, 200, response.body);
+    const selectedCount = Math.min(candidateCount, 500);
+    assert.deepEqual(response.json().coverage, {
+      scope: "active-items", limit: 500, selectedCount, skippedCount: selectedCount, truncated: candidateCount > 500,
+    });
+    assert.equal(evaluations - before, selectedCount);
+  }
 });
