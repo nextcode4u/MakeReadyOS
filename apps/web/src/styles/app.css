@@ -9648,7 +9648,10 @@ textarea {
 }
 
 /* Frog Pond: whimsical, bounded visualization built from committed runtime assets. */
-.property-branding { min-width: 0; border-block: 1px solid var(--border); padding-block: 1rem; }
+.property-editor { align-items: start; }
+.property-editor > label { align-content: start; min-width: 0; }
+.property-editor > .operations-mini-stats { grid-column: 1 / -1; }
+.property-branding { grid-column: 1 / -1; min-width: 0; border-block: 1px solid var(--border); padding-block: 1rem; }
 .property-branding fieldset { display: grid; gap: .7rem; min-width: 0; border: 0; padding: 0; }
 .property-branding label { display: grid; gap: .3rem; min-width: 0; }
 .property-branding input, .property-branding select { width: 100%; min-width: 0; box-sizing: border-box; }

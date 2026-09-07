@@ -6,6 +6,7 @@ import { t } from "../lib/i18n";
 import { StatusState } from "./StatusState";
 import { frogSpriteFrame, type FrogSpriteFrame } from "../lib/frogSprites";
 import { PondAudio, type PondSound } from "../lib/pondAudio";
+import { PondFieldGuide, PondWildlife } from "./PondEcosystem";
 import { approachSnack, pondElapsed, pondGreeting, pondJourney, pondLight, pondPads, pondPersonality, pondSnackDuration, snackCatchAge, selectPondHunter, type PondSnack } from "../lib/pondLife";
 
 type MetricSource = "active" | "risk" | "techWorkload" | "vacant" | "moveInsWeek";
@@ -27,6 +28,8 @@ export type FrogPondConfig = {
   labels: "quiet" | "always";
   atmosphere: "auto" | "day" | "dusk" | "night";
   weather: "auto" | "clear" | "rain";
+  season?: "auto" | "none" | "spring" | "summer" | "autumn" | "winter";
+  variant?: "natural" | "gold" | "rose" | "mint";
 };
 
 type Props = {
@@ -48,6 +51,7 @@ const storageKey = "makereadyos.frogPond.config";
 const presetsKey = "makereadyos.frogPond.presets";
 const positionsKey = "makereadyos.frogPond.positions";
 const pondRewards = [
+  { id: "barista", name: "Little barista", goal: 1, hint: "Warm the coffee shop mug", sheet: "green" },
   { id: "brown", name: "Woodland brown", goal: 0, hint: "Starter style", sheet: "brown" },
   { id: "bw", name: "Game Boy B&W", goal: 0, hint: "Starter style", sheet: "bw" },
   { id: "tophat", name: "Dapper pond", goal: 1, hint: "1 ready unit", sheet: "tophat" },
@@ -70,6 +74,7 @@ function loadCollection(key: string): PondCollection {
   } catch { return { readyPeak: 0, feeds: 0, outfit: "natural", visitor: false, greeted: false, outfits: {}, discovered: {} }; }
 }
 function rewardUnlocked(reward: typeof pondRewards[number], collection: PondCollection) {
+  if (reward.id === "barista") return Boolean(collection.discovered["secret-pond-12"]);
   if (reward.id === "purple") return collection.visitor;
   return (reward.id === "funnyglasses" || reward.id === "pirate" ? collection.feeds : collection.readyPeak) >= reward.goal;
 }
@@ -137,7 +142,8 @@ const tadpoleSprites = ["/frogs/tadpoles/tadpole-1.png", "/frogs/tadpoles/tadpol
 
 type PondPosition = { x: number; y: number };
 type DragState = { id: string; pointerId: number; moved: boolean; startX: number; startY: number };
-type Fly = { id: number; startTick: number; top: number; duration: number; delay: number; reverse: boolean; loopSize: number; loopSpeed: number; drift: number; caught?: { frogId: string; tick: number; from: PondPosition; mouth: PondPosition } };
+type FlyAttempt = { frogId: string; tick: number; from: PondPosition; mouth: PondPosition };
+type Fly = { id: number; startTick: number; top: number; duration: number; delay: number; reverse: boolean; loopSize: number; loopSpeed: number; drift: number; missed?: FlyAttempt; caught?: FlyAttempt & { runnerId?: string } };
 type FrogRender = {
   item: MakeReadyItem;
   index: number;
@@ -271,7 +277,7 @@ function flyPosition(fly: Fly, tick: number) {
   const driftY = Math.sin(progress * Math.PI * 3 + fly.id * .7) * fly.drift * edgeFade;
   return {
     x: travel + loopX,
-    y: clamp(fly.top + loopY + driftY, 4, 92),
+    y: clamp(fly.top + loopY + driftY - (fly.missed && pondElapsed(tick, fly.missed.tick) < 8 ? 4 * Math.sin(pondElapsed(tick, fly.missed.tick) / 8 * Math.PI) : 0), 4, 92),
   };
 }
 
@@ -351,6 +357,10 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
   const collectionKey = `makereadyos.frogPond.collection.${viewerId}`;
   const [collection, setCollection] = useState(() => loadCollection(collectionKey));
   const [collectionSaved, setCollectionSaved] = useState(true);
+  const recordDiscovery = (id: string) => setCollection(current => current.discovered[id] ? current : ({ ...current, discovered: { ...current.discovered, [id]: new Date().toISOString() } }));
+  const recordEvent = useEffectEvent(recordDiscovery);
+  const [danceTick, setDanceTick] = useState<number | null>(null);
+  const [chorus, setChorus] = useState<{ tick: number; ids: string[] } | null>(null);
   const [feeding, setFeeding] = useState(false);
   const [food, setFood] = useState<"flies" | "algae">("flies");
   const [pondOnly, setPondOnly] = useState(false);
@@ -432,7 +442,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
     else void audio.pause().catch(() => setSound(false));
   }, [sound, motionEnabled, volume]);
   useEffect(() => {
-    if (celebration) automaticSound("ready");
+    if (celebration) { automaticSound("ready"); recordEvent("antic-celebration"); }
   }, [celebration]);
   useEffect(() => {
     if (visitorVisible) automaticSound("visitor");
@@ -615,6 +625,19 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
     const tip = age < 1 ? mouth : point;
     return [{ id, age, from, mouth, point, tip }];
   }) : [];
+  const dancing = celebration || danceTick !== null && pondElapsed(frameTick, danceTick) < 36;
+  const chorusAge = chorus ? pondElapsed(frameTick, chorus.tick) : 99;
+  const callingId = chorus && chorusAge < chorus.ids.length * 5 ? chorus.ids[Math.floor(chorusAge / 5)] : null;
+  useEffect(() => {
+    if (!motionEnabled || !chorus || chorusAge % 5 !== 0 || chorusAge >= chorus.ids.length * 5) return;
+    automaticSound("frog");
+    if (chorusAge === 5) recordEvent("antic-chorus");
+  }, [motionEnabled, chorus, chorusAge]);
+  useEffect(() => {
+    if (!motionEnabled) return;
+    const sleepers = renderedFrogs.filter(frog => frog.pose === "sleeping");
+    if (sleepers.some((frog, index) => sleepers.slice(index + 1).some(other => Math.hypot((frog.x - other.x) * sceneWidth / 100, (frog.y - other.y) * sceneHeight / 100) < 130))) recordEvent("antic-buddies");
+  }, [motionEnabled, renderedFrogs, sceneWidth, sceneHeight]);
   useEffect(() => {
     if (snack && snack.guests.some((_, index) => snackCatchAge(snack, index, frameTick) === 1)) automaticSound(snack.food === "algae" ? "bubble" : "catch");
   }, [snack, frameTick]);
@@ -622,14 +645,17 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
   useEffect(() => {
     const caught = flies.filter(fly => fly.caught);
     if (caught.some(fly => !heardCatches.current.has(fly.id))) automaticSound("catch");
+    if (flies.some(fly => fly.missed)) recordEvent("antic-miss");
+    if (caught.some(fly => fly.caught?.runnerId && pondElapsed(frameTick, fly.caught.tick) >= 3)) recordEvent("antic-sharing");
     heardCatches.current = new Set(caught.map(fly => fly.id));
-  }, [flies]);
+  }, [flies, frameTick]);
   useEffect(() => {
     if (pondElapsed(frameTick, ambientTick.current) < 36) return;
     ambientTick.current = frameTick;
     if (!renderedFrogs.length) return;
     const beat = Math.floor(frameTick / 36);
     const awakeAdult = renderedFrogs.some(frog => frog.pose !== "tadpole" && frog.pose !== "sleeping");
+    if (beat % 7 === 0 && awakeAdult) setChorus({ tick: frameTick, ids: renderedFrogs.filter(frog => frog.pose !== "tadpole" && frog.pose !== "sleeping").slice(0, 3).map(frog => frog.item.id) });
     automaticSound(raining && beat % 2 === 0 ? "rain" : awakeAdult && beat % 3 === 0 ? "frog" : "bubble");
   }, [frameTick, renderedFrogs, raining]);
 
@@ -638,7 +664,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
     const sceneRect = sceneRef.current?.getBoundingClientRect();
     if (!sceneRect?.width || !sceneRect.height) return;
     setFlies(current => {
-      const busy = new Set([...current.flatMap(fly => fly.caught ? [fly.caught.frogId] : []), ...(snack?.guests ?? [])]);
+      const busy = new Set([...current.flatMap(fly => fly.caught ? [fly.caught.frogId, ...(fly.caught.runnerId ? [fly.caught.runnerId] : [])] : []), ...(snack?.guests ?? [])]);
       const mouths = renderedFrogs.map(frog => ({ id: frog.item.id, pose: frog.pose, x: frog.x, y: frog.y - 12 / sceneRect.height * 100 }));
       let changed = false;
       const next = current.flatMap(fly => {
@@ -646,13 +672,18 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
           if (pondElapsed(frameTick, fly.caught.tick) >= 5) { changed = true; return []; }
           return [fly];
         }
+        if (fly.missed && pondElapsed(frameTick, fly.missed.tick) < 8) return [fly];
         const point = flyPosition(fly, frameTick);
         const from = { x: point.x + 16 / sceneRect.width * 100, y: point.y + 16 / sceneRect.height * 100 };
         const hunter = selectPondHunter(from, mouths, sceneRect.width, sceneRect.height, busy);
         if (!hunter) return [fly];
         busy.add(hunter.id);
         changed = true;
-        return [{ ...fly, caught: { frogId: hunter.id, tick: frameTick, from, mouth: { x: hunter.x, y: hunter.y } } }];
+        const attempt = { frogId: hunter.id, tick: frameTick, from, mouth: { x: hunter.x, y: hunter.y } };
+        if (fly.id % 5 === 0 && !fly.missed) return [{ ...fly, missed: attempt }];
+        const runner = selectPondHunter(from, mouths, sceneRect.width, sceneRect.height, busy);
+        if (runner) busy.add(runner.id);
+        return [{ ...fly, caught: { ...attempt, runnerId: runner?.id } }];
       });
       // Preserve identity on idle ticks to avoid an effect/render feedback loop.
       return changed ? next : current;
@@ -844,7 +875,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
         <p className="muted">{isSpanish ? "Las unidades listas visibles desbloquean estilos. La coleccion se guarda para su cuenta en este navegador; no cambia el trabajo." : "Ready units visible on your board unlock outfits. Discoveries stay with your account in this browser, even after the view changes. Playing never changes work records."}</p>
         {!collectionSaved ? <p role="status">{isSpanish ? "No se pudo guardar la coleccion en este navegador." : "This browser could not save your collection. Discoveries will last only for this visit."}</p> : null}
         <div className="pond-rewards">
-          <button type="button" className="button" aria-pressed={collection.outfit === "natural" && !Object.keys(collection.outfits).length} onClick={() => setCollection(current => ({ ...current, outfit: "natural", outfits: {} }))}>{isSpanish ? "Estilo natural" : "Natural pond"}</button>
+          <button type="button" className="button" aria-pressed={collection.outfit === "natural" && !Object.keys(collection.outfits).length && (!config.variant || config.variant === "natural")} onClick={() => { setCollection(current => ({ ...current, outfit: "natural", outfits: {} })); updateConfig({ variant: "natural" }); }}>{isSpanish ? "Estilo natural" : "Natural pond"}</button>
           {pondRewards.map(reward => <button type="button" className="button" key={reward.id} data-testid={`pond-reward-${reward.id}`} disabled={!rewardUnlocked(reward, collection)} aria-pressed={collection.outfit === reward.id} onClick={() => setCollection(current => ({ ...current, outfit: reward.id }))}><span className="pond-outfit-preview" aria-hidden="true" style={{ backgroundImage: `url(${frogSheets[reward.sheet].url})`, backgroundSize: `${frogSheets[reward.sheet].width}px ${frogSheets[reward.sheet].height}px` }} /><strong>{reward.name}</strong><small>{rewardUnlocked(reward, collection) ? discoveryDate(reward.id) : reward.hint}</small></button>)}
         </div>
         <h3>{isSpanish ? "Album de descubrimientos" : "Discovery scrapbook"}</h3>
@@ -854,6 +885,13 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
           <li>{collection.feeds >= 3 ? (isSpanish ? "Club de meriendas: descubierto" : "Snack club: discovered") : (isSpanish ? "Vuelva con tres meriendas..." : "Come back with three snacks...")}</li>
           <li>{collection.visitor ? `${isSpanish ? "Libelula visitante" : "Dragonfly visitor"} / ${discoveryDate("visitor")}` : (isSpanish ? "Espere junto al agua; busque alas brillantes..." : "Linger by the water; watch for shimmering wings...")}</li>
         </ul>
+      </details>
+      <PondFieldGuide discovered={collection.discovered} />
+      <details className="frog-settings"><summary>{isSpanish ? "Decoracion del estanque" : "Pond decorations"}</summary>
+        <div className="pond-decoration-controls">
+          <label>Season<select aria-label="Pond season" value={config.season ?? "auto"} onChange={event => updateConfig({ season: event.target.value as FrogPondConfig["season"] })}>{["auto", "none", "spring", "summer", "autumn", "winter"].map(season => <option key={season} value={season}>{season}</option>)}</select></label>
+          <label>Rare colors<select aria-label="Rare frog colors" value={config.variant ?? "natural"} onChange={event => updateConfig({ variant: event.target.value as FrogPondConfig["variant"] })}><option value="natural">Natural colors</option><option value="gold" disabled={!collection.discovered["wild-turtle"]}>Golden / meet the turtle</option><option value="rose" disabled={!collection.discovered["wild-axolotl"]}>Rose / meet the axolotl</option><option value="mint" disabled={!collection.discovered["secret-pond-13"]}>Mint / open the warehouse crate</option></select></label>
+        </div>
       </details>
       <div className="pond-greeting" role="status" data-testid="pond-greeting">
         {feeding ? (collection.feeds >= 3 ? (isSpanish ? "Descubrio Secret shades. Revise su coleccion!" : "Secret shades discovered. Check your collection!") : (isSpanish ? "Los vecinos se acercan a la merienda." : "Nearby neighbors are heading for a snack.")) : greetingId && scopedItems.some(item => item.id === greetingId) ? <><span>{greetedTadpole ? (isSpanish ? "Bloop! El renacuajo hace burbujas." : "Bloop! Your tadpole sends a little bubble.") : (isSpanish ? "Ribbit! Su rana lo saluda." : "Ribbit! A tiny wave, just for you.")}</span><button type="button" className="button button-secondary" data-testid="pond-open-unit" onClick={() => onOpenItem(greetingId)}>{isSpanish ? "Abrir unidad" : "Open unit"} {scopedItems.find(item => item.id === greetingId)?.unitNumber}</button></> : (isSpanish ? "Toque un vecino para saludar, o el agua para dar comida." : "Tap a neighbor to say hello, or tap the water to drop a snack.")}
@@ -883,6 +921,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
         }} style={{ "--pond-image": `url("${activePond.url}")`, "--pond-height": `${sceneHeight}px` } as CSSProperties}>
           <div className="pond-atmosphere" aria-hidden="true"><div className="pond-water-light" />{Array.from({ length: 7 }, (_, i) => <i key={i} style={{ "--mote": i, left: `${12 + i * 12}%`, top: `${24 + (i % 3) * 15}%` } as CSSProperties} />)}</div>
           <div className="pond-light-wash" aria-hidden="true" />
+          <PondWildlife tick={frameTick} active={motionEnabled} theme={activePond.key} light={light} discovered={collection.discovered} record={recordDiscovery} sound={playSound} dance={() => setDanceTick(frameTick)} season={config.season ?? "auto"} />
           {renderedFrogs.filter(frog => frog.pose !== "tadpole").flatMap(frog => (rearranging ? [naturalPositions[frog.item.id]] : pondPads(naturalPositions[frog.item.id], sceneWidth, sceneHeight)).map((point, i) => <span key={`${frog.item.id}-${i}`} className="pond-resting-pad" aria-hidden="true" style={{ left: `${point.x}%`, top: `${point.y}%` }} />))}
           {raining ? <div className="pond-rain" aria-hidden="true">{Array.from({ length: 22 }, (_, i) => <i key={i} style={{ left: `${i * 4.5}%`, "--drop": i } as CSSProperties} />)}</div> : null}
           {celebration ? <div className="pond-celebration" role="status" data-testid="pond-celebration">{isSpanish ? "Otra unidad lista! Un chapuzon de celebracion." : "Another home ready! A little celebration splash."}<span aria-hidden="true">{Array.from({ length: 10 }, (_, i) => <i key={i} style={{ "--drop": i } as CSSProperties} />)}</span></div> : null}
@@ -912,11 +951,13 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
           {renderedFrogs.map(({ item, index, group, colorLabel, color, pose, sheet, achievementLabel, frame, tadpoleUrl, x, y }) => {
             const eatingFood = foodCatches.some(catchEvent => catchEvent.id === item.id && catchEvent.age >= 1 && catchEvent.age < 6);
             const nibbling = snack?.food === "algae" && eatingFood;
-            const catching = (snack?.food === "flies" && eatingFood) || flies.some(fly => fly.caught?.frogId === item.id);
+            const bonus = flies.some(fly => fly.caught?.runnerId === item.id && pondElapsed(frameTick, fly.caught.tick) >= 3);
+            const missed = flies.some(fly => fly.missed?.frogId === item.id && pondElapsed(frameTick, fly.missed.tick) < 8);
+            const catching = bonus || (snack?.food === "flies" && eatingFood) || flies.some(fly => fly.caught?.frogId === item.id);
             return (
               <button
                 type="button"
-                className={`frog-marker frog-pose-${pose}${catching ? " pond-catching" : ""}${nibbling ? " pond-nibbling" : ""}${snack?.guests.includes(item.id) ? " pond-snack-guest" : ""}${greetingId === item.id ? " pond-selected" : ""}`}
+                className={`frog-marker frog-pose-${pose} pond-color-${config.variant ?? "natural"}${achievementLabel === "Little barista" && pose !== "tadpole" ? " pond-barista" : ""}${dancing && pose !== "tadpole" ? " pond-dancing" : ""}${catching ? " pond-catching" : ""}${nibbling ? " pond-nibbling" : ""}${snack?.guests.includes(item.id) ? " pond-snack-guest" : ""}${greetingId === item.id ? " pond-selected" : ""}`}
                 key={item.id}
                 data-testid={`frog-marker-${item.unitNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                 aria-label={`${displayUnitNumber(item.property.code, item.unitNumber)} / ${group} / ${colorLabel}`}
@@ -941,6 +982,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
                     return;
                   }
                   setGreetingId(item.id);
+                  if (pose !== "tadpole" && !catching) setChorus({ tick: frameTick, ids: [item.id, ...renderedFrogs.filter(frog => frog.item.id !== item.id && frog.pose !== "tadpole" && frog.pose !== "sleeping").sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y)).slice(0, 2).map(frog => frog.item.id)] });
                   setCollection(current => ({ ...current, greeted: true }));
                   playSound(pose === "tadpole" ? "bubble" : catching ? "catch" : "frog");
                 }}
@@ -956,6 +998,10 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
               >
                 <span className="frog-water-ring" aria-hidden="true" />
                 <span className="frog-body" data-sprite-action={frame.action} aria-hidden="true"><i /><b /></span>
+                {missed && !catching ? <span className="frog-hello" aria-hidden="true">oops!</span> : null}
+                {bonus ? <span className="pond-idle-note" aria-hidden="true">one for you!</span> : null}
+                {pose === "sleeping" && renderedFrogs.some(other => other.item.id !== item.id && other.pose === "sleeping" && Math.hypot((other.x - x) * sceneWidth / 100, (other.y - y) * sceneHeight / 100) < 130) ? <span className="pond-buddy-hearts" aria-hidden="true">z z z</span> : null}
+                {callingId === item.id && pose !== "tadpole" && greetingId !== item.id ? <span className="frog-hello" aria-hidden="true">ribbit!</span> : null}
                 {catching || greetingId === item.id || nibbling ? <span className="frog-hello" aria-hidden="true">{pondGreeting(pose === "tadpole", catching || Boolean(nibbling))}</span> : pose === "sleeping" ? <span className="pond-idle-note" aria-hidden="true">zzz</span> : greetingId && held && Math.hypot(x - held.x, y - held.y) < 12 ? <span className="pond-idle-note" aria-hidden="true">{pose === "tadpole" ? "o o" : "..."}</span> : null}
                 <strong>{displayUnitNumber(item.property.code, item.unitNumber)}</strong>
                 <em><i style={{ background: color }} />{colorLabel}</em>
@@ -964,6 +1010,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
             );
           })}
           <svg className="pond-catch-tongues" aria-hidden="true" width="100%" height="100%">
+            {flies.filter(fly => fly.missed && pondElapsed(frameTick, fly.missed.tick) < 2).map(fly => <line key={`miss-${fly.id}`} x1={`${fly.missed!.mouth.x}%`} y1={`${fly.missed!.mouth.y}%`} x2={`${fly.missed!.from.x}%`} y2={`${fly.missed!.from.y}%`} />)}
             {snack?.food === "flies" && foodCatches.filter(catchEvent => catchEvent.age >= 0 && catchEvent.age < 4).map(catchEvent => <line className="pond-food-tongue" key={`food-${catchEvent.id}`} x1={`${catchEvent.mouth.x}%`} y1={`${catchEvent.mouth.y}%`} x2={`${catchEvent.tip.x}%`} y2={`${catchEvent.tip.y}%`} />)}
             {flies.filter(fly => fly.caught && pondElapsed(frameTick, fly.caught.tick) < 3).map(fly => {
               const catchEvent = fly.caught!;
@@ -971,6 +1018,14 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
               return <line key={fly.id} x1={`${catchEvent.mouth.x}%`} y1={`${catchEvent.mouth.y}%`} x2={`${catchEvent.from.x + (catchEvent.mouth.x - catchEvent.from.x) * retract}%`} y2={`${catchEvent.from.y + (catchEvent.mouth.y - catchEvent.from.y) * retract}%`} />;
             })}
           </svg>
+          {flies.flatMap(fly => {
+            const runner = renderedFrogs.find(frog => frog.item.id === fly.caught?.runnerId);
+            if (!runner || !fly.caught) return [];
+            const age = pondElapsed(frameTick, fly.caught.tick);
+            if (age >= 4) return [];
+            const progress = Math.min(1, age / 3);
+            return <span key={`bonus-${fly.id}`} className="pond-bonus-fly" data-testid="pond-bonus-fly" aria-hidden="true" style={{ left: `${runner.x}%`, top: `${runner.y - (12 + 20 * (1 - progress)) / sceneHeight * 100}%` }} />;
+          })}
           {flies.map((fly) => {
             const progress = fly.caught ? Math.min(1, pondElapsed(frameTick, fly.caught.tick) / 2) : 0;
             const rect = sceneRef.current?.getBoundingClientRect();

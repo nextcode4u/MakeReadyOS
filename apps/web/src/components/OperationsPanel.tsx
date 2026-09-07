@@ -1670,7 +1670,7 @@ export function OperationsPanel({
             )}
           </div>
           {selectedProperty ? (
-            <div className="editor-block">
+            <div className="editor-block property-editor">
               <PropertyBrandingPanel key={selectedProperty.id} propertyId={selectedProperty.id} isAdmin={role === "ADMIN"} />
               <label>{isSpanish ? "Nombre" : "Name"}<input data-testid="property-edit-name" value={propertyDraft.name} onChange={(event) => setPropertyDraft((current) => ({ ...current, name: event.target.value }))} /></label>
               <label>{isSpanish ? "Código" : "Code"}<input data-testid="property-edit-code" value={propertyDraft.code} onChange={(event) => setPropertyDraft((current) => ({ ...current, code: event.target.value }))} /></label>
