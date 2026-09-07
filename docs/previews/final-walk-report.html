@@ -3,126 +3,163 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Final walk report - layout sample</title>
+  <title>Final walk report - one-page layout sample</title>
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; background: #edf1f3; color: #20323a; font: 14px/1.45 Tahoma, sans-serif; }
-    .toolbar { max-width: 780px; margin: 24px auto; padding: 0 20px; display: flex; gap: 16px; align-items: center; justify-content: space-between; }
-    button { background: #174d49; color: white; border: 0; padding: 12px 18px; border-radius: 6px; cursor: pointer; font: inherit; }
-    main { max-width: 780px; margin: 0 auto 32px; padding: 32px 40px; background: white; border-top: 7px solid #174d49; }
-    .sample { border: 1px solid #ba7927; color: #70450d; background: #fff8ed; padding: 10px 14px; font-weight: bold; font-size: 12px; }
-    .brand { margin-top: 24px; display: flex; align-items: baseline; justify-content: space-between; gap: 20px; }
-    .brand strong { color: #174d49; font-size: 18px; }
-    .identity-logo { display: flex; align-items: center; gap: 12px; }
-    .logo { display: grid; place-items: center; width: 46px; height: 46px; flex: 0 0 46px; border: 2px solid #174d49; border-radius: 50%; color: #174d49; font: bold 16px Georgia, serif; }
-    .company { font-size: 11px; color: #52656d; text-align: right; }
-    .company strong { display: block; font-size: 13px; }
-    .company .logo { border-radius: 4px; width: 38px; height: 38px; flex-basis: 38px; }
-    .group td:last-child { font-weight: bold; background: #eef5f3; color: #174d49; padding: 6px; text-align: left; width: auto; }
-    .page-break { margin-top: 36px; border-top: 5px solid #174d49; padding-top: 18px; }
-    .resident-note { border-left: 3px solid #174d49; padding: 10px 14px; background: #f1f6f5; font-size: 12px; }
-    .brand span, .eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 10px; color: #52656d; }
-    h1 { font: 34px/1.12 Georgia, serif; color: #143d3a; margin: 20px 0 12px; max-width: 520px; }
-    .intro { color: #52656d; margin: 0 0 22px; max-width: 610px; }
-    .identity { display: grid; grid-template-columns: 1.5fr .7fr 1fr; border-block: 1px solid #c8d6d9; padding: 14px 0; gap: 16px; }
-    .identity strong { display: block; font-size: 16px; margin-top: 3px; }
-    h2 { color: #174d49; font-size: 15px; margin: 24px 0 8px; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th { text-align: left; font-weight: normal; color: #52656d; border-bottom: 2px solid #c8d6d9; padding: 7px 0; }
-    td { padding: 7px 0; border-bottom: 1px solid #e4eaec; vertical-align: top; }
-    th:last-child, td:last-child { text-align: right; width: 120px; padding-left: 12px; }
-    .result { color: #174d49; font-weight: bold; }
-    .note { font-size: 11px; color: #52656d; margin-top: 9px; }
-    .signoffs { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-    .signoffs section { border-top: 2px solid #174d49; padding-top: 10px; margin-top: 18px; break-inside: avoid; }
-    .signoffs strong { display: block; margin: 5px 0; }
-    .signoffs p { font-size: 11px; margin: 5px 0; color: #52656d; }
-    footer { display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid #c8d6d9; margin-top: 24px; padding-top: 12px; font-size: 10px; color: #52656d; }
-    @media (max-width: 520px) { main { padding: 24px 18px; } h1 { font-size: 29px; } .identity { grid-template-columns: 1fr 1fr; } .identity > div:first-child { grid-column: 1 / -1; } .brand { align-items: start; flex-direction: column; gap: 4px; } }
-    @page { size: Letter; margin: .35in; }
-    @media print { body { background: white; font-size: 12px; } .toolbar { display: none; } main { max-width: none; margin: 0; padding: 12px 26px; } .brand { margin-top: 12px; } h1 { font-size: 28px; margin-top: 12px; } h2 { margin-top: 12px; } .intro { margin-bottom: 12px; } .identity { padding-block: 10px; } table { line-height: 1.25; } td, th { padding-block: 3px; } .group td { padding: 4px; } tr { break-inside: avoid; } .page-break { break-before: page; margin-top: 0; } .signoffs section { margin-top: 12px; } footer { margin-top: 12px; } * { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
-    @media print { td { padding-block: 2px; } .group td:last-child { padding: 4px; } }
+    body { margin: 0; background: #edf1f3; color: #20323a; font: 13px/1.35 Tahoma, sans-serif; }
+    .toolbar { max-width: 780px; margin: 20px auto; padding: 0 20px; display: flex; gap: 16px; align-items: center; justify-content: space-between; }
+    button { background: #174d49; color: white; border: 0; padding: 10px 16px; border-radius: 6px; cursor: pointer; font: inherit; }
+    main { max-width: 780px; margin: 0 auto 32px; padding: 24px 32px; background: white; border-top: 6px solid #174d49; }
+    .sample { border: 1px solid #ba7927; color: #70450d; background: #fff8ed; padding: 6px 10px; font-weight: bold; font-size: 10px; }
+    .brand { margin-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .brand strong { color: #174d49; font-size: 17px; }
+    .identity-logo { display: flex; align-items: center; gap: 10px; }
+    .logo { display: grid; place-items: center; width: 40px; height: 40px; flex: 0 0 40px; border: 2px solid #174d49; border-radius: 50%; color: #174d49; font: bold 15px Georgia, serif; }
+    .company { font-size: 10px; color: #52656d; text-align: right; }
+    .company strong { display: block; font-size: 12px; }
+    .company .logo { border-radius: 4px; width: 34px; height: 34px; flex-basis: 34px; }
+    .eyebrow { text-transform: uppercase; letter-spacing: .1em; font-size: 9px; color: #52656d; }
+    h1 { font: 27px/1.12 Georgia, serif; color: #143d3a; margin: 12px 0 5px; }
+    .intro { color: #52656d; margin: 0 0 12px; font-size: 12px; }
+    .identity { display: grid; grid-template-columns: 1fr 1fr 1fr; border-block: 1px solid #c8d6d9; padding: 9px 0; gap: 12px; }
+    .identity strong { display: block; font-size: 13px; margin-top: 2px; }
+    h2 { color: #174d49; font-size: 13px; margin: 14px 0 5px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th { text-align: left; color: #52656d; border-bottom: 2px solid #c8d6d9; padding: 4px 0; font-size: 10px; }
+    td { padding: 5px 0; border-bottom: 1px solid #e4eaec; vertical-align: top; }
+    th:last-child, td:last-child { text-align: right; width: 85px; padding-left: 10px; }
+    .result { color: #174d49; font-weight: bold; white-space: nowrap; }
+    .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+    .checks h2 { margin: 9px 0 3px; font-size: 12px; border-bottom: 2px solid #174d49; padding-bottom: 3px; }
+    .checks ul { list-style: none; padding: 0; margin: 0; }
+    .checks li { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 3px 0; border-bottom: 1px solid #e4eaec; font-size: 10.5px; line-height: 1.25; }
+    .checks li b { font-size: 9px; color: #174d49; white-space: nowrap; }
+    .handoff { margin-top: 10px; border-block: 1px solid #c8d6d9; padding: 7px 0; }
+    .handoff h2 { margin: 0 0 5px; }
+    .access-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px 14px; font-size: 10px; }
+    .access-grid strong { display: block; font-size: 11px; }
+    .note { font-size: 10px; color: #52656d; margin: 5px 0; }
+    .resident-note { border-left: 3px solid #174d49; padding: 7px 10px; margin-top: 12px; background: #f1f6f5; font-size: 11px; }
+    .signoffs { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 12px; }
+    .signoffs section { border-top: 2px solid #174d49; padding-top: 6px; break-inside: avoid; }
+    .signoffs strong { display: block; margin: 3px 0; font-size: 12px; }
+    .signoffs p { font-size: 10px; margin: 3px 0; color: #52656d; }
+    footer { display: flex; justify-content: space-between; gap: 16px; border-top: 1px solid #c8d6d9; margin-top: 12px; padding-top: 7px; font-size: 9px; color: #52656d; }
+    @media screen and (max-width: 520px) { main { padding: 20px 16px; } h1 { font-size: 26px; } .brand { align-items: start; flex-direction: column; gap: 10px; } .company { text-align: left; } .identity { gap: 8px; } .signoffs { gap: 12px; } .checks { grid-template-columns: 1fr; gap: 0; } .access-grid { grid-template-columns: 1fr 1fr; } }
+    @page { size: Letter; margin: .4in; }
+    @media print {
+      body { background: white; }
+      .toolbar { display: none; }
+      main { max-width: none; margin: 0; padding: 8px 0; }
+      .brand { margin-top: 9px; }
+      .intro { margin-bottom: 7px; }
+      .checks li { padding: 0; line-height: 1.3; }
+      .identity { padding: 6px 0; }
+      .brand .logo { width: 32px; height: 32px; flex-basis: 32px; }
+      h1 { margin-top: 8px; }
+      .resident-note { margin-top: 7px; padding: 5px 8px; }
+      .signoffs { margin-top: 8px; }
+      footer { margin-top: 7px; }
+      tr, .resident-note, .signoffs, footer { break-inside: avoid; }
+      * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    }
   </style>
 </head>
 <body>
-  <div class="toolbar"><span>Layout preview only. All information below is fictional.</span><button type="button" onclick="window.print()">Print sample</button></div>
+  <div class="toolbar"><span>One-page preview. All information below is fictional.</span><button type="button" onclick="window.print()">Print sample</button></div>
   <main>
-    <div class="sample">SAMPLE / NOT AN INSPECTION RECORD - All names, dates and results are illustrative.</div>
-    <div class="brand"><div class="identity-logo"><div class="logo" aria-label="Sample property logo">SC</div><div><strong>Sample Community</strong><br><span>Resident move-in folder</span></div></div><div class="identity-logo company"><div>Managed by<strong>Example Property Management</strong><small>Fictional company / sample logo</small></div><div class="logo" aria-label="Sample management company logo">PM</div></div></div>
+    <div class="sample">SAMPLE / NOT AN INSPECTION RECORD - All names, dates, results and sign-offs are illustrative.</div>
+    <div class="brand">
+      <div class="identity-logo"><div class="logo" aria-label="Sample property logo">SC</div><div><strong>Sample Community</strong><br><span class="eyebrow">Resident move-in folder</span></div></div>
+      <div class="identity-logo company"><div>Managed by<strong>Example Property Management</strong></div><div class="logo" aria-label="Sample management company logo">PM</div></div>
+    </div>
     <h1>Your Home Preparation Checklist</h1>
-    <p class="intro">The preparation checks and separate final review recorded for your home before move-in. Each result should reflect a completed check, not simply a scheduled task.</p>
     <div class="identity">
-      <div><span class="eyebrow">Community</span><strong>Sample Community</strong></div>
       <div><span class="eyebrow">Your home</span><strong>Unit 101</strong></div>
-      <div><span class="eyebrow">Review date (sample)</span><strong>September 7, 2026</strong></div>
+      <div><span class="eyebrow">Final review date</span><strong>September 7, 2026</strong></div>
+      <div><span class="eyebrow">Sample outcome</span><strong>Ready for move-in</strong></div>
     </div>
-    <h2>1. Technician preparation record</h2>
-    <p class="note">Example: two bedrooms, one bathroom. Actual reports list applicable rooms and equipment.</p>
-    <table aria-label="Illustrative technician checks">
-      <thead><tr><th>Check</th><th>Example result</th></tr></thead>
-      <tbody>
-        <tr class="group"><td colspan="2">Entry, living room and bedrooms 1 &amp; 2</td></tr>
-        <tr><td>Entry lock, latch and door operation checked</td><td class="result">Checked</td></tr>
-        <tr><td>Interior doors, closet doors and hardware checked</td><td class="result">Checked</td></tr>
-        <tr><td>Window opening/closing and latches checked in each room</td><td class="result">Checked</td></tr>
-        <tr><td>Installed lights, switches and ceiling fans checked</td><td class="result">Checked</td></tr>
-        <tr class="group"><td colspan="2">Kitchen</td></tr>
-        <tr><td>Sink, faucet and drain checked; visible plumbing reviewed for leaks</td><td class="result">Checked</td></tr>
-        <tr><td>Refrigerator/freezer operation and door seals checked</td><td class="result">Checked</td></tr>
-        <tr><td>Range burners and oven operation checked</td><td class="result">Checked</td></tr>
-        <tr><td>Dishwasher cycle, drain and visible connections checked</td><td class="result">Checked</td></tr>
-        <tr><td>Disposal and exhaust fan operation checked</td><td class="result">Checked</td></tr>
-        <tr><td>Cabinet hinges, drawers and pulls checked</td><td class="result">Checked</td></tr>
-        <tr class="group"><td colspan="2">Bathroom 1</td></tr>
-        <tr><td>Toilet flush, fixture stability and visible connections checked</td><td class="result">Checked</td></tr>
-        <tr><td>Sink and tub/shower flow, drainage and visible leaks checked</td><td class="result">Checked</td></tr>
-        <tr><td>Exhaust fan, lighting and bathroom hardware checked</td><td class="result">Checked</td></tr>
-        <tr class="group"><td colspan="2">Mechanical systems and installed equipment</td></tr>
-        <tr><td>Thermostat and heating/cooling response recorded</td><td class="result">Checked</td></tr>
-        <tr><td>Air filter condition and fit checked</td><td class="result">Checked</td></tr>
-        <tr><td>Installed smoke alarms: test results recorded by location</td><td class="result">Checked</td></tr>
-        <tr><td>Installed carbon monoxide alarms: test results recorded by location</td><td class="result">Checked</td></tr>
-        <tr><td>GFCI test/reset results recorded for applicable outlets</td><td class="result">Checked</td></tr>
-        <tr><td>In-unit washer and dryer</td><td>Not installed</td></tr>
-      </tbody>
-    </table>
-    <p class="note">Illustrative checks only. This summary is not a safety certification or a guarantee of future performance. Technical results must come from the technician's recorded work.</p>
-    <footer><span>Sample Community / Unit 101<br>Managed by Example Property Management</span><strong>SAMPLE - NOT ISSUED / Page 1 of 2<br>Revision PREVIEW-002</strong></footer>
-    <div class="page-break">
-    <div class="sample">SAMPLE / NOT AN INSPECTION RECORD - All results and sign-offs below are illustrative.</div>
-    <div class="brand"><div><strong>Sample Community / Unit 101</strong><br><span>Final review / September 7, 2026</span></div><div class="company">Managed by<strong>Example Property Management</strong></div></div>
-    <h2>2. Final presentation review</h2>
-    <p class="note">A second person's room-by-room observations. This review does not claim that the reviewer personally repeated the technician's technical tests.</p>
-    <table aria-label="Illustrative final walk checks">
-      <thead><tr><th>Review</th><th>Example result</th></tr></thead>
-      <tbody>
-        <tr class="group"><td colspan="2">Welcome and common living areas</td></tr>
-        <tr><td>Entry, living room and hallway free of tools, debris and belongings</td><td class="result">Reviewed</td></tr>
-        <tr><td>Visible wall/ceiling repairs, paint finish and trim reviewed</td><td class="result">Reviewed</td></tr>
-        <tr><td>Flooring/carpet presentation and transitions reviewed</td><td class="result">Reviewed</td></tr>
-        <tr><td>Windows, tracks, blinds and light fixtures visibly clean</td><td class="result">Reviewed</td></tr>
-        <tr class="group"><td colspan="2">Kitchen</td></tr>
-        <tr><td>Counters, backsplash, sink and faucet presentation reviewed</td><td class="result">Reviewed</td></tr>
-        <tr><td>Appliance interiors/exteriors and cabinet interiors visibly clean</td><td class="result">Reviewed</td></tr>
-        <tr class="group"><td colspan="2">Bathroom 1</td></tr>
-        <tr><td>Toilet, sink, tub/shower and mirror visibly clean</td><td class="result">Reviewed</td></tr>
-        <tr><td>Visible caulk, grout, fixtures and accessory finish reviewed</td><td class="result">Reviewed</td></tr>
-        <tr class="group"><td colspan="2">Bedrooms 1 &amp; 2 and closets</td></tr>
-        <tr><td>Both bedrooms' floors, walls and windows reviewed</td><td class="result">Reviewed</td></tr>
-        <tr><td>Closet shelves, rods and interiors visibly clean and clear</td><td class="result">Reviewed</td></tr>
-        <tr class="group"><td colspan="2">Outdoor space and final follow-up</td></tr>
-        <tr><td>Patio/balcony presentation reviewed, where part of the home</td><td class="result">Reviewed</td></tr>
-        <tr><td>Reported final-review concerns rechecked after correction</td><td>No sample concerns</td></tr>
-      </tbody>
-    </table>
-    <div class="resident-note"><strong>Resident-facing follow-up</strong><br>No open items are shown in this fictional example. An actual report must disclose any approved follow-up with a responsible contact and expected date; unresolved required checks must not be presented as passed.</div>
+    <p class="note">Sample results: Checked = recorded complete; N/A = not applicable. Grouped checks cover every applicable room. Technical tests are recorded by the technician, not inferred from a visual final walk.</p>
+    <div class="checks">
+      <div>
+        <section><h2>01 / General preparation &amp; HVAC</h2><ul>
+          <li>Initial walk and condition photos recorded<b>Checked</b></li>
+          <li>Previous belongings and debris removed<b>Checked</b></li>
+          <li>Heating, cooling and thermostat tested<b>Checked</b></li>
+          <li>Filter replaced; vents and coils checked clean<b>Checked</b></li>
+          <li>Fan motors and condensate drainage checked<b>Checked</b></li>
+          <li>Water heater operation and leaks checked<b>Checked</b></li>
+          <li>Doors/windows open, close and lock; stops fitted<b>Checked</b></li>
+          <li>Weather seals and patio security checked<b>Checked</b></li>
+          <li>Walls/floors repaired; moisture concerns resolved<b>Checked</b></li>
+          <li>Closet rods, shelves and brackets secure<b>Checked</b></li>
+          <li>Patio/balcony and applicable rails checked<b>Checked</b></li>
+          <li>Installed washer/dryer and garage opener tested<b>N/A</b></li>
+        </ul></section>
+        <section><h2>02 / Kitchen</h2><ul>
+          <li>Range/oven and refrigerator operation checked<b>Checked</b></li>
+          <li>Dishwasher fills, runs and drains<b>Checked</b></li>
+          <li>Microwave/hood light and exhaust checked<b>Checked</b></li>
+          <li>Sink, supplies and disposal checked for leaks/function<b>Checked</b></li>
+          <li>Hot/cold water and faucet pressure checked<b>Checked</b></li>
+          <li>Cabinets/drawers secure; appliance seals intact<b>Checked</b></li>
+        </ul></section>
+        <section><h2>03 / Bathrooms checked</h2><ul>
+          <li>Toilets, faucets and drains function without leaks<b>Checked</b></li>
+          <li>Tubs/showers, caulk, grout and rods checked<b>Checked</b></li>
+          <li>Hot/cold water and pressure checked<b>Checked</b></li>
+          <li>Under-sink cabinets dry; exhaust fans working<b>Checked</b></li>
+        </ul></section>
+      </div>
+      <div>
+        <section><h2>04 / Living areas &amp; bedrooms checked</h2><ul>
+          <li>Ceiling fans operate smoothly and are balanced<b>Checked</b></li>
+          <li>Window coverings and applicable screens intact<b>Checked</b></li>
+          <li>Closets, doors, floors, walls and trim checked<b>Checked</b></li>
+        </ul></section>
+        <section><h2>05 / Safety &amp; electrical - technician</h2><ul>
+          <li>Outlets/switches secured; electrical tests recorded<b>Checked</b></li>
+          <li>Applicable GFCI tests recorded<b>Checked</b></li>
+          <li>Installed smoke/CO alarms tested; service life checked<b>Checked</b></li>
+          <li>Breaker labels and panel security checked<b>Checked</b></li>
+          <li>Interior/exterior lights and bulbs working<b>Checked</b></li>
+          <li>Applicable fire extinguisher condition/date checked<b>N/A</b></li>
+          <li>Visible pest concerns addressed; treatment if needed<b>Checked</b></li>
+        </ul></section>
+        <section><h2>06 / Independent final walk - reviewer</h2><ul>
+          <li>All bedrooms and bathrooms visually rechecked<b>Checked</b></li>
+          <li>Kitchen and appliance interiors/exteriors clean<b>Checked</b></li>
+          <li>Floors/carpets cleaned; trim and corners clean<b>Checked</b></li>
+          <li>Paint/finishes reviewed; stickers and tape removed<b>Checked</b></li>
+          <li>Entry and outdoor areas clean; no tools or debris<b>Checked</b></li>
+          <li>No unexpected odors; trash/cans addressed<b>Checked</b></li>
+          <li>Provided internet and valet trash setup checked<b>N/A</b></li>
+          <li>Rekey/lock change completion verified<b>Checked</b></li>
+          <li>Mailbox, keys, codes, tags/remotes verified<b>Checked</b></li>
+          <li>Reported deficiencies corrected and rechecked<b>Checked</b></li>
+          <li>Move-in folder and resident handoff prepared<b>Checked</b></li>
+          <li>Independent review and both sign-offs recorded<b>Checked</b></li>
+        </ul></section>
+      </div>
+    </div>
+    <section class="handoff"><h2>Your mailbox &amp; access details</h2>
+      <div class="access-grid">
+        <div>Mailbox number<strong>42 (sample)</strong></div>
+        <div>Home / mailbox keys<strong>2 / 2 (sample)</strong></div>
+        <div>Access fobs / garage remotes<strong>2 / Not applicable</strong></div>
+        <div>Resident door code<strong>[Resident code, if authorized]</strong></div>
+        <div>Gate / building access<strong>[Resident access, if authorized]</strong></div>
+        <div>Parking / garage assignment<strong>Space 101 / No garage</strong></div>
+      </div>
+      <p class="note">Resident copy: include only this household's authorized access details. Never include staff, master or maintenance codes.</p>
+    </section>
+    <div class="resident-note"><strong>Follow-up / resident notes</strong><br>No open items in this fictional example. Actual approved follow-up must identify the item, responsible contact and expected date.</div>
     <div class="signoffs">
-      <section><span class="eyebrow">Preparation recorded by</span><strong>Example Technician</strong><p>Technician / September 7, 2026<br>Illustrative sign-off - not signed</p></section>
-      <section><span class="eyebrow">Final review recorded by</span><strong>Example Reviewer</strong><p>Leasing team / September 7, 2026<br>Illustrative sign-off - not signed</p></section>
+      <section><span class="eyebrow">Preparation recorded by</span><strong>Example Technician</strong><p>September 7, 2026 / Illustrative, not signed</p></section>
+      <section><span class="eyebrow">Final walk recorded by</span><strong>Example Reviewer / Leasing</strong><p>September 7, 2026 / Illustrative, not signed</p></section>
     </div>
-    <p class="note"><strong>After you move in:</strong> Please complete your normal move-in condition form and report anything that needs attention through the property's maintenance contact. This preparation summary does not replace your own condition report.</p>
-    <footer><span>Prepared with MakeReadyOS / Revision PREVIEW-002<br>Sample Community / Managed by Example Property Management</span><strong>SAMPLE - NOT ISSUED<br>Page 2 of 2</strong></footer>
-    </div>
+    <p class="note">Please complete your move-in condition form and report concerns to the property team. This summary is not a safety certification, a guarantee of future performance or a replacement for your condition report.</p>
+    <footer><span>Prepared with MakeReadyOS / Revision PREVIEW-004</span><strong>SAMPLE - NOT ISSUED / Page 1 of 1</strong></footer>
   </main>
 </body>
 </html>

@@ -22,7 +22,7 @@ Migration: `20260907140000_property_branding`. No existing company assignments o
 - [ ] Company lifecycle, safe merging and stale-edit conflict handling. No destructive company deletion endpoint is currently provided.
 - [ ] Spanish labels for the new branding editor and end-to-end API-token scope coverage.
 
-The final-walk HTML/PDF under `docs/previews` is a fictional layout proposal, not a live report generator. It now has separate property/company identities, detailed technician checks and final presentation review. It must not be issued as an actual inspection record.
+The final-walk HTML/PDF under `docs/previews` is a fictional layout proposal, not a live report generator. PREVIEW-004 is one Letter page with separate property/company identities, two columns of detailed technician checks and final presentation review, plus mailbox/access handoff details. Bedrooms and bathrooms cover all applicable rooms, not numbered individually. Both sign-offs and resident follow-up remain. Access placeholders are resident-only, never staff/master codes. It must not be issued as an actual inspection record.
 
 ## Verification
 

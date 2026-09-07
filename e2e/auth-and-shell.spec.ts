@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { frogSpriteClips } from "../apps/web/src/lib/frogSprites";
 import ts from "../apps/web/node_modules/typescript/lib/typescript.js";
 
 const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
@@ -361,6 +362,51 @@ test("property turn splits assign 25/75 and 100 percent independently with safe 
   expect(notices.filter((notice: any) => notice.propertyId === vab.id)).toHaveLength(1);
 });
 
+test("frog sprite sequences use painted tiles and cycle actions, not just transforms", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const sheets = ["green", "blue", "purple", "brown", "tan", "tophat", "cowboy", "pirate", "viking", "clown", "funnyglasses"];
+  for (const name of sheets) {
+    const width = ["green", "blue", "purple", "brown"].includes(name) ? 512 : 256;
+    const clips = Array.from({ length: 8 }, (_, seed) => ["celebrating", "worried", "sleeping"].flatMap(pose => frogSpriteClips(width, pose, seed))).flat();
+    const failures = await page.evaluate(async ({ name, clips }) => {
+      const img = new Image(); img.src = `/frogs/sprites/frog-${name}.png`; await img.decode();
+      const canvas = document.createElement("canvas"); canvas.width = img.width; canvas.height = img.height;
+      const ctx = canvas.getContext("2d")!; ctx.drawImage(img, 0, 0);
+      const failures: string[] = [];
+      for (const clip of clips) {
+        const hashes = new Set<string>();
+        for (let frame = 0; frame < clip.frames; frame++) {
+          const col = clip.startCol + frame;
+          const data = ctx.getImageData(col * 32, clip.row * 32, 32, 32).data;
+          if (!data.some((value, index) => index % 4 === 3 && value > 0)) failures.push(`${clip.action}: empty tile ${col},${clip.row}`);
+          hashes.add(Array.from(data).join(","));
+        }
+        if (hashes.size < 2) failures.push(`${clip.action}: no pixel variation`);
+      }
+      return failures;
+    }, { name, clips });
+    expect(failures, name).toEqual([]);
+  }
+  await page.getByTestId("tab-pond").click();
+  const body = page.locator(".frog-marker:not(.frog-pose-tadpole) .frog-body").first();
+  await expect(body).toBeVisible();
+  const initial = await body.evaluate(el => getComputedStyle(el).backgroundPosition);
+  const action = await body.getAttribute("data-sprite-action");
+  await expect.poll(() => body.evaluate(el => getComputedStyle(el).backgroundPosition)).not.toBe(initial);
+  await expect.poll(() => body.getAttribute("data-sprite-action"), { timeout: 7000 }).not.toBe(action);
+  await page.getByRole("button", { name: "Pause motion", exact: true }).click();
+  const paused = await body.evaluate(el => getComputedStyle(el).backgroundPosition);
+  await page.waitForTimeout(700);
+  expect(await body.evaluate(el => getComputedStyle(el).backgroundPosition)).toBe(paused);
+  await page.getByRole("button", { name: "Resume motion", exact: true }).click();
+  await expect.poll(() => body.evaluate(el => getComputedStyle(el).backgroundPosition)).not.toBe(paused);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(page.getByText("Device reduced-motion setting is on")).toBeVisible();
+  const reduced = await body.evaluate(el => getComputedStyle(el).backgroundPosition);
+  await page.waitForTimeout(700);
+  expect(await body.evaluate(el => getComputedStyle(el).backgroundPosition)).toBe(reduced);
+});
+
 test("calendar date-only values stay on the saved day in Central time", async ({ browser }) => {
   const context = await browser.newContext({ timezoneId: "America/Chicago" });
   try {
@@ -426,6 +472,44 @@ test("start calendar projects upcoming unassigned notices across properties with
     await expect(event.locator("xpath=ancestor::div[contains(@class,'calendar-day')][1]").locator(".calendar-date")).toHaveText(new RegExp(`${expected.getDate()}$`));
   }
   await expect(page.getByTestId("calendar-date-guide")).toContainText("not just your assignments");
+});
+
+test("past-due starts keep unfinished previous-month turns visible without moving dates", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const meta = await (await page.request.get("/api/meta")).json();
+  const start = meta.customFields.find((field: any) => field.fieldKey === "turnMaintenanceDate");
+  let pendingId = "";
+  let completed = false;
+  await page.route("**/api/make-ready-items?*", async route => {
+    const response = await route.fetch();
+    const items = (await response.json()).slice(0, 5);
+    pendingId = items[0].id;
+    await route.fulfill({ response, json: items.map((item: any, index: number) => ({
+      ...item,
+      vacancyStatus: index === 2 ? "VACANT_LEASED_READY" : index === 4 ? "OCCUPIED" : "VACANT NOT LEASED NOT READY",
+      completionStatus: index === 1 || completed ? "DONE" : "NO",
+      isArchived: index === 3,
+      customFieldValues: [{ customFieldId: start.id, value: "2000-01-03" }],
+    })) });
+  });
+  await page.reload();
+  await page.getByTestId("tab-calendar").click();
+  const backlog = page.getByTestId("calendar-past-due-starts");
+  await expect(backlog).toBeVisible();
+  await expect(backlog.locator("summary")).toHaveText("Past-due starts (1)");
+  const entry = backlog.getByTestId(`calendar-past-due-${pendingId}`);
+  await expect(entry).toContainText("2000-01-03");
+  await page.getByTestId("calendar-panel-0").getByRole("button", { name: "Next", exact: true }).click();
+  await expect(entry).toBeVisible();
+  await page.setViewportSize({ width: 412, height: 915 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await entry.click();
+  await expect(page.getByTestId("item-drawer")).toBeVisible();
+  completed = true;
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.reload();
+  await page.getByTestId("tab-calendar").click();
+  await expect(backlog).toHaveCount(0);
 });
 
 test("schedule separates repair starts from existing finish deadlines by default", async ({ page }) => {

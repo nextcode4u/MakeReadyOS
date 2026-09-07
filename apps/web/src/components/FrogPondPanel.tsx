@@ -4,6 +4,7 @@ import type { BoardSection, LabelDefinition, MakeReadyItem, Property, UserLangua
 import { boardGroupLabel, displayUnitNumber } from "../lib/board";
 import { t } from "../lib/i18n";
 import { StatusState } from "./StatusState";
+import { frogSpriteFrame, type FrogSpriteFrame } from "../lib/frogSprites";
 
 type MetricSource = "active" | "risk" | "techWorkload" | "vacant" | "moveInsWeek";
 type GroupSource = "property" | "boardSection" | "riskLevel" | "assignedTech";
@@ -116,8 +117,6 @@ const tadpoleSprites = ["/frogs/tadpoles/tadpole-1.png", "/frogs/tadpoles/tadpol
 
 type PondPosition = { x: number; y: number };
 type DragState = { id: string; pointerId: number; moved: boolean; startX: number; startY: number };
-type FrogFrame = { col: number; row: number };
-type FrogRun = { row: number; startCol: number; frames: number };
 type Fly = { id: number; startTick: number; top: number; duration: number; delay: number; reverse: boolean; loopSize: number; loopSpeed: number; drift: number };
 type FrogRender = {
   item: MakeReadyItem;
@@ -128,7 +127,7 @@ type FrogRender = {
   pose: string;
   sheet: SpriteSheet;
   achievementLabel: string | null;
-  frame: FrogFrame;
+  frame: FrogSpriteFrame;
   tadpoleUrl: string;
   x: number;
   y: number;
@@ -235,39 +234,9 @@ function sheetForItem(item: MakeReadyItem): { sheet: SpriteSheet; achievementLab
   return { sheet: frogSheets.green, achievementLabel: null };
 }
 
-function validRunsForSheet(sheet: SpriteSheet, pose: string): FrogRun[] {
-  const columns = Math.max(1, Math.floor(sheet.width / 32));
-  const rows = Math.max(1, Math.floor(sheet.height / 32));
-  if (columns >= 16 && rows >= 16) {
-    const topRows = Array.from({ length: 8 }, (_, row) => row);
-    const lowerRows = Array.from({ length: 8 }, (_, row) => row + 8);
-    if (pose === "worried") return lowerRows.map((row) => ({ row, startCol: 0, frames: 4 }));
-    if (pose === "alert") {
-      return [
-        ...topRows.flatMap((row) => [8, 12].map((startCol) => ({ row, startCol, frames: 4 }))),
-        ...lowerRows.map((row) => ({ row, startCol: 0, frames: 4 })),
-      ];
-    }
-    if (pose === "sleeping") return topRows.map((row) => ({ row, startCol: 0, frames: 4 }));
-    return topRows.flatMap((row) => [0, 4, 8, 12].map((startCol) => ({ row, startCol, frames: 4 })));
-  }
-
-  // Smaller achievement/accessory sheets have transparent right-side tiles.
-  const compactRuns: FrogRun[] = [
-    { row: 0, startCol: 0, frames: 4 },
-    { row: 1, startCol: 0, frames: 4 },
-    { row: 2, startCol: 0, frames: 4 },
-    { row: 3, startCol: 1, frames: 4 },
-  ].filter((run) => run.row < rows && run.startCol + run.frames <= columns);
-  return compactRuns.length ? compactRuns : [{ row: 0, startCol: 0, frames: Math.min(4, columns) }];
-}
-
-function spriteFrameForItem(item: MakeReadyItem, pose: string, index: number, tick: number, sheet: SpriteSheet): FrogFrame {
+function spriteFrameForItem(item: MakeReadyItem, pose: string, index: number, tick: number, sheet: SpriteSheet): FrogSpriteFrame {
   const seed = stableNumber(`${item.id}:${item.unitNumber}:${index}`);
-  const runs = validRunsForSheet(sheet, pose);
-  const run = runs[seed % runs.length] ?? runs[0];
-  const frameInRun = (Math.floor(tick / (pose === "sleeping" ? 2 : 1)) + index) % run.frames;
-  return { col: run.startCol + frameInRun, row: run.row };
+  return frogSpriteFrame(sheet.width, pose, seed, tick);
 }
 
 function scatterFrogs(items: MakeReadyItem[], width: number, height: number, saved: Record<string, PondPosition>) {
@@ -780,7 +749,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
               >
                 <span className="frog-water-ring" aria-hidden="true" />
                 <span className="frog-lily-pad" aria-hidden="true" />
-                <span className="frog-body" aria-hidden="true"><i /><b /></span>
+                <span className="frog-body" data-sprite-action={frame.action} aria-hidden="true"><i /><b /></span>
                 {greetingId === item.id || feeding ? <span className="frog-hello" aria-hidden="true">{feeding ? "nom!" : "ribbit!"}</span> : null}
                 <strong>{displayUnitNumber(item.property.code, item.unitNumber)}</strong>
                 <em><i style={{ background: color }} />{colorLabel}</em>
