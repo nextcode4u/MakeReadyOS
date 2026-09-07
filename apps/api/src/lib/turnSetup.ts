@@ -2,6 +2,11 @@ import { z } from "zod";
 import { automationRuleInputSchema } from "./automationDefinition.js";
 
 export const turnSetupPrefix = "guided-turn:";
+export const schedulableVacancyStatuses = ["VACANT", "VACANT NOT LEASED", "VACANT LEASED", "VACANT NOT LEASED NOT READY", "VACANT LEASED NOT READY"];
+export const schedulableVacancyValues = schedulableVacancyStatuses.flatMap(value => [...new Set([value, value.replaceAll(" ", "_"), value.replaceAll(" ", "-")])]);
+export function isSchedulableTurn(item: { isArchived: boolean; vacancyStatus: string | null; completionStatus: string | null }) {
+  return !item.isArchived && schedulableVacancyValues.includes(item.vacancyStatus ?? "") && !["DONE", "YES", "GOOD", "COMPLETE", "COMPLETED"].includes((item.completionStatus ?? "").trim().toUpperCase());
+}
 export const turnStages = [
   { key: "maintenance", label: "Make Ready (Start)", field: "turnMaintenanceDate", custom: true },
   { key: "painting", label: "Painting", field: "turnPaintingDate", custom: true },
@@ -25,6 +30,7 @@ export function turnDefinitions(propertyId: string, days: number[], fieldIds: Ma
       description: "Guided weekday turn plan. Fills missing dates only; never marks work complete or books staff/vendors.",
       propertyId, enabled: true, triggerType: "SCHEDULED_CHECK",
       conditions: { all: [
+        { field: "vacancyStatus", operator: "in", value: schedulableVacancyValues },
         { field: "vacatedDate", operator: "notEmpty" },
         stage.custom ? { customFieldId: fieldId, operator: "dateMissing" } : { field: stage.field, operator: "dateMissing" },
         ...["DONE", "YES", "GOOD", "COMPLETE", "COMPLETED"].map((value) => ({ field: "completionStatus", operator: "notEquals", value })),

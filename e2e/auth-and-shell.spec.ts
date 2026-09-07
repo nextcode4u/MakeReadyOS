@@ -163,6 +163,12 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
   const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
   const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, unitNumber: "WALK-1", itemName: "WALK-1", completionStatus: "NO", vacancyStatus: "VACANT NOT LEASED NOT READY", makeReadyDate: "2099-01-01" });
   await page.reload();
+  await page.getByTestId("property-filter").selectOption(property.id);
+  await page.getByTestId("tab-calendar").click();
+  const emptyStart = page.getByTestId("calendar-empty-0");
+  await expect(emptyStart).toContainText("Start dates are separate from finish dates.");
+  await emptyStart.getByRole("button", { name: "Set up turn scheduling" }).click();
+  await expect(page.getByTestId("turn-scheduling-guide")).toBeVisible();
   await page.getByTestId("tab-automations").click();
   const guide = page.getByTestId("final-walk-guide");
   await guide.getByLabel("Final walks for").selectOption(property.id);
@@ -347,6 +353,30 @@ test("property turn splits assign 25/75 and 100 percent independently with safe 
   expect(notices.filter((notice: any) => notice.propertyId === vab.id)).toHaveLength(1);
 });
 
+test("calendar date-only values stay on the saved day in Central time", async ({ browser }) => {
+  const context = await browser.newContext({ timezoneId: "America/Chicago" });
+  try {
+    const page = await context.newPage();
+    await login(page, adminEmail, adminPassword);
+    const meta = await (await page.request.get("/api/meta")).json();
+    const field = meta.customFields.find((f: any) => f.fieldKey === "turnMaintenanceDate");
+    const now = new Date();
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-15`;
+    let itemId = "";
+    await page.route("**/api/make-ready-items?*", async route => {
+      const response = await route.fetch();
+      const items = await response.json();
+      itemId = items[0].id;
+      await route.fulfill({ response, json: items.map((item: any, index: number) => index ? item : { ...item, customFieldValues: [{ customFieldId: field.id, value: date }] }) });
+    });
+    await page.reload();
+    await page.getByTestId("tab-calendar").click();
+    const event = page.getByTestId("calendar-panel-0").getByTestId(`calendar-event-${itemId}`);
+    await expect(event).toBeVisible();
+    await expect(event.locator("xpath=ancestor::div[contains(@class,'calendar-day')][1]").locator(".calendar-date")).toHaveText(/15$/);
+  } finally { await context.close(); }
+});
+
 test("schedule separates repair starts from existing finish deadlines by default", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
   const meta = await (await page.request.get("/api/meta")).json();
@@ -388,11 +418,11 @@ test("guided weekday scheduling populates all five calendar tracks without dupli
   expect(initialStart).toBeTruthy();
   expect(meta.scheduleTracks.find((track: any) => track.sourceField === `custom:${initialStart.id}`).displayName).toBe("Make Ready (Start)");
   expect(meta.scheduleTracks.find((track: any) => track.sourceField === "makeReadyDate").displayName).toBe("Expected Finish");
-  const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, vacatedDate: "2026-09-04", completionStatus: "NO" });
+  const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, vacatedDate: "2026-09-04", vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" });
   const skipped: string[] = [];
-  for (const status of ["DONE", "ARCHIVED"]) {
+  for (const status of ["DONE", "ARCHIVED", "READY", "NTV", "OCCUPIED"]) {
     const { unit: other } = await post("/operations/units", { propertyId: property.id, number: `TURN-${status}` });
-    const skip = await post("/make-ready-items", { propertyId: property.id, unitId: other.id, boardGroup: section.key, itemName: other.number, unitNumber: other.number, vacatedDate: "2026-09-04", completionStatus: status === "DONE" ? "DONE" : "NO" });
+    const skip = await post("/make-ready-items", { propertyId: property.id, unitId: other.id, boardGroup: section.key, itemName: other.number, unitNumber: other.number, vacatedDate: "2026-09-04", vacancyStatus: status === "READY" ? "VACANT LEASED READY" : status === "NTV" ? "NTV LEASED" : status === "OCCUPIED" ? "OCCUPIED" : "VACANT NOT LEASED NOT READY", completionStatus: status === "DONE" ? "DONE" : null });
     skipped.push(skip.id);
     if (status === "ARCHIVED") await post("/make-ready-items/batch", { action: "ARCHIVE", ids: [skip.id] });
   }

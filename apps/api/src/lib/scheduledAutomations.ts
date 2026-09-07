@@ -3,7 +3,7 @@ import { Prisma, UserRole } from "@prisma/client";
 import { automationRuleInputSchema, validateRuleReferences } from "./automationDefinition.js";
 import { applyAutomationRules, type ActionPreviewSummary } from "./automationAssignments.js";
 import { applyRules, computeDerivedFields, editableFields, normalizeItemPatch } from "./board.js";
-import { turnSetupPrefix } from "./turnSetup.js";
+import { isSchedulableTurn, turnSetupPrefix } from "./turnSetup.js";
 import { writeAuditLog } from "./audit.js";
 import { prisma } from "./prisma.js";
 import { createNotification, notifyAssignedStaff } from "./notifications.js";
@@ -192,6 +192,7 @@ export async function executeScheduledAutomationRules(options: {
         checkedCount = items.length;
 
         for (const item of items) {
+          if (rule.templateId?.startsWith(turnSetupPrefix) && !isSchedulableTurn(item)) continue;
           const derived = computeDerivedFields(item);
           const customValues = Object.fromEntries(item.customFieldValues.map((value) => [value.customFieldId, value.value]));
           const simulation = await applyAutomationRules({ ...item, ...derived }, [{
@@ -225,7 +226,7 @@ export async function executeScheduledAutomationRules(options: {
               const currentRule = await tx.automationRule.findUnique({ where: { id: rule.id }, select: { enabled: true, isArchived: true, updatedAt: true } });
               if (!currentRule?.enabled || currentRule.isArchived || currentRule.updatedAt.getTime() !== rule.updatedAt.getTime()) return 0;
               const current = await tx.makeReadyItem.findUnique({ where: { id: item.id }, include: { customFieldValues: true, property: { include: { operatingCalendar: true } } } });
-              if (!current || current.isArchived || !current.property.isActive) return 0;
+              if (!current || !isSchedulableTurn(current) || !current.property.isActive) return 0;
               const values = Object.fromEntries(current.customFieldValues.map((entry) => [entry.customFieldId, entry.value]));
               const applied = applyRules(current, [{ id: rule.id, name: rule.name, enabled: true, conditions: parsed.data.conditions, actions: parsed.data.actions }], values, { operatingCalendar: current.property.operatingCalendar });
               let changes = 0;

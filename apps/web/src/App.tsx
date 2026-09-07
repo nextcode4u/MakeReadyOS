@@ -4686,6 +4686,8 @@ function App() {
             />
           ) : (
             <CalendarView
+              startDateSourceField={`custom:${metaQuery.data?.customFields.find(field => field.fieldKey === "turnMaintenanceDate")?.id ?? ""}`}
+              onSetupScheduling={["ADMIN", "MANAGER"].includes(currentUser.role) ? () => setAppView("automations") : undefined}
               eventsByTrack={calendarEventsByTrack}
               labelsByField={labelsByField}
               fieldOptions={scheduleFieldOptions}

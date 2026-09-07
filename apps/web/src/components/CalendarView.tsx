@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { LabelDefinition, ScheduleTrack, UserLanguage } from "../lib/api";
-import { todayInputValue } from "../lib/dateTime";
+import { formatDateInput, todayInputValue } from "../lib/dateTime";
 import { LabelPill } from "./LabelPill";
 import { StatusState } from "./StatusState";
 
@@ -33,6 +33,8 @@ type Props = {
   onLayoutChange: (value: Layout) => void;
   onFieldChange: (index: number, value: string) => void;
   onOpenItem: (id: string) => void;
+  startDateSourceField?: string;
+  onSetupScheduling?: () => void;
 };
 
 function buildMonthGrid(referenceDate: Date) {
@@ -69,12 +71,13 @@ function eventLabel(event: CalendarEvent, labelsByField: Props["labelsByField"])
 
 function trackGuidance(track: ScheduleTrack, events: CalendarEvent[], isSpanish: boolean) {
   const weekendCount = events.filter((event) => {
-    const day = new Date(event.date).getDay();
+    const day = new Date(`${formatDateInput(event.date)}T12:00:00`).getDay();
     return day === 0 || day === 6;
   }).length;
   const highRiskCount = events.filter((event) => event.riskLevel === "HIGH" || event.riskLevel === "CRITICAL").length;
   const crowdedDays = Object.values(events.reduce<Record<string, number>>((result, event) => {
-    result[event.date] = (result[event.date] ?? 0) + 1;
+    const key = formatDateInput(event.date);
+    result[key] = (result[key] ?? 0) + 1;
     return result;
   }, {})).filter((count) => count >= 3).length;
   const riskCues = [
@@ -105,15 +108,16 @@ function dayConflictBadges(day: Date, events: CalendarEvent[], isSpanish: boolea
   ].filter(Boolean) as string[];
 }
 
-function CalendarPanel({ track, events, labelsByField, month, onMonthChange, index, options, onTrackChange, onOpenItem, language }: {
+function CalendarPanel({ track, events, labelsByField, month, onMonthChange, index, options, onTrackChange, onOpenItem, language, startDateSourceField, onSetupScheduling }: {
   track?: ScheduleTrack; events: CalendarEvent[]; labelsByField: Props["labelsByField"]; month: Date;
   onMonthChange: (value: Date) => void; index: number; options: ScheduleTrack[]; onTrackChange: (value: string) => void; onOpenItem: (id: string) => void; language: UserLanguage;
+  startDateSourceField?: string; onSetupScheduling?: () => void;
 }) {
   const isSpanish = language === "es";
   const grid = useMemo(() => buildMonthGrid(month), [month]);
   const todayKey = dateKey(new Date());
   const byDay = useMemo(() => events.reduce<Record<string, CalendarEvent[]>>((result, event) => {
-    const key = dateKey(new Date(event.date));
+    const key = formatDateInput(event.date);
     result[key] ??= [];
     result[key].push(event);
     return result;
@@ -140,7 +144,14 @@ function CalendarPanel({ track, events, labelsByField, month, onMonthChange, ind
           <button className="tab" onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>{isSpanish ? "Siguiente" : "Next"}</button>
         </div>
       </div>
-      <div className="calendar-legend" data-testid={`calendar-legend-${index}`}>
+      {!events.length ? <div className="calendar-legend" role="status" data-testid={`calendar-empty-${index}`}>
+        <strong>{isSpanish ? "No hay fechas para esta pista con los filtros actuales." : "No dates for this track with the current filters."}</strong>
+        {track.sourceField === startDateSourceField ? <>
+          <p>{isSpanish ? "Las fechas de inicio son independientes de las fechas de finalización. Configura el plan por propiedad y registra la fecha de desocupación; las fechas existentes se conservan." : "Start dates are separate from finish dates. Set up the plan for each property and record its units' Vacated dates. Existing dates are preserved."}</p>
+          {onSetupScheduling ? <button type="button" className="button button-primary" onClick={onSetupScheduling}>{isSpanish ? "Configurar programación" : "Set up turn scheduling"}</button> : <p>{isSpanish ? "Pide a un administrador que revise la programación." : "Ask a manager to review turn scheduling."}</p>}
+        </> : <p>{isSpanish ? "Revisa los filtros y las fechas de las unidades." : "Check the filters and the dates saved on your units."}</p>}
+      </div> : null}
+      {events.length ? <div className="calendar-legend" data-testid={`calendar-legend-${index}`}>
         <strong>{track.displayName}</strong>
         <span data-testid={`calendar-color-source-${index}`}>{colorDescription(track, isSpanish)}</span>
         <div className="calendar-legend-items">
@@ -154,7 +165,7 @@ function CalendarPanel({ track, events, labelsByField, month, onMonthChange, ind
             <span><strong>{isSpanish ? "Compatibilidad:" : "Compatibility:"}</strong> {guidance.warnings.length ? guidance.warnings.join(" / ") : (isSpanish ? "No hay conflictos de fin de semana, dias saturados ni alto riesgo en el mes filtrado actual." : "No weekend, crowded-day, or high-risk conflicts in the current filtered month.")}</span>
           </div>
         ) : null}
-      </div>
+      </div> : null}
       <div className="calendar-grid">
         {(isSpanish ? ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]).map((day) => <div className="calendar-dow" key={day}>{day}</div>)}
         {grid.map((day) => {
@@ -197,12 +208,11 @@ function CalendarPanel({ track, events, labelsByField, month, onMonthChange, ind
           );
         })}
       </div>
-      {!events.length ? <StatusState title={isSpanish ? "No hay elementos programados en esta pista" : "No scheduled items in this track"} description={isSpanish ? "Pruebe otra pista o amplie los filtros activos." : "Try another track or widen the active filters."} tone="subtle" /> : null}
     </section>
   );
 }
 
-export function CalendarView({ eventsByTrack, labelsByField, fieldOptions, layout, language, selectedFields, onLayoutChange, onFieldChange, onOpenItem }: Props) {
+export function CalendarView({ eventsByTrack, labelsByField, fieldOptions, layout, language, selectedFields, onLayoutChange, onFieldChange, onOpenItem, startDateSourceField, onSetupScheduling }: Props) {
   const isSpanish = language === "es";
   const [month, setMonth] = useState(() => new Date());
   const count = layout === "single" ? 1 : layout === "split" ? 2 : layout === "auto" ? Math.max(4, Math.min(5, selectedFields.length)) : 4;
@@ -219,7 +229,7 @@ export function CalendarView({ eventsByTrack, labelsByField, fieldOptions, layou
         {Array.from({ length: count }, (_, index) => {
           const id = selectedFields[index] ?? fieldOptions[index]?.id ?? fieldOptions[0]?.id;
           const track = fieldOptions.find((option) => option.id === id) ?? fieldOptions[0];
-          return <CalendarPanel key={index} index={index} track={track} options={fieldOptions} events={track ? eventsByTrack[track.id] ?? [] : []} labelsByField={labelsByField} month={month} onMonthChange={setMonth} onTrackChange={(value) => onFieldChange(index, value)} onOpenItem={onOpenItem} language={language} />;
+          return <CalendarPanel key={index} index={index} track={track} options={fieldOptions} events={track ? eventsByTrack[track.id] ?? [] : []} labelsByField={labelsByField} month={month} onMonthChange={setMonth} onTrackChange={(value) => onFieldChange(index, value)} onOpenItem={onOpenItem} language={language} startDateSourceField={startDateSourceField} onSetupScheduling={onSetupScheduling} />;
         })}
       </div>
     </section>
