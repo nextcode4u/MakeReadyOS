@@ -4,7 +4,7 @@ import { allowedPropertyIds, requireManagerOrAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { applyBusinessDayOffset } from "../lib/operatingCalendar.js";
 import { prisma } from "../lib/prisma.js";
-import { turnDefinitions, turnSetupPrefix, turnSetupSchema, turnStages } from "../lib/turnSetup.js";
+import { isSchedulableTurn, turnDefinitions, turnSetupPrefix, turnSetupSchema, turnStages } from "../lib/turnSetup.js";
 
 async function setupContext(request: FastifyRequest, reply: FastifyReply) {
   if (await requireManagerOrAdmin(request, reply)) return null;
@@ -36,7 +36,7 @@ export async function turnSetupRoutes(app: FastifyInstance) {
     const { input, property } = context;
     const calendar = { noWeekendScheduling: true, avoidMondayScheduling: property.operatingCalendar?.avoidMondayScheduling ?? false, avoidFridayScheduling: property.operatingCalendar?.avoidFridayScheduling ?? false };
     const items = await prisma.makeReadyItem.findMany({ where: { propertyId: input.propertyId, isArchived: false }, include: { customFieldValues: { include: { customField: true } } }, orderBy: { unitNumber: "asc" } });
-    const active = items.filter((item) => !["DONE", "YES", "GOOD", "COMPLETE", "COMPLETED"].includes(String(item.completionStatus ?? "").trim().toUpperCase()));
+    const active = items.filter(isSchedulableTurn);
     const dated = active.filter((item) => item.vacatedDate);
     const rows = dated.map((item) => {
       let offset = 0;

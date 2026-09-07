@@ -10,7 +10,7 @@ test("weekday turn pack fills five dates, preserving existing dates and excludin
   const ids = new Map(turnStages.filter((stage) => stage.custom).map((stage) => [stage.field, stage.field]));
   const definitions = turnDefinitions("p", [1, 1, 1, 1, 1], ids);
   const rules = definitions.map((rule, index) => ({ ...rule, id: String(index) }));
-  const item = { vacatedDate: new Date(2026, 8, 4), completionStatus: "NO", makeReadyDate: null, flooringDate: null };
+  const item = { vacancyStatus: "VACANT NOT LEASED NOT READY", vacatedDate: new Date(2026, 8, 4), completionStatus: "NO", makeReadyDate: null, flooringDate: null };
   const calendar = { noWeekendScheduling: true, avoidMondayScheduling: false, avoidFridayScheduling: false };
   const result = applyRules(item as any, rules, {}, { operatingCalendar: calendar });
   assert.equal(result.next.makeReadyDate?.getDate(), 11);
@@ -22,6 +22,9 @@ test("weekday turn pack fills five dates, preserving existing dates and excludin
   assert.equal(again.customFieldUpdates.some((entry) => entry.fieldId === "turnPaintingDate"), false);
   for (const completionStatus of ["DONE", "YES", "GOOD", "COMPLETE", "COMPLETED"]) assert.equal(applyRules({ ...item, completionStatus } as any, rules, {}, { operatingCalendar: calendar }).logs.length, 0);
   assert.equal(applyRules({ ...item, vacatedDate: null } as any, rules).logs.length, 0);
+  for (const vacancyStatus of ["VACANT LEASED READY", "VACANT NOT LEASED READY", "NTV LEASED", "NTV NOT LEASED", "OCCUPIED", null]) {
+    assert.equal(applyRules({ ...item, vacancyStatus, completionStatus: null } as any, rules).logs.length, 0, `Must skip ${vacancyStatus}`);
+  }
   assert.equal(turnSetupSchema.safeParse({ propertyId: "p", days: [0, 1, 1, 1, 1] }).success, false);
   assert.equal(turnSetupSchema.safeParse({ propertyId: "p", days: [1, 1] }).success, false);
   const longerRepairs = turnDefinitions("p", [3, 1, 1, 1, 1], ids).map((rule, index) => ({ ...rule, id: String(index) }));
