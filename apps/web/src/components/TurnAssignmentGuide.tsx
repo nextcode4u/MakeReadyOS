@@ -26,7 +26,7 @@ function AssignmentEditor({ property, settings }: { property: Property; settings
   }
   return <div data-testid="turn-assignment-editor">
     <p><strong>{settings.enabled ? "On" : "Off"} for {property.code} / {property.name}.</strong> {settings.eligible} unassigned, incomplete vacant turns are eligible now.</p>
-    <p>Use a percentage for each person; the property must total 100%. These are shares of new automatic assignments over time, not a daily workload cap. Manual assignments stay unchanged and do not count toward the split.</p>
+    <p>Set each person's share. Total must be 100%. Existing manual assignments stay unchanged.</p>
     <p className="muted">Turn off any older auto-assignment rules for this property so they do not assign turns before this split runs.</p>
     {settings.warning ? <p role="alert">{settings.warning}</p> : null}
     <fieldset disabled={busy}><legend>Who handles this property's turns?</legend>
@@ -36,7 +36,7 @@ function AssignmentEditor({ property, settings }: { property: Property; settings
       </div>)}</div>
       <label>Add person<select value="" onChange={event => { if (event.target.value) setShares([...shares, { userId: event.target.value, percent: Math.max(1, 100 - total) }]); }}><option value="">Choose eligible staff</option>{settings.staff.filter(user => !shares.some(share => share.userId === user.id)).map(user => <option key={user.id} value={user.id}>{user.fullName}</option>)}</select></label>
       <p><strong>Total: {total}%</strong>{total !== 100 ? " (must be 100%)" : ""}</p>
-      <p>Only vacant, not-ready turns with a recorded Vacated date on or before today are assigned. Ready, completed, archived, unknown-status and notice-to-vacate units are skipped. Changing percentages starts a new balancing cycle; saving the same split or restarting the server keeps your place.</p>
+      <details><summary>Which turns are assigned and how the split works</summary><p>Only vacant, not-ready turns with a recorded Vacated date on or before today are assigned. Ready, completed, archived, unknown-status and notice-to-vacate units are skipped.</p><p>Percentages balance new automatic assignments over time, not daily workload. Manual assignments do not count toward the split. Changing percentages starts a new balancing cycle; saving the same split or restarting the server keeps your place.</p></details>
       <button className="button button-primary" disabled={!valid || busy} onClick={() => void save(true)}>{busy ? "Working..." : "Enable split and assign eligible turns"}</button>
       {settings.enabled ? <button className="button button-secondary" onClick={() => void save(false)}>Pause automatic assignment</button> : null}
     </fieldset>

@@ -8,6 +8,137 @@ const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
+test("shared dialogs keep keyboard focus inside and return it on Escape", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const opener = page.getByTestId("item-details-ta-284");
+  await opener.focus();
+  await page.keyboard.press("?");
+  const dialog = page.getByTestId("shortcut-help-modal");
+  await expect(dialog).toBeVisible();
+  const close = dialog.getByRole("button", { name: "Close dialog" });
+  await expect(close).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(close).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(close).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(opener).toBeFocused();
+});
+
+test("pool setup save failures stay in the form and preserve entries for retry", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const uncaught: string[] = [];
+  page.on("pageerror", error => uncaught.push(error.message));
+  let fail = true;
+  await page.route("**/api/pool/facilities", route => route.request().method() === "POST" && fail
+    ? route.fulfill({ status: 400, json: { message: "Pool name could not be saved" } }) : route.continue());
+  await page.getByTestId("module-rail-pool").click();
+  await page.getByTestId("pool-tab-setup").click();
+  const name = page.getByTestId("pool-facility-name");
+  const value = uniqueTag("Retry pool");
+  await name.fill(value);
+  await page.getByTestId("pool-facility-submit").click();
+  await expect(page.getByTestId("pool-facility-form").getByRole("alert")).toContainText("Pool name could not be saved");
+  await expect(name).toHaveValue(value);
+  await expect(page.getByRole("heading", { name: "Startup error" })).toHaveCount(0);
+  await expect(page.locator("#app-error-notice")).toHaveCount(0);
+  fail = false;
+  await page.getByTestId("pool-facility-submit").click();
+  await expect(name).toHaveValue("");
+  await expect(page.getByTestId("pool-log-panel")).toContainText(value);
+  expect(uncaught).toEqual([]);
+});
+
+test("workflow reference search and saves preserve drafts on failure", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  await page.route("**/api/property-wiki/context?**", route => route.fulfill({ json: {
+    attached: [], knownIssues: [], suggestions: [], emergencyRecords: [], makeReadyStandards: [],
+    related: { sops: [], vendors: [], equipment: [], documents: [] },
+  } }));
+  let searchFails = true;
+  await page.route("**/api/property-wiki/search?**", route => route.fulfill(searchFails
+    ? { status: 400, json: { message: "Search unavailable" } }
+    : { json: { results: [{ id: "reference-qa", targetType: "ENTRY", propertyId: "qa", title: "Valve location", section: "UTILITIES", snippet: "Behind the building" }] } }));
+  let release: () => void = () => {};
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/property-wiki/references", async route => {
+    await pending;
+    await route.fulfill({ status: 400, json: { message: "Could not attach this record" } });
+  });
+  await page.getByTestId("item-details-ta-284").click();
+  const references = page.getByTestId("wiki-workflow-make_ready");
+  const search = references.getByRole("textbox", { name: "Search wiki records to attach..." });
+  await search.fill("valve");
+  await expect(references.getByRole("alert")).toContainText("Search failed.");
+  await expect(references).not.toContainText("No wiki matches");
+  searchFails = false;
+  await references.getByRole("alert").getByRole("button").click();
+  const attach = references.getByRole("button", { name: "Attach", exact: true });
+  await attach.click();
+  await expect(attach).toBeDisabled();
+  await expect(search).toBeDisabled();
+  release();
+  await expect(references.getByRole("alert")).toContainText("Could not save the reference change.");
+  await expect(search).toHaveValue("valve");
+  await expect(attach).toBeEnabled();
+});
+
+test("workflow references retain cached records and show remove failures", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  let failRefresh = false;
+  const record = { id: "reference-qa", targetType: "ENTRY", propertyId: "qa", title: "Valve location", section: "UTILITIES", snippet: "Behind the building", referenceId: "attached-qa" };
+  await page.route("**/api/property-wiki/context?**", route => route.fulfill(failRefresh
+    ? { status: 400, json: { message: "References unavailable" } }
+    : { json: { attached: [record], knownIssues: [], suggestions: [], emergencyRecords: [], makeReadyStandards: [], related: { sops: [], vendors: [], equipment: [], documents: [] } } }));
+  await page.route("**/api/property-wiki/search?**", route => route.fulfill({ json: { results: [record] } }));
+  await page.route("**/api/property-wiki/references", route => {
+    failRefresh = true;
+    return route.fulfill({ json: { reference: { id: "new-reference" } } });
+  });
+  await page.route("**/api/property-wiki/references/attached-qa", route => route.fulfill({ status: 400, json: { message: "Reference could not be removed" } }));
+  await page.getByTestId("item-details-ta-284").click();
+  const references = page.getByTestId("wiki-workflow-make_ready");
+  await references.getByRole("textbox").fill("valve");
+  await references.getByRole("button", { name: "Attach", exact: true }).click();
+  await expect(references).toContainText("Previously loaded information may be out of date.");
+  await expect(references).toContainText("Valve location");
+  await references.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(references).toContainText("Reference could not be removed");
+  await expect(references).toContainText("Valve location");
+  await expect(page.locator("#app-error-notice")).toHaveCount(0);
+});
+
+test("workflow references distinguish loading, failure and empty mobile context", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  let mode = "loading";
+  let release: () => void = () => {};
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/property-wiki/context?**", async route => {
+    if (mode === "loading") await pending;
+    if (mode === "error") return route.fulfill({ status: 400, json: { message: "Reference service unavailable" } });
+    return route.fulfill({ json: {
+      attached: [], knownIssues: [], suggestions: [], emergencyRecords: [], makeReadyStandards: [],
+      related: { sops: [], vendors: [], equipment: [], documents: [] },
+    } });
+  });
+  await page.getByTestId("module-rail-refrigerant").click();
+  await page.getByTestId("refrigerant-tab-history").click();
+  const property = page.getByTestId("refrigerant-panel").getByRole("combobox", { name: "Property", exact: true });
+  await property.selectOption({ index: 1 });
+  await page.setViewportSize({ width: 412, height: 915 });
+  const references = page.getByTestId("wiki-workflow-refrigerant");
+  await expect(references).toContainText("Loading property references...");
+  mode = "error";
+  release();
+  await expect(references.getByRole("alert")).toContainText("Could not load property references.");
+  mode = "empty";
+  await references.getByRole("button").click();
+  await expect(references).toHaveCount(0);
+  await expect(page.getByTestId("refrigerant-panel")).not.toContainText("No matching wiki records.");
+  await expect(page.getByTestId("refrigerant-panel")).toContainText("Recent Refrigerant Activity");
+});
+
 test("final walks assign only when ready, appear in My Work and hand off safely", async ({ page, browser }, testInfo) => {
   const loginResponse = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
   await login(page, adminEmail, adminPassword);
@@ -36,6 +167,11 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
   const guide = page.getByTestId("final-walk-guide");
   await guide.getByLabel("Final walks for").selectOption(property.id);
   for (const user of users) await guide.getByLabel("Add inspector").selectOption(user.id);
+  await expect(guide.getByRole("status")).toContainText("Unsaved inspector order");
+  page.once("dialog", dialog => dialog.dismiss());
+  await guide.getByLabel("Final walks for").selectOption("");
+  await expect(guide.getByLabel("Final walks for")).toHaveValue(property.id);
+  await expect(guide.getByRole("listitem")).toHaveCount(2);
   await guide.getByRole("button", { name: "Save and assign final walks" }).click();
   await expect(guide.getByRole("status")).toContainText("0 final walks assigned");
   await page.setViewportSize({ width: 412, height: 915 });
@@ -64,8 +200,14 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
         expect(JSON.stringify(notifications)).toContain("Final walk ready for inspection");
         await staffPage.getByRole("button", { name: /View:/ }).click();
         await staffPage.getByTestId("tab-my-work").click();
+        const inspectionCard = staffPage.getByTestId(`my-work-item-${item.id}`);
+        await expect(inspectionCard.getByRole("button", { name: "Inspect or hand off", exact: true })).toHaveCount(1);
+        await expect(inspectionCard.getByRole("button", { name: "Open work item", exact: true })).toHaveCount(0);
+        await expect(inspectionCard.locator("progress")).toHaveCount(0);
         await staffPage.getByRole("button", { name: "Inspect or hand off", exact: true }).click();
         const controls = staffPage.getByTestId("final-walk-controls");
+        await expect(controls.getByLabel("Handoff reason")).toHaveCount(0);
+        await controls.getByRole("button", { name: "Cannot do this inspection?", exact: true }).click();
         await expect(controls).toContainText(users[1].fullName);
         await expect.poll(() => staffPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
         await controls.screenshot({ path: testInfo.outputPath("final-walk-handoff-mobile.png") });
@@ -1485,9 +1627,10 @@ test.describe("MakeReadyOS browser flows", () => {
     expect(markupBox).not.toBeNull();
     await page.mouse.click((markupBox?.x ?? 0) + Math.min(120, (markupBox?.width ?? 240) / 2), (markupBox?.y ?? 0) + Math.min(90, (markupBox?.height ?? 180) / 2));
     await expect(page.getByTestId("attachment-pin-list")).toContainText("QA wall damage");
-    await page.getByTestId("attachment-preview-modal").getByRole("button", { name: "Close dialog" }).click();
+    await page.keyboard.press("Escape");
     await expect(page.getByTestId("attachment-preview-modal")).toBeHidden();
     await expect(page.getByTestId("attachment-gallery-modal")).toBeVisible();
+    await expect(page.getByTestId("attachment-gallery-grid").getByTestId("attachment-preview-trigger").first()).toBeFocused();
     await page.getByTestId("attachment-gallery-grid").getByTestId("attachment-editor-toggle").first().click();
     await page.getByTestId("attachment-stage-select").first().selectOption("INITIAL_WALK");
     await page.getByTestId("attachment-category-input").first().fill("Damage");

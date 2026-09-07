@@ -357,6 +357,9 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
   const queryClient = useQueryClient();
   const isSpanish = language === "es";
   const [tab, setTab] = useState<PoolTab>("overview");
+  const [formError, setFormError] = useState("");
+  const [uploadError, setUploadError] = useState("");
+  const reportFormError = (error: unknown) => setFormError(error instanceof Error ? error.message : (isSpanish ? "No se pudo guardar. Inténtalo de nuevo." : "Could not save. Please try again."));
   const [propertyId, setPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const canManage = userRole === "ADMIN" || userRole === "MANAGER";
   const canEdit = canManage || userRole === "TECH";
@@ -466,6 +469,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
 
   async function submitFacility(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setFormError("");
     if (!propertyId) return;
     const form = event.currentTarget;
     const formData = new FormData(form);
@@ -482,6 +486,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
 
   async function submitChemical(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setFormError("");
     if (!propertyId) return;
     const form = event.currentTarget;
     const formData = new FormData(form);
@@ -499,6 +504,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
 
   async function submitDailyLog(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setFormError("");
     if (!propertyId) return;
     const form = event.currentTarget;
     const formData = new FormData(form);
@@ -566,8 +572,9 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
 
   function uploadPoolFiles(entryId: string, files: FileList | null) {
     if (!files?.length) return;
+    setUploadError("");
     Array.from(files).forEach((file) => {
-      void attachmentUploadMutation.mutateAsync({ entryId, file });
+      void attachmentUploadMutation.mutateAsync({ entryId, file }).catch(error => setUploadError(`${file.name}: ${error instanceof Error ? error.message : "Upload failed"}`));
     });
   }
 
@@ -607,6 +614,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
 
   return (
     <section className="pool-panel module-panel" data-testid="pool-log-panel">
+      {uploadError ? <p role="alert">{uploadError}</p> : null}
       <div className="module-heading">
         <div>
           <span className="eyebrow">PoolLogOS</span>
@@ -728,7 +736,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
         </>
       ) : tab === "daily" ? (
         <div className="pool-grid pool-daily-grid">
-          <form key={`daily-${propertyId}`} className="pool-card pool-form" data-testid="pool-daily-form" onSubmit={submitDailyLog}>
+          <form key={`daily-${propertyId}`} className="pool-card pool-form" data-testid="pool-daily-form" onSubmit={event => { void submitDailyLog(event).catch(reportFormError); }}>
+            {formError ? <p role="alert" className="span-full">{formError}</p> : null}
             {!facilities.length ? <StatusState title={isSpanish ? "No hay piscinas o spas configurados" : "No pools or spas configured"} description={isSpanish ? "Cree una piscina/spa en Configuración antes de registrar lecturas." : "Create a pool/spa in Setup before logging readings."} /> : null}
             <div className="form-grid">
               <label>{isSpanish ? "Piscina/spa" : "Pool/spa"}
@@ -877,7 +886,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
         </div>
       ) : tab === "setup" ? (
         <div className="pool-grid">
-          <form key={`facility-${propertyId}`} className="pool-card pool-form" data-testid="pool-facility-form" onSubmit={submitFacility}>
+          <form key={`facility-${propertyId}`} className="pool-card pool-form" data-testid="pool-facility-form" onSubmit={event => { void submitFacility(event).catch(reportFormError); }}>
+            {formError ? <p role="alert" className="span-full">{formError}</p> : null}
             <h2>{isSpanish ? "Agregar piscina/spa" : "Add pool/spa"}</h2>
             <input name="name" data-testid="pool-facility-name" placeholder={isSpanish ? "Nombre de piscina/spa" : "Pool/spa name"} required disabled={!canManage} />
             <select name="type" disabled={!canManage}>{poolTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select>
@@ -938,7 +948,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
         </div>
       ) : tab === "chemicals" ? (
         <div className="pool-grid">
-          <form key={`chemical-${propertyId}`} className="pool-card pool-form" data-testid="pool-chemical-form" onSubmit={submitChemical}>
+          <form key={`chemical-${propertyId}`} className="pool-card pool-form" data-testid="pool-chemical-form" onSubmit={event => { void submitChemical(event).catch(reportFormError); }}>
+            {formError ? <p role="alert" className="span-full">{formError}</p> : null}
             <h2>{isSpanish ? "Agregar químico" : "Add chemical"}</h2>
             <input name="name" data-testid="pool-chemical-name" placeholder={isSpanish ? "Nombre del químico" : "Chemical name"} required disabled={!canManage} />
             <select name="category" disabled={!canManage}>{chemicalCategories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select>
