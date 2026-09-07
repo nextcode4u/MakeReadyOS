@@ -532,7 +532,7 @@ async function itemIdsMatchingCustomFilters(baseWhere: Prisma.MakeReadyItemWhere
   return [...(matchingIds ?? new Set<string>())];
 }
 
-async function isActiveStaffName(value: unknown) {
+async function isActiveStaffName(value: unknown, propertyIds: string[]) {
   if (value === null) return true;
   if (typeof value !== "string" || !value.trim()) return false;
   return Boolean(await prisma.user.findFirst({
@@ -540,6 +540,10 @@ async function isActiveStaffName(value: unknown) {
       fullName: value,
       isActive: true,
       role: { in: assignableStaffRoles },
+      OR: [
+        { role: UserRole.ADMIN },
+        { AND: [...new Set(propertyIds)].map((propertyId) => ({ propertyAccess: { some: { propertyId } } })) },
+      ],
     },
   }));
 }
@@ -955,9 +959,9 @@ export async function makeReadyRoutes(app: FastifyInstance) {
         };
       }
     }
-    if (payload.assignedTech !== undefined && !(await isActiveStaffName(payload.assignedTech))) {
+    if (payload.assignedTech !== undefined && !(await isActiveStaffName(payload.assignedTech, [payload.propertyId]))) {
       reply.code(400);
-      return { message: "Select an active staff member for assignment" };
+      return { message: "Select an active staff member with access to the target property" };
     }
     if (!(await sectionFor(payload.propertyId, payload.boardGroup))) {
       reply.code(400);
@@ -1072,9 +1076,9 @@ export async function makeReadyRoutes(app: FastifyInstance) {
         return { message: "Select an active option for the batch status update" };
       }
     }
-    if (payload.action === "ASSIGN_TECH" && !(await isActiveStaffName(payload.value))) {
+    if (payload.action === "ASSIGN_TECH" && !(await isActiveStaffName(payload.value, items.map((item) => item.propertyId)))) {
       reply.code(400);
-      return { message: "Select an active staff member for assignment" };
+      return { message: "Select an active staff member with access to every selected property" };
     }
     if (payload.action === "MOVE_GROUP") {
       const invalidTarget = await Promise.all(items.map((item) => sectionFor(item.propertyId, payload.boardGroup)));
@@ -1193,9 +1197,9 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       reply.code(403);
       return { message: `${user.role} role cannot edit fields: ${disallowed.join(", ")}` };
     }
-    if ("assignedTech" in payload && !(await isActiveStaffName(payload.assignedTech))) {
+    if ("assignedTech" in payload && !(await isActiveStaffName(payload.assignedTech, [existing.propertyId]))) {
       reply.code(400);
-      return { message: "Select an active staff member for assignment" };
+      return { message: "Select an active staff member with access to the target property" };
     }
 
     await prisma.makeReadyItem.update({

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { isPhysicallyOccupiedStatus, isReadyLikeOccupancy, normalizeOccupancy } from "../lib/availabilityStatus";
 import { useQuery } from "@tanstack/react-query";
 import { getUnitHistory, isApiError, type AvailabilityImportConflict, type AvailabilityImportConflictResponse, type AvailabilityImportInput, type AvailabilityImportResult, type BoardSection, type FloorPlan, type LabelDefinition, type MakeReadyItem, type OperatingCalendar, type OperatingCalendarInput, type Property, type RiskPolicy, type StaffOption, type Unit, type UserRole } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
@@ -453,42 +454,6 @@ function parseNumberCell(value: string) {
   if (!cleaned) return null;
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function normalizeOccupancy(value: string): Unit["occupancyStatus"] {
-  const normalized = value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  if (normalized === "OCCUPIED" || normalized === "OCC") return "OCCUPIED";
-  if (["VACANT_NOT_LEASED_READY", "VNL_READY", "VACANT_READY", "READY", "VR", "VACANT_MAKE_READY", "VACANT_AVAILABLE"].includes(normalized)) return "VACANT NOT LEASED READY";
-  if (["VACANT_NOT_LEASED_NOT_READY", "VNL_NOT_READY", "VACANT_NOT_READY", "VACANT_NOT_LEASED", "VNL", "VACANT", "AVAILABLE"].includes(normalized)) return "VACANT NOT LEASED NOT READY";
-  if (["NTV_NOT_LEASED", "NTV", "NOTICE", "NOTICE_TO_VACATE", "ON_NOTICE"].includes(normalized)) return "NTV NOT LEASED";
-  if (["NTV_LEASED", "NOTICE_LEASED", "ON_NOTICE_LEASED"].includes(normalized)) return "NTV LEASED";
-  if (["VACANT_LEASED_READY", "VL_READY"].includes(normalized)) return "VACANT LEASED READY";
-  if (["VACANT_LEASED_NOT_READY", "VACANT_LEASED", "LEASED_VACANT", "VL"].includes(normalized)) return "VACANT LEASED NOT READY";
-  if (["TO_PRE_WALK", "TO_PREWALK", "PRE_WALK", "PREWALK", "TO_WALK", "WALK"].includes(normalized)) return "TO PRE-WALK";
-  if (["TO_SCOPE", "SCOPE"].includes(normalized)) return "TO SCOPE";
-  if (["TO_FINAL_WALK", "FINAL_WALK", "FINALWALK", "QC", "FINAL_QC"].includes(normalized)) return "TO FINAL WALK";
-  if (["VACANT_READY", "READY", "VR", "VACANT_MAKE_READY", "VACANT_AVAILABLE"].includes(normalized)) return "VACANT_READY";
-  if (["VACANT_LEASED", "LEASED_VACANT", "VL"].includes(normalized)) return "VACANT_LEASED";
-  if (["VACANT", "VACANT_NOT_LEASED", "VNL", "AVAILABLE"].includes(normalized)) return "VACANT_NOT_LEASED";
-  if (["NTV", "NOTICE", "NOTICE_TO_VACATE", "ON_NOTICE"].includes(normalized)) return "NTV";
-  if (["NTV_LEASED", "NOTICE_LEASED", "ON_NOTICE_LEASED"].includes(normalized)) return "NTV LEASED";
-  if (["DOWN", "DOWN_UNIT", "UNAVAILABLE"].includes(normalized)) return "DOWN";
-  if (["MODEL", "MODEL_UNIT"].includes(normalized)) return "MODEL";
-  if (["UNKNOWN", "UNK"].includes(normalized)) return "UNKNOWN";
-  return "OCCUPIED";
-}
-
-function isPhysicallyOccupiedStatus(value: string | null | undefined) {
-  return value === "OCCUPIED"
-    || value === "NTV"
-    || value === "NTV NOT LEASED"
-    || value === "NTV_LEASED"
-    || value === "NTV LEASED";
-}
-
-function isReadyLikeOccupancy(value: string | null | undefined) {
-  const raw = String(value ?? "").toUpperCase();
-  return raw.includes("READY") && !raw.includes("NOT READY");
 }
 
 function isMeaningfulDaysVacantDifference(currentValue: number | null | undefined, importedValue: number | null | undefined) {

@@ -6,6 +6,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { computeDerivedFields } from "../lib/board.js";
 import { prisma } from "../lib/prisma.js";
 import { evaluateAndPersistItemRisk } from "../lib/risk.js";
+import { isReadyAvailabilityStatus } from "../lib/availabilityStatus.js";
 
 export const operationsQuerySchema = z.object({
   includeArchived: z.enum(["true", "false"]).optional().transform((value) => value === "true"),
@@ -302,11 +303,6 @@ function isDoneLikeStatus(value: string | null | undefined) {
   return ["DONE", "YES", "GOOD", "MADE", "COMPLETE", "COMPLETED"].includes(String(value ?? "").trim().toUpperCase());
 }
 
-function isReadyAvailabilityStatus(value: string | null | undefined) {
-  const normalized = String(value ?? "").trim().toUpperCase();
-  return Boolean(normalized && normalized.includes("READY") && !normalized.includes("NOT READY"));
-}
-
 function normalizeImportedDaysVacant(value: number | null | undefined, occupancyStatus: string) {
   if (value === null || value === undefined || !Number.isFinite(value)) return undefined;
   if (value < 0) {
@@ -448,7 +444,7 @@ function buildAvailabilityConflict(existingTurn: {
 function normalizeAvailabilityStatus(row: z.infer<typeof availabilityImportRowSchema>) {
   if (row.vacancyStatus) return row.vacancyStatus;
   if (row.occupancyStatus && row.occupancyStatus !== "OCCUPIED") return row.occupancyStatus;
-  const raw = `${row.availabilityStatus ?? ""}`.toLowerCase();
+  const raw = `${row.availabilityStatus ?? ""}`.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
   if (raw.includes("down")) return "DOWN";
   if (raw.includes("model")) return "MODEL";
   const notice = raw.includes("ntv") || raw.includes("notice");
@@ -466,7 +462,7 @@ function normalizeAvailabilityStatus(row: z.infer<typeof availabilityImportRowSc
 }
 
 async function preferredSectionKey(tx: Prisma.TransactionClient, propertyId: string, status: string) {
-  const readyStatus = (status.includes("READY") && !status.includes("NOT READY")) || status === "VACANT_READY" || status === "VACANT_LEASED";
+  const readyStatus = isReadyAvailabilityStatus(status) || status === "VACANT_LEASED";
   const sectionType = readyStatus
     ? "READY"
     : status === "DOWN" || status === "MODEL"
@@ -1152,7 +1148,7 @@ export async function operationsRoutes(app: FastifyInstance) {
           squareFeet: importedPlan?.squareFeet ?? row.squareFeet ?? null,
           bedrooms: importedPlan?.bedrooms ?? row.bedrooms ?? null,
           bathrooms: importedPlan?.bathrooms ?? row.bathrooms ?? null,
-          occupancyStatus: row.occupancyStatus ?? "OCCUPIED",
+          occupancyStatus: row.occupancyStatus ?? "UNKNOWN",
           building: row.building || null,
           area: row.area || null,
           floor: row.floor || null,
@@ -1271,7 +1267,7 @@ export async function operationsRoutes(app: FastifyInstance) {
       if (!existingTurnByUnit.has(key)) existingTurnByUnit.set(key, turn);
     }
     const preferredSectionKeyForStatus = (status: string) => {
-      const readyStatus = (status.includes("READY") && !status.includes("NOT READY")) || status === "VACANT_READY" || status === "VACANT_LEASED";
+      const readyStatus = isReadyAvailabilityStatus(status) || status === "VACANT_LEASED";
       const sectionType = readyStatus ? "READY" : status === "DOWN" || status === "MODEL" ? "DOWN" : "MAKE_READY";
       return boardSections.find((section) => section.sectionType === sectionType)?.key ?? boardSections[0]?.key ?? "MAKE_READY";
     };

@@ -25,6 +25,7 @@ type Step = {
   view: OnboardingView;
   complete: boolean;
   adminOnly?: boolean;
+  optional?: boolean;
 };
 
 export function OnboardingPanel({ open, hasAdditionalActiveUser, currentUser, properties, units, floorPlans, savedViews, scheduleTracks, firstRunDetected, onNavigate, onClose, onSkip }: Props) {
@@ -69,6 +70,7 @@ export function OnboardingPanel({ open, hasAdditionalActiveUser, currentUser, pr
     },
     {
       title: "Apply a property template",
+      optional: true,
       description: "Use reusable templates for sections, fields, views, schedule tracks, checklists, and safe automation starters.",
       action: "Open Templates",
       view: "automations",
@@ -76,6 +78,7 @@ export function OnboardingPanel({ open, hasAdditionalActiveUser, currentUser, pr
     },
     {
       title: "Enable starter automations",
+      optional: true,
       description: "Preview automation rules before enabling overdue, missing-date, move-in risk, and workload warnings.",
       action: "Open Automations",
       view: "automations",
@@ -97,6 +100,7 @@ export function OnboardingPanel({ open, hasAdditionalActiveUser, currentUser, pr
     },
     {
       title: "Review Dashboard and Frog Pond",
+      optional: true,
       description: "Use Dashboard for serious summaries and Frog Pond as a quick visual pulse check.",
       action: "Open Dashboard",
       view: "dashboard",
@@ -105,7 +109,8 @@ export function OnboardingPanel({ open, hasAdditionalActiveUser, currentUser, pr
   ];
 
   const visibleSteps = steps.filter((step) => !step.adminOnly || isAdmin);
-  const completeCount = visibleSteps.filter((step) => step.complete).length;
+  const requiredSteps = visibleSteps.filter((step) => !step.optional);
+  const completeCount = requiredSteps.filter((step) => step.complete).length;
 
   return (
     <>
@@ -123,10 +128,10 @@ export function OnboardingPanel({ open, hasAdditionalActiveUser, currentUser, pr
           <button type="button" className="icon-button" onClick={onClose} aria-label="Close setup guide">×</button>
         </header>
 
-        <div className="onboarding-progress" aria-label={`${completeCount} of ${visibleSteps.length} setup steps appear complete`}>
-          <span style={{ width: `${Math.round((completeCount / Math.max(visibleSteps.length, 1)) * 100)}%` }} />
+        <div className="onboarding-progress" aria-label={`${completeCount} of ${requiredSteps.length} setup steps appear complete`}>
+          <span style={{ width: `${Math.round((completeCount / Math.max(requiredSteps.length, 1)) * 100)}%` }} />
         </div>
-        <p className="onboarding-progress-copy">{completeCount} of {visibleSteps.length} setup checks detected from current data. Reopen this guide anytime using Setup checklist in the toolbar.</p>
+        <p className="onboarding-progress-copy">{completeCount} of {requiredSteps.length} setup checks detected from current data. Optional recommendations do not affect progress. Reopen this guide anytime using Setup checklist.</p>
 
         <div className="onboarding-steps">
           {visibleSteps.map((step) => (
@@ -134,6 +139,7 @@ export function OnboardingPanel({ open, hasAdditionalActiveUser, currentUser, pr
               <div className="onboarding-step-status" aria-hidden="true">{step.complete ? "✓" : "•"}</div>
               <div>
                 <h3>{step.title}</h3>
+                {step.optional ? <small className="muted">Optional recommendation</small> : null}
                 <p>{step.description}</p>
               </div>
               <button

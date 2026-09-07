@@ -807,6 +807,8 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("onboarding-open").click();
     await expect(page.getByTestId("onboarding-panel")).toBeVisible();
     await expect(page.getByTestId("onboarding-panel")).toContainText("Bring a property online");
+    await expect(page.getByTestId("onboarding-panel").getByText("Optional recommendation", { exact: true })).toHaveCount(3);
+    await expect(page.getByTestId("onboarding-panel").locator(".onboarding-progress")).toHaveAttribute("aria-label", /of 5 setup steps appear complete/);
     await page.getByTestId("onboarding-skip").click();
     await expect(page.getByTestId("onboarding-panel")).toHaveCount(0);
     await page.getByTestId("onboarding-open").click();
@@ -2063,8 +2065,28 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("refrigerant-tab-history").click();
     await expect(page.getByTestId("refrigerant-panel")).toContainText("Recent Refrigerant Activity");
     await page.getByTestId("refrigerant-tab-exports").click();
-    await expect(page.getByTestId("refrigerant-panel").getByText("Usage Report", { exact: true })).toBeVisible();
-    await expect(page.getByTestId("refrigerant-panel").getByRole("link", { name: "CSV", exact: true })).toHaveCount(6);
+    const builder = page.getByTestId("refrigerant-report-builder");
+    await expect(builder.getByRole("link")).toHaveCount(1);
+    await expect(page.getByTestId("refrigerant-report-contents")).toHaveValue("fullAudit");
+    const generate = page.getByTestId("refrigerant-report-generate");
+    await expect(generate).toHaveAttribute("href", /report\.pdf\?report=fullAudit/);
+    await expect(builder).toContainText("Tank inventory is shared across properties");
+    await page.getByTestId("refrigerant-report-format").selectOption("csv");
+    await expect(generate).toHaveAttribute("href", /export\.csv\?report=fullAudit/);
+    await page.getByTestId("refrigerant-report-contents").selectOption("usage");
+    await expect(generate).toHaveAttribute("href", /export\.csv\?report=usage/);
+    await page.getByTestId("refrigerant-report-format").selectOption("excel");
+    await expect(generate).toHaveAttribute("href", /export\.xls\?report=usage/);
+    await expect(builder).not.toContainText("Tank inventory is shared across properties");
+    const propertySelect = page.getByTestId("refrigerant-report-property");
+    const [selectedProperty] = await propertySelect.selectOption({ index: 1 });
+    expect(new URL((await generate.getAttribute("href"))!, page.url()).searchParams.get("propertyId")).toBe(selectedProperty);
+    await expect(page.getByTestId("refrigerant-report-scope")).toContainText(await propertySelect.locator("option:checked").innerText());
+    await propertySelect.selectOption("");
+    expect(new URL((await generate.getAttribute("href"))!, page.url()).searchParams.has("propertyId")).toBe(false);
+    await page.setViewportSize({ width: 412, height: 915 });
+    await expect(generate).toBeVisible();
+    expect(await builder.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   });
 
   test("admin can create a pool log, open report tools, and upload a pool photo", async ({ page }) => {

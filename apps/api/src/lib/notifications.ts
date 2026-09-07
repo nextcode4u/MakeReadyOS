@@ -30,17 +30,20 @@ function isWithinQuietHours(now: Date, startMinute: number, endMinute: number) {
   return minuteOfDay >= startMinute || minuteOfDay < endMinute;
 }
 
-export async function assignedStaffUserId(assignedTech: string | null | undefined) {
+export async function assignedStaffUserId(assignedTech: string | null | undefined, propertyId: string) {
   if (!assignedTech) return null;
-  const user = await prisma.user.findFirst({
+  const users = await prisma.user.findMany({
     where: {
       fullName: assignedTech,
       isActive: true,
       role: { in: [UserRole.ADMIN, UserRole.MANAGER, UserRole.TECH, UserRole.CLEANER] },
+      OR: [{ role: UserRole.ADMIN }, { propertyAccess: { some: { propertyId } } }],
     },
     select: { id: true },
+    take: 2,
   });
-  return user?.id ?? null;
+  // Historical assignments store names, so never guess between eligible namesakes.
+  return users.length === 1 ? users[0].id : null;
 }
 
 export async function createNotification(input: {
@@ -101,7 +104,7 @@ export async function notifyAssignedStaff(input: {
   message: string;
   dedupeKey?: string | null;
 }) {
-  const userId = await assignedStaffUserId(input.assignedTech);
+  const userId = await assignedStaffUserId(input.assignedTech, input.propertyId);
   if (!userId) return null;
   return createNotification({ ...input, userId });
 }

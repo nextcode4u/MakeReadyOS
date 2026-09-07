@@ -14,7 +14,6 @@ import {
   getRefrigerantOverview,
   refrigerantExportCsvUrl,
   refrigerantExportExcelUrl,
-  refrigerantPrintableHtmlReportUrl,
   refrigerantPrintableReportUrl,
   updateRefrigerantCylinder,
   updateRefrigerantType,
@@ -499,31 +498,53 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
           ) : null}
         </>
       ) : (
-        <section className="refrigerant-card">
-          <h2>{t(language, "refrigerant.exports")}</h2>
-          <p className="muted">{t(language, "refrigerant.exportsCopy")}</p>
-          <div className="export-grid">
-            {[
-              ["usage", t(language, "refrigerant.reportUsage")],
-              ["recovery", t(language, "refrigerant.reportRecovery")],
-              ["cylinders", t(language, "refrigerant.reportCylinders")],
-              ["compliance", t(language, "refrigerant.reportCompliance")],
-              ["unitHistory", t(language, "refrigerant.reportUnitHistory")],
-              ["fullAudit", t(language, "refrigerant.reportFullAudit")],
-            ].map(([report, label]) => (
-              <div key={report} className="refrigerant-export-row">
-                <strong>{label}</strong>
-                <div className="pool-entry-actions">
-                  <a className="button button-secondary" href={refrigerantExportCsvUrl(report as never, propertyFilter || undefined)}>{t(language, "nav.csv")}</a>
-                  <a className="button button-secondary" href={refrigerantExportExcelUrl(report as never, propertyFilter || undefined)}>{t(language, "nav.excel")}</a>
-                  <a className="button button-secondary" href={refrigerantPrintableHtmlReportUrl(report as never, propertyFilter || undefined)} target="_blank" rel="noreferrer">{t(language, "refrigerant.printable")}</a>
-                  <a className="button button-primary" href={refrigerantPrintableReportUrl(report as never, propertyFilter || undefined)} target="_blank" rel="noreferrer">{t(language, "nav.pdf")}</a>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+        <RefrigerantReportPanel language={language} propertyId={propertyFilter} properties={properties} onPropertyChange={setPropertyFilter} />
       )}
+    </section>
+  );
+}
+
+function RefrigerantReportPanel({ language, propertyId, properties, onPropertyChange }: { language: UserLanguage; propertyId: string; properties: Property[]; onPropertyChange: (id: string) => void }) {
+  const [report, setReport] = useState<Parameters<typeof refrigerantExportCsvUrl>[0]>("fullAudit");
+  const [format, setFormat] = useState("pdf");
+  const spanish = language === "es";
+  const property = properties.find((entry) => entry.id === propertyId);
+  const inventoryIncluded = ["fullAudit", "cylinders", "recovery"].includes(report);
+  const href = (format === "csv" ? refrigerantExportCsvUrl : format === "excel" ? refrigerantExportExcelUrl : refrigerantPrintableReportUrl)(report, propertyId || undefined);
+  return (
+    <section className="refrigerant-card" data-testid="refrigerant-report-builder">
+      <h2>{spanish ? "Informe de refrigerante" : "Refrigerant Report"}</h2>
+      <p className="muted">{spanish ? "Un informe completo por defecto. Elija un informe especifico solo cuando lo necesite." : "One complete report by default. Choose a focused report only when needed."}</p>
+      <p data-testid="refrigerant-report-scope"><strong>{spanish ? "Propiedad: " : "Property: "}</strong>{property ? `${property.code} / ${property.name}` : t(language, "nav.allProperties")} / {spanish ? "Todo el historial registrado" : "All recorded dates"}</p>
+      <div className="refrigerant-edit-grid">
+        <label>{spanish ? "Propiedad" : "Property"}
+          <select value={propertyId} onChange={(event) => onPropertyChange(event.target.value)} data-testid="refrigerant-report-property">
+            <option value="">{t(language, "nav.allProperties")}</option>
+            {properties.map((entry) => <option key={entry.id} value={entry.id}>{entry.code} / {entry.name}</option>)}
+          </select>
+        </label>
+        <label>{spanish ? "Contenido" : "Contents"}
+          <select value={report} onChange={(event) => setReport(event.target.value as typeof report)} data-testid="refrigerant-report-contents">
+            <option value="fullAudit">{spanish ? "Informe completo" : "Full report"}</option>
+            <optgroup label={spanish ? "Informes especificos" : "Focused reports"}>
+              <option value="usage">{t(language, "refrigerant.reportUsage")}</option>
+              <option value="recovery">{t(language, "refrigerant.reportRecovery")}</option>
+              <option value="cylinders">{t(language, "refrigerant.reportCylinders")}</option>
+              <option value="compliance">{t(language, "refrigerant.reportCompliance")}</option>
+              <option value="unitHistory">{t(language, "refrigerant.reportUnitHistory")}</option>
+            </optgroup>
+          </select>
+        </label>
+        <label>{spanish ? "Formato" : "Format"}
+          <select value={format} onChange={(event) => setFormat(event.target.value)} data-testid="refrigerant-report-format">
+            <option value="pdf">PDF</option><option value="excel">Excel</option><option value="csv">CSV</option>
+          </select>
+        </label>
+      </div>
+      {inventoryIncluded ? <p className="muted">{spanish ? "El inventario de tanques es compartido entre propiedades y muestra los saldos actuales, no los historicos." : "Tank inventory is shared across properties and shows current balances, not historical balances."}</p> : null}
+      {report === "fullAudit" ? <p className="muted">{spanish ? "Incluye uso, recuperacion, tanques, alertas, historial por unidad y registros antiguos." : "Includes usage, recovery, tanks, flags, unit history, and legacy logs."}</p> : null}
+      <a className="button button-primary" href={href} target={format === "pdf" ? "_blank" : undefined} rel="noreferrer" data-testid="refrigerant-report-generate">{spanish ? "Generar informe" : "Generate Report"}</a>
+      {format === "pdf" ? <p className="muted"><small>{spanish ? "Se abre en otra pestana. Puede imprimir desde el PDF." : "Opens in a new tab. Print directly from the PDF."}</small></p> : null}
     </section>
   );
 }

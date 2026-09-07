@@ -55,4 +55,24 @@ test("bulk archive and restore validate every destination before a single update
   const beforeAudit = audits;
   assert.equal((await submit("ARCHIVE")).statusCode, 500);
   assert.equal(audits, beforeAudit, "a failed transaction must not be audited as a successful batch");
+  let assignmentQuery: any;
+  stub(prisma.user, "findFirst", async (query: any) => { assignmentQuery = query; return null; });
+  const deniedAssignment = await app.inject({ method: "POST", url: "/make-ready-items/batch", payload: { action: "ASSIGN_TECH", ids: ["a", "b"], value: "Outside Staff" } });
+  assert.equal(deniedAssignment.statusCode, 400, deniedAssignment.body);
+  assert.deepEqual(assignmentQuery.where.OR, [
+    { role: "ADMIN" },
+    { AND: [{ propertyAccess: { some: { propertyId: "a" } } }, { propertyAccess: { some: { propertyId: "b" } } }] },
+  ]);
+  assert.equal(assignmentQuery.where.isActive, true);
+  assert.equal(assignmentQuery.where.fullName, "Outside Staff");
+  stub(prisma.makeReadyItem, "findUnique", async () => items[0]);
+  const deniedEdit = await app.inject({ method: "PATCH", url: "/make-ready-items/a", payload: { assignedTech: "Outside Staff" } });
+  assert.equal(deniedEdit.statusCode, 400, deniedEdit.body);
+  assert.deepEqual(assignmentQuery.where.OR[1].AND, [{ propertyAccess: { some: { propertyId: "a" } } }]);
+  stub(prisma.property, "findFirst", async () => ({ id: "a", isActive: true }));
+  const deniedCreate = await app.inject({ method: "POST", url: "/make-ready-items", payload: {
+    propertyId: "a", boardGroup: "MAKE_READY-a", itemName: "101", unitNumber: "101", assignedTech: "Outside Staff",
+  } });
+  assert.equal(deniedCreate.statusCode, 400, deniedCreate.body);
+  assert.deepEqual(assignmentQuery.where.OR[1].AND, [{ propertyAccess: { some: { propertyId: "a" } } }]);
 });

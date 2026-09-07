@@ -41,7 +41,7 @@ mkdir -p "$LOG_DIR"
   echo
 
   echo "Running isolated report and email regression tests"
-  node --test "$ROOT_DIR/e2e/service-worker.test.mjs" "$ROOT_DIR/e2e/hooks-lint.test.mjs" "$ROOT_DIR/e2e/offline-sync.test.mjs"
+  node --test "$ROOT_DIR/e2e/service-worker.test.mjs" "$ROOT_DIR/e2e/hooks-lint.test.mjs" "$ROOT_DIR/e2e/offline-sync.test.mjs" "$ROOT_DIR/e2e/availability-status.test.mjs"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/e2e/lease-matching.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/leaseLookup.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/operationalReports.test.ts"
@@ -53,6 +53,10 @@ mkdir -p "$LOG_DIR"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/audit.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/adminUsername.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/dashboardDates.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/notifications.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/notificationScope.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/metaStaffScope.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/leaseAssignment.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/readyVacancyStatus.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/exportHeaders.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/boardExport.test.ts"
@@ -845,6 +849,36 @@ mkdir -p "$LOG_DIR"
       "http://localhost:${API_PORT:-4000}/api/operations/board-sections?propertyId=$TEST_PROPERTY_ID"
     TEST_SECTION_ID="$(node -e 'const fs=require("fs"); const section=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).sections.find((entry) => entry.sectionType === "MAKE_READY"); process.stdout.write(section?.id || "");' /tmp/makereadyos-sections.json)"
     TEST_MAKE_READY_GROUP="$(node -e 'const fs=require("fs"); const section=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).sections.find((entry) => entry.sectionType === "MAKE_READY"); process.stdout.write(section?.key || "");' /tmp/makereadyos-sections.json)"
+    echo "Checking imported readiness and leasing separator variants"
+    AVAILABILITY_IMPORT_STATUS="$(curl -s -o /tmp/makereadyos-availability-separators.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"rows\":[{\"number\":\"SEP-NOT-READY\",\"availabilityStatus\":\"vacant_not_leased_not_ready\"},{\"number\":\"SEP-READY\",\"availabilityStatus\":\"vacant-not-leased-ready\"},{\"number\":\"SEP-NTV\",\"availabilityStatus\":\"ntv_not_leased\"}]}" \
+      "http://localhost:${API_PORT:-4000}/api/operations/availability/import")"
+    if [ "$AVAILABILITY_IMPORT_STATUS" != "200" ]; then cat /tmp/makereadyos-availability-separators.json; exit 1; fi
+    curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/make-ready-items?propertyId=$TEST_PROPERTY_ID" > /tmp/makereadyos-availability-turns.json
+    node -e '
+      const fs=require("fs");
+      const turns=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+      const sections=JSON.parse(fs.readFileSync(process.argv[2],"utf8")).sections;
+      for (const [unit,status,type] of [["SEP-NOT-READY","VACANT NOT LEASED NOT READY","MAKE_READY"],["SEP-READY","VACANT NOT LEASED READY","READY"],["SEP-NTV","NTV NOT LEASED","MAKE_READY"]]) {
+        const turn=turns.find(item=>item.unitNumber===unit);
+        if (!turn || turn.vacancyStatus!==status || turn.boardGroup!==sections.find(section=>section.sectionType===type)?.key) throw new Error(`Incorrect imported status/section for ${unit}`);
+      }
+    ' /tmp/makereadyos-availability-turns.json /tmp/makereadyos-sections.json
+    echo "Checking missing directory occupancy remains unknown and does not replace existing facts"
+    for DIRECTORY_ROWS in '[{"number":"DIR-UNKNOWN"},{"number":"DIR-OCC","occupancyStatus":"OCCUPIED"}]' '[{"number":"DIR-UNKNOWN"},{"number":"DIR-OCC"}]'; do
+      DIRECTORY_IMPORT_STATUS="$(curl -s -o /tmp/makereadyos-directory-unknown.json -b "$COOKIE_JAR" -w "%{http_code}" \
+        -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+        -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"units\":$DIRECTORY_ROWS}" \
+        "http://localhost:${API_PORT:-4000}/api/operations/units/import")"
+      if [ "$DIRECTORY_IMPORT_STATUS" != "200" ]; then cat /tmp/makereadyos-directory-unknown.json; exit 1; fi
+    done
+    curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/operations/units?propertyId=$TEST_PROPERTY_ID" > /tmp/makereadyos-directory-unknown-units.json
+    node -e '
+      const units=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).units;
+      if (units.find(unit=>unit.number==="DIR-UNKNOWN")?.occupancyStatus!=="UNKNOWN") throw new Error("Missing occupancy must not imply occupied");
+      if (units.find(unit=>unit.number==="DIR-OCC")?.occupancyStatus!=="OCCUPIED") throw new Error("Omitted occupancy must preserve an existing fact");
+    ' /tmp/makereadyos-directory-unknown-units.json
     TEST_DOWN_GROUP="$(node -e 'const fs=require("fs"); const section=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).sections.find((entry) => entry.sectionType === "DOWN"); process.stdout.write(section?.key || "");' /tmp/makereadyos-sections.json)"
     if [ -z "$TEST_SECTION_ID" ] || [ -z "$TEST_MAKE_READY_GROUP" ] || [ -z "$TEST_DOWN_GROUP" ]; then
       echo "ERROR: selected property is missing standard board sections"

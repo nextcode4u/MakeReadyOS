@@ -153,6 +153,21 @@ async function assertPropertyAccess(request: FastifyRequest, propertyId: string)
   }
 }
 
+async function resolveLeaseAssignee(propertyId: string, userId?: string | null) {
+  if (!userId) return null;
+  const user = await prisma.user.findFirst({
+    where: {
+      id: userId,
+      isActive: true,
+      role: { in: [UserRole.ADMIN, UserRole.MANAGER, UserRole.LEASING, UserRole.TECH, UserRole.CLEANER] },
+      OR: [{ role: UserRole.ADMIN }, { propertyAccess: { some: { propertyId } } }],
+    },
+    select: { fullName: true },
+  });
+  if (!user) throw Object.assign(new Error("Select an active staff member with access to this property"), { statusCode: 400 });
+  return user.fullName;
+}
+
 function sanitizeFilename(filename: string) {
   return basename(filename).replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 180) || "lease-compliance";
 }
@@ -560,15 +575,11 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
     if (!requireLeaseComplianceAccess(request, reply, "edit")) return;
     const input = leaseComplianceIssueSchema.parse(request.body);
     await assertPropertyAccess(request, input.propertyId);
+    const assignedUserName = await resolveLeaseAssignee(input.propertyId, input.assignedUserId);
     await ensureDefaultIssueTypes(input.propertyId, request.currentUser!.id);
     await ensureSettings(input.propertyId, request.currentUser!.id);
     if (!input.unitId && !input.area?.trim() && !input.building?.trim()) {
       throw Object.assign(new Error("Unit, building, or area is required"), { statusCode: 400 });
-    }
-    let assignedUserName: string | null = null;
-    if (input.assignedUserId) {
-      const user = await prisma.user.findUnique({ where: { id: input.assignedUserId } });
-      assignedUserName = user?.fullName ?? null;
     }
     const issue = await prisma.leaseComplianceIssue.create({
       data: {
@@ -641,12 +652,7 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
     await assertPropertyAccess(request, existing.propertyId);
     let assignedUserName = existing.assignedUserName;
     if (input.assignedUserId !== undefined) {
-      if (input.assignedUserId) {
-        const assignedUser = await prisma.user.findUnique({ where: { id: input.assignedUserId } });
-        assignedUserName = assignedUser?.fullName ?? null;
-      } else {
-        assignedUserName = null;
-      }
+      assignedUserName = await resolveLeaseAssignee(existing.propertyId, input.assignedUserId);
     }
     await prisma.leaseComplianceIssue.update({
       where: { id },

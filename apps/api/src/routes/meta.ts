@@ -122,9 +122,11 @@ export async function metaRoutes(app: FastifyInstance) {
         },
         orderBy: { name: "asc" },
       }),
-      prisma.automationRule.findMany({
+      user.role === UserRole.ADMIN || user.role === UserRole.MANAGER ? prisma.automationRule.findMany({
+        where: propertyIds === null ? {} : { OR: [{ propertyId: null }, { propertyId: { in: propertyIds } }] },
+        select: { id: true, name: true, enabled: true, description: true },
         orderBy: { name: "asc" },
-      }),
+      }) : Promise.resolve([]),
       prisma.unit.findMany({
         where: propertyIds === null ? { isActive: true } : { isActive: true, propertyId: { in: propertyIds } },
         orderBy: [{ propertyId: "asc" }, { number: "asc" }],
@@ -143,6 +145,9 @@ export async function metaRoutes(app: FastifyInstance) {
         where: {
           isActive: true,
           role: { in: assignableStaffRoles },
+          ...(propertyIds === null ? {} : {
+            OR: [{ role: UserRole.ADMIN }, { propertyAccess: { some: { propertyId: { in: propertyIds } } } }],
+          }),
         },
         select: { id: true, fullName: true, role: true },
         orderBy: [{ fullName: "asc" }, { role: "asc" }],

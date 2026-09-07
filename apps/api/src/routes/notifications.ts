@@ -17,7 +17,10 @@ export async function notificationRoutes(app: FastifyInstance) {
     const accessiblePropertyIds = request.currentUser!.role === UserRole.ADMIN
       ? undefined
       : request.currentUser!.propertyAccess.map((access) => access.propertyId);
-    const where = { userId, isRead: query.unreadOnly ? false : undefined };
+    const propertyScope = accessiblePropertyIds === undefined ? {} : {
+      OR: [{ propertyId: null }, { propertyId: { in: accessiblePropertyIds } }],
+    };
+    const where = { userId, ...propertyScope, isRead: query.unreadOnly ? false : undefined };
     const [notifications, total, unreadCount, preferences, settings, properties] = await Promise.all([
       prisma.notification.findMany({
         where,
@@ -27,8 +30,8 @@ export async function notificationRoutes(app: FastifyInstance) {
         take: query.limit,
       }),
       prisma.notification.count({ where }),
-      prisma.notification.count({ where: { userId, isRead: false } }),
-      prisma.notificationPreference.findMany({ where: { userId }, orderBy: [{ propertyId: "asc" }, { category: "asc" }] }),
+      prisma.notification.count({ where: { userId, ...propertyScope, isRead: false } }),
+      prisma.notificationPreference.findMany({ where: { userId, ...propertyScope }, orderBy: [{ propertyId: "asc" }, { category: "asc" }] }),
       prisma.userNotificationSettings.findUnique({ where: { userId } }),
       prisma.property.findMany({
         where: accessiblePropertyIds ? { id: { in: accessiblePropertyIds }, isActive: true } : { isActive: true },
