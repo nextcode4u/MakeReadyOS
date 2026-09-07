@@ -12,6 +12,7 @@ import { LabelPill } from "./LabelPill";
 import { Modal } from "./Modal";
 import { StatusState } from "./StatusState";
 import { HistoryCoverageNotice } from "./HistoryCoverageNotice";
+import { FinalWalkControls } from "./FinalWalkControls";
 
 function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
   return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
@@ -846,6 +847,7 @@ export function ItemDrawer({
 
         <section className="drawer-section completion-section" data-testid="drawer-completion-section">
           <h3>{t(language, "drawer.completionFinalWalk")}</h3>
+          <FinalWalkControls key={item.id} itemId={item.id} currentUser={currentUser} onMarkReady={onMarkReady} />
           <p className="drawer-empty">
             {t(language, "drawer.completionHelp")}
           </p>

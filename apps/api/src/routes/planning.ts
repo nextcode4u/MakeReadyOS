@@ -94,6 +94,7 @@ export async function planningRoutes(app: FastifyInstance) {
 
   app.post("/planning/blocks", { preHandler: requireManagerOrAdmin }, async (request, reply) => {
     const input = planningBlockSchema.parse(request.body);
+    if (input.category === "FINAL_WALK_INSPECTION") return reply.code(409).send({ message: "Use final walk setup to assign inspectors" });
     const scoped = scopedAllowedPropertyIds(request);
     const { item, error, status } = await ensureScopedItem(input.itemId, scoped);
     if (!item) return reply.code(status).send({ message: error });
@@ -135,11 +136,13 @@ export async function planningRoutes(app: FastifyInstance) {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const existing = await prisma.workAssignmentBlock.findUnique({ where: { id }, include: { item: true } });
     if (!existing) return reply.code(404).send({ message: "Planning block not found" });
+    if (existing.category === "FINAL_WALK_INSPECTION") return reply.code(409).send({ message: "Use the unit's final walk controls to hand off or sign off" });
     const user = request.currentUser!;
     const scoped = scopedAllowedPropertyIds(request);
     if (scoped !== null && !scoped.includes(existing.propertyId)) return reply.code(403).send({ message: "Property access denied" });
     if (!canManagePlanning(user.role) && existing.assignedUserId !== user.id) return reply.code(403).send({ message: "Only managers or the assigned user can update this work block" });
     const input = planningPatchBlockSchema.parse(request.body);
+    if (input.category === "FINAL_WALK_INSPECTION") return reply.code(409).send({ message: "Use final walk setup to assign inspectors" });
     if ((input.assignedUserId || input.itemId || input.estimatedHours || input.plannedDate || input.category) && !canManagePlanning(user.role)) {
       return reply.code(403).send({ message: "Only managers can replan work blocks" });
     }

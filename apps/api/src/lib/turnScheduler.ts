@@ -2,6 +2,7 @@ import { prisma } from "./prisma.js";
 import { executeScheduledAutomationRules } from "./scheduledAutomations.js";
 import { turnSetupPrefix } from "./turnSetup.js";
 import { runEnabledTurnAssignments } from "./turnAssignments.js";
+import { syncEnabledFinalWalks } from "./finalWalks.js";
 
 // Only the explicitly enabled guided pack runs here. Legacy rules keep their existing timer behavior.
 export function startTurnScheduler() {
@@ -17,6 +18,7 @@ export function startTurnScheduler() {
         if (result.results.some((entry) => entry.errors.length)) console.error("Guided turn scheduling reported errors", rule.id);
       }
       if (!stopped) await runEnabledTurnAssignments();
+      if (!stopped) await syncEnabledFinalWalks();
     })().catch((error) => console.error("Guided turn scheduling failed", error instanceof Error ? error.message : "Unknown error")).finally(() => { running = null; });
   };
   const timer = setInterval(tick, 5 * 60 * 1000);

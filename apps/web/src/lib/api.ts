@@ -1172,6 +1172,13 @@ export type WorkAssignmentBlock = {
   item: MakeReadyItem;
 };
 
+export type FinalWalkSettings = { inspectors: string[]; enabled: boolean; staff: Array<{ id: string; fullName: string; role: string }> };
+export type FinalWalkAssignment = { ready: boolean; block: (WorkAssignmentBlock & { inspectorQueue: string[] }) | null; next: { id: string; fullName: string } | null };
+export function getFinalWalkSettings(propertyId: string) { return request<FinalWalkSettings>(`/automations/final-walk/${propertyId}`); }
+export function saveFinalWalkSettings(propertyId: string, input: Omit<FinalWalkSettings, "staff">) { return request<{ saved: boolean; assigned: number }>(`/automations/final-walk/${propertyId}`, { method: "PUT", body: JSON.stringify(input) }); }
+export function getFinalWalk(itemId: string) { return request<FinalWalkAssignment>(`/make-ready-items/${itemId}/final-walk`); }
+export function handoffFinalWalk(itemId: string, input: { blockId: string; expectedAssigneeId: string; reason: string }) { return request(`/make-ready-items/${itemId}/final-walk/handoff`, { method: "POST", body: JSON.stringify(input) }); }
+
 export type PlanningResponse = {
   window: { from: string; to: string };
   staff: Array<StaffOption & { capacity: UserCapacity | null }>;

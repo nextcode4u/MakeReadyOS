@@ -43,7 +43,7 @@ export async function turnSetupRoutes(app: FastifyInstance) {
       const dates = turnStages.map((stage, index) => {
         offset += input.days[index];
         const existing = stage.custom ? item.customFieldValues.find((entry) => entry.customField.fieldKey === stage.field)?.value : item[stage.field];
-        const date = existing || applyBusinessDayOffset(item.vacatedDate!, offset, calendar);
+        const date = existing || applyBusinessDayOffset(item.vacatedDate!, index === 0 ? 1 : offset, calendar);
         return { label: stage.label, date: date instanceof Date ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}` : String(date), preserved: Boolean(existing) };
       });
       return { unitNumber: item.unitNumber, dates };

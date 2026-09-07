@@ -130,7 +130,7 @@ const labelSeed = {
 const columnSeed = [
   ["unitNumber", "Item"], ["floorPlan", "Floor Plan"], ["applicant", "Applicant"], ["moveOutDate", "NTV / Expected Vacate"],
   ["vacancyStatus", "Vacancy"], ["vacatedDate", "Vacated"], ["daysVacant", "Days Vacant"], ["assignedTech", "Assigned"],
-  ["scopeLevel", "Scope"], ["makeReadyDate", "Make Ready"], ["moveInDate", "Move-In"], ["paintStatus", "Paint"],
+  ["scopeLevel", "Scope"], ["makeReadyDate", "Expected Finish"], ["moveInDate", "Move-In"], ["paintStatus", "Paint"],
   ["doorsStatus", "Doors"], ["completionStatus", "Completed"], ["sheetrockStatus", "Sheetrock"], ["pestStatus", "Pest"],
   ["pestTreated", "Pest Treated"], ["trashOutStatus", "Trash Out"], ["floorsStatus", "Floors"], ["flooringDate", "Flooring Date"],
   ["makeReadyStatus", "Make Ready Status"], ["cleaningStatus", "Cleaning"], ["keysMadeStatus", "Keys Made"], ["cabinetsStatus", "Cabinets"],
@@ -140,7 +140,7 @@ const columnSeed = [
 const scheduleTrackSeed = [
   ["moveOutDate", "NTV / Notice to Vacate", "STATUS"],
   ["vacatedDate", "Vacated", "STATUS"],
-  ["makeReadyDate", "Make Ready", "STATUS"],
+  ["makeReadyDate", "Expected Finish", "STATUS"],
   ["moveInDate", "Move-In", "STATUS"],
   ["flooringDate", "Flooring", "STATUS"],
   ["vendorScheduledDate", "Vendor Scheduled", "NEUTRAL"],
@@ -376,6 +376,27 @@ async function main() {
     where: { sourceField: "vacatedDate", displayName: "Vacated / Possession" },
     data: { displayName: "Vacated" },
   });
+  // Preserve dates, track IDs, and user-renamed labels while clarifying the legacy deadline.
+  await prisma.scheduleTrack.updateMany({
+    where: { sourceField: "makeReadyDate", displayName: { in: ["Make Ready", "Ready target / final check", "Final check / ready target"] } },
+    data: { displayName: "Expected Finish" },
+  });
+  await prisma.boardColumnDefinition.updateMany({
+    where: { fieldKey: "makeReadyDate", label: "Make Ready" },
+    data: { label: "Expected Finish" },
+  });
+  const turnStart = await prisma.customField.upsert({
+    where: { fieldKey: "turnMaintenanceDate" }, update: {},
+    create: { fieldKey: "turnMaintenanceDate", label: "Make Ready (Start)", fieldType: "DATE", module: "make-ready" },
+  });
+  if (turnStart.fieldType === "DATE" && turnStart.module === "make-ready" && !turnStart.isArchived && !turnStart.deletedAt) {
+    await prisma.customField.updateMany({ where: { id: turnStart.id, label: "Make-ready work" }, data: { label: "Make Ready (Start)" } });
+    await prisma.scheduleTrack.upsert({
+      where: { sourceField: `custom:${turnStart.id}` }, update: {},
+      create: { sourceField: `custom:${turnStart.id}`, displayName: "Make Ready (Start)", colorBasis: "FIELD", colorSourceField: "makeReadyStatus", sortOrder: 2 },
+    });
+    await prisma.scheduleTrack.updateMany({ where: { sourceField: `custom:${turnStart.id}`, displayName: "Make-ready work" }, data: { displayName: "Make Ready (Start)" } });
+  }
   await prisma.refrigerantType.createMany({
     data: refrigerantTypeSeed.map((name) => ({ name })),
     skipDuplicates: true,

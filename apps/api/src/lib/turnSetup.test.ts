@@ -24,6 +24,10 @@ test("weekday turn pack fills five dates, preserving existing dates and excludin
   assert.equal(applyRules({ ...item, vacatedDate: null } as any, rules).logs.length, 0);
   assert.equal(turnSetupSchema.safeParse({ propertyId: "p", days: [0, 1, 1, 1, 1] }).success, false);
   assert.equal(turnSetupSchema.safeParse({ propertyId: "p", days: [1, 1] }).success, false);
+  const longerRepairs = turnDefinitions("p", [3, 1, 1, 1, 1], ids).map((rule, index) => ({ ...rule, id: String(index) }));
+  const longerResult = applyRules(item as any, longerRepairs, {}, { operatingCalendar: calendar });
+  assert.equal(longerResult.customFieldUpdates.find(entry => entry.fieldId === "turnMaintenanceDate")?.value, "2026-09-07");
+  assert.equal(longerResult.next.makeReadyDate?.getDate(), 15);
 });
 
 test("turn setup rejects non-managers and inaccessible properties before writes", async (t) => {

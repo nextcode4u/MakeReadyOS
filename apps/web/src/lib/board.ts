@@ -10,7 +10,7 @@ export const boardColumns = [
   { key: "daysVacant", label: "Days Vacant", type: "readonly" },
   { key: "assignedTech", label: "Assigned", type: "assignee" },
   { key: "scopeLevel", label: "Scope", type: "label" },
-  { key: "makeReadyDate", label: "Make Ready", type: "date" },
+  { key: "makeReadyDate", label: "Expected Finish", type: "date" },
   { key: "moveInDate", label: "Move-In", type: "date" },
   { key: "paintStatus", label: "Paint", type: "label" },
   { key: "doorsStatus", label: "Doors", type: "label" },
@@ -115,7 +115,7 @@ export function boardGroupLabel(group: string, propertyId?: string, sections: Bo
 export const calendarFields = [
   { key: "moveOutDate", label: "NTV / Notice to Vacate" },
   { key: "vacatedDate", label: "Vacated" },
-  { key: "makeReadyDate", label: "Make Ready" },
+  { key: "makeReadyDate", label: "Expected Finish" },
   { key: "moveInDate", label: "Move-In" },
   { key: "flooringDate", label: "Flooring" },
 ];
@@ -163,7 +163,7 @@ export function kanbanGroupOptions(customFields: CustomField[], definitions: Boa
 
 export const sortOptions = [
   { key: "moveInDate", label: "Move-In Date" },
-  { key: "makeReadyDate", label: "Make Ready Date" },
+  { key: "makeReadyDate", label: "Expected Finish" },
   { key: "priority", label: "Priority" },
   { key: "unitNumber", label: "Unit Number" },
   { key: "updatedAt", label: "Last Updated" },

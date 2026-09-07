@@ -24,6 +24,7 @@ export type FrogPondConfig = {
 };
 
 type Props = {
+  viewerId: string;
   items: MakeReadyItem[];
   properties: Property[];
   boardSections: BoardSection[];
@@ -40,6 +41,28 @@ type Props = {
 const storageKey = "makereadyos.frogPond.config";
 const presetsKey = "makereadyos.frogPond.presets";
 const positionsKey = "makereadyos.frogPond.positions";
+const pondRewards = [
+  { id: "tophat", name: "Dapper pond", goal: 1, hint: "1 ready unit", sheet: "tophat" },
+  { id: "blue", name: "Blue lagoon", goal: 5, hint: "5 ready units together", sheet: "blue" },
+  { id: "clown", name: "Pond carnival", goal: 10, hint: "10 ready units together", sheet: "clown" },
+  { id: "funnyglasses", name: "Secret shades", goal: 3, hint: "A snack-loving secret...", sheet: "funnyglasses" },
+] as const;
+type PondCollection = { readyPeak: number; feeds: number; outfit: string };
+function loadCollection(key: string): PondCollection {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) ?? "null");
+    const count = (n: unknown) => typeof n === "number" && Number.isFinite(n) ? Math.max(0, Math.min(10000, Math.floor(n))) : 0;
+    return { readyPeak: count(value?.readyPeak), feeds: count(value?.feeds), outfit: pondRewards.some(reward => reward.id === value?.outfit) ? value.outfit : "natural" };
+  } catch { return { readyPeak: 0, feeds: 0, outfit: "natural" }; }
+}
+function rewardUnlocked(reward: typeof pondRewards[number], collection: PondCollection) {
+  return (reward.id === "funnyglasses" ? collection.feeds : collection.readyPeak) >= reward.goal;
+}
+function pondReady(item: MakeReadyItem) {
+  const vacancy = (item.vacancyStatus ?? "").toUpperCase().replace(/[ _-]+/g, "_");
+  return ["YES", "DONE", "COMPLETE", "COMPLETED"].includes((item.completionStatus ?? "").toUpperCase())
+    || (vacancy.startsWith("VACANT_") && vacancy.endsWith("_READY") && !vacancy.endsWith("_NOT_READY"));
+}
 const pondMinY = 34;
 const pondMaxY = 92;
 const pondMinX = 4;
@@ -179,7 +202,7 @@ function poseForItem(item: MakeReadyItem, poseBy: FrogPondConfig["poseBy"]) {
   const value = poseBy === "riskLevel" ? item.riskLevel : String(item[poseBy] ?? "");
   if (item.riskLevel === "CRITICAL" || value.includes("BUG") || value.includes("ROACH")) return "worried";
   if (item.riskLevel === "HIGH" || item.overdue) return "alert";
-  if (item.makeReadyStatus === "DONE" || item.completionStatus === "YES") return "sleeping";
+  if (pondReady(item)) return "celebrating";
   if (item.vacancyStatus?.startsWith("NTV")) return "tadpole";
   return "working";
 }
@@ -344,7 +367,7 @@ const pondPlaybooks: Array<{
   },
 ];
 
-export function FrogPondPanel({ items, properties, boardSections, labelsByField, language, selectedPropertyId, loading, error, onOpenItem, onPropertyChange, onGroupDrillDown }: Props) {
+export function FrogPondPanel({ viewerId, items, properties, boardSections, labelsByField, language, selectedPropertyId, loading, error, onOpenItem, onPropertyChange, onGroupDrillDown }: Props) {
   const isSpanish = language === "es";
   const sceneRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -358,6 +381,24 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
   const [positions, setPositions] = useState<Record<string, PondPosition>>(loadPositions);
   const [frameTick, setFrameTick] = useState(0);
   const [flies, setFlies] = useState<Fly[]>([]);
+  const collectionKey = `makereadyos.frogPond.collection.${viewerId}`;
+  const [collection, setCollection] = useState(() => loadCollection(collectionKey));
+  const [collectionSaved, setCollectionSaved] = useState(true);
+  const [feeding, setFeeding] = useState(false);
+  const [greetingId, setGreetingId] = useState<string | null>(null);
+  const readyCount = items.filter(item => !item.isArchived && (!selectedPropertyId || item.propertyId === selectedPropertyId) && pondReady(item)).length;
+  useEffect(() => {
+    if (!loading && !error) setCollection(current => readyCount > current.readyPeak ? { ...current, readyPeak: readyCount } : current);
+  }, [readyCount, loading, error]);
+  useEffect(() => {
+    try { localStorage.setItem(collectionKey, JSON.stringify(collection)); setCollectionSaved(true); }
+    catch { setCollectionSaved(false); }
+  }, [collectionKey, collection]);
+  useEffect(() => {
+    if (!feeding) return;
+    const timer = window.setTimeout(() => setFeeding(false), 3500);
+    return () => window.clearTimeout(timer);
+  }, [feeding]);
 
   const [rearranging, setRearranging] = useState(false);
   const [sceneWidth, setSceneWidth] = useState(960);
@@ -476,7 +517,8 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
     const colorLabel = colorValue(item, config.colorBy);
     const color = colorForValue(colorLabel, config.colorBy, labelsByField, legendValues.indexOf(colorLabel));
     const pose = poseForItem(item, config.poseBy);
-    const { sheet, achievementLabel } = sheetForItem(item);
+    const reward = pondRewards.find(entry => entry.id === collection.outfit && rewardUnlocked(entry, collection));
+    const { sheet, achievementLabel } = reward ? { sheet: frogSheets[reward.sheet], achievementLabel: reward.name } : sheetForItem(item);
     const frame = spriteFrameForItem(item, pose, index, frameTick, sheet);
     const tadpoleUrl = tadpoleSprites[(frameTick + index) % tadpoleSprites.length];
     const basePosition = positions[item.id] ?? frogPosition(index, columns, visibleItems.length);
@@ -491,10 +533,10 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
       achievementLabel,
       frame,
       tadpoleUrl,
-      x: clamp(basePosition.x, Math.max(pondMinX, 48 / Math.max(sceneWidth, 1) * 100), Math.min(pondMaxX, 100 - 48 / Math.max(sceneWidth, 1) * 100)),
+      x: clamp(basePosition.x, Math.max(pondMinX, 64 / Math.max(sceneWidth, 1) * 100), Math.min(pondMaxX, 100 - 64 / Math.max(sceneWidth, 1) * 100)),
       y: clamp(basePosition.y, pondMinY, pondMaxY),
     };
-  }), [boardSections, columns, sceneWidth, config.colorBy, config.density, config.groupBy, config.poseBy, frameTick, groups, labelsByField, legendValues, motionEnabled, positions, visibleItems]);
+  }), [boardSections, columns, sceneWidth, collection, config.colorBy, config.density, config.groupBy, config.poseBy, frameTick, groups, labelsByField, legendValues, motionEnabled, positions, visibleItems]);
 
   useEffect(() => {
     if (!motionEnabled || flies.length === 0 || renderedFrogs.length === 0) return;
@@ -570,11 +612,11 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
   if (error) return <StatusState title={isSpanish ? "Frog Pond no disponible" : "Frog Pond unavailable"} description={isSpanish ? "Actualice los datos del tablero e intentelo de nuevo." : "Refresh the board data and try again."} tone="error" />;
 
   return (
-    <section className={`frog-pond-shell frog-theme-${config.theme} frog-density-${config.density}${motionEnabled ? " frog-animated" : ""}${rearranging ? " frog-rearranging" : ""}`} data-testid="frog-pond-panel">
+    <section className={`frog-pond-shell frog-theme-${config.theme} frog-density-${config.density}${motionEnabled ? " frog-animated" : ""}${rearranging ? " frog-rearranging" : ""}${feeding ? " pond-feeding" : ""}`} data-testid="frog-pond-panel">
       <header className="panel-heading">
         <div>
           <h2>Frog Pond</h2>
-          <p>{isSpanish ? "Cada rana es una unidad. Seleccione una para ver su trabajo." : "Every frog is a unit. Select one to see its work."}</p>
+          <p>{isSpanish ? "Un pequeno descanso. Salude, de comida y descubra sorpresas." : "A little break between turns. Say hello, toss a snack, discover a surprise."}</p>
         </div>
         <div className="frog-summary" data-testid="frog-summary">
           <strong>{scopedItems.length}</strong><span>{config.metricSource.replace(/([A-Z])/g, " $1")} {isSpanish ? "ranas" : "frogs"}</span>
@@ -585,6 +627,7 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
 
       <div className="frog-scene-tools">
         <span>{isSpanish ? "Su tablero, con un poco de vida." : "A little life in your workday."}</span>
+        <button type="button" className="button button-primary" data-testid="pond-feed" disabled={feeding || !scopedItems.length} onClick={() => { setFeeding(true); setCollection(current => ({ ...current, feeds: Math.min(10000, current.feeds + 1) })); }}>{feeding ? (isSpanish ? "Hora de comer!" : "Snack time!") : (isSpanish ? "Dar comida" : "Feed the pond")}</button>
         <button type="button" className="button button-secondary" aria-pressed={!config.animated} onClick={() => updateConfig({ animated: !config.animated })}>{config.animated ? (isSpanish ? "Pausar movimiento" : "Pause motion") : (isSpanish ? "Activar movimiento" : "Resume motion")}</button>
         <button type="button" className="button button-secondary" aria-pressed={rearranging} onClick={() => setRearranging(!rearranging)}>{rearranging ? (isSpanish ? "Terminar" : "Done arranging") : (isSpanish ? "Organizar ranas" : "Arrange frogs")}</button>
         {reducedMotion ? <small>{isSpanish ? "Movimiento reducido del dispositivo activo" : "Device reduced-motion setting is on"}</small> : null}
@@ -661,6 +704,19 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
       </div>
       </details>
 
+      <details className="frog-settings pond-collection" data-testid="pond-collection">
+        <summary>{isSpanish ? "Coleccion del estanque" : "Pond collection"}<span>{pondRewards.filter(reward => rewardUnlocked(reward, collection)).length} / {pondRewards.length} {isSpanish ? "descubiertos" : "discovered"}</span></summary>
+        <p className="muted">{isSpanish ? "Las unidades listas visibles desbloquean estilos. La coleccion se guarda para su cuenta en este navegador; no cambia el trabajo." : "Ready units visible on your board unlock outfits. Discoveries stay with your account in this browser, even after the view changes. Playing never changes work records."}</p>
+        {!collectionSaved ? <p role="status">{isSpanish ? "No se pudo guardar la coleccion en este navegador." : "This browser could not save your collection. Discoveries will last only for this visit."}</p> : null}
+        <div className="pond-rewards">
+          <button type="button" className="button" aria-pressed={collection.outfit === "natural"} onClick={() => setCollection(current => ({ ...current, outfit: "natural" }))}>{isSpanish ? "Estilo natural" : "Natural pond"}</button>
+          {pondRewards.map(reward => <button type="button" className="button" key={reward.id} data-testid={`pond-reward-${reward.id}`} disabled={!rewardUnlocked(reward, collection)} aria-pressed={collection.outfit === reward.id} onClick={() => setCollection(current => ({ ...current, outfit: reward.id }))}><strong>{reward.name}</strong><small>{rewardUnlocked(reward, collection) ? (isSpanish ? "Desbloqueado" : "Unlocked") : reward.hint}</small></button>)}
+        </div>
+      </details>
+      <div className="pond-greeting" role="status" data-testid="pond-greeting">
+        {feeding ? (collection.feeds >= 3 ? "A very cool frog left you some Secret shades. Check your collection!" : "Ribbit! The snack committee approves.") : greetingId && scopedItems.some(item => item.id === greetingId) ? <><span>{isSpanish ? "Ribbit! Su rana lo saluda." : "Ribbit! A tiny wave, just for you."}</span><button type="button" className="button button-secondary" data-testid="pond-open-unit" onClick={() => onOpenItem(greetingId)}>{isSpanish ? "Abrir unidad" : "Open unit"} {scopedItems.find(item => item.id === greetingId)?.unitNumber}</button></> : (isSpanish ? "Toque una rana para saludar." : "Tap a frog to say hello. The pond has a few secrets.")}
+      </div>
+
       {scopedItems.length === 0 ? (
         <div className="frog-empty" data-testid="frog-empty-state">
           <strong>{isSpanish ? "No hay ranas en este estanque." : "No frogs in this pond."}</strong>
@@ -669,7 +725,8 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
       ) : (
         <div ref={sceneRef} className="frog-pond-scene" data-testid="frog-pond-scene" aria-label={isSpanish ? "Visualizacion operativa de Frog Pond" : "Frog Pond operational visualization"} style={{ "--pond-image": `url("${activePond.url}")`, "--pond-height": `${Math.max(460, Math.ceil(visibleItems.length / columns) * 170 + 120)}px` } as CSSProperties}>
           <div className="pond-atmosphere" aria-hidden="true"><div className="pond-water-light" />{Array.from({ length: 7 }, (_, i) => <i key={i} style={{ "--mote": i, left: `${12 + i * 12}%`, top: `${24 + (i % 3) * 15}%` } as CSSProperties} />)}</div>
-          <div className="pond-scene-caption" aria-hidden="true">{rearranging ? (isSpanish ? "Arrastre las ranas para organizarlas" : "Drag frogs to arrange your pond") : (isSpanish ? "Seleccione una rana para abrir la unidad" : "Select a frog to open its unit")}</div>
+          <div className="pond-scene-caption" aria-hidden="true">{rearranging ? (isSpanish ? "Arrastre las ranas para organizarlas" : "Drag frogs to arrange your pond") : (isSpanish ? "Toque una rana para saludar" : "Tap a frog to say hello")}</div>
+          {feeding ? <div className="pond-snacks" aria-hidden="true">{Array.from({ length: 12 }, (_, i) => <i key={i} style={{ left: `${12 + (i * 17) % 76}%`, top: `${43 + (i * 11) % 39}%`, "--snack": i } as CSSProperties} />)}</div> : null}
           {renderedFrogs.map(({ item, index, group, colorLabel, color, pose, sheet, achievementLabel, frame, tadpoleUrl, x, y }) => {
             return (
               <button
@@ -688,6 +745,8 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
                   "--sprite-col": frame.col,
                   "--sprite-row": frame.row,
                   "--frog-index": index,
+                  "--roam-time": `${12 + stableNumber(item.id) % 11}s`,
+                  "--roam-delay": `${-(stableNumber(item.id) % 20)}s`,
                   zIndex: Math.round(y),
                 } as CSSProperties}
                 onClick={() => {
@@ -695,7 +754,7 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
                     suppressClickRef.current = false;
                     return;
                   }
-                  onOpenItem(item.id);
+                  setGreetingId(item.id);
                 }}
                 onPointerDown={(event) => startDrag(event, item.id)}
                 onPointerMove={moveDrag}
@@ -706,6 +765,7 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
                 <span className="frog-water-ring" aria-hidden="true" />
                 <span className="frog-lily-pad" aria-hidden="true" />
                 <span className="frog-body" aria-hidden="true"><i /><b /></span>
+                {greetingId === item.id || feeding ? <span className="frog-hello" aria-hidden="true">{feeding ? "nom!" : "ribbit!"}</span> : null}
                 <strong>{displayUnitNumber(item.property.code, item.unitNumber)}</strong>
                 <em><i style={{ background: color }} />{colorLabel}</em>
                 {achievementLabel ? <small>{achievementLabel}</small> : null}
@@ -752,8 +812,8 @@ export function FrogPondPanel({ items, properties, boardSections, labelsByField,
       <div className="frog-legend" data-testid="frog-legend">
         <strong>Legend: {config.colorBy.replace(/([A-Z])/g, " $1")}</strong>
         {legendValues.map((value, index) => <span key={value}><i style={{ background: colorForValue(value, config.colorBy, labelsByField, index) }} />{value}</span>)}
-        {achievementLegend.length ? <small>{isSpanish ? "Accesorios activos:" : "Active accessories:"} {achievementLegend.join(" · ")}</small> : null}
-        <small>{isSpanish ? "Los accesorios indican el estado del trabajo, no premios." : "Accessories reflect work status, not earned awards."}</small>
+        {achievementLegend.length && collection.outfit === "natural" ? <small>{isSpanish ? "Accesorios activos:" : "Active accessories:"} {achievementLegend.join(" · ")}</small> : null}
+        <small>{isSpanish ? "El estilo natural refleja el trabajo. Los estilos desbloqueados son solo decorativos." : "Natural accessories reflect work status. Collection outfits are just for fun."}</small>
       </div>
     </section>
   );

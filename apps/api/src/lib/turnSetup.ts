@@ -3,11 +3,11 @@ import { automationRuleInputSchema } from "./automationDefinition.js";
 
 export const turnSetupPrefix = "guided-turn:";
 export const turnStages = [
-  { key: "maintenance", label: "Make-ready work", field: "turnMaintenanceDate", custom: true },
+  { key: "maintenance", label: "Make Ready (Start)", field: "turnMaintenanceDate", custom: true },
   { key: "painting", label: "Painting", field: "turnPaintingDate", custom: true },
   { key: "cleaning", label: "Cleaning", field: "turnCleaningDate", custom: true },
   { key: "flooring", label: "Flooring / carpet contingency", field: "flooringDate", custom: false },
-  { key: "ready", label: "Ready target / final check", field: "makeReadyDate", custom: false },
+  { key: "ready", label: "Expected Finish", field: "makeReadyDate", custom: false },
 ] as const;
 export const turnSetupSchema = z.object({
   propertyId: z.string().min(1),
@@ -30,7 +30,7 @@ export function turnDefinitions(propertyId: string, days: number[], fieldIds: Ma
         ...["DONE", "YES", "GOOD", "COMPLETE", "COMPLETED"].map((value) => ({ field: "completionStatus", operator: "notEquals", value })),
       ] },
       actions: [stage.custom
-        ? { type: "setCustomDateFromField", fieldId, sourceField: "vacatedDate", offsetDays: offset, respectOperatingCalendar: true }
+        ? { type: "setCustomDateFromField", fieldId, sourceField: "vacatedDate", offsetDays: index === 0 ? 1 : offset, respectOperatingCalendar: true }
         : { type: "setDateFromField", targetField: stage.field, sourceField: "vacatedDate", offsetDays: offset, respectOperatingCalendar: true }],
     });
   });

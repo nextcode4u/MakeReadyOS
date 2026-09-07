@@ -10,6 +10,7 @@ import { automationRuleInputSchema, validateRuleReferences } from "../lib/automa
 import { applyAutomationRules } from "../lib/automationAssignments.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
+import { finalWalkCategory, pendingWalkStatuses, syncFinalWalks } from "../lib/finalWalks.js";
 import { notifyAssignedStaff, notifyPropertyRoles } from "../lib/notifications.js";
 import { computeDerivedFields, editableFields, normalizeItemPatch } from "../lib/board.js";
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
@@ -1217,13 +1218,15 @@ export async function makeReadyRoutes(app: FastifyInstance) {
         data: { makeReadyStatus: "FINAL WALK" },
       });
       updated = await processItem(id, { triggerTypes: ["STATUS_FIELD_CHANGED"], request });
-      await notifyPropertyRoles({
+      await syncFinalWalks(updated.propertyId, updated.id);
+      const namedInspector = await prisma.workAssignmentBlock.count({ where: { itemId: updated.id, category: finalWalkCategory, status: { in: pendingWalkStatuses } } });
+      if (!namedInspector) await notifyPropertyRoles({
         propertyId: updated.propertyId,
         itemId: updated.id,
         roles: [UserRole.ADMIN, UserRole.MANAGER],
         category: "ITEM_LIFECYCLE",
         title: "Final walk needed",
-        message: `${updated.unitNumber} was marked complete and needs manager final walk.`,
+        message: `${updated.unitNumber} needs a final walk and has no named inspector. Please assign an inspection team.`,
         dedupeKey: `final-walk-needed:${updated.id}`,
       });
       await writeAuditLog({
@@ -1299,12 +1302,13 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     }
     await evaluateAndPersistItemRisk(updated.id, { notify: true });
 
+    await syncFinalWalks(updated.propertyId, updated.id);
     return updated;
   });
 
   app.post("/make-ready-items/:id/mark-ready", async (request, reply) => {
     const user = request.currentUser!;
-    if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
+    if (![UserRole.ADMIN, UserRole.MANAGER, UserRole.LEASING, UserRole.TECH].some(role => role === user.role)) {
       reply.code(403);
       return { message: "Manager or admin access required" };
     }
@@ -1324,7 +1328,14 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       reply.code(409);
       return { message: "Ready Units section is not configured for this property" };
     }
-    await prisma.makeReadyItem.update({
+    await prisma.$transaction(async db => {
+    await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.propertyId}), 824018)::text`;
+    const current = await db.makeReadyItem.findUniqueOrThrow({ where: { id } });
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
+      const assigned = await db.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, assignedUserId: user.id, status: { in: pendingWalkStatuses } } });
+      if (!assigned || current.makeReadyStatus !== "FINAL WALK" || current.isArchived) throw Object.assign(new Error("Only the assigned inspector can sign off this pending final walk"), { statusCode: 403 });
+    }
+    await db.makeReadyItem.update({
       where: { id },
       data: {
         boardGroup: readySection.key,
@@ -1334,6 +1345,8 @@ export async function makeReadyRoutes(app: FastifyInstance) {
         makeReadyStatus: "DONE",
         vacancyStatus: readyVacancyStatus(existing.vacancyStatus),
       },
+    });
+    await db.workAssignmentBlock.updateMany({ where: { itemId: id, category: finalWalkCategory, status: { in: pendingWalkStatuses } }, data: { status: "DONE" } });
     });
     const item = await processItem(id, { triggerTypes: ["STATUS_FIELD_CHANGED"], request });
     await evaluateAndPersistItemRisk(item.id, { notify: true });
