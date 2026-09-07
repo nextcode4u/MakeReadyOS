@@ -5,6 +5,7 @@ import { boardGroupLabel, displayUnitNumber } from "../lib/board";
 import { t } from "../lib/i18n";
 import { StatusState } from "./StatusState";
 import { frogSpriteFrame, type FrogSpriteFrame } from "../lib/frogSprites";
+import { approachSnack, pondElapsed, pondGreeting, pondJourney, pondLight, type PondSnack } from "../lib/pondLife";
 
 type MetricSource = "active" | "risk" | "techWorkload" | "vacant" | "moveInsWeek";
 type GroupSource = "property" | "boardSection" | "riskLevel" | "assignedTech";
@@ -22,6 +23,9 @@ export type FrogPondConfig = {
   density: DensityMode;
   propertyId: string;
   theme: PondTheme;
+  labels: "quiet" | "always";
+  atmosphere: "auto" | "day" | "dusk" | "night";
+  weather: "auto" | "clear" | "rain";
 };
 
 type Props = {
@@ -47,16 +51,18 @@ const pondRewards = [
   { id: "blue", name: "Blue lagoon", goal: 5, hint: "5 ready units together", sheet: "blue" },
   { id: "clown", name: "Pond carnival", goal: 10, hint: "10 ready units together", sheet: "clown" },
   { id: "funnyglasses", name: "Secret shades", goal: 3, hint: "A snack-loving secret...", sheet: "funnyglasses" },
+  { id: "purple", name: "Dragonfly dusk", goal: 1, hint: "Befriend the shimmering visitor...", sheet: "purple" },
 ] as const;
-type PondCollection = { readyPeak: number; feeds: number; outfit: string };
+type PondCollection = { readyPeak: number; feeds: number; outfit: string; visitor: boolean; greeted: boolean };
 function loadCollection(key: string): PondCollection {
   try {
     const value = JSON.parse(localStorage.getItem(key) ?? "null");
     const count = (n: unknown) => typeof n === "number" && Number.isFinite(n) ? Math.max(0, Math.min(10000, Math.floor(n))) : 0;
-    return { readyPeak: count(value?.readyPeak), feeds: count(value?.feeds), outfit: pondRewards.some(reward => reward.id === value?.outfit) ? value.outfit : "natural" };
-  } catch { return { readyPeak: 0, feeds: 0, outfit: "natural" }; }
+    return { readyPeak: count(value?.readyPeak), feeds: count(value?.feeds), outfit: pondRewards.some(reward => reward.id === value?.outfit) ? value.outfit : "natural", visitor: value?.visitor === true, greeted: value?.greeted === true };
+  } catch { return { readyPeak: 0, feeds: 0, outfit: "natural", visitor: false, greeted: false }; }
 }
 function rewardUnlocked(reward: typeof pondRewards[number], collection: PondCollection) {
+  if (reward.id === "purple") return collection.visitor;
   return (reward.id === "funnyglasses" ? collection.feeds : collection.readyPeak) >= reward.goal;
 }
 function pondReady(item: MakeReadyItem) {
@@ -79,6 +85,9 @@ const defaultConfig: FrogPondConfig = {
   density: "comfortable",
   propertyId: "",
   theme: "pond-05",
+  labels: "quiet",
+  atmosphere: "auto",
+  weather: "auto",
 };
 
 const pondThemes = [
@@ -368,20 +377,37 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
   const [collection, setCollection] = useState(() => loadCollection(collectionKey));
   const [collectionSaved, setCollectionSaved] = useState(true);
   const [feeding, setFeeding] = useState(false);
+  const [snack, setSnack] = useState<PondSnack | null>(null);
+  const [held, setHeld] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [sound, setSound] = useState(false);
+  const audioRef = useRef<AudioContext | null>(null);
+  const [hour, setHour] = useState(() => new Date().getHours());
+  const [celebration, setCelebration] = useState(false);
+  const readyHistory = useRef<Map<string, boolean> | null>(null);
   const [greetingId, setGreetingId] = useState<string | null>(null);
   const readyCount = items.filter(item => !item.isArchived && (!selectedPropertyId || item.propertyId === selectedPropertyId) && pondReady(item)).length;
   useEffect(() => {
     if (!loading && !error) setCollection(current => readyCount > current.readyPeak ? { ...current, readyPeak: readyCount } : current);
   }, [readyCount, loading, error]);
   useEffect(() => {
+    if (loading || error) return;
+    const next = new Map(items.filter(item => !item.isArchived).map(item => [item.id, pondReady(item)]));
+    if (readyHistory.current && [...next].some(([id, ready]) => ready && readyHistory.current?.get(id) === false)) setCelebration(true);
+    readyHistory.current = next;
+  }, [items, loading, error]);
+  useEffect(() => {
+    if (!celebration) return;
+    const timer = window.setTimeout(() => setCelebration(false), 4500);
+    return () => window.clearTimeout(timer);
+  }, [celebration]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setHour(new Date().getHours()), 60000);
+    return () => { window.clearInterval(timer); void audioRef.current?.close(); };
+  }, []);
+  useEffect(() => {
     try { localStorage.setItem(collectionKey, JSON.stringify(collection)); setCollectionSaved(true); }
     catch { setCollectionSaved(false); }
   }, [collectionKey, collection]);
-  useEffect(() => {
-    if (!feeding) return;
-    const timer = window.setTimeout(() => setFeeding(false), 3500);
-    return () => window.clearTimeout(timer);
-  }, [feeding]);
 
   const [rearranging, setRearranging] = useState(false);
   const [sceneWidth, setSceneWidth] = useState(960);
@@ -390,6 +416,32 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
   const [pageVisible, setPageVisible] = useState(() => !document.hidden);
   const deviceMotionBlocked = reducedMotion && !allowReducedMotion;
   const motionEnabled = config.animated && !deviceMotionBlocked && pageVisible && !rearranging;
+  const light = config.atmosphere === "auto" ? pondLight(hour) : config.atmosphere;
+  const raining = config.weather === "rain" || config.weather === "auto" && frameTick % 600 >= 480;
+  const visitorVisible = frameTick % 540 >= 270 && frameTick % 540 < 410;
+
+  useEffect(() => {
+    if (snack && (pondElapsed(frameTick, snack.tick) >= 16 || !motionEnabled)) { setFeeding(false); setSnack(null); }
+  }, [frameTick, snack, motionEnabled]);
+
+  const playSound = (tadpole: boolean) => {
+    if (!sound) return;
+    try {
+      const context = audioRef.current ?? new AudioContext();
+      audioRef.current = context;
+      void context.resume().catch(() => setSound(false));
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(tadpole ? 620 : 170, context.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(tadpole ? 260 : 95, context.currentTime + .18);
+      gain.gain.setValueAtTime(.035, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(.001, context.currentTime + .22);
+      oscillator.connect(gain); gain.connect(context.destination);
+      oscillator.start(); oscillator.stop(context.currentTime + .23);
+      oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+    } catch { setSound(false); }
+  };
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -503,12 +555,16 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
     const group = groupValue(item, config.groupBy, boardSections);
     const colorLabel = colorValue(item, config.colorBy);
     const color = colorForValue(colorLabel, config.colorBy, labelsByField, legendValues.indexOf(colorLabel));
-    const pose = poseForItem(item, config.poseBy);
+    const naturalPose = poseForItem(item, config.poseBy);
+    const sleepy = (frameTick + stableNumber(item.id)) % 240 > 216;
+    const pose = naturalPose !== "tadpole" && sleepy && greetingId !== item.id && !feeding ? "sleeping" : naturalPose;
     const reward = pondRewards.find(entry => entry.id === collection.outfit && rewardUnlocked(entry, collection));
     const { sheet, achievementLabel } = reward ? { sheet: frogSheets[reward.sheet], achievementLabel: reward.name } : sheetForItem(item);
     const frame = spriteFrameForItem(item, pose, index, frameTick, sheet);
     const tadpoleUrl = tadpoleSprites[(frameTick + index) % tadpoleSprites.length];
     const basePosition = naturalPositions[item.id];
+    const journey = rearranging ? basePosition : approachSnack(pondJourney(basePosition, stableNumber(item.id), frameTick, pose === "tadpole", sceneWidth, sceneHeight), snack, item.id, frameTick);
+    const point = !rearranging && held?.id === item.id ? held : journey;
     return {
       item,
       index,
@@ -520,17 +576,31 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
       achievementLabel,
       frame,
       tadpoleUrl,
-      x: clamp(basePosition.x, Math.max(pondMinX, 64 / Math.max(sceneWidth, 1) * 100), Math.min(pondMaxX, 100 - 64 / Math.max(sceneWidth, 1) * 100)),
-      y: clamp(basePosition.y, pondMinY, pondMaxY),
+      x: clamp(point.x, Math.max(pondMinX, 64 / Math.max(sceneWidth, 1) * 100), Math.min(pondMaxX, 100 - 64 / Math.max(sceneWidth, 1) * 100)),
+      y: clamp(point.y, pondMinY, pondMaxY),
     };
-  }), [boardSections, columns, sceneWidth, collection, config.colorBy, config.density, config.groupBy, config.poseBy, frameTick, groups, labelsByField, legendValues, motionEnabled, naturalPositions, visibleItems]);
+  }), [boardSections, columns, sceneWidth, sceneHeight, collection, config.colorBy, config.density, config.groupBy, config.poseBy, frameTick, groups, labelsByField, legendValues, motionEnabled, naturalPositions, visibleItems, snack, held, rearranging, greetingId, feeding]);
+
+  const feedPond = (point?: PondPosition) => {
+    if (feeding || rearranging || !renderedFrogs.length) return;
+    const target = point ?? { x: renderedFrogs[0].x, y: renderedFrogs[0].y };
+    const guests = [...renderedFrogs].sort((a, b) => Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y)).slice(0, 3).map(frog => frog.item.id);
+    setSnack({ ...target, tick: frameTick, guests });
+    setFeeding(true);
+    setCollection(current => ({ ...current, feeds: Math.min(10000, current.feeds + 1) }));
+    playSound(true);
+  };
+  const greetedTadpole = renderedFrogs.some(frog => frog.item.id === greetingId && frog.pose === "tadpole");
 
   useEffect(() => {
     if (!motionEnabled || flies.length === 0 || renderedFrogs.length === 0) return;
     const sceneRect = sceneRef.current?.getBoundingClientRect();
-    setFlies((current) => current.filter((fly) => {
-      return !renderedFrogs.some((frog) => flyCollidesWithFrog(fly, frog, frameTick, sceneRect));
-    }));
+    setFlies(current => {
+      const remaining = current.filter(fly => !renderedFrogs.some(frog => frog.pose !== "tadpole" && flyCollidesWithFrog(fly, frog, frameTick, sceneRect)));
+      // Keep identity when nothing was caught: the render data changes each tick.
+      // Returning a new array on every effect caused a self-sustaining render loop.
+      return remaining.length === current.length ? current : remaining;
+    });
   }, [flies.length, frameTick, motionEnabled, renderedFrogs]);
 
   const updateConfig = (next: Partial<FrogPondConfig>) => {
@@ -599,7 +669,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
   if (error) return <StatusState title={isSpanish ? "Frog Pond no disponible" : "Frog Pond unavailable"} description={isSpanish ? "Actualice los datos del tablero e intentelo de nuevo." : "Refresh the board data and try again."} tone="error" />;
 
   return (
-    <section className={`frog-pond-shell frog-theme-${config.theme} frog-density-${config.density}${motionEnabled ? " frog-animated" : ""}${allowReducedMotion ? " frog-motion-opt-in" : ""}${rearranging ? " frog-rearranging" : ""}${feeding ? " pond-feeding" : ""}`} data-testid="frog-pond-panel">
+    <section className={`frog-pond-shell pond-living pond-labels-${config.labels} pond-light-${light} frog-theme-${config.theme} frog-density-${config.density}${motionEnabled ? " frog-animated" : ""}${allowReducedMotion ? " frog-motion-opt-in" : ""}${rearranging ? " frog-rearranging" : ""}${feeding ? " pond-feeding" : ""}${raining ? " pond-raining" : ""}`} data-testid="frog-pond-panel">
       <header className="panel-heading">
         <div>
           <h2>Frog Pond</h2>
@@ -614,7 +684,8 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
 
       <div className="frog-scene-tools">
         <span>{isSpanish ? "Su tablero, con un poco de vida." : "A little life in your workday."}</span>
-        <button type="button" className="button button-primary" data-testid="pond-feed" disabled={feeding || !scopedItems.length} onClick={() => { setFeeding(true); setCollection(current => ({ ...current, feeds: Math.min(10000, current.feeds + 1) })); }}>{feeding ? (isSpanish ? "Hora de comer!" : "Snack time!") : (isSpanish ? "Dar comida" : "Feed the pond")}</button>
+        <button type="button" className="button button-primary" data-testid="pond-feed" disabled={feeding || rearranging || !scopedItems.length} onClick={() => feedPond()}>{feeding ? (isSpanish ? "Hora de comer!" : "Snack time!") : (isSpanish ? "Dar comida" : "Feed the pond")}</button>
+        <button type="button" className="button button-secondary" aria-pressed={sound} onClick={() => { setSound(!sound); }}>{sound ? (isSpanish ? "Sonido: activo" : "Sound: on") : (isSpanish ? "Sonido: apagado" : "Sound: off")}</button>
         <button type="button" className="button button-secondary" disabled={deviceMotionBlocked || rearranging} aria-pressed={!motionEnabled} onClick={() => updateConfig({ animated: !config.animated })}>{motionEnabled ? (isSpanish ? "Pausar movimiento" : "Pause motion") : (isSpanish ? "Activar movimiento" : "Resume motion")}</button>
         <button type="button" className="button button-secondary" aria-pressed={rearranging} onClick={() => setRearranging(!rearranging)}>{rearranging ? (isSpanish ? "Terminar" : "Done arranging") : (isSpanish ? "Organizar ranas" : "Arrange frogs")}</button>
         <small role="status" data-testid="pond-motion-status">{deviceMotionBlocked
@@ -682,6 +753,9 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
           </select>
         </label>
         <label className="toggle-row"><input data-testid="frog-animation-toggle" type="checkbox" checked={config.animated} onChange={(event) => updateConfig({ animated: event.target.checked })} /> {isSpanish ? "Animacion" : "Animation"}</label>
+        <label>{isSpanish ? "Etiquetas" : "Unit labels"}<select data-testid="pond-label-mode" value={config.labels} onChange={event => updateConfig({ labels: event.target.value as FrogPondConfig["labels"] })}><option value="quiet">{isSpanish ? "Al tocar o enfocar" : "On hover, tap or focus"}</option><option value="always">{isSpanish ? "Siempre visibles" : "Always visible"}</option></select></label>
+        <label>{isSpanish ? "Luz" : "Lighting"}<select data-testid="pond-lighting" value={config.atmosphere} onChange={event => updateConfig({ atmosphere: event.target.value as FrogPondConfig["atmosphere"] })}><option value="auto">{isSpanish ? "Hora local" : "Local time"}</option><option value="day">{isSpanish ? "Dia" : "Day"}</option><option value="dusk">{isSpanish ? "Atardecer" : "Dusk"}</option><option value="night">{isSpanish ? "Noche" : "Night"}</option></select></label>
+        <label>{isSpanish ? "Clima decorativo" : "Decorative weather"}<select data-testid="pond-weather" value={config.weather} onChange={event => updateConfig({ weather: event.target.value as FrogPondConfig["weather"] })}><option value="auto">{isSpanish ? "Lluvia ocasional" : "Occasional showers"}</option><option value="clear">{isSpanish ? "Despejado" : "Clear"}</option><option value="rain">{isSpanish ? "Lluvia" : "Rain"}</option></select></label>
         <button type="button" className="button button-secondary frog-reset-positions" data-testid="frog-reset-positions" onClick={resetPositions}>{isSpanish ? "Restablecer posiciones" : "Reset frog positions"}</button>
         <div className="frog-presets">
           <select data-testid="frog-preset-select" value="" onChange={(event) => {
@@ -705,9 +779,15 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
           <button type="button" className="button" aria-pressed={collection.outfit === "natural"} onClick={() => setCollection(current => ({ ...current, outfit: "natural" }))}>{isSpanish ? "Estilo natural" : "Natural pond"}</button>
           {pondRewards.map(reward => <button type="button" className="button" key={reward.id} data-testid={`pond-reward-${reward.id}`} disabled={!rewardUnlocked(reward, collection)} aria-pressed={collection.outfit === reward.id} onClick={() => setCollection(current => ({ ...current, outfit: reward.id }))}><strong>{reward.name}</strong><small>{rewardUnlocked(reward, collection) ? (isSpanish ? "Desbloqueado" : "Unlocked") : reward.hint}</small></button>)}
         </div>
+        <h3>{isSpanish ? "Diario de descubrimientos" : "Discovery journal"}</h3>
+        <ul className="pond-journal">
+          <li>{collection.greeted ? (isSpanish ? "Primer saludo: descubierto" : "First hello: discovered") : (isSpanish ? "Un vecino espera un saludo..." : "A little neighbor is waiting for a hello...")}</li>
+          <li>{collection.feeds >= 3 ? (isSpanish ? "Club de meriendas: descubierto" : "Snack club: discovered") : (isSpanish ? "Vuelva con tres meriendas..." : "Come back with three snacks...")}</li>
+          <li>{collection.visitor ? (isSpanish ? "Libelula visitante: descubierta" : "Dragonfly visitor: discovered") : (isSpanish ? "Espere junto al agua; busque alas brillantes..." : "Linger by the water; watch for shimmering wings...")}</li>
+        </ul>
       </details>
       <div className="pond-greeting" role="status" data-testid="pond-greeting">
-        {feeding ? (collection.feeds >= 3 ? "A very cool frog left you some Secret shades. Check your collection!" : "Ribbit! The snack committee approves.") : greetingId && scopedItems.some(item => item.id === greetingId) ? <><span>{isSpanish ? "Ribbit! Su rana lo saluda." : "Ribbit! A tiny wave, just for you."}</span><button type="button" className="button button-secondary" data-testid="pond-open-unit" onClick={() => onOpenItem(greetingId)}>{isSpanish ? "Abrir unidad" : "Open unit"} {scopedItems.find(item => item.id === greetingId)?.unitNumber}</button></> : (isSpanish ? "Toque una rana para saludar." : "Tap a frog to say hello. The pond has a few secrets.")}
+        {feeding ? (collection.feeds >= 3 ? (isSpanish ? "Descubrio Secret shades. Revise su coleccion!" : "Secret shades discovered. Check your collection!") : (isSpanish ? "Los vecinos se acercan a la merienda." : "Nearby neighbors are heading for a snack.")) : greetingId && scopedItems.some(item => item.id === greetingId) ? <><span>{greetedTadpole ? (isSpanish ? "Bloop! El renacuajo hace burbujas." : "Bloop! Your tadpole sends a little bubble.") : (isSpanish ? "Ribbit! Su rana lo saluda." : "Ribbit! A tiny wave, just for you.")}</span><button type="button" className="button button-secondary" data-testid="pond-open-unit" onClick={() => onOpenItem(greetingId)}>{isSpanish ? "Abrir unidad" : "Open unit"} {scopedItems.find(item => item.id === greetingId)?.unitNumber}</button></> : (isSpanish ? "Toque un vecino para saludar, o el agua para dar comida." : "Tap a neighbor to say hello, or tap the water to drop a snack.")}
       </div>
 
       {scopedItems.length === 0 ? (
@@ -716,17 +796,27 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
           <span>{isSpanish ? "Pruebe un filtro de propiedad mas amplio o cambie la metrica." : "Try a broader property filter or switch the metric source."}</span>
         </div>
       ) : (
-        <div ref={sceneRef} className="frog-pond-scene" data-testid="frog-pond-scene" aria-label={isSpanish ? "Visualizacion operativa de Frog Pond" : "Frog Pond operational visualization"} style={{ "--pond-image": `url("${activePond.url}")`, "--pond-height": `${sceneHeight}px` } as CSSProperties}>
+        <div ref={sceneRef} className="frog-pond-scene" data-testid="frog-pond-scene" aria-label={isSpanish ? "Visualizacion operativa de Frog Pond" : "Frog Pond operational visualization"} onClick={event => {
+          if ((event.target as HTMLElement).closest("button")) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          feedPond({ x: clamp((event.clientX - rect.left) / rect.width * 100, 12, 88), y: clamp((event.clientY - rect.top) / rect.height * 100, pondMinY, pondMaxY - 3) });
+        }} style={{ "--pond-image": `url("${activePond.url}")`, "--pond-height": `${sceneHeight}px` } as CSSProperties}>
           <div className="pond-atmosphere" aria-hidden="true"><div className="pond-water-light" />{Array.from({ length: 7 }, (_, i) => <i key={i} style={{ "--mote": i, left: `${12 + i * 12}%`, top: `${24 + (i % 3) * 15}%` } as CSSProperties} />)}</div>
+          <div className="pond-light-wash" aria-hidden="true" />
+          {renderedFrogs.filter(frog => frog.pose !== "tadpole").map(frog => <span key={frog.item.id} className="pond-resting-pad" aria-hidden="true" style={{ left: `${naturalPositions[frog.item.id].x}%`, top: `${naturalPositions[frog.item.id].y}%` }} />)}
+          {raining ? <div className="pond-rain" aria-hidden="true">{Array.from({ length: 22 }, (_, i) => <i key={i} style={{ left: `${i * 4.5}%`, "--drop": i } as CSSProperties} />)}</div> : null}
+          {celebration ? <div className="pond-celebration" role="status" data-testid="pond-celebration">{isSpanish ? "Otra unidad lista! Un chapuzon de celebracion." : "Another home ready! A little celebration splash."}<span aria-hidden="true">{Array.from({ length: 10 }, (_, i) => <i key={i} style={{ "--drop": i } as CSSProperties} />)}</span></div> : null}
+          {visitorVisible ? <button type="button" className="pond-visitor" data-testid="pond-visitor" aria-label={isSpanish ? "Descubrir libelula visitante" : "Discover dragonfly visitor"} onClick={() => { setCollection(current => ({ ...current, visitor: true })); playSound(true); }}><svg aria-hidden="true" viewBox="0 0 64 40"><path d="M30 18Q0 0 5 18L29 23M34 18Q64 0 59 18L35 23M30 24Q6 24 13 34L30 27M34 24Q58 24 51 34L34 27" fill="#ade7d6" stroke="#397d78" strokeWidth="2"/><path d="M32 10V38" stroke="#e4b44f" strokeWidth="5"/><circle cx="32" cy="9" r="5" fill="#9bd7a3"/></svg><span>{collection.visitor ? (isSpanish ? "Descubierta!" : "Discovered!") : (isSpanish ? "Una visita..." : "A visitor...")}</span></button> : null}
           <div className="pond-scene-caption" aria-hidden="true">{rearranging ? (isSpanish ? "Arrastre las ranas para organizarlas" : "Drag frogs to arrange your pond") : (isSpanish ? "Toque una rana para saludar" : "Tap a frog to say hello")}</div>
-          {feeding ? <div className="pond-snacks" aria-hidden="true">{Array.from({ length: 12 }, (_, i) => <i key={i} style={{ left: `${12 + (i * 17) % 76}%`, top: `${43 + (i * 11) % 39}%`, "--snack": i } as CSSProperties} />)}</div> : null}
+          {snack ? <div className="pond-snacks" data-testid="pond-snack-target" aria-hidden="true">{Array.from({ length: 6 }, (_, i) => <i key={i} style={{ left: `${snack.x + Math.cos(i) * 2}%`, top: `${snack.y + Math.sin(i) * 2}%`, "--snack": i } as CSSProperties} />)}</div> : null}
           {renderedFrogs.map(({ item, index, group, colorLabel, color, pose, sheet, achievementLabel, frame, tadpoleUrl, x, y }) => {
             return (
               <button
                 type="button"
-                className={`frog-marker frog-pose-${pose}`}
+                className={`frog-marker frog-pose-${pose}${snack?.guests.includes(item.id) ? " pond-snack-guest" : ""}${greetingId === item.id ? " pond-selected" : ""}`}
                 key={item.id}
                 data-testid={`frog-marker-${item.unitNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                aria-label={`${displayUnitNumber(item.property.code, item.unitNumber)} / ${group} / ${colorLabel}`}
                 style={{
                   left: `${x}%`,
                   top: `${y}%`,
@@ -748,7 +838,13 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
                     return;
                   }
                   setGreetingId(item.id);
+                  setCollection(current => ({ ...current, greeted: true }));
+                  playSound(pose === "tadpole");
                 }}
+                onPointerEnter={() => setHeld({ id: item.id, x, y })}
+                onPointerLeave={event => { if (document.activeElement !== event.currentTarget) setHeld(null); }}
+                onFocus={() => setHeld({ id: item.id, x, y })}
+                onBlur={() => setHeld(null)}
                 onPointerDown={(event) => startDrag(event, item.id)}
                 onPointerMove={moveDrag}
                 onPointerUp={endDrag}
@@ -758,7 +854,8 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
                 <span className="frog-water-ring" aria-hidden="true" />
                 <span className="frog-lily-pad" aria-hidden="true" />
                 <span className="frog-body" data-sprite-action={frame.action} aria-hidden="true"><i /><b /></span>
-                {greetingId === item.id || feeding ? <span className="frog-hello" aria-hidden="true">{feeding ? "nom!" : "ribbit!"}</span> : null}
+                {pose !== "tadpole" && snack?.guests.includes(item.id) ? <span className="pond-tongue" aria-hidden="true" /> : null}
+                {greetingId === item.id || snack?.guests.includes(item.id) ? <span className="frog-hello" aria-hidden="true">{pondGreeting(pose === "tadpole", Boolean(snack?.guests.includes(item.id)))}</span> : pose === "sleeping" ? <span className="pond-idle-note" aria-hidden="true">zzz</span> : greetingId && held && Math.hypot(x - held.x, y - held.y) < 12 ? <span className="pond-idle-note" aria-hidden="true">{pose === "tadpole" ? "o o" : "..."}</span> : null}
                 <strong>{displayUnitNumber(item.property.code, item.unitNumber)}</strong>
                 <em><i style={{ background: color }} />{colorLabel}</em>
                 {achievementLabel ? <small>{achievementLabel}</small> : null}

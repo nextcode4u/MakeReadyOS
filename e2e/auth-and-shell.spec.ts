@@ -2,12 +2,103 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { frogSpriteClips } from "../apps/web/src/lib/frogSprites";
+import { approachSnack, pondGreeting, pondJourney, pondLight } from "../apps/web/src/lib/pondLife";
 import ts from "../apps/web/node_modules/typescript/lib/typescript.js";
 
 const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
 const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
+
+test("pond journeys stay bounded and tadpoles never croak", () => {
+  for (const width of [320, 960, 1920]) for (const tadpole of [true, false]) for (let tick = 0; tick < 300; tick++) {
+    const point = pondJourney({ x: 50, y: 55 }, 47, tick, tadpole, width, 600);
+    expect(point.x).toBeGreaterThanOrEqual(4);
+    expect(point.x).toBeLessThanOrEqual(96);
+    expect(point.y).toBeGreaterThanOrEqual(38);
+    expect(point.y).toBeLessThanOrEqual(88);
+  }
+  const food = { x: 70, y: 70, tick: 9996, guests: ["a"] };
+  expect(approachSnack({ x: 50, y: 50 }, food, "a", 4).x).toBe(72);
+  expect(approachSnack({ x: 50, y: 50 }, food, "b", 4)).toEqual({ x: 50, y: 50 });
+  expect(pondGreeting(true, false)).toBe("bloop!");
+  expect(pondGreeting(true, true)).toBe("nibble!");
+  expect(pondLight(12)).toBe("day"); expect(pondLight(18)).toBe("dusk"); expect(pondLight(23)).toBe("night");
+});
+
+test("living pond supports tadpoles, targeted snacks, atmosphere and discoveries without changing work", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+  await page.clock.install();
+  await page.route("**/api/make-ready-items?*", async route => {
+    const response = await route.fetch();
+    const items = await response.json();
+    await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, riskLevel: "NONE", overdue: false, completionStatus: "NO", vacancyStatus: index === 0 ? "NTV" : "VACANT_NOT_LEASED_NOT_READY" })) });
+  });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  errors.length = 0; // The anonymous auth probe before login intentionally returns 401.
+  const mutations: string[] = [];
+  page.on("request", req => { if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method()) && req.url().includes("/api/make-ready-items")) mutations.push(req.url()); });
+  await expect(page.getByRole("button", { name: "Sound: off", exact: true })).toBeVisible();
+  const tadpole = page.locator(".frog-pose-tadpole").first();
+  await tadpole.click();
+  await expect(tadpole.locator(".frog-hello")).toHaveText("bloop!");
+  await expect(page.getByTestId("pond-greeting")).not.toContainText(/ribbit/i);
+  await expect(tadpole.locator("strong")).toHaveCSS("opacity", "1");
+  await page.getByTestId("frog-settings-toggle").click();
+  await page.getByTestId("pond-label-mode").selectOption("always");
+  await page.getByTestId("pond-lighting").selectOption("night");
+  await page.getByTestId("pond-weather").selectOption("rain");
+  await expect(page.getByTestId("frog-pond-panel")).toHaveClass(/pond-light-night/);
+  await expect(page.locator(".pond-rain")).toBeVisible();
+  await page.getByTestId("pond-feed").click();
+  await expect(page.locator(".pond-snack-guest")).toHaveCount(3);
+  const guest = page.locator(".pond-snack-guest").last();
+  const before = await guest.evaluate(el => (el as HTMLElement).style.left);
+  await page.clock.runFor(1800);
+  expect(await guest.evaluate(el => (el as HTMLElement).style.left)).not.toBe(before);
+  await page.clock.runFor(2200);
+  await expect(page.getByTestId("pond-snack-target")).toHaveCount(0);
+  await page.clock.runFor(61000);
+  await page.getByTestId("pond-visitor").click();
+  await page.getByTestId("pond-collection").locator("summary").click();
+  await expect(page.getByTestId("pond-reward-purple")).toBeEnabled();
+  await page.getByTestId("frog-settings-toggle").click();
+  await page.getByTestId("frog-pond-scene").screenshot({ path: "/tmp/mros-living-pond.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.reload();
+  await page.getByTestId("tab-pond").click();
+  await page.getByTestId("pond-collection").locator("summary").click();
+  await expect(page.getByTestId("pond-reward-purple")).toBeEnabled();
+  expect(mutations).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test("living pond celebrates a newly ready unit, not initial historical readiness", async ({ page }) => {
+  let complete = false;
+  await page.route("**/api/make-ready-items?*", async route => {
+    const response = await route.fetch(); const items = await response.json();
+    await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, completionStatus: index === 0 && complete ? "YES" : "NO", vacancyStatus: "VACANT_NOT_LEASED_NOT_READY" })) });
+  });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  await expect(page.getByTestId("frog-pond-scene")).toBeVisible();
+  await expect(page.getByTestId("pond-celebration")).toHaveCount(0);
+  complete = true;
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    window.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+    window.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.getByTestId("pond-celebration")).toBeVisible();
+});
 
 test("shared dialogs keep keyboard focus inside and return it on Escape", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
@@ -1835,7 +1926,7 @@ test.describe("MakeReadyOS browser flows", () => {
     });
     for (let i = 0; i < 3; i++) {
       await page.getByTestId("pond-feed").click();
-      await expect.poll(() => page.locator(".frog-marker:not(.frog-pose-tadpole) .frog-body").first().evaluate(el => getComputedStyle(el).animationName)).toBe("pond-munch");
+      await expect.poll(() => page.locator(".pond-snack-guest:not(.frog-pose-tadpole) .frog-body").first().evaluate(el => getComputedStyle(el).animationName)).toBe("pond-munch");
       await expect(page.getByTestId("pond-feed")).toBeEnabled({ timeout: 5000 });
     }
     await expect(page.getByTestId("pond-reward-funnyglasses")).toBeEnabled();

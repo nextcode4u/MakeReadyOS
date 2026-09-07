@@ -9928,8 +9928,8 @@ textarea {
 .frog-animated .frog-marker.frog-pose-celebrating:not(.frog-pose-tadpole) .frog-body { animation-duration: 4s; }
 .frog-pose-tadpole .frog-body { transform: scale(1.5) rotate(85deg); }
 .frog-animated .frog-pose-tadpole .frog-body { animation: pond-swim .9s ease-in-out infinite; }
-.pond-feeding.frog-animated .frog-marker:not(.frog-pose-tadpole) .frog-body { animation: pond-munch .5s ease-in-out infinite; }
-.pond-feeding.frog-animated .frog-pose-tadpole .frog-body { animation: pond-swim .4s ease-in-out infinite; }
+.pond-feeding.frog-animated .frog-marker.pond-snack-guest:not(.frog-pose-tadpole) .frog-body { animation: pond-munch .5s ease-in-out infinite; }
+.pond-feeding.frog-animated .frog-pose-tadpole.pond-snack-guest .frog-body { animation: pond-swim .4s ease-in-out infinite; }
 .pond-greeting { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; min-height: 2.7rem; color: var(--muted); }
 .pond-greeting .button { margin-left: auto; }
 .pond-rewards { display: flex; flex-wrap: wrap; gap: .5rem; padding-bottom: .75rem; }
@@ -9959,6 +9959,36 @@ textarea {
 @keyframes pond-swim { 0%, 100% { transform: scale(1.5) rotate(75deg); } 50% { transform: scale(1.5) rotate(105deg); } }
 @keyframes pond-munch { 0%, 100% { transform: scale(1.72); } 50% { transform: translateY(-7px) scale(1.85, 1.5); } }
 @keyframes pond-snack { from { transform: translateY(-90px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.pond-living.frog-animated .frog-marker { animation: none; translate: none; transition: left 220ms linear, top 220ms linear; }
+.pond-living .frog-marker { min-width: 44px; min-height: 44px; }
+.pond-resting-pad { position: absolute; width: 48px; height: 17px; border-radius: 50%; background: #58973e99; border-bottom: 2px solid #244e3d; translate: -50% 6px; pointer-events: none; }
+.pond-labels-quiet .frog-marker > strong, .pond-labels-quiet .frog-marker > em { opacity: 0; }
+.pond-labels-always .frog-marker > em,
+.pond-labels-quiet .frog-marker:hover > strong, .pond-labels-quiet .frog-marker:focus > strong, .pond-labels-quiet .frog-marker.pond-selected > strong,
+.pond-labels-quiet .frog-marker:hover > em, .pond-labels-quiet .frog-marker:focus > em, .pond-labels-quiet .frog-marker.pond-selected > em { opacity: 1; }
+.pond-living .pond-light-wash, .pond-rain { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+.pond-light-day .pond-light-wash { background: linear-gradient(135deg, #ffeead1a, transparent 55%); }
+.pond-light-dusk .pond-light-wash { background: linear-gradient(160deg, #df874844, #26345526 70%); }
+.pond-light-night .pond-light-wash { background: linear-gradient(145deg, #06182d66, #07132433); }
+.pond-light-day .pond-atmosphere > i { visibility: hidden; }
+.pond-rain { overflow: hidden; }
+.pond-rain i { position: absolute; top: -10%; width: 1px; height: 18px; background: #b7d9ee80; transform: rotate(15deg); }
+.frog-animated .pond-rain i { animation: pond-rainfall 1.4s linear infinite; animation-delay: calc(var(--drop) * -.137s); }
+.pond-visitor { position: absolute; right: 10%; top: 28%; z-index: 95; display: grid; justify-items: center; background: #102825b3; color: #ecf9d9; border: 1px solid #9dcd9c; border-radius: 12px; padding: 6px; min-width: 80px; min-height: 60px; cursor: pointer; }
+.pond-visitor svg { width: 64px; height: 40px; image-rendering: pixelated; }
+.pond-visitor span { font-size: .7rem; }
+.frog-animated .pond-visitor svg { animation: pond-visitor-hover 1.8s ease-in-out infinite alternate; }
+.pond-journal { padding-left: 1.2rem; color: var(--muted); line-height: 1.8; }
+.pond-idle-note { position: absolute; bottom: 100%; color: #e8efb6; font-size: .75rem; pointer-events: none; }
+.pond-tongue { position: absolute; left: 55%; top: 12px; height: 3px; width: 0; background: #e6a5a2; border-radius: 3px; pointer-events: none; }
+.frog-animated .pond-tongue { animation: pond-tongue-flick 1.1s ease-out infinite; }
+.pond-celebration { position: absolute; top: 15%; left: 10%; width: 80%; z-index: 96; text-align: center; background: #153931ee; color: #f2f8d4; border-radius: 12px; padding: 12px; pointer-events: none; }
+.pond-celebration i { position: absolute; left: 50%; bottom: 0; width: 5px; height: 9px; background: #b9efe3; border-radius: 50%; }
+.frog-animated .pond-celebration i { animation: pond-celebration-splash 1.5s ease-out 2; animation-delay: calc(var(--drop) * -.08s); }
+@keyframes pond-rainfall { to { top: 110%; translate: -30px 0; } }
+@keyframes pond-visitor-hover { to { transform: translateY(-5px) rotate(6deg); } }
+@keyframes pond-tongue-flick { 0%, 70%, 100% { width: 0; } 80% { width: 22px; } }
+@keyframes pond-celebration-splash { to { transform: translate(calc((var(--drop) - 5) * 20px), 65px); opacity: 0; } }
 @media (max-width: 700px) { .frog-animated .frog-marker { --roam-x: 10px; --roam-y: 10px; } }
 @media (prefers-reduced-motion: reduce) { .frog-pond-shell:not(.frog-motion-opt-in) *, .frog-pond-shell:not(.frog-motion-opt-in) *::before, .frog-pond-shell:not(.frog-motion-opt-in) *::after { animation: none !important; transition: none !important; } }
 
