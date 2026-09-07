@@ -28,6 +28,8 @@ The five-weekday calendar remains the target for repair, painting, cleaning, opt
 
 **Resident handoff:** a clean print/PDF titled "Your Home Preparation Checklist", with property, unit, review date, recorded checks, applicable/not-applicable results, and named tech/reviewer sign-offs. Generate it from an immutable finalized revision, not the current mutable board fields. Keep the internal parts list, costs, vendor discussions, damage/charge notes, prior-resident details, and access codes out of it. Door/key codes should stay in a separately controlled handoff, even though the old sheet had a door-code blank.
 
+Layout proposal: [HTML preview](previews/final-walk-report.html) and [sample PDF](previews/final-walk-report-sample.pdf). Fictional data only; visibly marked sample/not an inspection record. This is not a connected report generator or proof of implemented checklist finalization. Technician checks are separated from the second person's presentation review.
+
 Use factual wording about the recorded preparation and inspection. Do not invent safety certification, guarantee future performance, or claim a test was performed because a status was imported or a scheduled date passed. Record which checks were performed by the tech and which were observed/reviewed by the final walker; a leasing reviewer does not automatically attest to personally performing technical tests.
 
 ## Checklist Baseline

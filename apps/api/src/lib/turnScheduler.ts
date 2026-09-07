@@ -3,14 +3,16 @@ import { executeScheduledAutomationRules } from "./scheduledAutomations.js";
 import { turnSetupPrefix } from "./turnSetup.js";
 import { runEnabledTurnAssignments } from "./turnAssignments.js";
 import { syncEnabledFinalWalks } from "./finalWalks.js";
+import { ensureAllDefaultTurnSchedules } from "./defaultTurnScheduling.js";
 
-// Only the explicitly enabled guided pack runs here. Legacy rules keep their existing timer behavior.
+// Provision missing baseline packs; paused/customized packs and legacy timers stay untouched.
 export function startTurnScheduler() {
   let stopped = false;
   let running: Promise<void> | null = null;
   const tick = () => {
     if (stopped || running) return;
     running = (async () => {
+      await ensureAllDefaultTurnSchedules();
       const rules = await prisma.automationRule.findMany({ where: { templateId: { startsWith: turnSetupPrefix }, enabled: true, isArchived: false, property: { isActive: true } }, select: { id: true }, orderBy: { name: "asc" } });
       for (const rule of rules) {
         if (stopped) break;

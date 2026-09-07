@@ -7,6 +7,7 @@ import { computeDerivedFields } from "../lib/board.js";
 import { prisma } from "../lib/prisma.js";
 import { evaluateAndPersistItemRisk } from "../lib/risk.js";
 import { isReadyAvailabilityStatus } from "../lib/availabilityStatus.js";
+import { ensureDefaultTurnScheduling } from "../lib/defaultTurnScheduling.js";
 
 export const operationsQuerySchema = z.object({
   includeArchived: z.enum(["true", "false"]).optional().transform((value) => value === "true"),
@@ -893,11 +894,15 @@ export async function operationsRoutes(app: FastifyInstance) {
       reply.code(409);
       return { message: "A property with that code already exists" };
     }
-    const property = await prisma.property.create({ data: payload });
-    await prisma.boardSection.createMany({
-      data: defaultSections(property.code).map(([key, sectionType, displayName], sortOrder) => ({
-        propertyId: property.id, key, sectionType, displayName, sortOrder,
-      })),
+    const property = await prisma.$transaction(async tx => {
+      const created = await tx.property.create({ data: payload });
+      await tx.boardSection.createMany({
+        data: defaultSections(created.code).map(([key, sectionType, displayName], sortOrder) => ({
+          propertyId: created.id, key, sectionType, displayName, sortOrder,
+        })),
+      });
+      await ensureDefaultTurnScheduling(tx, created.id);
+      return created;
     });
     await writeAuditLog({
       request,

@@ -28,6 +28,7 @@ enum CustomFieldType {
 }
 
 model Property {
+  branding                  PropertyBranding?
   finalWalkPolicy           FinalWalkPolicy?
   turnAssignmentPolicy      TurnAssignmentPolicy?
   id                        String                                @id @default(cuid())
@@ -102,6 +103,25 @@ model Property {
   apiTokenScopes            ApiTokenPropertyScope[]
   webhookScopes             WebhookPropertyScope[]
   workSessions              WorkSession[]
+}
+
+model ManagementCompany {
+  id        String @id @default(cuid())
+  name      String @unique
+  logo      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  properties PropertyBranding[]
+}
+
+model PropertyBranding {
+  propertyId String @id
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  managementCompanyId String?
+  managementCompany ManagementCompany? @relation(fields: [managementCompanyId], references: [id], onDelete: Restrict)
+  logo String?
+  updatedAt DateTime @updatedAt
+  @@index([managementCompanyId])
 }
 
 model Unit {

@@ -9630,8 +9630,18 @@ textarea {
 }
 
 /* Frog Pond: whimsical, bounded visualization built from committed runtime assets. */
+.property-branding { min-width: 0; border-block: 1px solid var(--border); padding-block: 1rem; }
+.property-branding fieldset { display: grid; gap: .7rem; min-width: 0; border: 0; padding: 0; }
+.property-branding label { display: grid; gap: .3rem; min-width: 0; }
+.property-branding input, .property-branding select { width: 100%; min-width: 0; box-sizing: border-box; }
+.property-branding details { min-width: 0; }
+.property-branding summary { cursor: pointer; padding-block: .6rem; }
+.property-branding-preview { display: flex; flex-wrap: wrap; gap: 1.5rem; padding-block: 1rem; }
+.property-branding-preview > div { display: grid; gap: .3rem; max-width: 100%; overflow-wrap: anywhere; }
+.property-branding-preview img { width: 130px; height: 70px; object-fit: contain; background: #fff; border-radius: .3rem; padding: .4rem; }
 .frog-pond-shell {
   display: grid;
+  min-width: 0;
   gap: var(--workspace-gap);
   padding: var(--workspace-pad);
 }
@@ -9661,7 +9671,8 @@ textarea {
 
 .frog-config {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
   gap: .55rem;
   align-items: end;
   padding: .6rem;
@@ -9673,7 +9684,7 @@ textarea {
 .frog-playbooks {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
   gap: .45rem;
 }
 
@@ -9715,8 +9726,19 @@ textarea {
   min-height: var(--control-height);
 }
 
+.frog-config > *, .frog-presets > *, .frog-playbook { min-width: 0; }
+.frog-config select, .frog-config input:not([type="checkbox"]) {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.frog-config .button { white-space: normal; overflow-wrap: anywhere; }
+.frog-playbook span { overflow-wrap: anywhere; }
+
 .frog-presets {
-  grid-template-columns: minmax(6rem, 1fr) minmax(6rem, 1fr) auto;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
 }
 
 .frog-pond-scene {
@@ -9762,6 +9784,9 @@ textarea {
 .frog-marker:focus-visible { outline: 3px solid #fff3bb; outline-offset: 8px; border-radius: .7rem; }
 .frog-marker:hover, .frog-marker:focus-visible { z-index: 120 !important; }
 .frog-marker:hover .frog-body, .frog-marker:focus-visible .frog-body { animation-play-state: paused !important; filter: drop-shadow(0 0 8px #c9ffc4); }
+.frog-marker:hover *, .frog-marker:focus * { animation-play-state: paused !important; }
+.frog-animated .frog-lily-pad { animation: pond-pad-rock 4s ease-in-out infinite alternate; animation-delay: var(--roam-delay); }
+.frog-animated .frog-pose-sleeping .frog-body { animation: pond-breathe 3s ease-in-out infinite; }
 .frog-lily-pad { position: absolute; top: 13px; width: 62px; height: 27px; z-index: -1; border-radius: 50%; background: conic-gradient(from 12deg at 50% 55%, #94c855 0deg 38deg, transparent 39deg 67deg, #528c40 68deg 180deg, #81b74b 200deg 360deg); box-shadow: 0 4px 0 #214f45, 0 8px 8px #082f3d66; transform: rotate(-8deg); }
 .frog-pose-tadpole .frog-lily-pad { display: none; }
 .frog-water-ring { position: absolute; top: 17px; width: 78px; height: 24px; border: 1px solid #c6fff366; border-radius: 50%; z-index: -2; opacity: .35; }
@@ -9851,7 +9876,8 @@ textarea {
   font-style: normal;
   text-transform: uppercase;
 }
-.frog-marker em { display: flex; align-items: center; gap: .2rem; max-width: 6rem; overflow: hidden; white-space: nowrap; }
+.frog-marker em { display: flex; align-items: center; gap: .2rem; max-width: 6rem; overflow: hidden; white-space: nowrap; opacity: 0; transition: opacity .15s ease; }
+.frog-marker:hover em, .frog-marker:focus em { opacity: 1; }
 .frog-marker em i { width: .4rem; height: .4rem; flex-shrink: 0; border-radius: 50%; }
 
 .frog-marker small {
@@ -9865,18 +9891,21 @@ textarea {
   white-space: nowrap;
 }
 
-.frog-animated .frog-marker:not(.frog-pose-tadpole):not(.frog-pose-sleeping) .frog-body { animation: pond-hop 8s ease-in-out infinite; animation-delay: calc(var(--frog-index) * -.83s); }
-@keyframes pond-hop { 0%, 72%, 100% { transform: scale(1.72); } 75% { transform: scale(1.9, 1.4); } 79% { transform: translateY(-14px) scale(1.55, 1.9); } 84% { transform: scale(1.9, 1.5); } 88% { transform: scale(1.72); } }
+.frog-animated .frog-marker:not(.frog-pose-tadpole):not(.frog-pose-sleeping) .frog-body { animation: pond-hop 4.5s ease-in-out infinite; animation-delay: calc(var(--frog-index) * -.83s); }
+@keyframes pond-hop { 0%, 35%, 100% { transform: scale(1.72); } 40% { transform: scale(1.95, 1.35); } 49% { transform: translate(10px, -30px) scale(1.55, 1.9) rotate(8deg); } 58% { transform: translateX(16px) scale(1.9, 1.4); } 65% { transform: translateX(16px) scale(1.72); } 78% { transform: translate(-4px, -17px) scale(1.6, 1.8) rotate(-7deg); } 88% { transform: scale(1.9, 1.5); } }
+@keyframes pond-pad-rock { from { transform: rotate(-12deg) translateY(2px); } to { transform: rotate(10deg) translateY(-3px); } }
+@keyframes pond-breathe { 0%, 100% { transform: scale(1.72) rotate(-5deg); } 50% { transform: scale(1.8, 1.6) rotate(-8deg); } }
 @keyframes pond-ring { 0% { transform: scale(.65); opacity: 0; } 25% { opacity: .55; } 100% { transform: scale(1.55); opacity: 0; } }
 @keyframes pond-current { from { transform: translate(-2%, 0); } to { transform: translate(2%, 9px); } }
 @keyframes pond-mote { 0%, 100% { transform: translate(0, 0); opacity: .05; } 45% { opacity: .8; } 65% { transform: translate(15px, -18px); opacity: .2; } }
 .frog-animated .frog-marker {
-  --roam-x: 30px;
-  --roam-y: 16px;
+  --roam-x: 38px;
+  --roam-y: 26px;
   animation: pond-roam var(--roam-time, 17s) ease-in-out infinite;
   animation-delay: var(--roam-delay, -3s);
 }
 .frog-animated .frog-marker:nth-of-type(even) { animation-direction: reverse; }
+.frog-animated .frog-marker.frog-pose-tadpole { animation-name: pond-cruise; animation-timing-function: linear; }
 .frog-marker:hover, .frog-marker:focus, .frog-marker:active { animation-play-state: paused !important; }
 .frog-animated .frog-marker.frog-pose-celebrating:not(.frog-pose-tadpole) .frog-body { animation-duration: 4s; }
 .frog-pose-tadpole .frog-body { transform: scale(1.5) rotate(85deg); }
@@ -9902,6 +9931,12 @@ textarea {
   24% { translate: calc(var(--roam-x) * .3) calc(var(--roam-y) * -1); }
   52% { translate: var(--roam-x) calc(var(--roam-y) * .35); }
   76% { translate: calc(var(--roam-x) * -.2) var(--roam-y); }
+}
+@keyframes pond-cruise {
+  0%, 100% { translate: calc(var(--roam-x) * -1) 0; }
+  25% { translate: 0 calc(var(--roam-y) * -1); }
+  50% { translate: var(--roam-x) 0; }
+  75% { translate: 0 var(--roam-y); }
 }
 @keyframes pond-swim { 0%, 100% { transform: scale(1.5) rotate(75deg); } 50% { transform: scale(1.5) rotate(105deg); } }
 @keyframes pond-munch { 0%, 100% { transform: scale(1.72); } 50% { transform: translateY(-7px) scale(1.85, 1.5); } }

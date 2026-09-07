@@ -5,6 +5,7 @@ import { prisma } from "./lib/prisma.js";
 import { computeDerivedFields } from "./lib/board.js";
 import { evaluateAndPersistItemRisk } from "./lib/risk.js";
 import { ensureBootstrapAdmin } from "./lib/bootstrapAdmin.js";
+import { ensureAllDefaultTurnSchedules } from "./lib/defaultTurnScheduling.js";
 
 const labelSeed = {
   vacancyStatus: [
@@ -1311,6 +1312,7 @@ async function main() {
 }
 
 main()
+  .then(() => ensureAllDefaultTurnSchedules())
   .catch(async (error) => {
     console.error(error);
     process.exitCode = 1;

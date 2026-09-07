@@ -63,8 +63,8 @@ function pondReady(item: MakeReadyItem) {
   return ["YES", "DONE", "COMPLETE", "COMPLETED"].includes((item.completionStatus ?? "").toUpperCase())
     || (vacancy.startsWith("VACANT_") && vacancy.endsWith("_READY") && !vacancy.endsWith("_NOT_READY"));
 }
-const pondMinY = 34;
-const pondMaxY = 92;
+const pondMinY = 38;
+const pondMaxY = 88;
 const pondMinX = 4;
 const pondMaxX = 96;
 
@@ -270,13 +270,27 @@ function spriteFrameForItem(item: MakeReadyItem, pose: string, index: number, ti
   return { col: run.startCol + frameInRun, row: run.row };
 }
 
-function frogPosition(index: number, columns: number, count: number) {
-  const row = Math.floor(index / columns);
-  const column = index % columns;
-  return {
-    x: 8 + (column + .5) * (84 / columns),
-    y: 40 + (row + .5) * (46 / Math.max(1, Math.ceil(count / columns))),
-  };
+function scatterFrogs(items: MakeReadyItem[], width: number, height: number, saved: Record<string, PondPosition>) {
+  const placed: PondPosition[] = [];
+  const margin = Math.min(32, (width < 600 ? 64 : 104) / width * 100);
+  return Object.fromEntries(items.map(item => {
+    // Best-candidate sampling leaves swimming room without visible rows or columns.
+    // A seeded stream keeps the scene still across sprite-frame renders.
+    let seed = stableNumber(item.id) || 1;
+    const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+    let point = saved[item.id];
+    if (!point) {
+      let bestDistance = -1;
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        const candidate = { x: margin + random() * (100 - margin * 2), y: pondMinY + random() * (pondMaxY - pondMinY) };
+        const distance = placed.length ? Math.min(...placed.map(other => Math.hypot((candidate.x - other.x) * width / 100, (candidate.y - other.y) * height / 100))) : 1;
+        if (distance > bestDistance) { point = candidate; bestDistance = distance; }
+      }
+    }
+    const bounded = { x: clamp(point!.x, margin, 100 - margin), y: clamp(point!.y, pondMinY, pondMaxY) };
+    placed.push(bounded);
+    return [item.id, bounded];
+  }));
 }
 
 function flyPosition(fly: Fly, tick: number) {
@@ -496,6 +510,8 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
   const visibleLimit = Math.min(Math.max(1, config.maxFrogs), columns * (sceneWidth < 600 ? 3 : 6));
   const orderedItems = useMemo(() => [...scopedItems].sort((a, b) => groupValue(a, config.groupBy, boardSections).localeCompare(groupValue(b, config.groupBy, boardSections))), [scopedItems, config.groupBy, boardSections]);
   const visibleItems = orderedItems.slice(0, visibleLimit);
+  const sceneHeight = Math.max(560, Math.ceil(visibleItems.length / columns) * 150 + 150);
+  const naturalPositions = useMemo(() => scatterFrogs(orderedItems.slice(0, visibleLimit), sceneWidth, sceneHeight, positions), [orderedItems, visibleLimit, sceneWidth, sceneHeight, positions]);
   const hiddenCount = Math.max(0, scopedItems.length - visibleItems.length);
   const groups = Object.keys(grouped).sort();
   const legendValues = Array.from(new Set(visibleItems.map((item) => colorValue(item, config.colorBy))));
@@ -521,7 +537,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
     const { sheet, achievementLabel } = reward ? { sheet: frogSheets[reward.sheet], achievementLabel: reward.name } : sheetForItem(item);
     const frame = spriteFrameForItem(item, pose, index, frameTick, sheet);
     const tadpoleUrl = tadpoleSprites[(frameTick + index) % tadpoleSprites.length];
-    const basePosition = positions[item.id] ?? frogPosition(index, columns, visibleItems.length);
+    const basePosition = naturalPositions[item.id];
     return {
       item,
       index,
@@ -536,7 +552,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
       x: clamp(basePosition.x, Math.max(pondMinX, 64 / Math.max(sceneWidth, 1) * 100), Math.min(pondMaxX, 100 - 64 / Math.max(sceneWidth, 1) * 100)),
       y: clamp(basePosition.y, pondMinY, pondMaxY),
     };
-  }), [boardSections, columns, sceneWidth, collection, config.colorBy, config.density, config.groupBy, config.poseBy, frameTick, groups, labelsByField, legendValues, motionEnabled, positions, visibleItems]);
+  }), [boardSections, columns, sceneWidth, collection, config.colorBy, config.density, config.groupBy, config.poseBy, frameTick, groups, labelsByField, legendValues, motionEnabled, naturalPositions, visibleItems]);
 
   useEffect(() => {
     if (!motionEnabled || flies.length === 0 || renderedFrogs.length === 0) return;
@@ -723,7 +739,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
           <span>{isSpanish ? "Pruebe un filtro de propiedad mas amplio o cambie la metrica." : "Try a broader property filter or switch the metric source."}</span>
         </div>
       ) : (
-        <div ref={sceneRef} className="frog-pond-scene" data-testid="frog-pond-scene" aria-label={isSpanish ? "Visualizacion operativa de Frog Pond" : "Frog Pond operational visualization"} style={{ "--pond-image": `url("${activePond.url}")`, "--pond-height": `${Math.max(460, Math.ceil(visibleItems.length / columns) * 170 + 120)}px` } as CSSProperties}>
+        <div ref={sceneRef} className="frog-pond-scene" data-testid="frog-pond-scene" aria-label={isSpanish ? "Visualizacion operativa de Frog Pond" : "Frog Pond operational visualization"} style={{ "--pond-image": `url("${activePond.url}")`, "--pond-height": `${sceneHeight}px` } as CSSProperties}>
           <div className="pond-atmosphere" aria-hidden="true"><div className="pond-water-light" />{Array.from({ length: 7 }, (_, i) => <i key={i} style={{ "--mote": i, left: `${12 + i * 12}%`, top: `${24 + (i % 3) * 15}%` } as CSSProperties} />)}</div>
           <div className="pond-scene-caption" aria-hidden="true">{rearranging ? (isSpanish ? "Arrastre las ranas para organizarlas" : "Drag frogs to arrange your pond") : (isSpanish ? "Toque una rana para saludar" : "Tap a frog to say hello")}</div>
           {feeding ? <div className="pond-snacks" aria-hidden="true">{Array.from({ length: 12 }, (_, i) => <i key={i} style={{ left: `${12 + (i * 17) % 76}%`, top: `${43 + (i * 11) % 39}%`, "--snack": i } as CSSProperties} />)}</div> : null}
@@ -745,7 +761,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
                   "--sprite-col": frame.col,
                   "--sprite-row": frame.row,
                   "--frog-index": index,
-                  "--roam-time": `${12 + stableNumber(item.id) % 11}s`,
+                  "--roam-time": `${7 + stableNumber(item.id) % 7}s`,
                   "--roam-delay": `${-(stableNumber(item.id) % 20)}s`,
                   zIndex: Math.round(y),
                 } as CSSProperties}

@@ -61,20 +61,48 @@ test("guided scheduler checks enabled guided rules every five minutes and stops 
   const { prisma } = await import("./prisma.js");
   const { startTurnScheduler } = await import("./turnScheduler.js");
   const original = prisma.automationRule.findMany;
+  const originalProperties = prisma.property.findMany;
+  prisma.property.findMany = (async () => []) as any;
   let calls = 0;
   prisma.automationRule.findMany = (async (query: any) => {
     calls++;
     assert.deepEqual(query.where, { templateId: { startsWith: "guided-turn:" }, enabled: true, isArchived: false, property: { isActive: true } });
     return [];
   }) as any;
-  t.after(() => { prisma.automationRule.findMany = original; });
+  t.after(() => { prisma.automationRule.findMany = original; prisma.property.findMany = originalProperties; });
   t.mock.timers.enable({ apis: ["setInterval"] });
   const stop = startTurnScheduler();
   t.mock.timers.tick(299999);
   assert.equal(calls, 0);
   t.mock.timers.tick(1);
-  assert.equal(calls, 1);
   await stop();
+  assert.equal(calls, 1);
   t.mock.timers.tick(300000);
   assert.equal(calls, 1);
+});
+
+test("baseline scheduling creates five enabled stages once and preserves paused/customized packs", async () => {
+  const { ensureDefaultTurnScheduling } = await import("./defaultTurnScheduling.js");
+  const rules: any[] = [];
+  let fieldWrites = 0;
+  const tx = {
+    $queryRaw: async () => [],
+    automationRule: { findFirst: async () => rules[0] ?? null, create: async ({ data }: any) => { rules.push(data); return data; } },
+    customField: { upsert: async ({ create }: any) => { fieldWrites++; return { ...create, id: create.fieldKey, isArchived: false, deletedAt: null }; } },
+    scheduleTrack: { upsert: async ({ update }: any) => { assert.deepEqual(update, {}); } },
+    operatingCalendar: { upsert: async ({ update }: any) => { assert.deepEqual(update, { noWeekendScheduling: true }); } },
+  };
+  assert.equal(await ensureDefaultTurnScheduling(tx as any, "fresh"), true);
+  assert.equal(rules.length, 5);
+  assert.ok(rules.every(rule => rule.enabled && rule.propertyId === "fresh"));
+  assert.deepEqual(rules.map(rule => rule.actions[0].offsetDays), [1, 2, 3, 4, 5]);
+  assert.equal(await ensureDefaultTurnScheduling(tx as any, "fresh"), false);
+  rules[0].enabled = false;
+  rules[0].actions[0].offsetDays = 7;
+  assert.equal(await ensureDefaultTurnScheduling(tx as any, "fresh"), false);
+  rules[0].isArchived = true;
+  assert.equal(await ensureDefaultTurnScheduling(tx as any, "fresh"), false);
+  assert.equal(rules.length, 5);
+  assert.equal(fieldWrites, 3);
+  assert.equal(rules[0].actions[0].offsetDays, 7);
 });

@@ -1,6 +1,13 @@
 import { localDateStamp } from "./dateTime";
 
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api";
+export type ManagementCompany = { id: string; name: string; logo: string | null; updatedAt: string };
+export type PropertyBranding = { managementCompanyId: string | null; logo: string | null; managementCompany: ManagementCompany | null };
+export const getManagementCompanies = () => request<{ companies: ManagementCompany[] }>("/management-companies");
+export const createManagementCompany = (name: string) => request<{ company: ManagementCompany }>("/management-companies", { method: "POST", body: JSON.stringify({ name }) });
+export const updateManagementCompany = (id: string, input: { name?: string; logo?: string | null }) => request<{ company: ManagementCompany }>(`/management-companies/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+export const getPropertyBranding = (id: string) => request<{ property: { id: string; name: string; code: string; branding: PropertyBranding | null } }>(`/property-branding/${id}`);
+export const savePropertyBranding = (id: string, input: { managementCompanyId: string | null; logo: string | null }) => request<{ branding: PropertyBranding }>(`/property-branding/${id}`, { method: "PUT", body: JSON.stringify(input) });
 let csrfToken: string | null = null;
 
 function notifyApiUnreachable(path: string, method: string) {
@@ -2400,6 +2407,7 @@ export type MetaResponse = {
   automations: Array<{ id: string; name: string; enabled: boolean; description: string | null }>;
   customFields: CustomField[];
   staff: StaffOption[];
+  workStaff?: StaffOption[];
   columns: BoardColumnDefinition[];
   scheduleTracks: ScheduleTrack[];
   boardSections: BoardSection[];

@@ -8,6 +8,7 @@ import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
 import { StatusState } from "./StatusState";
 import { HistoryCoverageNotice } from "./HistoryCoverageNotice";
 import { UnitSearchSelect } from "./UnitSearchSelect";
+import { PropertyBrandingPanel } from "./PropertyBrandingPanel";
 
 function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
   return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
@@ -1670,6 +1671,7 @@ export function OperationsPanel({
           </div>
           {selectedProperty ? (
             <div className="editor-block">
+              <PropertyBrandingPanel key={selectedProperty.id} propertyId={selectedProperty.id} isAdmin={role === "ADMIN"} />
               <label>{isSpanish ? "Nombre" : "Name"}<input data-testid="property-edit-name" value={propertyDraft.name} onChange={(event) => setPropertyDraft((current) => ({ ...current, name: event.target.value }))} /></label>
               <label>{isSpanish ? "Código" : "Code"}<input data-testid="property-edit-code" value={propertyDraft.code} onChange={(event) => setPropertyDraft((current) => ({ ...current, code: event.target.value }))} /></label>
               <label>{isSpanish ? "Meta de ocupación %" : "Occupancy goal %"}<input data-testid="property-edit-occupancy-goal" type="number" min="0" max="100" step="0.1" value={propertyDraft.occupancyGoalPercent} onChange={(event) => setPropertyDraft((current) => ({ ...current, occupancyGoalPercent: event.target.value }))} /></label>

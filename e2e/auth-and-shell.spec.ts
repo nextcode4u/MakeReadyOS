@@ -166,7 +166,7 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
   await page.getByTestId("property-filter").selectOption(property.id);
   await page.getByTestId("tab-calendar").click();
   const emptyStart = page.getByTestId("calendar-empty-0");
-  await expect(emptyStart).toContainText("Start dates are separate from finish dates.");
+  await expect(emptyStart).toContainText("The default plan fills missing dates every five minutes.");
   await emptyStart.getByRole("button", { name: "Set up turn scheduling" }).click();
   await expect(page.getByTestId("turn-scheduling-guide")).toBeVisible();
   await page.getByTestId("tab-automations").click();
@@ -189,6 +189,14 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
   expect(complete.ok(), await complete.text()).toBeTruthy();
   const assigned = await (await page.request.get(assignmentUrl)).json();
   expect(assigned.block.assignedUserId).toBe(users[0].id);
+  await page.getByRole("button", { name: /View:/ }).click();
+  await page.getByTestId("tab-my-work").click();
+  const staffPicker = page.getByTestId("my-work-staff");
+  for (const user of users) await expect(staffPicker.locator(`option[value="${user.id}"]`)).toContainText("LEASING");
+  await staffPicker.selectOption(users[0].id);
+  await expect(page.getByTestId(`my-work-item-${item.id}`)).toBeVisible();
+  expect(meta.staff.some((member: any) => member.id === users[0].id)).toBe(false);
+  expect(meta.workStaff.some((member: any) => member.id === users[0].id)).toBe(true);
   const contexts = [];
   try {
     for (const user of users) {
@@ -399,6 +407,81 @@ test("schedule separates repair starts from existing finish deadlines by default
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
 });
 
+test("properties select companies independently and preserve both logos in backups", async ({ page }) => {
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const { csrfToken } = await (await session).json();
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers: { "x-csrf-token": csrfToken }, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const code = `BRAND${Date.now()}`;
+  const { property } = await post("/operations/properties", { code, name: "Branding test property" });
+  const { property: other } = await post("/operations/properties", { code: `${code}B`, name: "Unassigned property" });
+  await page.reload();
+  await page.getByTestId("tab-operations").click();
+  await page.getByTestId(`property-row-${code.toLowerCase()}`).click();
+  const panel = page.getByTestId("property-branding");
+  await expect(panel.getByTestId("branding-company")).toHaveValue("");
+  await panel.getByText("Add management company", { exact: true }).click();
+  const companyName = `Example management ${Date.now()}`;
+  await panel.getByLabel("Company name", { exact: true }).fill(companyName);
+  await panel.getByRole("button", { name: "Add company", exact: true }).click();
+  await expect(panel.getByRole("status")).toContainText("Company created");
+  const logo = await page.evaluate(() => { const canvas = document.createElement("canvas"); canvas.width = 40; canvas.height = 40; canvas.getContext("2d")!.fillRect(0, 0, 40, 40); return canvas.toDataURL("image/png"); });
+  const file = { name: "logo.png", mimeType: "image/png", buffer: Buffer.from(logo.split(",")[1], "base64") };
+  await panel.getByLabel("Property logo", { exact: true }).setInputFiles(file);
+  await expect(panel.getByRole("status")).toContainText("Logo preview updated");
+  await panel.getByText("Edit shared company branding", { exact: true }).click();
+  await panel.getByLabel("Company logo", { exact: true }).setInputFiles(file);
+  await expect(panel.getByRole("status")).toContainText("Shared company logo saved");
+  await panel.getByRole("button", { name: "Save property branding", exact: true }).click();
+  await expect(panel.getByRole("status")).toHaveText("Property branding saved.");
+  const saved = (await (await page.request.get(`/api/property-branding/${property.id}`)).json()).property.branding;
+  expect(saved.logo).toBeTruthy(); expect(saved.managementCompany.logo).toBeTruthy(); expect(saved.managementCompany.name).toBe(companyName);
+  expect((await (await page.request.get(`/api/property-branding/${other.id}`)).json()).property.branding).toBeNull();
+  const backup = await (await page.request.get("/api/admin/export")).json();
+  expect(backup.data.managementCompanies.find((entry: any) => entry.name === companyName).logo).toBe(saved.managementCompany.logo);
+  expect(backup.data.propertyBranding.find((entry: any) => entry.propertyCode === code).logo).toBe(saved.logo);
+  const portable = { ...backup, data: { properties: [{ code: `${code}C`, name: "Restored branding", isActive: true }], units: [], makeReadyItems: [], customFields: [], customFieldOptions: [], customFieldValues: [], savedViews: [], automationRules: [], checklistTemplates: [], comments: [], notes: [], managementCompanies: [{ name: `${companyName} restored`, logo: saved.managementCompany.logo }], propertyBranding: [{ propertyCode: `${code}C`, companyName: `${companyName} restored`, logo: saved.logo }] } };
+  const imported = await post("/admin/import", { dryRun: false, mode: "merge", backup: portable });
+  expect(imported.summary.managementCompanies.created).toBe(1);
+  expect(imported.summary.propertyBranding.created).toBe(1);
+  await page.setViewportSize({ width: 412, height: 950 });
+  await expect.poll(() => panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBeTruthy();
+});
+
+test("new properties schedule eligible turns with no activation step", async ({ page }) => {
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const { csrfToken } = await (await session).json();
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers: { "x-csrf-token": csrfToken }, data });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `AUTO${Date.now()}`, name: "Automatic baseline" });
+  expect((await post("/automations/turn-setup/preview", { propertyId: property.id })).configured).toBe(5);
+  const { unit } = await post("/operations/units", { propertyId: property.id, number: "AUTO-101" });
+  const meta = await (await page.request.get("/api/meta")).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, vacatedDate: "2026-09-04", makeReadyDate: "2026-09-30", vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" });
+  const { rules } = await (await page.request.get("/api/automations")).json();
+  const defaults = rules.filter((rule: any) => rule.propertyId === property.id && rule.templateId?.startsWith("guided-turn:"));
+  expect(defaults).toHaveLength(5);
+  for (const rule of defaults) {
+    expect(rule.enabled).toBe(true);
+    // Run the existing scheduled-rule executor without calling the enable endpoint.
+    await post(`/automations/${rule.id}/run`, {});
+  }
+  const saved = await (await page.request.get(`/api/make-ready-items/${item.id}`)).json();
+  const start = meta.customFields.find((field: any) => field.fieldKey === "turnMaintenanceDate");
+  expect(saved.customFieldValues.find((value: any) => value.customFieldId === start.id)?.value).toBe("2026-09-07");
+  expect(saved.flooringDate).toContain("2026-09-10");
+  expect(saved.makeReadyDate).toContain("2026-09-30");
+  expect(saved.completionStatus).toBe("NO");
+});
+
 test("guided weekday scheduling populates all five calendar tracks without duplicate rules or overwritten dates", async ({ page }) => {
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
   await login(page, adminEmail, adminPassword);
@@ -411,6 +494,10 @@ test("guided weekday scheduling populates all five calendar tracks without dupli
     return response.json();
   };
   const { property } = await post("/operations/properties", { code: `QATURN${Date.now()}`, name: "Weekday Turn Test" });
+  // A fresh property is usable without ever submitting the guide's enable action.
+  const baseline = await post("/automations/turn-setup/preview", { propertyId: property.id });
+  expect(baseline.configured).toBe(5);
+  expect(baseline.calendar.noWeekendScheduling).toBe(true);
   const { unit } = await post("/operations/units", { propertyId: property.id, number: "TURN-101" });
   const meta = await (await page.request.get(`${origin}/api/meta`)).json();
   const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
@@ -1487,6 +1574,14 @@ test.describe("MakeReadyOS browser flows", () => {
     const frog = page.locator('[data-testid^="frog-marker-"]').first();
     await page.getByTestId("frog-pond-scene").scrollIntoViewIfNeeded();
     await page.mouse.move(0, 0);
+    const anchors = await page.locator('[data-testid^="frog-marker-"]').evaluateAll(elements => elements.map(el => ({ x: (el as HTMLElement).style.left, y: (el as HTMLElement).style.top })));
+    expect(new Set(anchors.map(point => point.y)).size).toBe(anchors.length);
+    expect(new Set(anchors.map(point => point.x)).size).toBe(anchors.length);
+    const initialBox = await frog.boundingBox();
+    await expect.poll(async () => {
+      const box = await frog.boundingBox();
+      return Math.hypot(box!.x - initialBox!.x, box!.y - initialBox!.y);
+    }, { timeout: 5000 }).toBeGreaterThan(8);
     const initialTranslate = await frog.evaluate(el => getComputedStyle(el).translate);
     await expect.poll(() => frog.evaluate(el => getComputedStyle(el).translate)).not.toBe(initialTranslate);
     const moving = await frog.boundingBox();
@@ -1517,13 +1612,80 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("frog-pond-panel")).toHaveClass(/frog-animated/);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await expect(page.getByTestId("frog-pond-panel")).not.toHaveClass(/frog-animated/);
+    expect(await frog.evaluate(el => getComputedStyle(el).animationName)).toBe("none");
     await page.setViewportSize({ width: 412, height: 900 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    await expect.poll(() => page.getByTestId("frog-pond-scene").evaluate(scene => {
+      const bounds = scene.getBoundingClientRect();
+      return [...scene.querySelectorAll(".frog-marker")].every(el => {
+        const box = el.getBoundingClientRect();
+        return box.left >= bounds.left && box.right <= bounds.right && box.top >= bounds.top && box.bottom <= bounds.bottom;
+      });
+    })).toBeTruthy();
     await page.getByTestId("frog-pond-panel").screenshot({ path: testInfo.outputPath("pond-mobile.png") });
     expect(await page.locator('[data-testid^="frog-marker-"]').first().evaluate(el => getComputedStyle(el).touchAction)).toBe("pan-y");
     await page.locator('[data-testid^="frog-marker-"]').first().click();
     await page.getByTestId("pond-open-unit").click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
+  });
+
+  test("pond settings keep controls within their cells when the window narrows", async ({ page }, testInfo) => {
+    await login(page, adminEmail, adminPassword);
+    await page.getByTestId("tab-pond").click();
+    await page.getByTestId("frog-settings-toggle").click();
+    for (const width of [1440, 1000, 856, 700, 412, 320]) {
+      await page.setViewportSize({ width, height: 950 });
+      await expect.poll(() => page.getByTestId("frog-config").evaluate(config => {
+        const bounds = config.getBoundingClientRect();
+        return config.scrollWidth <= config.clientWidth + 1 && [...config.querySelectorAll("select, input, button")].every(control => {
+          const box = control.getBoundingClientRect();
+          const parent = control.parentElement!.getBoundingClientRect();
+          return box.left >= Math.max(bounds.left, parent.left) - 1 && box.right <= Math.min(bounds.right, parent.right) + 1;
+        });
+      }), { message: `Pond controls must fit at ${width}px` }).toBeTruthy();
+      if (width === 856 || width === 412) await page.getByTestId("frog-config").screenshot({ path: testInfo.outputPath(`pond-settings-${width}.png`) });
+    }
+    await page.getByTestId("frog-metric-source").selectOption("techWorkload");
+    await expect(page.getByTestId("frog-metric-source")).toHaveValue("techWorkload");
+    await page.getByTestId("frog-preset-name").fill("Phone pond");
+    await page.getByTestId("frog-save-preset").click();
+    await expect(page.getByTestId("frog-preset-select").locator("option")).toContainText(["Load preset", "Phone pond"]);
+  });
+
+  test("busy pond scatters thirty-three units without rows or clipped mobile targets", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await login(page, adminEmail, adminPassword);
+    await page.route("**/api/make-ready-items?*", async route => {
+      const response = await route.fetch();
+      const items = await response.json();
+      await route.fulfill({ response, json: Array.from({ length: 33 }, (_, index) => ({
+        ...items[index % items.length], id: `pond-fixture-${index}`, unitNumber: `POND-${index + 1}`,
+        isArchived: false, completionStatus: "NO", vacancyStatus: index % 3 ? "VACANT LEASED NOT READY" : "VACANT LEASED READY",
+      })) });
+    });
+    await page.reload();
+    await page.getByTestId("tab-pond").click();
+    const markers = page.locator(".frog-marker");
+    await expect(markers).toHaveCount(33);
+    await page.getByRole("button", { name: "Pause motion", exact: true }).click();
+    const points = await markers.evaluateAll(elements => elements.map(el => {
+      const box = el.getBoundingClientRect();
+      return { x: box.x, y: box.y };
+    }));
+    expect(new Set(points.map(point => Math.round(point.y))).size).toBeGreaterThan(25);
+    const distances = points.flatMap((point, index) => points.slice(index + 1).map(other => Math.hypot(point.x - other.x, point.y - other.y)));
+    expect(Math.min(...distances)).toBeGreaterThan(85);
+    await page.getByTestId("frog-pond-scene").screenshot({ path: testInfo.outputPath("busy-pond-desktop.png") });
+    await page.setViewportSize({ width: 412, height: 900 });
+    await expect(markers).toHaveCount(9);
+    await expect.poll(() => page.getByTestId("frog-pond-scene").evaluate(scene => {
+      const bounds = scene.getBoundingClientRect();
+      return [...scene.querySelectorAll(".frog-marker")].every(el => {
+        const box = el.getBoundingClientRect();
+        return box.left >= bounds.left && box.right <= bounds.right && box.top >= bounds.top && box.bottom <= bounds.bottom;
+      });
+    })).toBeTruthy();
+    await page.getByTestId("frog-pond-scene").screenshot({ path: testInfo.outputPath("busy-pond-mobile.png") });
   });
 
   test("pond collection rewards feeding and remembers the chosen outfit", async ({ page }) => {

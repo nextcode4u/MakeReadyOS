@@ -56,7 +56,7 @@ export function TurnSchedulingGuide({ properties, onOpenSchedule }: { properties
   };
   let cumulative = 0;
   return <section className="turn-setup span-full" data-testid="turn-scheduling-guide">
-    <header><p className="eyebrow">Start here</p><h2>Put your turns on the calendar</h2><p>Start after vacating. Set up once per property; no rule builder or pack installation needed.</p></header>
+    <header><p className="eyebrow">Automatic baseline</p><h2>Put your turns on the calendar</h2><p>Properties start with a five-working-day plan automatically. Import your units with a Vacated date; eligible turns get missing dates within five minutes while the server is running. No activation or pack installation needed.</p><p>Use this guide only to customize the plan, fill dates now, or pause scheduling. Existing dates and previously paused plans stay unchanged.</p></header>
     <fieldset disabled={busy}>
       <legend>1. Choose the property and confirm your plan</legend>
       <label>Schedule turns for<select data-testid="turn-setup-property" value={propertyId} onChange={(event) => { setPropertyId(event.target.value); resetReview(); }}><option value="">Choose a property</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}</select></label>
@@ -70,14 +70,14 @@ export function TurnSchedulingGuide({ properties, onOpenSchedule }: { properties
     </fieldset>
     {error ? <p role="alert" className="error-text">{error}</p> : null}
     {preview ? <section aria-label="Scheduling preview">
-      <h3>3. Enable for {preview.property.code} / {preview.property.name}</h3>
+      <h3>3. Review plan for {preview.property.code} / {preview.property.name}</h3>
       <p>{preview.changes} missing dates across {preview.total} vacant, not-ready turns with a vacate date. {preview.missingVacateDate} turn(s) need a Vacated date first. Ready, occupied, notice-to-vacate and unknown-status units are skipped.</p>
       {preview.configured ? <p>{preview.configured} guided rules are already on. Applying this plan updates their offsets for missing dates only.</p> : null}
       {(preview.calendar.avoidMondayScheduling || preview.calendar.avoidFridayScheduling) ? <p>This property also excludes {preview.calendar.avoidMondayScheduling ? "Mondays " : ""}{preview.calendar.avoidFridayScheduling ? "Fridays" : ""}.</p> : null}
       <p><strong>Included and enabled:</strong> all five scheduling rules and their calendar tracks. Make Ready (Start) schedules the first repair day; Expected Finish is the separate whole-unit ready target. Painting and cleaning fields are created automatically. Existing finish dates are not copied into start dates. Tracks are shared across properties; dates stay property-scoped.</p>
       <p>Existing dates stay unchanged, even if they conflict with this sequence. Past vacate dates can produce overdue targets. This is a date plan, not a completed-work status, staff/vendor booking, or capacity-checked Planning work block.</p>
       <details><summary>Review proposed dates ({Math.min(preview.total, 25)} of {preview.total} units)</summary><div className="turn-setup-preview-list">{preview.rows.map((row) => <article key={row.unitNumber}><strong>Unit {row.unitNumber}</strong>{row.dates.map((date) => <p key={date.label}>{date.label}: <strong>{date.date}</strong>{date.preserved ? " (keep existing)" : " (new)"}</p>)}</article>)}</div></details>
-      <button className="button button-primary" disabled={busy || !valid} onClick={() => void enable()} data-testid="turn-setup-enable">{busy ? "Applying plan..." : enabledRules ? "Retry / fill remaining dates" : "Enable scheduling and fill calendar"}</button>
+      <button className="button button-primary" disabled={busy || !valid} onClick={() => void enable()} data-testid="turn-setup-enable">{busy ? "Applying plan..." : enabledRules ? "Retry / fill remaining dates" : preview.configured ? "Apply plan and fill calendar" : "Resume scheduling and fill calendar"}</button>
       {preview.configured || enabledRules ? <button className="button button-secondary" disabled={busy} onClick={() => void pause()}>Pause automatic scheduling</button> : null}
     </section> : null}
     {result ? <div role="status"><p>{result}</p><button className="button button-primary" onClick={() => onOpenSchedule(propertyId)}>Open Schedule calendar</button><p className="muted">Opens this property's five tracks and clears other board filters.</p></div> : null}
