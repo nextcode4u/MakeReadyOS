@@ -88,7 +88,7 @@ mkdir -p "$LOG_DIR"
   export DEMO_TECH_PASSWORD
 
   echo "Running Playwright tests"
-  npx playwright test --workers=1
+  npx playwright test --workers=1 "$@"
   echo
 
   echo "E2E run completed: $(date -Iseconds)"

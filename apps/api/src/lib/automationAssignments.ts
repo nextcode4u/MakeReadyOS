@@ -290,6 +290,9 @@ function defaultActionSummary(action: AutomationActionInput): ActionPreviewSumma
   if (action.type === "addAuditNote") {
     return { type: action.type, proposedValue: action.value, summary: "Add activity note" };
   }
+  if (action.type === "setCustomDateFromField") {
+    return { type: action.type, fieldId: action.fieldId, sourceField: action.sourceField, offsetDays: action.offsetDays, proposedValue: `${action.sourceField} +${action.offsetDays} operating days`, summary: "Set missing custom calendar date from vacated date" };
+  }
   if (action.type === "setDateFromField") {
     const direction = action.offsetDays >= 0 ? "+" : "";
     return {

@@ -28,6 +28,7 @@ enum CustomFieldType {
 }
 
 model Property {
+  turnAssignmentPolicy      TurnAssignmentPolicy?
   id                        String                                @id @default(cuid())
   name                      String
   code                      String                                @unique
@@ -150,6 +151,15 @@ model FloorPlan {
   @@unique([propertyId, code])
   @@index([propertyId, isActive, code])
   @@index([propertyId, name])
+}
+
+model TurnAssignmentPolicy {
+  propertyId String   @id
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  enabled    Boolean  @default(false)
+  shares     Json
+  credits    Json
+  updatedAt  DateTime @updatedAt
 }
 
 model MakeReadyItem {

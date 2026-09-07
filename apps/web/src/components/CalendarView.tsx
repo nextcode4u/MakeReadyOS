@@ -204,8 +204,8 @@ function CalendarPanel({ track, events, labelsByField, month, onMonthChange, ind
 
 export function CalendarView({ eventsByTrack, labelsByField, fieldOptions, layout, language, selectedFields, onLayoutChange, onFieldChange, onOpenItem }: Props) {
   const isSpanish = language === "es";
-  const [month, setMonth] = useState(() => new Date("2026-05-01T12:00:00Z"));
-  const count = layout === "single" ? 1 : layout === "split" ? 2 : 4;
+  const [month, setMonth] = useState(() => new Date());
+  const count = layout === "single" ? 1 : layout === "split" ? 2 : layout === "auto" ? Math.max(4, Math.min(5, selectedFields.length)) : 4;
   return (
     <section className={`calendar-shell calendar-layout-${layout}`} data-testid="calendar-view">
       <div className="schedule-layout-toolbar">

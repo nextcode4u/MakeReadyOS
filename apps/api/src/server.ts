@@ -13,6 +13,9 @@ import { activityRoutes } from "./routes/activity.js";
 import { adminRoutes } from "./routes/admin.js";
 import { analyticsRoutes } from "./routes/analytics.js";
 import { automationRoutes } from "./routes/automations.js";
+import { turnSetupRoutes } from "./routes/turnSetup.js";
+import { turnAssignmentRoutes } from "./routes/turnAssignments.js";
+import { startTurnScheduler } from "./lib/turnScheduler.js";
 import { backupTransferRoutes } from "./routes/backupTransfer.js";
 import { customFieldRoutes } from "./routes/customFields.js";
 import { collaborationRoutes } from "./routes/collaboration.js";
@@ -139,6 +142,8 @@ app.register(async (api) => {
   await adminRoutes(api);
   await analyticsRoutes(api);
   await automationRoutes(api);
+  await turnSetupRoutes(api);
+  await turnAssignmentRoutes(api);
   await backupTransferRoutes(api);
   await customFieldRoutes(api);
   await collaborationRoutes(api);
@@ -167,16 +172,18 @@ app.register(async (api) => {
 });
 
 const port = Number(process.env.PORT || 4000);
+let stopTurnScheduler: (() => Promise<void>) | undefined;
+app.addHook("onClose", async () => { await stopTurnScheduler?.(); });
 
 const close = async () => {
-  await prisma.$disconnect();
   await app.close();
+  await prisma.$disconnect();
 };
 
 process.on("SIGINT", close);
 process.on("SIGTERM", close);
 
-app.listen({ port, host: "0.0.0.0" }).catch(async (error) => {
+app.listen({ port, host: "0.0.0.0" }).then(() => { stopTurnScheduler = startTurnScheduler(); }).catch(async (error) => {
   console.error(error);
   await prisma.$disconnect();
   process.exit(1);

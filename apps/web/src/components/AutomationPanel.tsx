@@ -3,6 +3,8 @@ import type { AutomationAction, AutomationActionSummary, AutomationCondition, Au
 import { formatDateDisplay, formatDateTime } from "../lib/dateTime";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusState } from "./StatusState";
+import { TurnSchedulingGuide } from "./TurnSchedulingGuide";
+import { TurnAssignmentGuide } from "./TurnAssignmentGuide";
 
 const triggers: AutomationTriggerType[] = [
   "ITEM_CREATED",
@@ -46,6 +48,7 @@ type Draft = {
 };
 
 type Props = {
+  onOpenSchedule: (propertyId: string) => void;
   role: UserRole;
   language?: string;
   properties: Property[];
@@ -191,6 +194,7 @@ function draftPayload(draft: Draft, customFields: CustomField[]) {
     if (action.type === "setField") return { type: "setField", field: action.field, value: action.value || null };
     if (action.type === "setCustomField") return { type: "setCustomField", fieldId: action.fieldId, value: action.value || null };
     if (action.type === "setDateFromField") return { type: "setDateFromField", sourceField: action.sourceField, targetField: action.targetField, offsetDays: Number(action.offsetDays || 0), respectOperatingCalendar: true };
+    if (action.type === "setCustomDateFromField") return { type: "setCustomDateFromField", sourceField: action.sourceField, fieldId: action.fieldId, offsetDays: Number(action.offsetDays || 0), respectOperatingCalendar: true };
     if (action.type === "assignLeastLoadedStaff") {
       return {
         type: "assignLeastLoadedStaff",
@@ -219,6 +223,7 @@ function draftPayload(draft: Draft, customFields: CustomField[]) {
 }
 
 function isActionIncomplete(action: DraftAction) {
+  if (action.type === "setCustomDateFromField") return !action.fieldId || !action.sourceField || !Number.isInteger(Number(action.offsetDays));
   if (action.type === "setCustomField") return !action.fieldId || !action.value.trim();
   if (action.type === "setDateFromField") {
     const offset = Number(action.offsetDays);
@@ -836,7 +841,7 @@ const defaultTemplateInclude: PropertyTemplateInclude = {
   planningDefaults: false,
 };
 
-export function AutomationPanel({ role, language = "en", properties, customFields, rules, templates, libraryPacks, propertyTemplates, libraryPreview, templatePreview, runs, preview, loading, previewLoading, message, error, onCreate, onInstallTemplate, onPreviewLibraryPack, onInstallLibraryPack, onPreviewPropertyTemplate, onCreatePropertyTemplate, onApplyPropertyTemplate, onArchivePropertyTemplate, onRestorePropertyTemplate, onDeletePropertyTemplate, onUpdate, onToggle, onArchive, onRestore, onDelete, onPreviewStored, onPreviewDraft, onRunNow, onSelectRule }: Props) {
+export function AutomationPanel({ onOpenSchedule, role, language = "en", properties, customFields, rules, templates, libraryPacks, propertyTemplates, libraryPreview, templatePreview, runs, preview, loading, previewLoading, message, error, onCreate, onInstallTemplate, onPreviewLibraryPack, onInstallLibraryPack, onPreviewPropertyTemplate, onCreatePropertyTemplate, onApplyPropertyTemplate, onArchivePropertyTemplate, onRestorePropertyTemplate, onDeletePropertyTemplate, onUpdate, onToggle, onArchive, onRestore, onDelete, onPreviewStored, onPreviewDraft, onRunNow, onSelectRule }: Props) {
   const isSpanish = language === "es";
   const activeRules = useMemo(() => rules.filter((rule) => !rule.isArchived), [rules]);
   const archivedRules = useMemo(() => rules.filter((rule) => rule.isArchived), [rules]);
@@ -859,7 +864,7 @@ export function AutomationPanel({ role, language = "en", properties, customField
   const [validationCopyMessage, setValidationCopyMessage] = useState("");
   const [showLibraryInstallConfirm, setShowLibraryInstallConfirm] = useState(false);
   const selected = activeRules.find((rule) => rule.id === selectedId) ?? activeRules[0] ?? null;
-  const canEditSelected = role === "ADMIN" || Boolean(selected?.propertyId);
+  const canEditSelected = !selected?.templateId?.startsWith("guided-turn:") && (role === "ADMIN" || Boolean(selected?.propertyId));
   const incompleteCondition = draft.conditions.some((condition) => !noValueOperators.includes(condition.operator) && !condition.value.trim());
   const categories = ["All", ...Array.from(new Set(templates.map((template) => template.category)))];
   const visibleTemplates = templateCategory === "All" ? templates : templates.filter((template) => template.category === templateCategory);
@@ -962,6 +967,11 @@ export function AutomationPanel({ role, language = "en", properties, customField
 
   return (
     <div className="automation-shell" data-testid="automation-panel">
+      <TurnSchedulingGuide properties={properties} onOpenSchedule={onOpenSchedule} />
+      <TurnAssignmentGuide properties={properties} />
+      <details className="automation-advanced span-full">
+      <summary data-testid="automation-advanced-toggle">Advanced: rule templates, library packs, and run history</summary>
+      <div className="automation-shell">
       <nav className="automation-section-nav span-full" aria-label="Automation workspace sections">
         <a href="#automation-rule-templates">{isSpanish ? "Plantillas de reglas" : "Rule templates"}</a>
         <a href="#automation-library-packs">{isSpanish ? "Packs de biblioteca" : "Library packs"}</a>
@@ -1723,6 +1733,7 @@ export function AutomationPanel({ role, language = "en", properties, customField
                   } : entry) }))}>
                     <option value="setField">{isSpanish ? "Establecer valor del campo" : "Set field value"}</option>
                     <option value="setDateFromField">{isSpanish ? "Establecer fecha desde desfase operativo" : "Set date from operating offset"}</option>
+                    {action.type === "setCustomDateFromField" ? <option value="setCustomDateFromField">Guided calendar date (configure above)</option> : null}
                     <option value="setCustomField">{isSpanish ? "Establecer valor de campo personalizado" : "Set custom field value"}</option>
                     <option value="addAuditNote">{isSpanish ? "Agregar nota de actividad" : "Add activity note"}</option>
                     {draft.triggerType === "SCHEDULED_CHECK" ? <option value="assignLeastLoadedStaff">{isSpanish ? "Asignar personal con menor carga" : "Assign least-loaded staff"}</option> : null}
@@ -1968,6 +1979,8 @@ export function AutomationPanel({ role, language = "en", properties, customField
           </div>
         )}
       </section>
+      </div>
+      </details>
       <ConfirmDialog
         open={showLibraryInstallConfirm && Boolean(activeLibraryInput)}
         language={isSpanish ? "es" : "en"}

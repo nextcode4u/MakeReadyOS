@@ -1927,6 +1927,7 @@ export type AutomationAction =
   | { type: "setCustomField"; fieldId: string; value: string | number | boolean | string[] | null }
   | { type: "addAuditNote"; value: string }
   | { type: "setDateFromField"; sourceField: string; targetField: string; offsetDays: number; respectOperatingCalendar?: boolean }
+  | { type: "setCustomDateFromField"; sourceField: string; fieldId: string; offsetDays: number; respectOperatingCalendar?: boolean }
   | { type: "assignLeastLoadedStaff"; eligibleRoles: Array<"ADMIN" | "MANAGER" | "TECH" | "CLEANER">; eligibleUserIds?: string[]; excludedUserIds?: string[]; lookAheadDays: number; includePlannedWork?: boolean; onlyWhenUnassigned?: boolean; dailyAssignmentCap?: number | null; targetDateField: "makeReadyDate" | "moveInDate" | "vacatedDate" }
   | { type: "setPriority"; value: number }
   | { type: "appendNote"; value: string };
@@ -2443,7 +2444,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       },
       ...init,
     });
-  } catch {
+  } catch (error) {
+    if (init?.signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
     notifyApiUnreachable(path, method);
     throw new ApiError(0, "Could not reach the MakeReadyOS API. If this happened during photo upload, confirm the app is running and that any external reverse proxy allows large request bodies.");
   }
@@ -3269,6 +3271,14 @@ export function getCurrentUser() {
   return request<{ user: CurrentUser; roles: UserRole[]; csrfToken: string }>("/auth/me");
 }
 
+export async function probeApiConnection(signal: AbortSignal) {
+  // Auth routes bypass the service worker's offline cache. HTML/proxy responses are not recovery.
+  const response = await fetch(`${apiBaseUrl}/auth/me?connection-check=${Date.now()}`, { credentials: "include", cache: "no-store", signal });
+  if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) return false;
+  const body = await response.json();
+  return typeof body?.user?.id === "string" && body.user.id.length > 0;
+}
+
 export function passwordAction(action: "forgot-password" | "reset-password" | "change-password", payload: Record<string, string>) {
   return request<{ ok?: boolean; message?: string }>(`/auth/${action}`, { method: "POST", body: JSON.stringify(payload) });
 }
@@ -3605,6 +3615,34 @@ export function runAutomationNow(id: string) {
   });
 }
 
+export type TurnSetupInput = { propertyId: string; days: number[] };
+export type TurnAssignmentShare = { userId: string; percent: number };
+export type TurnAssignmentSettings = { staff: Array<{ id: string; fullName: string }>; shares: TurnAssignmentShare[]; enabled: boolean; warning: string | null; eligible: number };
+export function getTurnAssignment(propertyId: string) {
+  return request<TurnAssignmentSettings>(`/automations/turn-assignment/${encodeURIComponent(propertyId)}`);
+}
+export function saveTurnAssignment(propertyId: string, shares: TurnAssignmentShare[], enabled: boolean) {
+  return request<{ saved: boolean }>(`/automations/turn-assignment/${encodeURIComponent(propertyId)}`, { method: "PUT", body: JSON.stringify({ shares, enabled }) });
+}
+export function runTurnAssignment(propertyId: string) {
+  return request<{ assigned: number; warning: string | null }>(`/automations/turn-assignment/${encodeURIComponent(propertyId)}/run`, { method: "POST" });
+}
+export type TurnSetupPreview = {
+  property: Property;
+  calendar: { noWeekendScheduling: boolean; avoidMondayScheduling: boolean; avoidFridayScheduling: boolean };
+  configured: number; missingVacateDate: number; total: number; changes: number;
+  rows: Array<{ unitNumber: string; dates: Array<{ label: string; date: string; preserved: boolean }> }>;
+};
+export function previewTurnSetup(input: TurnSetupInput) {
+  return request<TurnSetupPreview>("/automations/turn-setup/preview", { method: "POST", body: JSON.stringify(input) });
+}
+export function enableTurnSetup(input: TurnSetupInput) {
+  return request<{ rules: Array<{ id: string; name: string }> }>("/automations/turn-setup/enable", { method: "POST", body: JSON.stringify(input) });
+}
+export function pauseTurnSetup(propertyId: string) {
+  return request<{ paused: number }>("/automations/turn-setup/pause", { method: "POST", body: JSON.stringify({ propertyId }) });
+}
+
 export function getCustomFields(includeArchived = false, includeDeleted = false) {
   return request<{ fields: CustomField[] }>(`/custom-fields?includeArchived=${includeArchived}&includeDeleted=${includeDeleted}`);
 }
@@ -3872,7 +3910,8 @@ export async function getMakeReadyItemPage(filters: Parameters<typeof getMakeRea
     response = await fetch(`${apiBaseUrl}/make-ready-items?${params.toString()}`, {
       credentials: "include",
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error;
     notifyApiUnreachable("/make-ready-items", "GET");
     throw new ApiError(0, "Could not reach the MakeReadyOS API. Check the connection and retry.");
   }

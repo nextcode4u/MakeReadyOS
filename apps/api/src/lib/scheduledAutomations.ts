@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { Prisma, UserRole } from "@prisma/client";
 import { automationRuleInputSchema, validateRuleReferences } from "./automationDefinition.js";
 import { applyAutomationRules, type ActionPreviewSummary } from "./automationAssignments.js";
-import { computeDerivedFields, editableFields, normalizeItemPatch } from "./board.js";
+import { applyRules, computeDerivedFields, editableFields, normalizeItemPatch } from "./board.js";
+import { turnSetupPrefix } from "./turnSetup.js";
 import { writeAuditLog } from "./audit.js";
 import { prisma } from "./prisma.js";
 import { createNotification, notifyAssignedStaff } from "./notifications.js";
@@ -185,7 +186,7 @@ export async function executeScheduledAutomationRules(options: {
           constraints.push({ propertyId: { in: options.allowedPropertyIds } });
         }
         const items = await prisma.makeReadyItem.findMany({
-          where: constraints.length > 0 ? { AND: constraints } : undefined,
+          where: { isArchived: false, property: { isActive: true }, AND: constraints },
           include: { customFieldValues: true, property: { include: { operatingCalendar: true } } },
         });
         checkedCount = items.length;
@@ -217,6 +218,35 @@ export async function executeScheduledAutomationRules(options: {
             if (simulation.next[field] !== item[field]) patch[field] = simulation.next[field] ?? null;
           }
           const normalizedPatch = normalizeItemPatch(patch);
+          if (rule.templateId?.startsWith(turnSetupPrefix)) {
+            actionCount += await prisma.$transaction(async (tx) => {
+              // Recheck under the item lock: another request may have filled a date since preview/simulation.
+              await tx.$queryRaw`SELECT id FROM "MakeReadyItem" WHERE id = ${item.id} FOR UPDATE`;
+              const currentRule = await tx.automationRule.findUnique({ where: { id: rule.id }, select: { enabled: true, isArchived: true, updatedAt: true } });
+              if (!currentRule?.enabled || currentRule.isArchived || currentRule.updatedAt.getTime() !== rule.updatedAt.getTime()) return 0;
+              const current = await tx.makeReadyItem.findUnique({ where: { id: item.id }, include: { customFieldValues: true, property: { include: { operatingCalendar: true } } } });
+              if (!current || current.isArchived || !current.property.isActive) return 0;
+              const values = Object.fromEntries(current.customFieldValues.map((entry) => [entry.customFieldId, entry.value]));
+              const applied = applyRules(current, [{ id: rule.id, name: rule.name, enabled: true, conditions: parsed.data.conditions, actions: parsed.data.actions }], values, { operatingCalendar: current.property.operatingCalendar });
+              let changes = 0;
+              for (const field of ["makeReadyDate", "flooringDate"] as const) {
+                if (!current[field] && applied.next[field]) {
+                  await tx.makeReadyItem.update({ where: { id: current.id }, data: { [field]: applied.next[field] } });
+                  changes += 1;
+                }
+              }
+              for (const value of applied.customFieldUpdates) {
+                if (values[value.fieldId] || value.value === null) continue;
+                const existing = current.customFieldValues.find((entry) => entry.customFieldId === value.fieldId);
+                const written = existing
+                  ? await tx.customFieldValue.updateMany({ where: { id: existing.id, value: { equals: existing.value ?? Prisma.JsonNull } }, data: { value: value.value } })
+                  : await tx.customFieldValue.createMany({ data: [{ customFieldId: value.fieldId, itemId: current.id, value: value.value }], skipDuplicates: true });
+                changes += written.count;
+              }
+              return changes;
+            });
+            continue;
+          }
           if (Object.keys(normalizedPatch).length > 0) {
             await prisma.makeReadyItem.update({ where: { id: item.id }, data: normalizedPatch });
             actionCount += Object.keys(normalizedPatch).length;

@@ -73,6 +73,13 @@ export const actionSchema = z.discriminatedUnion("type", [
     respectOperatingCalendar: z.boolean().default(true),
   }),
   z.object({
+    type: z.literal("setCustomDateFromField"),
+    fieldId: z.string().min(1),
+    sourceField: z.enum(dateOffsetFields),
+    offsetDays: z.number().int().min(-60).max(60),
+    respectOperatingCalendar: z.boolean().default(true),
+  }),
+  z.object({
     type: z.literal("assignLeastLoadedStaff"),
     eligibleRoles: z.array(z.enum(["ADMIN", "MANAGER", "TECH", "CLEANER"])).min(1).max(assignableStaffRoles.length).default(["TECH"]),
     eligibleUserIds: z.array(z.string().min(1)).max(25).optional(),
@@ -197,7 +204,7 @@ export async function validateRuleReferences(
     .filter((condition): condition is Extract<AutomationConditionInput, { customFieldId: string }> => "customFieldId" in condition);
   const customFieldIds = [
     ...customConditions.map((condition) => condition.customFieldId),
-    ...actions.filter((action) => action.type === "setCustomField").map((action) => action.fieldId),
+    ...actions.filter((action) => action.type === "setCustomField" || action.type === "setCustomDateFromField").map((action) => action.fieldId),
   ];
   if (customFieldIds.length > 0) {
     const fields = await prisma.customField.findMany({
@@ -211,6 +218,9 @@ export async function validateRuleReferences(
     });
     if (fields.length !== new Set(customFieldIds).size) throw new Error("One or more selected custom fields are unavailable");
     const fieldsById = new Map(fields.map((field) => [field.id, field]));
+    for (const action of actions) {
+      if (action.type === "setCustomDateFromField" && fieldsById.get(action.fieldId)?.fieldType !== "DATE") throw new Error("Scheduling requires an active DATE custom field");
+    }
     for (const condition of customConditions) {
       validateCustomCondition(condition, fieldsById.get(condition.customFieldId)!);
     }

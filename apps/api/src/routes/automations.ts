@@ -119,6 +119,9 @@ function describeAction(action: z.infer<typeof actionSchema>, customFieldLabels:
   if (action.type === "addAuditNote") {
     return { type: action.type, proposedValue: action.value, summary: "Add activity note" };
   }
+  if (action.type === "setCustomDateFromField") {
+    return { type: action.type, fieldId: action.fieldId, proposedValue: `${action.sourceField} +${action.offsetDays} operating days`, summary: "Set custom calendar date from vacated date" };
+  }
   if (action.type === "setDateFromField") {
     const direction = action.offsetDays >= 0 ? "+" : "";
     return {
@@ -406,7 +409,7 @@ export async function automationRoutes(app: FastifyInstance) {
     if (requestedPropertyId) propertyScope.push({ propertyId: requestedPropertyId });
     if (allowedIds !== null) propertyScope.push({ propertyId: { in: allowedIds } });
     const items = await prisma.makeReadyItem.findMany({
-      where: propertyScope.length > 0 ? { AND: propertyScope } : undefined,
+      where: { isArchived: false, property: { isActive: true }, AND: propertyScope },
       include: {
         property: { select: { id: true, code: true, name: true, operatingCalendar: true } },
         customFieldValues: true,

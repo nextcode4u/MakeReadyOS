@@ -6184,6 +6184,23 @@ textarea {
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
 }
 
+.turn-setup { min-width: 0; padding: var(--panel-pad); background: var(--panel); border: 1px solid var(--border); border-radius: 14px; }
+.turn-setup fieldset { min-width: 0; margin: 1rem 0; border: 0; padding: 0; }
+.turn-setup legend { font-weight: 700; margin-bottom: .75rem; }
+.turn-setup label { display: grid; gap: .45rem; min-width: 0; }
+.turn-setup select { width: 100%; max-width: 32rem; }
+.turn-setup p { line-height: 1.5; }
+.turn-setup-stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; }
+.turn-setup-stages > label { border-left: 3px solid var(--border); padding: .5rem .75rem; }
+.turn-setup-duration { display: flex; align-items: center; gap: .5rem; }
+.turn-setup-duration input { width: 4.5rem; min-width: 0; }
+.turn-setup details, .turn-setup .button { margin: .6rem 0; }
+.turn-setup-preview-list { max-height: 24rem; overflow: auto; }
+.turn-setup-preview-list article { padding: .75rem; border-bottom: 1px solid var(--border); }
+.turn-setup-preview-list p { margin: .3rem 0; }
+.automation-advanced { min-width: 0; }
+.automation-advanced > summary { cursor: pointer; padding: 1rem; font-weight: 600; }
+
 .automation-section-nav a {
   display: inline-flex;
   align-items: center;
@@ -9607,15 +9624,24 @@ textarea {
   padding: var(--workspace-pad);
 }
 
+.frog-pond-shell > .panel-heading h2 { font-family: Georgia, serif; font-size: clamp(1.8rem, 3vw, 2.6rem); letter-spacing: -.04em; }
+.frog-scene-tools { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.frog-scene-tools > span { flex: 1 1 14rem; color: var(--muted); }
+.frog-settings { min-width: 0; border-block: 1px solid var(--border); }
+.frog-settings > summary { padding: .7rem .2rem; cursor: pointer; font-weight: 650; }
+.frog-settings > summary span { margin-left: .8rem; font-weight: 400; color: var(--muted); font-size: .8rem; }
+.frog-settings[open] > summary { margin-bottom: .4rem; }
+.frog-scene-tools .button { min-height: 2.6rem; }
+
 .frog-summary {
   display: grid;
   grid-template-columns: repeat(3, auto 1fr);
   align-items: center;
   gap: .18rem .45rem;
   padding: .46rem .6rem;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: .55rem;
-  background: var(--panel);
+  background: transparent;
 }
 
 .frog-summary strong { font-size: 1.2rem; }
@@ -9684,12 +9710,14 @@ textarea {
 .frog-pond-scene {
   position: relative;
   min-height: min(55vw, 34rem);
+  height: var(--pond-height, 34rem);
+  isolation: isolate;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, #43d18f 28%, var(--border));
   border-radius: 1rem;
   background:
     linear-gradient(to bottom, rgba(0, 0, 0, .05), rgba(0, 0, 0, .34)),
-    var(--pond-image) center / 100% 100% no-repeat,
+    var(--pond-image) center / cover no-repeat,
     radial-gradient(circle at 50% 60%, #0f716a, #082c36);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.04), 0 18px 46px rgba(0,0,0,.28);
 }
@@ -9712,12 +9740,26 @@ textarea {
   color: #fff;
   text-shadow: 0 1px 3px rgba(0,0,0,.8);
   cursor: pointer;
-  touch-action: none;
+  touch-action: pan-y;
   user-select: none;
   scroll-margin-top: 7rem;
   transition: left .45s cubic-bezier(.2, .8, .2, 1), top .45s cubic-bezier(.2, .8, .2, 1), filter .16s ease;
-  will-change: left, top, translate;
 }
+
+.frog-rearranging .frog-marker { touch-action: none; cursor: grab; }
+.frog-marker:focus-visible { outline: 3px solid #fff3bb; outline-offset: 8px; border-radius: .7rem; }
+.frog-marker:hover, .frog-marker:focus-visible { z-index: 120 !important; }
+.frog-marker:hover .frog-body, .frog-marker:focus-visible .frog-body { animation-play-state: paused !important; filter: drop-shadow(0 0 8px #c9ffc4); }
+.frog-lily-pad { position: absolute; top: 13px; width: 62px; height: 27px; z-index: -1; border-radius: 50%; background: conic-gradient(from 12deg at 50% 55%, #94c855 0deg 38deg, transparent 39deg 67deg, #528c40 68deg 180deg, #81b74b 200deg 360deg); box-shadow: 0 4px 0 #214f45, 0 8px 8px #082f3d66; transform: rotate(-8deg); }
+.frog-pose-tadpole .frog-lily-pad { display: none; }
+.frog-water-ring { position: absolute; top: 17px; width: 78px; height: 24px; border: 1px solid #c6fff366; border-radius: 50%; z-index: -2; opacity: .35; }
+.frog-animated .frog-water-ring { animation: pond-ring 6s ease-out infinite; animation-delay: calc(var(--frog-index) * -.7s); }
+.pond-atmosphere { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.pond-water-light { position: absolute; inset: 38% -10% 0; opacity: .13; background: repeating-linear-gradient(174deg, transparent 0 22px, #c6ffee88 23px 24px, transparent 25px 48px); mask-image: radial-gradient(ellipse, #000, transparent 70%); }
+.frog-animated .pond-water-light { animation: pond-current 14s ease-in-out infinite alternate; }
+.pond-atmosphere > i { position: absolute; width: 3px; height: 3px; background: #f0ffc2; opacity: .4; box-shadow: 0 0 10px #f0ffb8; }
+.frog-animated .pond-atmosphere > i { animation: pond-mote 9s ease-in-out infinite; animation-delay: calc(var(--mote) * -1.7s); }
+.pond-scene-caption { position: absolute; top: 1rem; left: 1rem; right: 1rem; width: fit-content; max-width: calc(100% - 2rem); padding: .5rem .8rem; border-radius: .5rem; background: #082d2de6; border: 1px solid #b6e1ba44; color: #e2f8e8; font-size: .75rem; pointer-events: none; z-index: 1; }
 
 .frog-density-dense .frog-marker { width: 3.8rem; }
 
@@ -9778,9 +9820,12 @@ textarea {
 }
 
 .frog-marker strong {
-  max-width: 5.3rem;
+  max-width: 6rem;
+  padding: .12rem .35rem;
+  border-radius: .3rem;
+  background: #092d30ed;
   overflow: hidden;
-  font-size: .64rem;
+  font-size: .72rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -9794,8 +9839,11 @@ textarea {
   font-style: normal;
   text-transform: uppercase;
 }
+.frog-marker em { display: flex; align-items: center; gap: .2rem; max-width: 6rem; overflow: hidden; white-space: nowrap; }
+.frog-marker em i { width: .4rem; height: .4rem; flex-shrink: 0; border-radius: 50%; }
 
 .frog-marker small {
+  display: none;
   max-width: 5.6rem;
   overflow: hidden;
   color: #d8f7e8;
@@ -9806,9 +9854,14 @@ textarea {
 }
 
 .frog-animated .frog-marker {
-  animation: frog-bob 4s ease-in-out infinite;
-  animation-delay: calc(var(--frog-index, 0) * -.2s);
+  animation: none;
 }
+.frog-animated .frog-marker:not(.frog-pose-tadpole):not(.frog-pose-sleeping) .frog-body { animation: pond-hop 8s ease-in-out infinite; animation-delay: calc(var(--frog-index) * -.83s); }
+@keyframes pond-hop { 0%, 72%, 100% { transform: scale(1.72); } 75% { transform: scale(1.9, 1.4); } 79% { transform: translateY(-14px) scale(1.55, 1.9); } 84% { transform: scale(1.9, 1.5); } 88% { transform: scale(1.72); } }
+@keyframes pond-ring { 0% { transform: scale(.65); opacity: 0; } 25% { opacity: .55; } 100% { transform: scale(1.55); opacity: 0; } }
+@keyframes pond-current { from { transform: translate(-2%, 0); } to { transform: translate(2%, 9px); } }
+@keyframes pond-mote { 0%, 100% { transform: translate(0, 0); opacity: .05; } 45% { opacity: .8; } 65% { transform: translate(15px, -18px); opacity: .2; } }
+@media (prefers-reduced-motion: reduce) { .frog-pond-shell *, .frog-pond-shell *::before, .frog-pond-shell *::after { animation: none !important; transition: none !important; } }
 
 @keyframes frog-bob {
   0%, 100% { translate: 0 0; }
@@ -9846,9 +9899,9 @@ textarea {
 }
 
 .frog-cluster {
-  position: absolute;
-  right: 1rem;
-  bottom: 1rem;
+  position: relative;
+  right: auto;
+  bottom: auto;
   z-index: 3;
   display: grid;
   gap: .35rem;
@@ -11392,6 +11445,8 @@ textarea {
   .frog-playbooks {
     grid-template-columns: 1fr;
   }
+  .frog-summary { grid-template-columns: repeat(3, auto 1fr); width: 100%; padding-inline: 0; }
+  .frog-presets { grid-template-columns: minmax(0, 1fr); }
   .frog-pond-scene {
     min-height: 31rem;
     border-radius: .75rem;
@@ -11400,8 +11455,8 @@ textarea {
     width: 4rem;
   }
   .frog-cluster {
-    right: .7rem;
-    left: .7rem;
+    right: auto;
+    left: auto;
     min-width: 0;
   }
 }
