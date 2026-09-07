@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { frogSpriteClips } from "../apps/web/src/lib/frogSprites";
-import { approachSnack, pondGreeting, pondJourney, pondLight } from "../apps/web/src/lib/pondLife";
+import { approachSnack, pondGreeting, pondJourney, pondLight, pondPads, pondPersonality, selectPondHunter } from "../apps/web/src/lib/pondLife";
 import ts from "../apps/web/node_modules/typescript/lib/typescript.js";
 
 const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
@@ -11,6 +11,14 @@ const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
 test("pond journeys stay bounded and tadpoles never croak", () => {
+  for (const seed of [0, 1, 2, 3]) {
+    expect(pondPads({ x: 50, y: 50 }, 960, 600)).toContainEqual(pondJourney({ x: 50, y: 50 }, seed, 0, false, 960, 600));
+    expect(pondPersonality(seed)).toBe(pondPersonality(seed));
+  }
+  const nearby = [{ id: "baby", x: 50, y: 50, pose: "tadpole" }, { id: "nap", x: 50, y: 50, pose: "sleeping" }, { id: "frog", x: 51, y: 50, pose: "working" }];
+  expect(selectPondHunter({ x: 50, y: 50 }, nearby, 1000, 600, new Set())?.id).toBe("frog");
+  expect(selectPondHunter({ x: 50, y: 50 }, nearby, 1000, 600, new Set(["frog"]))).toBeUndefined();
+  expect(selectPondHunter({ x: 10, y: 10 }, nearby, 1000, 600, new Set())).toBeUndefined();
   for (const width of [320, 960, 1920]) for (const tadpole of [true, false]) for (let tick = 0; tick < 300; tick++) {
     const point = pondJourney({ x: 50, y: 55 }, 47, tick, tadpole, width, 600);
     expect(point.x).toBeGreaterThanOrEqual(4);
@@ -24,6 +32,112 @@ test("pond journeys stay bounded and tadpoles never croak", () => {
   expect(pondGreeting(true, false)).toBe("bloop!");
   expect(pondGreeting(true, true)).toBe("nibble!");
   expect(pondLight(12)).toBe("day"); expect(pondLight(18)).toBe("dusk"); expect(pondLight(23)).toBe("night");
+});
+
+test("pond wardrobe, species feeding, scrapbook and quiet view preserve individual choices", async ({ page }) => {
+  await page.clock.install();
+  await page.route("**/api/make-ready-items?*", async route => {
+    const response = await route.fetch(); const items = await response.json();
+    await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, riskLevel: "NONE", overdue: false, completionStatus: index < 3 ? "YES" : "NO", vacancyStatus: index === 3 ? "NTV" : "VACANT_NOT_LEASED_NOT_READY" })) });
+  });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  const adult = page.locator(".frog-marker:not(.frog-pose-tadpole)").first();
+  await adult.click();
+  const personality = await page.getByTestId("pond-personality").textContent();
+  await page.getByTestId("pond-individual-outfit").selectOption("cowboy");
+  await expect.poll(() => adult.evaluate(el => getComputedStyle(el).getPropertyValue("--frog-sprite"))).toContain("frog-cowboy.png");
+  expect(await page.locator(".frog-marker:not(.frog-pose-tadpole)").nth(1).evaluate(el => getComputedStyle(el).getPropertyValue("--frog-sprite"))).not.toContain("cowboy");
+  const pad = page.locator(".pond-resting-pad").first();
+  const original = await pad.getAttribute("style");
+  await page.clock.runFor(4000);
+  await expect(pad).toHaveAttribute("style", original!);
+  await expect(page.locator(".frog-lily-pad")).toHaveCount(0);
+  await page.locator(".frog-pose-tadpole").first().click();
+  await expect(page.getByTestId("pond-individual-outfit")).toHaveCount(0);
+  await page.getByTestId("pond-feed-selected").click();
+  await expect(page.getByTestId("pond-snack-target")).toHaveClass(/pond-food-algae/);
+  await expect(page.locator(".pond-snack-guest:not(.frog-pose-tadpole)")).toHaveCount(0);
+  await expect(page.locator(".pond-snack-guest .frog-hello")).toHaveText("nibble!");
+  await page.clock.runFor(4000);
+  await page.getByTestId("pond-only-toggle").click();
+  await expect(page.getByTestId("pond-collection")).toBeHidden();
+  await expect(page.getByTestId("pond-only-toggle")).toHaveText("Exit pond-only view");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("pond-only-toggle")).toBeFocused();
+  await page.reload();
+  await page.getByTestId("tab-pond").click();
+  await adult.click();
+  await expect(page.getByTestId("pond-individual-outfit")).toHaveValue("cowboy");
+  await expect(page.getByTestId("pond-personality")).toHaveText(personality!);
+  const dated = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith("makereadyos.frogPond.collection.")).map(key => JSON.parse(localStorage.getItem(key)!)).some(value => Number.isFinite(Date.parse(value.discovered?.hello))));
+  expect(dated).toBeTruthy();
+  await page.getByTestId("pond-collection").locator("summary").click();
+  await page.getByRole("button", { name: "Natural pond", exact: true }).click();
+  await expect(page.getByTestId("pond-individual-outfit")).toHaveValue("inherit");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+});
+
+test("natural pond stays hat-free and Rodeo frogs is an earned optional outfit", async ({ page }) => {
+  let ready = 2;
+  await page.route("**/api/make-ready-items?*", async route => {
+    const response = await route.fetch(); const items = await response.json();
+    await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, completionStatus: index < ready ? "YES" : "NO", vacancyStatus: "VACANT_NOT_LEASED_NOT_READY", assignedTech: "Test tech", scopeLevel: "MAJOR", riskLevel: "CRITICAL" })) });
+  });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  const sheets = async () => {
+    await expect(page.locator(".frog-marker").first()).toBeVisible();
+    return page.locator(".frog-marker").evaluateAll(els => els.map(el => getComputedStyle(el).getPropertyValue("--frog-sprite")));
+  };
+  expect((await sheets()).every(sheet => /frog-(green|brown)\.png/.test(sheet))).toBeTruthy();
+  await page.getByTestId("pond-collection").locator("summary").click();
+  await expect(page.getByTestId("pond-reward-cowboy")).toBeDisabled();
+  await expect(page.getByTestId("pond-reward-cowboy")).toContainText("3 ready units together");
+  ready = 3;
+  await page.reload();
+  await page.getByTestId("tab-pond").click();
+  await page.getByTestId("pond-collection").locator("summary").click();
+  await expect(page.getByTestId("pond-reward-cowboy")).toBeEnabled();
+  expect((await sheets()).every(sheet => /frog-(green|brown)\.png/.test(sheet))).toBeTruthy();
+  await page.getByTestId("pond-reward-cowboy").click();
+  expect((await sheets()).every(sheet => sheet.includes("frog-cowboy.png"))).toBeTruthy();
+  await page.reload();
+  await page.getByTestId("tab-pond").click();
+  expect((await sheets()).every(sheet => sheet.includes("frog-cowboy.png"))).toBeTruthy();
+  await page.getByTestId("pond-collection").locator("summary").click();
+  await page.getByRole("button", { name: "Natural pond", exact: true }).click();
+  expect((await sheets()).every(sheet => /frog-(green|brown)\.png/.test(sheet))).toBeTruthy();
+});
+
+test("pond fly catch shows a tongue and nom before removing the fly", async ({ page }) => {
+  await page.clock.install();
+  await page.addInitScript(() => { Math.random = () => .5; });
+  await page.route("**/api/make-ready-items?*", async route => {
+    const response = await route.fetch(); const items = await response.json();
+    const item = { ...items[0], riskLevel: "NONE", overdue: false, completionStatus: "NO", vacancyStatus: "VACANT_NOT_LEASED_NOT_READY" };
+    await route.fulfill({ response, json: [item] });
+  });
+  await login(page, adminEmail, adminPassword);
+  const items = await (await page.request.get("/api/make-ready-items")).json();
+  await page.evaluate(id => localStorage.setItem("makereadyos.frogPond.positions", JSON.stringify({ [id]: { x: 50, y: 48 } })), items[0].id);
+  await page.getByTestId("tab-pond").click();
+  const frog = page.locator(".frog-marker").first();
+  await frog.focus();
+  let caught = false;
+  for (let i = 0; i < 120 && !caught; i++) {
+    await page.clock.runFor(220);
+    caught = await page.locator(".pond-catching").count() > 0;
+  }
+  expect(caught).toBeTruthy();
+  await expect(frog.locator(".frog-hello")).toHaveText("nom!");
+  await expect(page.locator(".pond-catch-tongues line")).toHaveCount(1);
+  await page.clock.runFor(440);
+  await expect(frog.locator(".frog-hello")).toHaveText("nom!");
+  await expect.poll(() => page.locator(".pond-fly").evaluateAll(els => els.some(el => (el as HTMLElement).style.opacity === "0"))).toBeTruthy();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(page.locator(".pond-catch-tongues line")).toHaveCount(0);
 });
 
 test("living pond supports tadpoles, targeted snacks, atmosphere and discoveries without changing work", async ({ page }) => {
