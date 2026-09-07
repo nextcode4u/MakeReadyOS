@@ -9929,7 +9929,7 @@ textarea {
 .frog-animated .frog-marker.frog-pose-celebrating:not(.frog-pose-tadpole) .frog-body { animation-duration: 4s; }
 .frog-pose-tadpole .frog-body { transform: scale(1.5) rotate(85deg); }
 .frog-animated .frog-pose-tadpole .frog-body { animation: pond-swim .9s ease-in-out infinite; }
-.pond-feeding.frog-animated .frog-pose-tadpole.pond-snack-guest .frog-body { animation: pond-swim .4s ease-in-out infinite; }
+.pond-feeding.frog-animated .frog-pose-tadpole.pond-nibbling .frog-body { animation: pond-swim .4s ease-in-out infinite; }
 .pond-greeting { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; min-height: 2.7rem; color: var(--muted); }
 .pond-greeting .button { margin-left: auto; }
 .pond-rewards { display: flex; flex-wrap: wrap; gap: .5rem; padding-bottom: .75rem; }
@@ -9989,7 +9989,8 @@ textarea {
 .pond-creature-actions label, .pond-food-choice { display: grid; gap: .25rem; min-width: 0; }
 .pond-creature-actions .button, .pond-creature-actions select { min-height: 44px; }
 .pond-only > .panel-heading, .pond-only > .frog-settings, .pond-only > .frog-group-summary, .pond-only > .frog-legend, .pond-only > .frog-cluster { display: none; }
-.pond-food-algae i { width: 6px; height: 4px; background: #8aaa40; border-radius: 0; box-shadow: 2px 2px #42672e; }
+.pond-food-algae { z-index: 91; }
+.pond-food-algae i { width: 6px; height: 4px; translate: -50% -50%; background: #8aaa40; border-radius: 0; box-shadow: 2px 2px #42672e; }
 .pond-food-flies { z-index: 91; }
 .pond-food-flies i { width: 32px; height: 32px; translate: -50% -37.5%; background: none; border-radius: 0; box-shadow: none; transition: left 220ms linear, top 220ms linear; }
 .frog-animated .pond-food-flies i { animation: none; }

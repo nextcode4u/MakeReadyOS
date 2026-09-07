@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { frogSpriteClips } from "../apps/web/src/lib/frogSprites";
+import { pondSoundNotes } from "../apps/web/src/lib/pondAudio";
 import { approachSnack, pondGreeting, pondJourney, pondLight, pondPads, pondPersonality, selectPondHunter } from "../apps/web/src/lib/pondLife";
 import ts from "../apps/web/node_modules/typescript/lib/typescript.js";
 
@@ -9,6 +10,22 @@ const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
 const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
+
+test("pond ribbit and munch have distinct envelopes and audible gain", () => {
+  const ribbit = pondSoundNotes("frog");
+  const munch = pondSoundNotes("catch");
+  expect(ribbit).toHaveLength(2);
+  expect(ribbit.every(note => note.wave === "square" && note.warble)).toBeTruthy();
+  expect(munch.every(note => note.duration < .1 && note.wave !== "square" && !note.warble)).toBeTruthy();
+  expect(Math.max(...ribbit.map(note => note.delay + note.duration))).toBeGreaterThan(.4);
+  expect(Math.max(...munch.map(note => note.delay + note.duration))).toBeLessThan(.2);
+  expect(pondSoundNotes("bubble")[0].gain).toBeGreaterThan(.055);
+  for (const cue of ["frog", "catch", "bubble", "splash", "visitor", "ready", "rain"] as const) {
+    const notes = pondSoundNotes(cue);
+    expect(notes.reduce((sum, note) => sum + note.gain, 0)).toBeLessThan(1);
+    expect(notes.every(note => note.frequency > 0 && note.end > 0 && note.duration > 0)).toBeTruthy();
+  }
+});
 
 test("pond audio plays automatically after opt-in and stays quiet when paused or hidden", async ({ page }) => {
   await page.clock.install();
@@ -24,7 +41,7 @@ test("pond audio plays automatically after opt-in and stays quiet when paused or
       async suspend() { this.state = "suspended"; }
       async close() { this.state = "closed"; }
       createGain() { return { gain: { value: 0, setValueAtTime: (v: number) => audio.volumes.push(v), linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() {} }; }
-      createOscillator() { return { frequency: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() {}, start() { audio.starts++; }, stop() {} }; }
+      createOscillator() { return { frequency: { setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() {}, start() { audio.starts++; }, stop() {} }; }
     }
     Object.assign(window, { AudioContext: FakeAudioContext });
   });
@@ -35,6 +52,7 @@ test("pond audio plays automatically after opt-in and stays quiet when paused or
   expect((await stats()).contexts).toBe(0);
   await page.getByRole("button", { name: "Sound: off", exact: true }).click();
   await expect(page.getByRole("slider", { name: "Pond volume" })).toBeVisible();
+  await expect(page.getByRole("slider", { name: "Pond volume" })).toHaveValue("65");
   await page.clock.runFor(26000);
   expect((await stats()).starts).toBeGreaterThan(0);
   await page.getByRole("slider", { name: "Pond volume" }).press("Home");
@@ -151,6 +169,77 @@ test("dropped flies are caught one at a time with a tongue reaching the mouth", 
   await expect(page.getByTestId("pond-snack-target")).toHaveCount(0);
 });
 
+test("tadpoles reach algae and nibble individual flakes without tongues", async ({ page }) => {
+  await page.clock.install();
+  await page.route("**/api/make-ready-items?*", async route => {
+    const response = await route.fetch(); const items = await response.json();
+    await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, riskLevel: "NONE", overdue: false, completionStatus: "NO", vacancyStatus: index < 3 ? "NTV" : "VACANT_NOT_LEASED_NOT_READY" })) });
+  });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  await page.getByTestId("pond-food").selectOption("algae");
+  await page.getByTestId("pond-feed").click();
+  const flakes = page.locator(".pond-food-algae i");
+  await expect(flakes).toHaveCount(3);
+  await expect(flakes.first()).toHaveCSS("width", "6px");
+  await expect(flakes.first()).toHaveCSS("height", "4px");
+  await expect(page.locator(".pond-nibbling")).toHaveCount(0);
+  const counts = new Set([3]);
+  let shrinking = false;
+  let nibbling = false;
+  for (let tick = 0; tick < 27; tick++) {
+    await page.clock.runFor(220);
+    counts.add(await flakes.count());
+    shrinking ||= await flakes.evaluateAll(els => els.some(el => Number((el as HTMLElement).style.scale) < 1));
+    nibbling ||= await page.locator(".pond-nibbling .frog-hello").count() > 0;
+    await expect(page.locator(".pond-food-tongue, .pond-nibbling:not(.frog-pose-tadpole), .pond-snack-guest.pond-catching")).toHaveCount(0);
+  }
+  expect([...counts].sort()).toEqual([0, 1, 2, 3]);
+  expect(shrinking && nibbling).toBeTruthy();
+  await expect(page.getByTestId("pond-snack-target")).toHaveCount(0);
+});
+
+test("pond clicks alternate food and skip unavailable species", async ({ page }) => {
+  await page.clock.install();
+  let species = "mixed";
+  await page.route("**/api/make-ready-items?*", async route => {
+    const response = await route.fetch(); const items = await response.json();
+    await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, riskLevel: "NONE", overdue: false, completionStatus: "NO", vacancyStatus: species === "tadpoles" || species === "mixed" && index === 0 ? "NTV" : "VACANT_NOT_LEASED_NOT_READY" })) });
+  });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  const clickWater = async () => {
+    const box = await page.getByTestId("frog-pond-scene").boundingBox();
+    await page.getByTestId("frog-pond-scene").click({ position: { x: box!.width / 2, y: 12 } });
+  };
+  for (const served of ["flies", "algae", "flies"]) {
+    await clickWater();
+    await expect(page.getByTestId("pond-snack-target")).toHaveClass(new RegExp(`pond-food-${served}`));
+    const next = served === "flies" ? "algae" : "flies";
+    await expect(page.getByTestId("pond-food")).toHaveValue(next);
+    await clickWater();
+    await expect(page.getByTestId("pond-food")).toHaveValue(next);
+    await page.clock.runFor(6000);
+  }
+  await page.locator(".frog-marker:not(.frog-pose-tadpole)").first().click();
+  await page.getByTestId("pond-feed-selected").click();
+  await expect(page.getByTestId("pond-snack-target")).toHaveClass(/pond-food-flies/);
+  await expect(page.getByTestId("pond-food")).toHaveValue("algae");
+  await page.clock.runFor(6000);
+  await page.getByTestId("pond-feed").click();
+  await expect(page.getByTestId("pond-snack-target")).toHaveClass(/pond-food-algae/);
+  for (const only of ["adults", "tadpoles"]) {
+    species = only;
+    await page.reload();
+    await page.getByTestId("tab-pond").click();
+    for (let i = 0; i < 2; i++) {
+      await page.getByTestId("pond-feed").click();
+      await expect(page.getByTestId("pond-snack-target")).toHaveClass(new RegExp(`pond-food-${only === "adults" ? "flies" : "algae"}`));
+      await page.clock.runFor(6000);
+    }
+  }
+});
+
 test("pond journeys stay bounded and tadpoles never croak", () => {
   for (const seed of [0, 1, 2, 3]) {
     expect(pondPads({ x: 50, y: 50 }, 960, 600)).toContainEqual(pondJourney({ x: 50, y: 50 }, seed, 0, false, 960, 600));
@@ -170,6 +259,9 @@ test("pond journeys stay bounded and tadpoles never croak", () => {
   const food = { x: 70, y: 70, tick: 9996, guests: ["a"] };
   expect(approachSnack({ x: 50, y: 50 }, food, "a", 4).x).toBe(72);
   expect(approachSnack({ x: 50, y: 50 }, food, "b", 4)).toEqual({ x: 50, y: 50 });
+  const algae = { ...food, tick: 0, food: "algae" as const };
+  expect(approachSnack({ x: 50, y: 50 }, algae, "a", 8)).toEqual({ x: 72.5, y: 72 });
+  expect(approachSnack({ x: 40, y: 40 }, algae, "a", 16)).toEqual({ x: 72.5, y: 72 });
   expect(pondGreeting(true, false)).toBe("bloop!");
   expect(pondGreeting(true, true)).toBe("nibble!");
   expect(pondLight(12)).toBe("day"); expect(pondLight(18)).toBe("dusk"); expect(pondLight(23)).toBe("night");
@@ -199,6 +291,8 @@ test("pond wardrobe, species feeding, scrapbook and quiet view preserve individu
   await page.getByTestId("pond-feed-selected").click();
   await expect(page.getByTestId("pond-snack-target")).toHaveClass(/pond-food-algae/);
   await expect(page.locator(".pond-snack-guest:not(.frog-pose-tadpole)")).toHaveCount(0);
+  await expect(page.locator(".pond-nibbling")).toHaveCount(0);
+  await page.clock.runFor(2200);
   await expect(page.locator(".pond-snack-guest .frog-hello")).toHaveText("nibble!");
   await page.clock.runFor(4000);
   await page.getByTestId("pond-only-toggle").click();
