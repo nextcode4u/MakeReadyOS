@@ -630,7 +630,7 @@ async function processItem(itemId: string, options: {
   const updated = await prisma.makeReadyItem.update({
     where: { id: itemId },
     data: {
-      ...derived,
+      ...computeDerivedFields(next),
       ...normalizeItemPatch(automationPatch),
       priority: typeof next.priority === "number" ? next.priority : item.priority,
     },

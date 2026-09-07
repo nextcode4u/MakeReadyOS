@@ -1,8 +1,12 @@
-export type PondSound = "frog" | "bubble" | "catch" | "splash" | "visitor" | "ready" | "rain";
+export type PondSound = "frog" | "bubble" | "catch" | "splash" | "visitor" | "ready" | "rain" | "crystal-low" | "crystal-middle" | "crystal-high";
 
 // Short, synthesized cues only: no looping audio or external audio downloads.
 type PondNote = { frequency: number; end: number; delay: number; duration: number; gain: number; wave: OscillatorType; warble?: boolean };
 export function pondSoundNotes(cue: PondSound): PondNote[] {
+  if (cue === "crystal-low" || cue === "crystal-middle" || cue === "crystal-high") {
+    const frequency = { "crystal-low": 523, "crystal-middle": 659, "crystal-high": 784 }[cue];
+    return [{ frequency, end: frequency, delay: 0, duration: .35, gain: .16, wave: "sine" }];
+  }
   if (cue === "frog") return [
     { frequency: 230, end: 135, delay: 0, duration: .25, gain: .11, wave: "square", warble: true },
     { frequency: 185, end: 105, delay: .29, duration: .19, gain: .095, wave: "square", warble: true },
@@ -49,7 +53,7 @@ export class PondAudio {
     if (this.context.state !== "running") return;
     const now = this.context.currentTime;
     // A busy pond should not produce a chorus of overlapping catch sounds.
-    if (now - this.lastCue < .7) return;
+    if (now - this.lastCue < (cue.startsWith("crystal-") ? .12 : .7)) return;
     this.lastCue = now;
     pondSoundNotes(cue).forEach(note => {
       const start = now + note.delay;

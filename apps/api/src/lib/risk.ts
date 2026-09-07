@@ -2,6 +2,7 @@ import type { MakeReadyItem, Prisma, PropertyRiskPolicy } from "@prisma/client";
 import { createNotification } from "./notifications.js";
 import { prisma } from "./prisma.js";
 import { queueWebhookEvent } from "./webhookQueue.js";
+import { isTurnReady } from "./board.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -127,7 +128,7 @@ export function evaluateItemRisk(item: RiskItem, now = new Date(), policyInput?:
     add({ category: "MOVE_IN_RISK", level: "MEDIUM", score: 45, message: `Move-in is within ${policy.moveInMediumDays} days and still needs work.` });
   }
 
-  if (item.overdue || (item.makeReadyDate && item.makeReadyDate < startOfDay(now) && incomplete)) {
+  if (!isTurnReady(item) && (item.overdue || (item.makeReadyDate && item.makeReadyDate < startOfDay(now) && incomplete))) {
     add({ category: "OVERDUE_MAKE_READY", level: "HIGH", score: 70, message: "Make-ready date is overdue and completion is not done." });
   }
 

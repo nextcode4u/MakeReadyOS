@@ -149,6 +149,12 @@ function diffInDays(from: Date, to: Date): number {
   return Math.floor((startOfDay(to).getTime() - startOfDay(from).getTime()) / DAY_MS);
 }
 
+export function isTurnReady(item: Pick<Partial<MakeReadyItem>, "vacancyStatus" | "completionStatus">) {
+  const normalize = (value: string | null | undefined) => String(value ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+  return ["VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY"].includes(normalize(item.vacancyStatus))
+    || ["DONE", "YES", "COMPLETE", "COMPLETED"].includes(normalize(item.completionStatus));
+}
+
 export function computeDerivedFields(item: Partial<MakeReadyItem>, now = new Date()) {
   const sourceVacantDate = item.vacatedDate ?? item.moveOutDate ?? null;
   const daysVacant = sourceVacantDate ? Math.max(0, diffInDays(sourceVacantDate, now)) : 0;
@@ -156,16 +162,14 @@ export function computeDerivedFields(item: Partial<MakeReadyItem>, now = new Dat
   const overdue = Boolean(
     item.makeReadyDate &&
       diffInDays(item.makeReadyDate, now) > 0 &&
-      item.completionStatus !== "DONE" &&
-      item.completionStatus !== "YES",
+      !isTurnReady(item),
   );
   const moveInSoon = Boolean(
     item.moveInDate &&
       daysUntilMoveIn !== null &&
       daysUntilMoveIn >= 0 &&
       daysUntilMoveIn <= 3 &&
-      item.completionStatus !== "DONE" &&
-      item.completionStatus !== "YES",
+      !isTurnReady(item),
   );
 
   return {

@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { frogSpriteClips } from "../apps/web/src/lib/frogSprites";
 import { pondSoundNotes } from "../apps/web/src/lib/pondAudio";
+import { gardenWaterings, localPondDate, pondSecrets, pondSeason, pondWildlife, wildlifeVisible } from "../apps/web/src/lib/pondDiscoveries";
 import { approachSnack, pondGreeting, pondJourney, pondLight, pondPads, pondPersonality, selectPondHunter } from "../apps/web/src/lib/pondLife";
 import ts from "../apps/web/node_modules/typescript/lib/typescript.js";
 
@@ -10,6 +11,112 @@ const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
 const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
+
+test("pond ecosystem discovery rules and crystal pitches", () => {
+  expect(new Set(pondSecrets.map(secret => secret.theme)).size).toBe(15);
+  expect(pondWildlife).toHaveLength(7);
+  expect(wildlifeVisible("butterfly", 100, "night")).toBe(false);
+  expect(wildlifeVisible("butterfly", 100, "day")).toBe(true);
+  expect(wildlifeVisible("fireflies", 100, "night")).toBe(true);
+  expect(wildlifeVisible("axolotl", 700, "day")).toBe(true);
+  expect(wildlifeVisible("axolotl", 20, "day")).toBe(false);
+  expect(localPondDate(new Date(2026, 8, 7))).toBe("2026-09-07");
+  expect(gardenWaterings({ "garden-2026-09-01": "x", "garden-2026-09-07": "x", "wild-snail": "x" })).toBe(2);
+  expect([0,3,6,9].map(pondSeason)).toEqual(["winter", "spring", "summer", "autumn"]);
+  expect(["crystal-low", "crystal-middle", "crystal-high"].map(cue => pondSoundNotes(cue as "crystal-low")[0].frequency)).toEqual([523,659,784]);
+});
+
+test("pond ecosystem secrets unlock cosmetics, persist and fit mobile", async ({ page }) => {
+  await page.clock.install();
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  await page.getByTestId("frog-settings-toggle").click();
+  const theme = page.getByTestId("frog-theme");
+  await theme.selectOption("pond-12");
+  await page.getByTestId("pond-theme-secret").click();
+  await expect(page.getByRole("status").filter({ hasText: "Little barista discovered" })).toBeVisible();
+  await page.getByTestId("pond-collection").locator("summary").click();
+  await page.getByTestId("pond-reward-barista").click();
+  await expect(page.locator(".pond-barista").first()).toBeVisible();
+  await theme.selectOption("pond-07");
+  await page.getByRole("button", { name: "Play low crystal", exact: true }).click();
+  await page.getByRole("button", { name: "Play high crystal", exact: true }).click();
+  await page.getByRole("button", { name: "Play middle crystal", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Crystal melody discovered" })).toBeVisible();
+  await theme.selectOption("pond-08");
+  await page.getByTestId("pond-theme-secret").click();
+  await expect(page.locator(".pond-dancing").first()).toBeVisible();
+  await page.getByRole("button", { name: "Pause motion", exact: true }).click();
+  await expect(page.locator(".pond-dancing .frog-body").first()).toHaveCSS("animation-name", "none");
+  await page.getByRole("button", { name: "Resume motion", exact: true }).click();
+  await theme.selectOption("pond-13");
+  await page.getByTestId("pond-theme-secret").click();
+  await page.getByText("Pond decorations", { exact: true }).click();
+  await page.getByRole("combobox", { name: "Rare frog colors" }).selectOption("mint");
+  await page.getByRole("combobox", { name: "Pond season" }).selectOption("winter");
+  await expect(page.locator(".pond-season-winter")).toHaveCount(1);
+  await page.getByTestId("frog-pond-scene").screenshot({ path: "/tmp/mros-ecosystem-desktop.png" });
+  await page.reload();
+  await page.getByTestId("tab-pond").click();
+  await page.getByTestId("pond-field-guide").locator("summary").click();
+  await expect(page.locator('[data-discovery="secret-pond-12"]')).toContainText("Little barista");
+  await expect(page.locator('[data-discovery="secret-pond-07"]')).toContainText("Crystal melody");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.getByTestId("frog-pond-scene").screenshot({ path: "/tmp/mros-ecosystem-mobile.png" });
+  expect(errors).toEqual([]);
+});
+
+test("pond ecosystem wildlife cycle, adult chorus and pause leave work untouched", async ({ page }) => {
+  test.setTimeout(90000);
+  await page.clock.install({ time: new Date(2026, 8, 7, 12) });
+  await login(page, adminEmail, adminPassword);
+  const mutations: string[] = [];
+  page.on("request", request => { if (/\/api\/items\//.test(request.url()) && ["PATCH", "PUT", "POST", "DELETE"].includes(request.method())) mutations.push(request.url()); });
+  await page.getByTestId("tab-pond").click();
+  await page.getByTestId("pond-field-guide").locator("summary").click();
+  const discovered = (id: string) => page.locator(`[data-discovery="${id}"] .pond-pixel`);
+  await expect(discovered("wild-strider")).not.toHaveClass(/pond-undiscovered/);
+  await page.getByRole("button", { name: "Pause motion", exact: true }).click();
+  await page.clock.runFor(20000);
+  await expect(discovered("wild-butterfly")).toHaveClass(/pond-undiscovered/);
+  await expect(page.getByTestId("pond-wild-strider")).toHaveCSS("animation-name", "none");
+  await page.getByRole("button", { name: "Resume motion", exact: true }).click();
+  await page.locator(".frog-marker:not(.frog-pose-tadpole)").first().click();
+  await page.clock.runFor(1320);
+  await expect(discovered("antic-chorus")).not.toHaveClass(/pond-undiscovered/);
+  await page.mouse.move(0, 0);
+  await page.clock.runFor(15000);
+  await expect(discovered("wild-butterfly")).not.toHaveClass(/pond-undiscovered/);
+  await page.clock.runFor(60000);
+  await expect(discovered("wild-snail")).not.toHaveClass(/pond-undiscovered/);
+  await expect(discovered("wild-turtle")).not.toHaveClass(/pond-undiscovered/);
+  await page.clock.runFor(80000);
+  await expect(discovered("wild-duck")).not.toHaveClass(/pond-undiscovered/);
+  await expect(discovered("wild-axolotl")).not.toHaveClass(/pond-undiscovered/);
+  expect(mutations).toEqual([]);
+});
+
+test("pond ecosystem garden counts distinct visits without a streak", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 8, 7, 12) });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  await page.getByTestId("frog-settings-toggle").click();
+  await page.getByTestId("frog-theme").selectOption("pond-15");
+  await page.getByTestId("pond-theme-secret").click();
+  await page.getByTestId("pond-theme-secret").click();
+  await expect(page.getByLabel("Garden: 1 of 3 watering days")).toBeVisible();
+  await page.clock.setSystemTime(new Date(2026, 8, 10, 12));
+  await page.getByTestId("pond-theme-secret").click();
+  await expect(page.getByLabel("Garden: 2 of 3 watering days")).toBeVisible();
+  await page.clock.setSystemTime(new Date(2026, 8, 16, 12));
+  await page.getByTestId("pond-theme-secret").click();
+  await expect(page.getByLabel("Garden: 3 of 3 watering days")).toContainText("Sunflower in bloom");
+  await page.getByTestId("pond-field-guide").locator("summary").click();
+  await expect(page.locator('[data-discovery="secret-pond-15"]')).toContainText("Sunflower gardener");
+});
 
 test("pond ribbit and munch have distinct envelopes and audible gain", () => {
   const ribbit = pondSoundNotes("frog");
@@ -1033,6 +1140,17 @@ test("properties select companies independently and preserve both logos in backu
   await panel.getByText("Edit shared company branding", { exact: true }).click();
   await panel.getByLabel("Company logo", { exact: true }).setInputFiles(file);
   await expect(panel.getByRole("status")).toContainText("Shared company logo saved");
+  for (const width of [1280, 820, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const name = page.getByTestId("property-edit-name");
+    await expect(name).toBeVisible();
+    const nameBox = await name.boundingBox();
+    const brandingBox = await panel.boundingBox();
+    expect(nameBox!.height).toBeLessThan(65);
+    expect(nameBox!.y).toBeGreaterThanOrEqual(brandingBox!.y + brandingBox!.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  }
+  await page.locator(".property-editor").screenshot({ path: "/tmp/mros-branding-layout-mobile.png" });
   await panel.getByRole("button", { name: "Save property branding", exact: true }).click();
   await expect(panel.getByRole("status")).toHaveText("Property branding saved.");
   const saved = (await (await page.request.get(`/api/property-branding/${property.id}`)).json()).property.branding;
