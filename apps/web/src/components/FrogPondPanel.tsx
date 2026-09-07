@@ -386,12 +386,14 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
   const [rearranging, setRearranging] = useState(false);
   const [sceneWidth, setSceneWidth] = useState(960);
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const [allowReducedMotion, setAllowReducedMotion] = useState(false);
   const [pageVisible, setPageVisible] = useState(() => !document.hidden);
-  const motionEnabled = config.animated && !reducedMotion && pageVisible && !rearranging;
+  const deviceMotionBlocked = reducedMotion && !allowReducedMotion;
+  const motionEnabled = config.animated && !deviceMotionBlocked && pageVisible && !rearranging;
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const motion = () => setReducedMotion(media.matches);
+    const motion = () => { setReducedMotion(media.matches); setAllowReducedMotion(false); };
     const visibility = () => setPageVisible(!document.hidden);
     media.addEventListener("change", motion);
     document.addEventListener("visibilitychange", visibility);
@@ -597,7 +599,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
   if (error) return <StatusState title={isSpanish ? "Frog Pond no disponible" : "Frog Pond unavailable"} description={isSpanish ? "Actualice los datos del tablero e intentelo de nuevo." : "Refresh the board data and try again."} tone="error" />;
 
   return (
-    <section className={`frog-pond-shell frog-theme-${config.theme} frog-density-${config.density}${motionEnabled ? " frog-animated" : ""}${rearranging ? " frog-rearranging" : ""}${feeding ? " pond-feeding" : ""}`} data-testid="frog-pond-panel">
+    <section className={`frog-pond-shell frog-theme-${config.theme} frog-density-${config.density}${motionEnabled ? " frog-animated" : ""}${allowReducedMotion ? " frog-motion-opt-in" : ""}${rearranging ? " frog-rearranging" : ""}${feeding ? " pond-feeding" : ""}`} data-testid="frog-pond-panel">
       <header className="panel-heading">
         <div>
           <h2>Frog Pond</h2>
@@ -613,9 +615,15 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
       <div className="frog-scene-tools">
         <span>{isSpanish ? "Su tablero, con un poco de vida." : "A little life in your workday."}</span>
         <button type="button" className="button button-primary" data-testid="pond-feed" disabled={feeding || !scopedItems.length} onClick={() => { setFeeding(true); setCollection(current => ({ ...current, feeds: Math.min(10000, current.feeds + 1) })); }}>{feeding ? (isSpanish ? "Hora de comer!" : "Snack time!") : (isSpanish ? "Dar comida" : "Feed the pond")}</button>
-        <button type="button" className="button button-secondary" aria-pressed={!config.animated} onClick={() => updateConfig({ animated: !config.animated })}>{config.animated ? (isSpanish ? "Pausar movimiento" : "Pause motion") : (isSpanish ? "Activar movimiento" : "Resume motion")}</button>
+        <button type="button" className="button button-secondary" disabled={deviceMotionBlocked || rearranging} aria-pressed={!motionEnabled} onClick={() => updateConfig({ animated: !config.animated })}>{motionEnabled ? (isSpanish ? "Pausar movimiento" : "Pause motion") : (isSpanish ? "Activar movimiento" : "Resume motion")}</button>
         <button type="button" className="button button-secondary" aria-pressed={rearranging} onClick={() => setRearranging(!rearranging)}>{rearranging ? (isSpanish ? "Terminar" : "Done arranging") : (isSpanish ? "Organizar ranas" : "Arrange frogs")}</button>
-        {reducedMotion ? <small>{isSpanish ? "Movimiento reducido del dispositivo activo" : "Device reduced-motion setting is on"}</small> : null}
+        <small role="status" data-testid="pond-motion-status">{deviceMotionBlocked
+          ? (isSpanish ? "Animaciones pausadas: movimiento reducido del dispositivo activo." : "Animations paused: Device reduced-motion setting is on")
+          : rearranging ? (isSpanish ? "Animaciones pausadas mientras organiza las ranas." : "Animations paused while arranging frogs")
+          : motionEnabled ? (isSpanish ? "Animaciones activas" : "Animations playing")
+          : (isSpanish ? "Animaciones pausadas" : "Animations paused")}</small>
+        {deviceMotionBlocked ? <button type="button" className="button button-secondary" onClick={() => { setAllowReducedMotion(true); updateConfig({ animated: true }); }}>{isSpanish ? "Activar animaciones de todos modos" : "Play animations anyway"}</button> : null}
+        {reducedMotion && allowReducedMotion ? <button type="button" className="button button-secondary" onClick={() => setAllowReducedMotion(false)}>{isSpanish ? "Respetar movimiento reducido" : "Use device motion preference"}</button> : null}
       </div>
       <details className="frog-settings">
         <summary data-testid="frog-settings-toggle">{isSpanish ? "Ajustes del estanque" : "Pond settings"}<span>{isSpanish ? "Vista, colores y temas" : "View, colors & scenery"}</span></summary>

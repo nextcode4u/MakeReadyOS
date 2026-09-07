@@ -9960,7 +9960,7 @@ textarea {
 @keyframes pond-munch { 0%, 100% { transform: scale(1.72); } 50% { transform: translateY(-7px) scale(1.85, 1.5); } }
 @keyframes pond-snack { from { transform: translateY(-90px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @media (max-width: 700px) { .frog-animated .frog-marker { --roam-x: 10px; --roam-y: 10px; } }
-@media (prefers-reduced-motion: reduce) { .frog-pond-shell *, .frog-pond-shell *::before, .frog-pond-shell *::after { animation: none !important; transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { .frog-pond-shell:not(.frog-motion-opt-in) *, .frog-pond-shell:not(.frog-motion-opt-in) *::before, .frog-pond-shell:not(.frog-motion-opt-in) *::after { animation: none !important; transition: none !important; } }
 
 @keyframes frog-bob {
   0%, 100% { translate: 0 0; }
