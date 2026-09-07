@@ -2311,6 +2311,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByRole("combobox", { name: "Pool log property" }).selectOption({ index: 1 });
 
     await page.getByTestId("pool-tab-setup").click();
+    const facilityForm = await page.getByTestId("pool-facility-form").elementHandle();
     await page.getByTestId("pool-facility-name").fill(uniqueTag("QA Pool"));
     const facilityResponse = page.waitForResponse((response) =>
       response.url().includes("/api/pool/facilities") && response.request().method() === "POST",
@@ -2319,6 +2320,8 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect((await facilityResponse).status()).toBe(201);
 
     await page.getByTestId("pool-tab-chemicals").click();
+    // An in-flight facility save must not reset the chemical form after switching tabs.
+    expect(await facilityForm!.evaluate(form => form.isConnected)).toBe(false);
     const chemicalName = uniqueTag("QA Cal-Hypo");
     await page.getByTestId("pool-chemical-name").fill(chemicalName);
     const chemicalResponse = page.waitForResponse((response) =>

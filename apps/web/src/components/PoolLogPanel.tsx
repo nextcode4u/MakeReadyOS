@@ -728,7 +728,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
         </>
       ) : tab === "daily" ? (
         <div className="pool-grid pool-daily-grid">
-          <form className="pool-card pool-form" data-testid="pool-daily-form" onSubmit={submitDailyLog}>
+          <form key={`daily-${propertyId}`} className="pool-card pool-form" data-testid="pool-daily-form" onSubmit={submitDailyLog}>
             {!facilities.length ? <StatusState title={isSpanish ? "No hay piscinas o spas configurados" : "No pools or spas configured"} description={isSpanish ? "Cree una piscina/spa en Configuración antes de registrar lecturas." : "Create a pool/spa in Setup before logging readings."} /> : null}
             <div className="form-grid">
               <label>{isSpanish ? "Piscina/spa" : "Pool/spa"}
@@ -877,7 +877,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
         </div>
       ) : tab === "setup" ? (
         <div className="pool-grid">
-          <form className="pool-card pool-form" data-testid="pool-facility-form" onSubmit={submitFacility}>
+          <form key={`facility-${propertyId}`} className="pool-card pool-form" data-testid="pool-facility-form" onSubmit={submitFacility}>
             <h2>{isSpanish ? "Agregar piscina/spa" : "Add pool/spa"}</h2>
             <input name="name" data-testid="pool-facility-name" placeholder={isSpanish ? "Nombre de piscina/spa" : "Pool/spa name"} required disabled={!canManage} />
             <select name="type" disabled={!canManage}>{poolTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select>
@@ -938,7 +938,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
         </div>
       ) : tab === "chemicals" ? (
         <div className="pool-grid">
-          <form className="pool-card pool-form" data-testid="pool-chemical-form" onSubmit={submitChemical}>
+          <form key={`chemical-${propertyId}`} className="pool-card pool-form" data-testid="pool-chemical-form" onSubmit={submitChemical}>
             <h2>{isSpanish ? "Agregar químico" : "Add chemical"}</h2>
             <input name="name" data-testid="pool-chemical-name" placeholder={isSpanish ? "Nombre del químico" : "Chemical name"} required disabled={!canManage} />
             <select name="category" disabled={!canManage}>{chemicalCategories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select>
