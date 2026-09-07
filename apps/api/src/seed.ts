@@ -4,6 +4,7 @@ import { hashPassword } from "./lib/password.js";
 import { prisma } from "./lib/prisma.js";
 import { computeDerivedFields } from "./lib/board.js";
 import { evaluateAndPersistItemRisk } from "./lib/risk.js";
+import { ensureBootstrapAdmin } from "./lib/bootstrapAdmin.js";
 
 const labelSeed = {
   vacancyStatus: [
@@ -262,41 +263,7 @@ function defaultSections(propertyId: string, code: string) {
 }
 
 async function main() {
-  const adminPasswordHash = await hashPassword(authConfig.adminPassword);
-  const existingAdmin = await prisma.user.findFirst({
-    where: {
-      OR: [
-        { username: authConfig.adminUsername },
-        ...(authConfig.adminEmail ? [{ email: authConfig.adminEmail }] : []),
-      ],
-    },
-  });
-  let adminUserId: string;
-
-  if (existingAdmin) {
-    const updated = await prisma.user.update({
-      where: { id: existingAdmin.id },
-      data: {
-        username: authConfig.adminUsername,
-        email: authConfig.adminEmail,
-        passwordHash: adminPasswordHash,
-        role: UserRole.ADMIN,
-        isActive: true,
-      },
-    });
-    adminUserId = updated.id;
-  } else {
-    const created = await prisma.user.create({
-      data: {
-        username: authConfig.adminUsername,
-        email: authConfig.adminEmail,
-        passwordHash: adminPasswordHash,
-        fullName: "Default Admin",
-        role: UserRole.ADMIN,
-      },
-    });
-    adminUserId = created.id;
-  }
+  const adminUserId = await ensureBootstrapAdmin(prisma, { username: authConfig.adminUsername, email: authConfig.adminEmail, password: authConfig.adminPassword });
 
   let demoTechUserId: string | null = null;
   let demoLeasingUserId: string | null = null;
