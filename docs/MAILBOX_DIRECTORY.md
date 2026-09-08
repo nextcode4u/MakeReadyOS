@@ -1,7 +1,5 @@
 # Unit Mailbox Directory
 
-Local implementation, not deployed. Migration: `20260908010000_unit_mailbox_directory` adds nullable `Unit.mailboxNumber`. Availability and existing unit-directory imports leave mailbox assignments untouched. Native and database backups preserve them; native merge keeps matching existing units, as before.
-
 ## Setup
 
 Under Setup > Properties, select the property and open **Mailbox directory / import**. The property code/name stays visible above the preview and Apply button. Admins and property-scoped managers may import; API tokens and other roles cannot.
