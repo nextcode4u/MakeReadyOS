@@ -99,6 +99,20 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
         <strong>{data.stats.dueSoon}<span>{t(language, "myWork.dueSoon")}</span></strong>
         <strong>{data.stats.openChecklistTasks}<span>{t(language, "myWork.openTasks")}</span></strong>
       </div>
+      <section data-testid="my-work-upcoming">
+        <h3>{language === "es" ? "Próximos turnos previstos" : "Expected upcoming turns"} ({data.forecast?.turns.length ?? 0})</h3>
+        <p className="helper-copy">{language === "es" ? "Asignaciones tentativas según el reparto de cada propiedad y el orden previsto de desocupación. Pueden cambiar; no son asignaciones confirmadas ni avisos para iniciar trabajo." : "Tentative assignments based on each property's split and expected vacancy order. These can change; they are not confirmed assignments or instructions to start work."}</p>
+        {data.forecast?.warnings.map(warning => <p key={warning} role="status">{warning}</p>)}
+        {!data.forecast?.turns.length ? <p className="empty-copy">{language === "es" ? "No hay turnos tentativos próximos. Se necesita un reparto habilitado y fechas de salida previstas." : "No tentative upcoming turns. Forecasts need an enabled staff split and expected vacancy dates."}</p> : <div className="my-work-list">
+          {data.forecast.turns.map(turn => <article className="my-work-card" key={turn.id} data-testid={`my-work-forecast-${turn.id}`}>
+            <div><strong>{turn.title}</strong><span>{turn.propertyName}</span></div>
+            <strong>{language === "es" ? "Inicio previsto" : "Expected start"}: {turn.expectedStartDate.slice(0, 10)}</strong>
+            <div className="my-work-tags"><span>{language === "es" ? "Asignación tentativa" : "Tentative assignment"}</span><span>{turn.projectedStart ? (language === "es" ? "Fecha proyectada" : "Projected date") : (language === "es" ? "Fecha guardada" : "Saved start date")}</span><span>{turn.percent}% {language === "es" ? "del reparto de la propiedad" : "property share"}</span></div>
+            <div className="my-work-actions"><button type="button" className="button button-secondary" onClick={() => onOpenItem(turn.id)}>{language === "es" ? "Ver unidad" : "View unit"}</button></div>
+          </article>)}
+        </div>}
+      </section>
+      <h3>{language === "es" ? "Asignaciones confirmadas" : "Confirmed assignments"}</h3>
       {data.items.length === 0 && projectItems.length === 0 && pestItems.length === 0 && leaseComplianceItems.length === 0 && pmTasks.length === 0 ? <p className="empty-copy">{t(language, "myWork.empty")}</p> : (
         <div className="my-work-list">
           {workItems.map(({ item, tasks, done }) => {
@@ -115,6 +129,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                   {item.moveInSoon ? <b className="warning">{t(language, "myWork.moveInSoon")}</b> : null}
                   {item.riskLevel && item.riskLevel !== "NONE" ? <b className={item.riskLevel === "CRITICAL" || item.riskLevel === "HIGH" ? "risk" : "warning"}>{item.riskLevel} {t(language, "myWork.riskSuffix")}</b> : null}
                   <span>{item.makeReadyStatus ?? t(language, "myWork.statusUnset")}</span>
+                  {!isInspection && item.expectedStart ? <span>{language === "es" ? "Inicio previsto" : "Expected start"}: {item.expectedStart.date.slice(0, 10)}{item.expectedStart.projected ? (language === "es" ? " (proyectado)" : " (projected)") : ""}</span> : null}
                   {item.workAssignmentBlocks?.map(block => <span key={block.id}>{tWithVars(language, "myWork.planned", { date: block.plannedDate.slice(0, 10), category: block.category === "FINAL_WALK_INSPECTION" ? "Final walk inspection" : block.category })}</span>)}
                 </div>
                 {tasks.length || activeSession ? <div className="my-work-progress">

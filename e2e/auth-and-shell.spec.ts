@@ -1345,6 +1345,49 @@ test("assigned work shows upcoming unassigned starts without creating assignment
   expect(saved.customFieldValues).toHaveLength(0);
 });
 
+test("My Work forecasts personal upcoming turns without confirming assignments", async ({ page }) => {
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const { csrfToken, user } = await (await session).json();
+  const headers = { "x-csrf-token": csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `MW${Date.now()}`, name: "Personal Forecast" });
+  const { unit } = await post("/operations/units", { propertyId: property.id, number: "PERSONAL-1" });
+  const meta = await (await page.request.get("/api/meta")).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, moveOutDate: "2099-09-10", vacancyStatus: "NTV LEASED", completionStatus: "NO" });
+  const policy = { enabled: true, shares: [{ userId: user.id, percent: 100 }] };
+  expect((await page.request.put(`/api/automations/turn-assignment/${property.id}`, { headers, data: policy })).ok()).toBeTruthy();
+  const first = await (await page.request.get("/api/my-work")).json();
+  const forecast = first.forecast.turns.find((turn: any) => turn.id === item.id);
+  expect(forecast).toMatchObject({ percent: 100, projectedStart: true });
+  expect(forecast.expectedStartDate).toMatch(/^2099-/);
+  expect(first.items.some((turn: any) => turn.id === item.id)).toBe(false);
+  const second = await (await page.request.get("/api/my-work")).json();
+  expect(second.forecast).toEqual(first.forecast);
+  expect(second.stats).toEqual(first.stats);
+  await page.reload();
+  await page.getByTestId("tab-my-work").click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const card = page.getByTestId(`my-work-forecast-${item.id}`);
+  await expect(card).toContainText("Tentative assignment");
+  await expect(card).toContainText(`Expected start: ${forecast.expectedStartDate.slice(0, 10)}`);
+  await expect(card.getByRole("button", { name: "Start Work" })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await card.getByRole("button", { name: "View unit" }).click();
+  await expect(page.getByTestId("item-drawer")).toBeVisible();
+  const saved = await (await page.request.get(`/api/make-ready-items/${item.id}`)).json();
+  expect(saved.assignedTech).toBeNull();
+  expect(saved.customFieldValues).toHaveLength(0);
+  expect((await page.request.put(`/api/automations/turn-assignment/${property.id}`, { headers, data: { ...policy, enabled: false } })).ok()).toBeTruthy();
+  const paused = await (await page.request.get("/api/my-work")).json();
+  expect(paused.forecast.turns.some((turn: any) => turn.id === item.id)).toBe(false);
+  expect(paused.forecast.warnings.join(" ")).toContain("paused");
+});
+
 test("start calendar projects upcoming unassigned notices across properties without saving dates", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("makereadyos.boardWindowedMode", "true"));
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");

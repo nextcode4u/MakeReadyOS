@@ -15,6 +15,7 @@ import { notifyAssignedStaff } from "../lib/notifications.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
 import { plannedTurnStart } from "../lib/turnStartProjection.js";
+import { myWorkForecast } from "../lib/myWorkForecast.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 
@@ -1578,7 +1579,8 @@ export async function collaborationRoutes(app: FastifyInstance) {
         ],
       },
       include: {
-        property: true,
+        property: { include: { operatingCalendar: true } },
+        customFieldValues: { where: { customField: { fieldKey: "turnMaintenanceDate", isArchived: false } } },
         checklistInstances: { include: { items: true } },
         workAssignmentBlocks: { where: { assignedUserId: target.id, status: { in: ["PLANNED", "IN_PROGRESS"] } }, orderBy: { plannedDate: "asc" } },
       },
@@ -1670,6 +1672,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
     soonCutoff.setDate(soonCutoff.getDate() + 7);
     return {
       target: { id: target.id, fullName: target.fullName },
+      forecast: await myWorkForecast(target.id, scopedProperties),
       stats: {
         total: items.length + projectItems.length + pestItems.length + leaseComplianceItems.length + pmTasks.length,
         overdue: items.filter((entry) => entry.overdue).length
@@ -1684,7 +1687,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
           + pmTasks.filter((entry) => entry.dueDate >= today && entry.dueDate <= soonCutoff).length,
         openChecklistTasks: items.flatMap((entry) => entry.checklistInstances.flatMap((instance) => instance.items)).filter((entry) => !entry.completed).length,
       },
-      items,
+      items: items.map(item => ({ ...item, expectedStart: plannedTurnStart(item, item.customFieldValues[0]?.value, item.property.operatingCalendar) })),
       projectItems,
       pestItems,
       leaseComplianceItems,
