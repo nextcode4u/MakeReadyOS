@@ -3,10 +3,20 @@ import test from "node:test";
 process.env.ADMIN_USERNAME = "projection-test";
 process.env.ADMIN_PASSWORD = "Test-Only-Password!123";
 process.env.SESSION_COOKIE_SECRET = "test-only-session-secret-12345678901234567890";
-const { projectedTurnStart } = await import("./turnStartProjection.js");
+const { projectedTurnStart, plannedTurnStart } = await import("./turnStartProjection.js");
 
 const item = { isArchived: false, vacancyStatus: "NTV LEASED", completionStatus: "NO", moveOutDate: new Date(2026, 8, 11), vacatedDate: null };
 const day = (value: string | null) => value ? new Date(value).getDate() : null;
+
+test("planning prefers saved starts, forecasts missing starts, and excludes finished turns", () => {
+  assert.deepEqual(plannedTurnStart(item, "2026-09-22"), { date: "2026-09-22", projected: false });
+  assert.equal(plannedTurnStart(item, null)?.projected, true);
+  assert.equal(plannedTurnStart({ ...item, moveOutDate: null }, "2026-09-22")?.date, "2026-09-22");
+  assert.equal(plannedTurnStart({ ...item, moveOutDate: null }, "invalid"), null);
+  for (const vacancyStatus of ["OCCUPIED", "VACANT LEASED READY", "VACANT NOT LEASED READY", "UNKNOWN"]) assert.equal(plannedTurnStart({ ...item, vacancyStatus }, "2026-09-22"), null);
+  assert.equal(plannedTurnStart({ ...item, completionStatus: "DONE" }, "2026-09-22"), null);
+  assert.equal(plannedTurnStart({ ...item, isArchived: true }, "2026-09-22"), null);
+});
 
 test("upcoming notice starts use expected vacate and skip weekends without assignment", () => {
   assert.equal(day(projectedTurnStart(item)), 14);

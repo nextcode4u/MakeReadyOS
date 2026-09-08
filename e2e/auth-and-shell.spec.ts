@@ -1304,6 +1304,47 @@ test("calendar date-only values stay on the saved day in Central time", async ({
   } finally { await context.close(); }
 });
 
+test("assigned work shows upcoming unassigned starts without creating assignments", async ({ page }) => {
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const { csrfToken, user } = await (await session).json();
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers: { "x-csrf-token": csrfToken }, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `UP${Date.now()}`, name: "Upcoming Work" });
+  const meta = await (await page.request.get("/api/meta")).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  const ids: string[] = [];
+  for (const [number, vacancyStatus] of [["UPCOMING-1", "NTV LEASED"], ["READY-1", "VACANT LEASED READY"]]) {
+    const { unit } = await post("/operations/units", { propertyId: property.id, number });
+    const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: number, unitNumber: number, moveOutDate: "2099-09-10", vacancyStatus, completionStatus: "NO" });
+    ids.push(item.id);
+  }
+  const response = await (await page.request.get(`/api/assigned-work?propertyId=${property.id}`)).json();
+  expect(response.upcoming.map((turn: any) => turn.sourceId)).toEqual([ids[0]]);
+  expect(response.upcoming[0].projected).toBe(true);
+  expect(response.upcoming[0].assignedUserName).toBeNull();
+  expect(response.summary.totalAssignments).toBe(0);
+  const me = user ?? await (await page.request.get("/api/auth/me")).json();
+  const filtered = await (await page.request.get(`/api/assigned-work?propertyId=${property.id}&userId=${me.id}`)).json();
+  expect(filtered.upcoming).toHaveLength(0);
+  await page.reload();
+  await page.getByTestId("tab-assigned-work").click();
+  const upcoming = page.getByTestId(`upcoming-turn-${ids[0]}`);
+  await expect(upcoming).toContainText("Projected");
+  await expect(upcoming).toContainText("Unassigned");
+  await expect(page.getByTestId(`upcoming-turn-${ids[1]}`)).toHaveCount(0);
+  await expect(upcoming.getByRole("button", { name: "Start Work" })).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await upcoming.getByRole("button", { name: "Open unit" }).click();
+  await expect(page.getByTestId("item-drawer")).toBeVisible();
+  const saved = await (await page.request.get(`/api/make-ready-items/${ids[0]}`)).json();
+  expect(saved.assignedTech).toBeNull();
+  expect(saved.customFieldValues).toHaveLength(0);
+});
+
 test("start calendar projects upcoming unassigned notices across properties without saving dates", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("makereadyos.boardWindowedMode", "true"));
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");

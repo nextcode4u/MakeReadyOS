@@ -1425,6 +1425,7 @@ export type AssignedWorkEntry = {
 };
 
 export type AssignedWorkResponse = {
+  upcoming?: Array<{ sourceId: string; property: Property; title: string; startDate: string; projected: boolean; assignedUserName: string | null; moveInDate: string | null }>;
   summary: {
     totalAssignments: number;
     activeSessions: number;

@@ -14,6 +14,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { notifyAssignedStaff } from "../lib/notifications.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
+import { plannedTurnStart } from "../lib/turnStartProjection.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 
@@ -1476,7 +1477,32 @@ export async function collaborationRoutes(app: FastifyInstance) {
       addEntry({ userId: issue.assignedUserId ?? null, assignedUserName: issue.assignedUser?.fullName ?? issue.assignedUserName ?? "Unassigned", role: issue.assignedUser?.role ?? null, sourceType: "LEASE_COMPLIANCE_ISSUE", sourceId: issue.id, property: issue.property, title: issue.unit?.number ?? issue.area ?? issue.building ?? issue.issueTypeName, subtitle: `Lease Compliance / ${issue.issueTypeName}`, status: issue.status, priority: issue.priority, overdue: issue.status === "Violation Needed" || (issue.noticeStage === "3rd Notice" && !issue.violationNeededDate) });
     }
 
+    // Forecasts are read-only and separate from real assignment/session totals.
+    const planningItems = await prisma.makeReadyItem.findMany({
+      where: { isArchived: false, ...propertyWhere },
+      include: {
+        property: { select: { id: true, code: true, name: true, operatingCalendar: true } },
+        customFieldValues: { where: { customField: { fieldKey: "turnMaintenanceDate", isArchived: false } } },
+        workAssignmentBlocks: { where: { status: { in: ["PLANNED", "IN_PROGRESS"] } }, include: { assignedUser: { select: { id: true, fullName: true, role: true } } } },
+      },
+    });
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const canReviewAll = [UserRole.ADMIN, UserRole.MANAGER, UserRole.LEASING].some(role => role === user.role);
+    const planningUserId = query.userId || (canReviewAll ? null : user.id);
+    const upcoming = planningItems.flatMap(item => {
+      const start = plannedTurnStart(item, item.customFieldValues[0]?.value, item.property.operatingCalendar);
+      if (!start || start.date.slice(0, 10) < today) return [];
+      const people = item.workAssignmentBlocks.length
+        ? item.workAssignmentBlocks.map(block => block.assignedUser)
+        : item.assignedTech?.trim() ? [{ id: usersByName.get(item.assignedTech.trim())?.id ?? null, fullName: item.assignedTech.trim(), role: usersByName.get(item.assignedTech.trim())?.role ?? null }] : [];
+      if (planningUserId && !people.some(person => person.id === planningUserId)) return [];
+      const property = { id: item.property.id, code: item.property.code, name: item.property.name };
+      return [{ sourceId: item.id, property, title: `${property.code} ${item.unitNumber}`, startDate: start.date, projected: start.projected, assignedUserName: people.map(person => person.fullName).filter((name, index, names) => names.indexOf(name) === index).join(", ") || null, moveInDate: item.moveInDate }];
+    }).sort((a, b) => a.startDate.slice(0, 10).localeCompare(b.startDate.slice(0, 10)) || a.title.localeCompare(b.title));
+
     return {
+      upcoming,
       summary: {
         totalAssignments: entries.length,
         activeSessions: activeSessions.length,

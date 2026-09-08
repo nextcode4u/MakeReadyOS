@@ -68,7 +68,7 @@ export function AssignedWorkPanel({ data, loading, error, currentUser, selectedU
       <header className="panel-heading my-work-heading">
         <div>
           <h2>{language === "es" ? "Trabajo asignado" : "Assigned Work"}</h2>
-          <p>{language === "es" ? "Vea quién tiene trabajo asignado y quién está trabajando ahora mismo." : "See who has assigned work and who is actively working right now."}</p>
+          <p>{language === "es" ? "Revise las próximas preparaciones, las asignaciones y el trabajo en curso." : "Plan upcoming make-readies, review assignments, and see who is working now."}</p>
         </div>
         {canSelectStaff ? (
           <label>
@@ -86,6 +86,19 @@ export function AssignedWorkPanel({ data, loading, error, currentUser, selectedU
         <strong className={data.summary.overdueAssignments ? "risk" : ""}>{data.summary.overdueAssignments}<span>{language === "es" ? "Atrasadas" : "Overdue"}</span></strong>
         <strong>{data.summary.assignedUsers}<span>{language === "es" ? "Usuarios" : "Users"}</span></strong>
       </div>
+      <section className="assigned-work-group" data-testid="assigned-work-upcoming">
+        <h3>{language === "es" ? "Próximas preparaciones" : "Upcoming make-readies"} ({data.upcoming?.length ?? 0})</h3>
+        <p className="helper-copy">{language === "es" ? "Desde hoy, ordenadas por fecha de inicio. Las proyecciones usan la salida prevista o la desocupación; no asignan personal. Con todo el personal seleccionado también se muestran unidades sin asignar." : "Today onward, earliest start first. Projected starts use expected vacate or actual vacancy dates; they do not assign staff. All staff also includes unassigned turns."}</p>
+        {!data.upcoming?.length ? <p className="empty-copy">{language === "es" ? "No hay inicios próximos para este filtro. Revise las fechas de salida prevista y los filtros de propiedad/personal." : "No upcoming starts match this filter. Check expected vacate dates and your property/staff filters."}</p> : <div className="my-work-list">
+          {data.upcoming.map(turn => <article className="my-work-card" key={turn.sourceId} data-testid={`upcoming-turn-${turn.sourceId}`}>
+            <div><strong>{turn.title}</strong><span>{turn.property.name}</span></div>
+            <div className="my-work-tags"><b>{language === "es" ? "Inicio" : "Start"}: {turn.startDate.slice(0, 10)}</b><span>{turn.projected ? (language === "es" ? "Proyectado" : "Projected") : (language === "es" ? "Programado" : "Scheduled")}</span>{turn.moveInDate ? <span>{language === "es" ? "Mudanza" : "Move-in"}: {turn.moveInDate.slice(0, 10)}</span> : null}</div>
+            <p>{turn.assignedUserName || (language === "es" ? "Sin asignar" : "Unassigned")}</p>
+            <div className="my-work-actions"><button type="button" className="button button-secondary" onClick={() => onOpenEntry({ sourceType: "MAKE_READY_ITEM", sourceId: turn.sourceId, property: turn.property, title: turn.title, subtitle: "Make Ready", status: "Upcoming", userId: null, assignedUserName: turn.assignedUserName ?? "Unassigned", role: null, activeSession: null })}>{language === "es" ? "Abrir unidad" : "Open unit"}</button></div>
+          </article>)}
+        </div>}
+      </section>
+      <h3>{language === "es" ? "Trabajo asignado actual" : "Current assigned work"}</h3>
       {groups.length === 0 ? <p className="empty-copy">{language === "es" ? "No hay trabajo asignado en este filtro." : "No assigned work matches this filter."}</p> : (
         <div className="assigned-work-groups">
           {groups.map((group) => (
@@ -122,7 +135,6 @@ export function AssignedWorkPanel({ data, loading, error, currentUser, selectedU
                         ) : (
                           <span>{language === "es" ? "Sin sesión activa" : "No active work session"}</span>
                         )}
-                        <progress value={activeSession ? 1 : 0} max={1} />
                       </div>
                       <div className="my-work-actions">
                         <button className="button button-primary" type="button" onClick={() => onOpenEntry(entry)}>{language === "es" ? "Abrir" : "Open"}</button>
