@@ -1,6 +1,6 @@
 # Unit Mailbox Directory
 
-Local implementation, not deployed. Migration: `20260908010000_unit_mailbox_directory` adds nullable `Unit.mailboxNumber`. Availability and existing unit-directory imports leave mailbox assignments untouched. Native and database backups preserve them; native merge keeps matching existing units, as before.
+Deployed to mr-os.com in application release `5778f48` on 2026-09-07. Migration: `20260908010000_unit_mailbox_directory` adds nullable `Unit.mailboxNumber`. Availability and existing unit-directory imports leave mailbox assignments untouched. Native and database backups preserve them; native merge keeps matching existing units, as before.
 
 ## Setup
 
@@ -23,3 +23,5 @@ Resident door/access codes belong to the individual turn draft, never the perman
 ## Verification
 
 API/web builds, lint and eight combined mailbox/report domain and permission tests passed. Isolated Docker browser checks passed in `logs/e2e-20260907-202754.txt`: property-targeted import preview/apply, leading zeros, stale-preview rejection, cross-property write rejection, unknown-unit blocking, Turn Details report entry, automatic mailbox population, opt-in resident codes, one-page PDF, mobile containment and native backup/restore. Production data was not changed.
+
+Production deployment: database backup `makereadyos-db-20260907-203121.dump` and upload backup `makereadyos-uploads-20260907-203122.tgz` verified before migration; previous images retained as `rollback-b47399a`. Live mailbox field, preselected turn report, masked code inputs, PDF download, mobile layout and read-only TA import preview passed. No production assignments or inspection drafts were saved by smoke testing.
