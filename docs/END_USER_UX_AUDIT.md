@@ -5,6 +5,8 @@ Preserve the existing visual language; prioritize orientation, safe saves, and f
 
 ## Verified Findings And Queue
 
+- [x] UX-21: Personal upcoming forecast in My Work. Simulate each enabled property's saved percentage rotation over expected vacancy order without writing credits, assignments, notifications, or dates. Show tentative turns separately from confirmed counts with prominent expected starts; confirmed repair cards also show saved/projected starts. Exclude existing assignments/work blocks, invalid staff, paused policies and ineligible turns. Forecasts can change as dates, staff splits or real assignments change. Five rotation/projection tests, API/web builds, lint and the mobile browser flow passed (`logs/e2e-20260907-234720.txt`), including unchanged assignments and paused-policy behavior.
+
 - [x] UX-20: Assigned Work hid upcoming unassigned vacancies because its list only queried actual assignments. Added a separate, date-sorted upcoming make-ready section, using saved repair starts before calendar projections. Ready/completed/archived/unknown-status units are excluded. Property and staff filters apply; only supervisor all-staff views include unassigned turns. Forecasts do not change dates, create assignments, start sessions, or inflate assignment totals. Removed the misleading binary progress bar on current work cards. Verification/deployment checkpoint follows after tests.
 
 - [x] UX-01: Embedded Property Wiki panels render four empty related-record sections, obscuring the actual task on phones. Empty sections are now hidden and optional panels omitted when there is no context or attach action. Verified at 412px in browser regression.
