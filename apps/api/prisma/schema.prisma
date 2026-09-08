@@ -138,6 +138,7 @@ model Unit {
   floorPlanId     String?
   floorPlanRecord FloorPlan?        @relation(fields: [floorPlanId], references: [id], onDelete: SetNull)
   number          String
+  mailboxNumber   String?
   floorPlan       String?
   squareFeet      Int?
   bedrooms        Int?

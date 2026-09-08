@@ -3,7 +3,7 @@ import { z } from "zod";
 import { allowedPropertyIds, requireAdmin } from "../lib/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
-import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, reportDraftSchema, reportSections, reportSettingsSchema, savedReportDraftSchema, savedReportSettingsSchema } from "../lib/finalWalkReport.js";
+import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, reportDraftSchema, reportSections, reportSettingsSchema, resolveReportMailbox, savedReportDraftSchema, savedReportSettingsSchema } from "../lib/finalWalkReport.js";
 import { finalWalkCategory } from "../lib/finalWalks.js";
 
 async function context(request: FastifyRequest, reply: FastifyReply) {
@@ -23,6 +23,11 @@ async function findItem(propertyId: string, id: string) {
   if (!item) throw Object.assign(new Error("Active turn not found in this property"), { statusCode: 404 });
   return item;
 }
+async function directoryMailbox(item: { propertyId: string; unitId: string | null; unitNumber: string } | null) {
+  if (!item) return null;
+  const unit = await prisma.unit.findFirst({ where: { propertyId: item.propertyId, ...(item.unitId ? { id: item.unitId } : { number: item.unitNumber }) }, select: { mailboxNumber: true } });
+  return unit?.mailboxNumber ?? null;
+}
 export async function finalWalkReportRoutes(app: FastifyInstance) {
   app.get("/final-walk-reports/:propertyId", async (request, reply) => {
     const property = await context(request, reply); if (!property) return;
@@ -30,14 +35,15 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     const item = itemId ? await findItem(property.id, itemId) : null;
     const settings = savedReportSettingsSchema.safeParse(property.branding?.finalWalkReportSettings);
     const draft = savedReportDraftSchema.safeParse(item?.finalWalkReportDraft?.payload);
+    const mailbox = await directoryMailbox(item);
     const reviewer = item ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory }, orderBy: { createdAt: "desc" }, select: { assignedUser: { select: { fullName: true } } } }) : null;
     return {
       property: { id: property.id, name: property.name, code: property.code },
       settings: settings.success ? settings.data : { version: 0, value: defaultReportSettings },
-      draft: draft.success ? draft.data : { version: 0, value: emptyReportDraft(), updatedAt: null },
+      draft: draft.success ? { ...draft.data, value: resolveReportMailbox(draft.data.value, mailbox) } : { version: 0, value: resolveReportMailbox(emptyReportDraft(), mailbox), updatedAt: null },
       sections: reportSections.map(section => ({ id: section.id, title: section.title })), checks: reportChecks,
       items: await prisma.makeReadyItem.findMany({ where: { propertyId: property.id, isArchived: false }, select: { id: true, unitNumber: true, boardGroup: true }, orderBy: { unitNumber: "asc" } }),
-      item: item ? { id: item.id, unitNumber: item.unitNumber, technician: item.assignedTech, reviewer: reviewer?.assignedUser.fullName ?? null, checklists: item.checklistInstances } : null,
+      item: item ? { id: item.id, unitNumber: item.unitNumber, directoryMailbox: mailbox, technician: item.assignedTech, reviewer: reviewer?.assignedUser.fullName ?? null, checklists: item.checklistInstances } : null,
     };
   });
   app.put("/final-walk-reports/:propertyId/settings", async (request, reply) => {
@@ -75,7 +81,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     const input = z.object({ itemId: z.string().min(1).optional(), settings: reportSettingsSchema, draft: reportDraftSchema, format: z.enum(["html", "pdf"]) }).strict().parse(request.body);
     const item = input.itemId ? await findItem(property.id, input.itemId) : null;
     const reviewer = item ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory }, orderBy: { createdAt: "desc" }, select: { assignedUser: { select: { fullName: true } } } }) : null;
-    const html = finalWalkReportHtml({ propertyName: property.name, propertyCode: property.code, propertyLogo: property.branding?.logo ?? null, companyName: property.branding?.managementCompany?.name ?? null, companyLogo: property.branding?.managementCompany?.logo ?? null, unitNumber: item?.unitNumber ?? null, technician: item?.assignedTech ?? null, reviewer: reviewer?.assignedUser.fullName ?? null }, input.settings, item ? input.draft : emptyReportDraft());
+    const html = finalWalkReportHtml({ propertyName: property.name, propertyCode: property.code, propertyLogo: property.branding?.logo ?? null, companyName: property.branding?.managementCompany?.name ?? null, companyLogo: property.branding?.managementCompany?.logo ?? null, unitNumber: item?.unitNumber ?? null, technician: item?.assignedTech ?? null, reviewer: reviewer?.assignedUser.fullName ?? null }, input.settings, item ? resolveReportMailbox(input.draft, await directoryMailbox(item)) : emptyReportDraft());
     if (input.format === "html") return { html };
     return { pdfBase64: (await renderPdfFromHtml(html, { singlePage: true })).toString("base64") };
   });

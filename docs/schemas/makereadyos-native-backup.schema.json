@@ -195,6 +195,7 @@
       "properties": {
         "propertyCode": { "type": "string" },
         "number": { "type": "string" },
+        "mailboxNumber": { "$ref": "#/$defs/nullableString" },
         "floorPlan": { "$ref": "#/$defs/nullableString" },
         "building": { "$ref": "#/$defs/nullableString" },
         "area": { "$ref": "#/$defs/nullableString" },

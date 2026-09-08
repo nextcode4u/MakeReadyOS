@@ -13,7 +13,8 @@ The editor provides:
 - A turn selector limited to active, non-archived turns in that property. Inspection drafts are tied to turn IDs, not just reusable unit numbers.
 - 45 grouped checks based on the existing sample, with separate internet and valet-trash results. Checks start Not checked, including for board rows already marked ready. Checked, Needs attention and Not applicable are manually recorded; exceptions require a reason. Bedrooms/bathrooms cover every applicable room rather than numbered report rows.
 - Existing generic checklist completion records as read-only reference. They are not silently converted into verified inspection results. Assigned tech/reviewer names are shown as assignments, not signatures.
-- Inspection date, mailbox number, home/mailbox key counts, fob/remote counts, parking assignment and resident-facing follow-up. There are deliberately no access-code inputs; notes must not contain staff/master codes.
+- Inspection date, mailbox number, home/mailbox key counts, fob/remote counts, parking assignment and resident-facing follow-up.
+- Local follow-up: unit mailbox directory defaults and resident-only door/access codes are now implemented but not deployed. Directory-based mailboxes resolve from the unit again at preview/PDF time; explicit report-only overrides and nonblank legacy mailbox drafts are preserved. Codes are masked inputs, stored only in this turn's admin draft, and excluded from HTML/PDF unless the admin explicitly confirms inclusion. Never enter shared gate, staff, vendor or master codes. Code scope cannot be inferred from a string; the admin must verify it. New turns do not inherit codes.
 - Explicit Save inspection draft, Preview report and Download draft PDF actions. Previews include current unsaved form values; neither preview nor PDF implicitly saves them. Changing fields clears the old preview. Closing or changing turns prompts before discarding unsaved edits, and browser navigation receives a before-unload warning.
 - Optimistic revisions and transactional locks reject stale settings/draft saves with 409. Reload saved data explicitly discards local edits after confirmation. There is no last-write-wins replacement of another admin's draft.
 
@@ -35,7 +36,7 @@ Endpoints:
 
 ## Still Separate
 
-Verified technician/independent reviewer sign-offs, immutable issued revisions, ready-status gates, secure household-only access codes, inspector-role editing and rework assignment remain in DIGITAL_TURN_WORKFLOW.md. The editor does not claim those are complete. New editor copy is English; Spanish localization remains a follow-up alongside the branding editor.
+Verified technician/independent reviewer sign-offs, immutable issued revisions, ready-status gates, encrypted/expiring code delivery, inspector-role editing and rework assignment remain in DIGITAL_TURN_WORKFLOW.md. The editor does not claim those are complete. Saved resident codes are sensitive plaintext within admin-only drafts and privileged native/database backups, not a secrets vault. New editor copy is English; Spanish localization remains a follow-up alongside the branding editor.
 
 ## Verification
 
