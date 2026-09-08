@@ -8,13 +8,20 @@ export const pondWildlife = [
   { id: "axolotl", name: "Shy axolotl", hint: "Pink gills beneath the water.", start: 690, end: 880 },
 ] as const;
 export type WildlifeId = typeof pondWildlife[number]["id"];
+export type PondHabitat = "sky" | "water" | "ground";
+export function pondDiscoveryHabitat(kind: string): PondHabitat {
+  if (["butterfly", "fireflies", "moon", "ghost", "disco"].includes(kind)) return "sky";
+  if (["strider", "duck", "axolotl", "flower"].includes(kind)) return "water";
+  // New props default to the bank, never to the sky.
+  return "ground";
+}
 export const pondSecrets = [
   { theme: "pond-01", name: "Moon wish", action: "Make a moon wish", icon: "moon" },
   { theme: "pond-02", name: "Lotus bloom", action: "Open the lotus", icon: "flower" },
   { theme: "pond-03", name: "Lantern keeper", action: "Light the little lantern", icon: "lantern" },
   { theme: "pond-04", name: "Someone is home", action: "Knock on the cottage door", icon: "home" },
   { theme: "pond-05", name: "Mushroom umbrella", action: "Tap the mushroom", icon: "mushroom" },
-  { theme: "pond-06", name: "Dungeon treasure", action: "Open the treasure chest", icon: "crate" },
+  { theme: "pond-06", name: "Dungeon treasure", action: "Open the treasure chest", icon: "treasure" },
   { theme: "pond-07", name: "Crystal melody", action: "Play low, high, middle", icon: "crystal" },
   { theme: "pond-08", name: "Disco splash", action: "Start a little dance party", icon: "disco" },
   { theme: "pond-09", name: "Sunset radio", action: "Tune the sunset radio", icon: "radio" },
@@ -23,7 +30,7 @@ export const pondSecrets = [
   { theme: "pond-12", name: "Little barista", action: "Warm the coffee mug", icon: "mug" },
   { theme: "pond-13", name: "Mystery delivery", action: "Unpack the mystery crate", icon: "crate" },
   { theme: "pond-14", name: "Village gathering", action: "Ring the village bell", icon: "bell" },
-  { theme: "pond-15", name: "Sunflower gardener", action: "Water the seed", icon: "flower" },
+  { theme: "pond-15", name: "Sunflower gardener", action: "Water the seed", icon: "sunflower" },
 ] as const;
 export const pondAntics = [
   { id: "miss", name: "The one that got away" },

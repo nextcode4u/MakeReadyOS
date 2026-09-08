@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createManagementCompany, getManagementCompanies, getPropertyBranding, savePropertyBranding, updateManagementCompany, type ManagementCompany, type PropertyBranding } from "../lib/api";
+import { FinalWalkReportEditor } from "./FinalWalkReportEditor";
 
 async function readLogo(file: File) {
   if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) throw new Error("Choose a PNG, JPEG or WebP image under 5 MB.");
@@ -34,6 +35,7 @@ function BrandingEditor({ propertyId, propertyName, initial, companies, isAdmin 
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const company = companies.find(entry => entry.id === companyId);
   const run = async (action: () => Promise<void>) => {
     setBusy(true); setError(""); setMessage("");
@@ -50,6 +52,8 @@ function BrandingEditor({ propertyId, propertyName, initial, companies, isAdmin 
     </div>
     {error ? <p role="alert">{error}</p> : null}
     {message ? <p role="status">{message}</p> : null}
+    {isAdmin ? <div className="branding-report-entry"><button type="button" className="button" data-testid="open-final-report-editor" disabled={busy} onClick={() => setReportOpen(true)}>Edit / Preview Final-Walk Report</button><p className="helper-copy">Uses saved property and company logos. Save branding changes before opening.</p></div> : null}
+    {reportOpen ? <FinalWalkReportEditor propertyId={propertyId} propertyName={propertyName} onClose={() => setReportOpen(false)} /> : null}
     {!isAdmin ? <p className="helper-copy">An administrator can update company and property branding.</p> : <fieldset disabled={busy}>
       <label>Management company<select data-testid="branding-company" value={companyId} onChange={event => { setCompanyId(event.target.value); setMessage("Company selection changed. Save property branding to apply it."); }}><option value="">No company selected</option>{companies.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></label>
       <label>Property logo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void run(async () => { setLogo(await readLogo(file)); setMessage("Logo preview updated. Save property branding to apply it."); }); }} /></label>

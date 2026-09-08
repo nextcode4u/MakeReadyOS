@@ -15,6 +15,7 @@ function localDateStamp(date = new Date()) {
 }
 
 import { brandingLogoSchema } from "./propertyBranding.js";
+import { savedReportDraftSchema, savedReportSettingsSchema } from "../lib/finalWalkReport.js";
 
 const propertySchema = z.object({
   code: z.string().trim().min(1).max(40),
@@ -132,6 +133,7 @@ const makeReadyItemSchema = z.object({
   riskReasons: z.unknown().optional().default([]),
   lastRiskEvaluatedAt: nullableDate.optional().default(null),
   completionStatus: z.string().nullable(),
+  finalWalkReportDraft: savedReportDraftSchema.nullable().optional().default(null),
   sheetrockStatus: z.string().nullable(),
   pestStatus: z.string().nullable(),
   pestTreated: z.string().nullable(),
@@ -958,7 +960,7 @@ const backupSchema = z.object({
   data: z.object({
     properties: z.array(propertySchema),
     managementCompanies: z.array(z.object({ name: z.string().trim().min(2).max(120), logo: brandingLogoSchema })).optional().default([]),
-    propertyBranding: z.array(z.object({ propertyCode: z.string(), companyName: z.string().nullable(), logo: brandingLogoSchema })).optional().default([]),
+    propertyBranding: z.array(z.object({ propertyCode: z.string(), companyName: z.string().nullable(), logo: brandingLogoSchema, finalWalkReportSettings: savedReportSettingsSchema.nullable().optional().default(null) })).optional().default([]),
     floorPlans: z.array(floorPlanSchema).optional().default([]),
     boardOptions: z.array(boardOptionSchema).optional().default([]),
     boardColumns: z.array(boardColumnSchema).optional().default([]),
@@ -1291,7 +1293,7 @@ async function buildExport(): Promise<NativeBackup> {
     prisma.operatingCalendar.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }] }),
     prisma.propertyRiskPolicy.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }] }),
     prisma.unit.findMany({ include: { property: true, floorPlanRecord: true }, orderBy: [{ property: { code: "asc" } }, { number: "asc" }] }),
-    prisma.makeReadyItem.findMany({ include: { property: true, customFieldValues: true }, orderBy: { createdAt: "asc" } }),
+    prisma.makeReadyItem.findMany({ include: { property: true, customFieldValues: true, finalWalkReportDraft: true }, orderBy: { createdAt: "asc" } }),
     prisma.customField.findMany({ where: { deletedAt: null }, include: { options: true }, orderBy: [{ module: "asc" }, { sortOrder: "asc" }] }),
     prisma.savedView.findMany({ where: { isShared: true }, orderBy: { name: "asc" } }),
     prisma.automationRule.findMany({ include: { property: true }, orderBy: { name: "asc" } }),
@@ -1616,7 +1618,7 @@ async function buildExport(): Promise<NativeBackup> {
     source: { app: "MakeReadyOS", schemaVersion: "prisma-v1" },
     data: {
       managementCompanies: managementCompanies.map(company => ({ name: company.name, logo: company.logo })),
-      propertyBranding: propertyBranding.map(branding => ({ propertyCode: branding.property.code, companyName: branding.managementCompany?.name ?? null, logo: branding.logo })),
+      propertyBranding: propertyBranding.map(branding => ({ propertyCode: branding.property.code, companyName: branding.managementCompany?.name ?? null, logo: branding.logo, finalWalkReportSettings: savedReportSettingsSchema.nullable().parse(branding.finalWalkReportSettings) })),
       properties: properties.map((property) => ({
         code: property.code,
         name: property.name,
@@ -1738,6 +1740,7 @@ async function buildExport(): Promise<NativeBackup> {
         riskReasons: item.riskReasons,
         lastRiskEvaluatedAt: item.lastRiskEvaluatedAt?.toISOString() ?? null,
         completionStatus: item.completionStatus,
+        finalWalkReportDraft: savedReportDraftSchema.nullable().parse(item.finalWalkReportDraft?.payload ?? null),
         sheetrockStatus: item.sheetrockStatus,
         pestStatus: item.pestStatus,
         pestTreated: item.pestTreated,
@@ -3054,10 +3057,10 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
       const managementCompanyId = branding.companyName ? companyMap.get(branding.companyName)! : null;
       if (existing) {
         summary.propertyBranding.skipped++;
-        if (existing.logo !== branding.logo || existing.managementCompanyId !== managementCompanyId) { summary.propertyBranding.conflicts++; summary.propertyBranding.errors.push(`Existing branding retained for ${branding.propertyCode}`); }
+        if (existing.logo !== branding.logo || existing.managementCompanyId !== managementCompanyId || JSON.stringify(existing.finalWalkReportSettings) !== JSON.stringify(branding.finalWalkReportSettings)) { summary.propertyBranding.conflicts++; summary.propertyBranding.errors.push(`Existing branding/report settings retained for ${branding.propertyCode}`); }
       } else {
         summary.propertyBranding.created++;
-        if (!dryRun && propertyId) await tx.propertyBranding.create({ data: { propertyId, managementCompanyId, logo: branding.logo } });
+        if (!dryRun && propertyId) await tx.propertyBranding.create({ data: { propertyId, managementCompanyId, logo: branding.logo, finalWalkReportSettings: branding.finalWalkReportSettings ?? Prisma.DbNull } });
       }
     }
     const floorPlanMap = new Map<string, string>();
@@ -3176,6 +3179,7 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
               riskReasons: item.riskReasons as Prisma.InputJsonValue,
               lastRiskEvaluatedAt: dateValue(item.lastRiskEvaluatedAt),
               completionStatus: item.completionStatus,
+              ...(item.finalWalkReportDraft ? { finalWalkReportDraft: { create: { payload: item.finalWalkReportDraft } } } : {}),
               sheetrockStatus: item.sheetrockStatus,
               pestStatus: item.pestStatus,
               pestTreated: item.pestTreated,

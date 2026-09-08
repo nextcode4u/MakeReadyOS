@@ -3,7 +3,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { frogSpriteClips } from "../apps/web/src/lib/frogSprites";
 import { pondSoundNotes } from "../apps/web/src/lib/pondAudio";
-import { gardenWaterings, localPondDate, pondSecrets, pondSeason, pondWildlife, wildlifeVisible } from "../apps/web/src/lib/pondDiscoveries";
+import { gardenWaterings, localPondDate, pondDiscoveryHabitat, pondSecrets, pondSeason, pondWildlife, wildlifeVisible } from "../apps/web/src/lib/pondDiscoveries";
+import { pondPixelArt } from "../apps/web/src/lib/pondPixelArt";
 import { approachSnack, pondGreeting, pondJourney, pondLight, pondPads, pondPersonality, selectPondHunter } from "../apps/web/src/lib/pondLife";
 import ts from "../apps/web/node_modules/typescript/lib/typescript.js";
 
@@ -12,7 +13,136 @@ const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
+test("admin final-walk report editor saves drafts, uses real branding and produces one-page PDFs", async ({ page }) => {
+  test.setTimeout(120000);
+  page.setDefaultTimeout(15000);
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const { csrfToken } = await (await session).json();
+  const headers = { "x-csrf-token": csrfToken };
+  const items = await (await page.request.get("/api/make-ready-items")).json();
+  const item = items[0];
+  const other = items.find((entry: { propertyId: string }) => entry.propertyId !== item.propertyId);
+  const property = item.property;
+  const root = `/api/final-walk-reports/${property.id}`;
+  const companyResponse = await page.request.post("/api/management-companies", { headers, data: { name: `Report <Company & Team> ${Date.now()}` } });
+  expect(companyResponse.ok(), await companyResponse.text()).toBeTruthy();
+  const { company } = await companyResponse.json();
+  const logo = await page.evaluate(() => { const canvas = document.createElement("canvas"); canvas.width = 80; canvas.height = 40; const context = canvas.getContext("2d")!; context.fillStyle = "#174d49"; context.fillRect(0,0,80,40); context.fillStyle = "white"; context.fillText("LOGO", 10,25); return canvas.toDataURL("image/png"); });
+  expect((await page.request.patch(`/api/management-companies/${company.id}`, { headers, data: { logo } })).ok()).toBeTruthy();
+  expect((await page.request.put(`/api/property-branding/${property.id}`, { headers, data: { managementCompanyId: company.id, logo } })).ok()).toBeTruthy();
+  await page.getByTestId("tab-operations").click();
+  await page.getByTestId(`property-row-${property.code.toLowerCase()}`).click();
+  await page.getByTestId("open-final-report-editor").click();
+  const modal = page.getByTestId("final-report-editor");
+  await expect(modal).toBeVisible();
+  await modal.getByTestId("final-report-title").fill("Your Home / <Report & Preview>");
+  await modal.getByRole("button", { name: "Save report settings", exact: true }).click();
+  await expect(modal.getByRole("status")).toContainText("Report settings saved");
+  await modal.getByTestId("final-report-unit").selectOption(item.id);
+  await modal.getByTestId("final-report-date").fill("2026-09-07");
+  await modal.locator("summary").filter({ hasText: "General preparation & HVAC" }).click();
+  await modal.getByTestId("final-report-result-general-1").selectOption("CHECKED");
+  await modal.getByTestId("final-report-save-draft").click();
+  await expect(modal.getByRole("status")).toContainText("Inspection draft saved");
+  await modal.getByTestId("final-report-preview").click();
+  const preview = modal.frameLocator('iframe[title="Final-walk draft preview"]');
+  await expect(preview.locator("h1")).toHaveText("Your Home / <Report & Preview>");
+  await expect(preview.locator(".brand")).toContainText(property.name);
+  await expect(preview.locator(".brand")).toContainText(company.name);
+  await expect(preview.locator("img")).toHaveCount(2);
+  expect(await preview.locator("img").evaluateAll(images => images.every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0))).toBeTruthy();
+  await expect(preview.locator(".CHECKED")).toHaveCount(1);
+  await expect(preview.locator(".NOT_CHECKED")).toHaveCount(44);
+  await expect(preview.locator(".draft")).toContainText("NOT FOR RESIDENT ISSUE");
+  await modal.screenshot({ path: "/tmp/mros-final-report-desktop.png" });
+  const download = page.waitForEvent("download");
+  await modal.getByTestId("final-report-pdf").click();
+  const pdf = await download;
+  await pdf.saveAs("/tmp/mros-final-report-live-data.pdf");
+  const bytes = readFileSync("/tmp/mros-final-report-live-data.pdf");
+  expect(bytes.subarray(0,4).toString()).toBe("%PDF");
+  expect((bytes.toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await expect(modal.getByTestId("final-report-title")).toBeVisible();
+  await modal.screenshot({ path: "/tmp/mros-final-report-mobile.png" });
+  await modal.getByRole("button", { name: "Close dialog" }).click();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByTestId("open-final-report-editor").click();
+  await expect(modal.getByTestId("final-report-title")).toHaveValue("Your Home / <Report & Preview>");
+  await modal.getByTestId("final-report-unit").selectOption(item.id);
+  await modal.locator("summary").filter({ hasText: "General preparation & HVAC" }).click();
+  await expect(modal.getByTestId("final-report-result-general-1")).toHaveValue("CHECKED");
+  const data = await (await page.request.get(`${root}?itemId=${item.id}`)).json();
+  const draftInput = { version: data.draft.version, value: data.draft.value };
+  const races = await Promise.all([page.request.put(`${root}/items/${item.id}`, { headers, data: draftInput }), page.request.put(`${root}/items/${item.id}`, { headers, data: draftInput })]);
+  expect(races.map(response => response.status()).sort()).toEqual([200,409]);
+  const settingsRaces = await Promise.all([page.request.put(`${root}/settings`, { headers, data: data.settings }), page.request.put(`${root}/settings`, { headers, data: data.settings })]);
+  expect(settingsRaces.map(response => response.status()).sort()).toEqual([200,409]);
+  expect((await page.request.post(`${root}/preview`, { headers, data: { itemId: other.id, settings: data.settings.value, draft: data.draft.value, format: "html" } })).status()).toBe(404);
+  const hugeDraft = { ...data.draft.value, results: Object.fromEntries(data.checks.map((check: { id: string }) => [check.id, { status: "ATTENTION", note: "Detailed unresolved inspection concern requiring additional repairs and review. ".repeat(2).slice(0,100) }])) };
+  const oversized = await page.request.post(`${root}/preview`, { headers, data: { itemId: item.id, settings: data.settings.value, draft: hugeDraft, format: "pdf" } });
+  expect(oversized.status(), await oversized.text()).toBe(422);
+  const unchanged = await (await page.request.get(`/api/make-ready-items/${item.id}`)).json();
+  expect(unchanged.completionStatus).toBe(item.completionStatus);
+  expect(unchanged.makeReadyStatus).toBe(item.makeReadyStatus);
+  expect(unchanged.finalWalkReportDraft).toBeUndefined();
+  const backup = await (await page.request.get("/api/admin/export")).json();
+  const savedItem = backup.data.makeReadyItems.find((turn: { propertyCode: string; unitNumber: string }) => turn.propertyCode === property.code && turn.unitNumber === item.unitNumber);
+  expect(savedItem.finalWalkReportDraft.value.results["general-1"].status).toBe("CHECKED");
+  const savedBranding = backup.data.propertyBranding.find((entry: { propertyCode: string }) => entry.propertyCode === property.code);
+  expect(savedBranding.finalWalkReportSettings.value.title).toBe("Your Home / <Report & Preview>");
+  const restoreCode = `REPORT${Date.now()}`;
+  const portable = { ...backup, data: { properties: [{ code: restoreCode, name: "Restored report", isActive: true }], units: [], makeReadyItems: [{ ...savedItem, propertyCode: restoreCode }], managementCompanies: [{ name: company.name, logo }], propertyBranding: [{ ...savedBranding, propertyCode: restoreCode }], customFields: [], customFieldOptions: [], customFieldValues: [], savedViews: [], automationRules: [], checklistTemplates: [], notes: [] } };
+  const restored = await page.request.post("/api/admin/import", { headers, data: { dryRun: false, backup: portable } });
+  expect(restored.ok(), await restored.text()).toBeTruthy();
+  const exported = await (await page.request.get("/api/admin/export")).json();
+  expect(exported.data.makeReadyItems.find((turn: { propertyCode: string }) => turn.propertyCode === restoreCode).finalWalkReportDraft.value.results["general-1"].status).toBe("CHECKED");
+});
+
+test("pond field guide detailed art covers every wildlife and secret", async ({ page }) => {
+  page.setDefaultTimeout(15000);
+  for (const kind of [...pondWildlife.map(entry => entry.id), ...pondSecrets.map(entry => entry.icon)]) {
+    expect(pondPixelArt[kind].palette).toHaveLength(6);
+    expect(pondPixelArt[kind].layers.length).toBeGreaterThanOrEqual(4);
+  }
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  const guide = page.getByTestId("pond-field-guide");
+  await guide.locator("summary").click();
+  await expect(guide.locator('[data-discovery="secret-pond-06"] .pond-pixel')).toHaveClass(/pond-undiscovered/);
+  const ids = [...pondWildlife.map(entry => `wild-${entry.id}`), ...pondSecrets.map(entry => `secret-${entry.theme}`)];
+  // Reveal art only in this isolated browser, without changing production unlock rules.
+  await page.evaluate(ids => {
+    const key = Object.keys(localStorage).find(key => key.startsWith("makereadyos.frogPond.collection."))!;
+    const collection = JSON.parse(localStorage.getItem(key)!);
+    collection.discovered = Object.fromEntries(ids.map(id => [id, new Date().toISOString()]));
+    localStorage.setItem(key, JSON.stringify(collection));
+  }, ids);
+  await page.reload();
+  await page.getByTestId("tab-pond").click();
+  await guide.locator("summary").click();
+  for (const id of ids) {
+    const art = guide.locator(`[data-discovery="${id}"] svg`);
+    await expect(art).not.toHaveClass(/pond-undiscovered/);
+    await expect(art).toHaveAttribute("shape-rendering", "crispEdges");
+    expect(await art.locator("path").count()).toBeGreaterThanOrEqual(4);
+    expect(await art.locator("path").evaluateAll(paths => new Set(paths.map(path => path.getAttribute("fill"))).size)).toBeGreaterThanOrEqual(4);
+  }
+  await expect(guide.locator('[data-discovery="secret-pond-06"] svg')).toHaveAttribute("data-pixel-art", "treasure");
+  await expect(guide.locator('[data-discovery="secret-pond-15"] svg')).toHaveAttribute("data-pixel-art", "sunflower");
+  await page.setViewportSize({ width: 1440, height: 2400 });
+  await guide.locator(".pond-guide-entries").screenshot({ path: "/tmp/mros-field-guide-art-desktop.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await guide.locator(".pond-guide-entries").screenshot({ path: "/tmp/mros-field-guide-art-mobile.png" });
+});
+
 test("pond ecosystem discovery rules and crystal pitches", () => {
+  expect(["turtle", "snail", "home", "mug", "treasure", "sunflower", "new-prop"].map(pondDiscoveryHabitat)).toEqual(Array(7).fill("ground"));
+  expect(["strider", "duck", "axolotl", "flower"].map(pondDiscoveryHabitat)).toEqual(Array(4).fill("water"));
+  expect(["butterfly", "fireflies", "moon", "ghost", "disco"].map(pondDiscoveryHabitat)).toEqual(Array(5).fill("sky"));
   expect(new Set(pondSecrets.map(secret => secret.theme)).size).toBe(15);
   expect(pondWildlife).toHaveLength(7);
   expect(wildlifeVisible("butterfly", 100, "night")).toBe(false);
@@ -24,6 +154,51 @@ test("pond ecosystem discovery rules and crystal pitches", () => {
   expect(gardenWaterings({ "garden-2026-09-01": "x", "garden-2026-09-07": "x", "wild-snail": "x" })).toBe(2);
   expect([0,3,6,9].map(pondSeason)).toEqual(["winter", "spring", "summer", "autumn"]);
   expect(["crystal-low", "crystal-middle", "crystal-high"].map(cue => pondSoundNotes(cue as "crystal-low")[0].frequency)).toEqual([523,659,784]);
+});
+
+test("pond habitat keeps ground and water discoveries below the sky on desktop and mobile", async ({ page }) => {
+  test.setTimeout(90000);
+  page.setDefaultTimeout(15000);
+  await page.clock.install({ time: new Date(2026, 8, 7, 12) });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  await page.getByTestId("frog-settings-toggle").click();
+  const inspectHabitat = async (selector: string, sky = false) => {
+    const target = page.locator(selector);
+    await expect(target).toBeVisible();
+    const measurements = await target.evaluate((element, sky) => {
+      const scene = element.closest('[data-testid="frog-pond-scene"]')!.getBoundingClientRect();
+      const animations = element.getAnimations({ subtree: true });
+      const samples = [0, .45, .9, .99].map(fraction => {
+        animations.forEach(animation => { animation.pause(); animation.currentTime = Number(animation.effect!.getTiming().duration) * fraction; });
+        const rect = (element.querySelector("svg") ?? element).getBoundingClientRect();
+        return sky ? rect.top < scene.top + scene.height / 3 : rect.top >= scene.top + scene.height / 3 && rect.bottom <= scene.bottom;
+      });
+      animations.forEach(animation => animation.play());
+      return samples;
+    }, sky);
+    expect(measurements, selector).toEqual([true, true, true, true]);
+  };
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await inspectHabitat('[data-testid="pond-wild-strider"]');
+    for (const secret of pondSecrets) {
+      await page.getByTestId("frog-theme").selectOption(secret.theme);
+      await inspectHabitat('[data-testid="pond-theme-secret"]', pondDiscoveryHabitat(secret.icon) === "sky");
+      if (secret.theme === "pond-07") await inspectHabitat('.pond-crystal-notes');
+      if (secret.theme === "pond-15") await inspectHabitat('.pond-garden-stage');
+    }
+  }
+  await page.clock.runFor(72000);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await inspectHabitat('[data-testid="pond-wild-turtle"]');
+    await inspectHabitat('[data-testid="pond-wild-snail"]');
+  }
+  await page.clock.runFor(60000);
+  await inspectHabitat('[data-testid="pond-wild-duck"]');
+  await page.clock.runFor(50000);
+  await inspectHabitat('[data-testid="pond-wild-axolotl"]');
 });
 
 test("pond ecosystem secrets unlock cosmetics, persist and fit mobile", async ({ page }) => {

@@ -1,0 +1,82 @@
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { z } from "zod";
+import { allowedPropertyIds, requireAdmin } from "../lib/auth.js";
+import { prisma } from "../lib/prisma.js";
+import { renderPdfFromHtml } from "../lib/pdf.js";
+import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, reportDraftSchema, reportSections, reportSettingsSchema, savedReportDraftSchema, savedReportSettingsSchema } from "../lib/finalWalkReport.js";
+import { finalWalkCategory } from "../lib/finalWalks.js";
+
+async function context(request: FastifyRequest, reply: FastifyReply) {
+  await requireAdmin(request, reply);
+  if (reply.sent) return null;
+  const { propertyId } = z.object({ propertyId: z.string().min(1) }).parse(request.params);
+  const ids = allowedPropertyIds(request.currentUser!);
+  if (ids !== null && !ids.includes(propertyId)) { reply.code(403).send({ message: "Property access denied" }); return null; }
+  const property = await prisma.property.findFirst({ where: { id: propertyId, isActive: true }, include: { branding: { include: { managementCompany: true } } } });
+  if (!property) { reply.code(404).send({ message: "Active property not found" }); return null; }
+  reply.header("Cache-Control", "no-store");
+  return property;
+}
+const itemInclude = { finalWalkReportDraft: true, checklistInstances: { include: { items: { orderBy: { sortOrder: "asc" as const }, select: { id: true, title: true, completed: true, completedAt: true } } } } };
+async function findItem(propertyId: string, id: string) {
+  const item = await prisma.makeReadyItem.findFirst({ where: { id, propertyId, isArchived: false }, include: itemInclude });
+  if (!item) throw Object.assign(new Error("Active turn not found in this property"), { statusCode: 404 });
+  return item;
+}
+export async function finalWalkReportRoutes(app: FastifyInstance) {
+  app.get("/final-walk-reports/:propertyId", async (request, reply) => {
+    const property = await context(request, reply); if (!property) return;
+    const { itemId } = z.object({ itemId: z.string().min(1).optional() }).parse(request.query);
+    const item = itemId ? await findItem(property.id, itemId) : null;
+    const settings = savedReportSettingsSchema.safeParse(property.branding?.finalWalkReportSettings);
+    const draft = savedReportDraftSchema.safeParse(item?.finalWalkReportDraft?.payload);
+    const reviewer = item ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory }, orderBy: { createdAt: "desc" }, select: { assignedUser: { select: { fullName: true } } } }) : null;
+    return {
+      property: { id: property.id, name: property.name, code: property.code },
+      settings: settings.success ? settings.data : { version: 0, value: defaultReportSettings },
+      draft: draft.success ? draft.data : { version: 0, value: emptyReportDraft(), updatedAt: null },
+      sections: reportSections.map(section => ({ id: section.id, title: section.title })), checks: reportChecks,
+      items: await prisma.makeReadyItem.findMany({ where: { propertyId: property.id, isArchived: false }, select: { id: true, unitNumber: true, boardGroup: true }, orderBy: { unitNumber: "asc" } }),
+      item: item ? { id: item.id, unitNumber: item.unitNumber, technician: item.assignedTech, reviewer: reviewer?.assignedUser.fullName ?? null, checklists: item.checklistInstances } : null,
+    };
+  });
+  app.put("/final-walk-reports/:propertyId/settings", async (request, reply) => {
+    const property = await context(request, reply); if (!property) return;
+    const input = z.object({ version: z.number().int().min(0), value: reportSettingsSchema }).strict().parse(request.body);
+    return prisma.$transaction(async db => {
+      await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${property.id}), 824019)::text`;
+      const current = await db.propertyBranding.findUnique({ where: { propertyId: property.id } });
+      const parsed = savedReportSettingsSchema.safeParse(current?.finalWalkReportSettings);
+      if ((parsed.success ? parsed.data.version : 0) !== input.version) throw Object.assign(new Error("Report settings changed in another session. Reload before saving."), { statusCode: 409 });
+      const settings = { version: input.version + 1, value: input.value };
+      await db.propertyBranding.upsert({ where: { propertyId: property.id }, create: { propertyId: property.id, finalWalkReportSettings: settings }, update: { finalWalkReportSettings: settings } });
+      await db.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: property.id, entityType: "PROPERTY", entityId: property.id, action: "FINAL_WALK_REPORT_SETTINGS_UPDATED", message: "Updated final-walk draft report wording and style", metadata: { version: settings.version } } });
+      return settings;
+    });
+  });
+  app.put("/final-walk-reports/:propertyId/items/:itemId", async (request, reply) => {
+    const property = await context(request, reply); if (!property) return;
+    const { itemId } = z.object({ itemId: z.string().min(1) }).parse(request.params);
+    const input = z.object({ version: z.number().int().min(0), value: reportDraftSchema }).strict().parse(request.body);
+    return prisma.$transaction(async db => {
+      await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${itemId}), 824020)::text`;
+      const item = await db.makeReadyItem.findFirst({ where: { id: itemId, propertyId: property.id, isArchived: false }, include: { finalWalkReportDraft: true } });
+      if (!item) throw Object.assign(new Error("Active turn not found in this property"), { statusCode: 404 });
+      const current = savedReportDraftSchema.safeParse(item.finalWalkReportDraft?.payload);
+      if ((current.success ? current.data.version : 0) !== input.version) throw Object.assign(new Error("Inspection draft changed in another session. Reload before saving."), { statusCode: 409 });
+      const draft = { version: input.version + 1, value: input.value, updatedAt: new Date().toISOString() };
+      await db.finalWalkReportDraft.upsert({ where: { itemId: item.id }, create: { itemId: item.id, payload: draft }, update: { payload: draft } });
+      await db.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: property.id, entityType: "MAKE_READY_ITEM", entityId: item.id, action: "FINAL_WALK_REPORT_DRAFT_SAVED", message: "Saved inspection draft; no sign-off or ready-status change", metadata: { version: draft.version } } });
+      return draft;
+    });
+  });
+  app.post("/final-walk-reports/:propertyId/preview", async (request, reply) => {
+    const property = await context(request, reply); if (!property) return;
+    const input = z.object({ itemId: z.string().min(1).optional(), settings: reportSettingsSchema, draft: reportDraftSchema, format: z.enum(["html", "pdf"]) }).strict().parse(request.body);
+    const item = input.itemId ? await findItem(property.id, input.itemId) : null;
+    const reviewer = item ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory }, orderBy: { createdAt: "desc" }, select: { assignedUser: { select: { fullName: true } } } }) : null;
+    const html = finalWalkReportHtml({ propertyName: property.name, propertyCode: property.code, propertyLogo: property.branding?.logo ?? null, companyName: property.branding?.managementCompany?.name ?? null, companyLogo: property.branding?.managementCompany?.logo ?? null, unitNumber: item?.unitNumber ?? null, technician: item?.assignedTech ?? null, reviewer: reviewer?.assignedUser.fullName ?? null }, input.settings, item ? input.draft : emptyReportDraft());
+    if (input.format === "html") return { html };
+    return { pdfBase64: (await renderPdfFromHtml(html, { singlePage: true })).toString("base64") };
+  });
+}

@@ -120,8 +120,15 @@ model PropertyBranding {
   managementCompanyId String?
   managementCompany ManagementCompany? @relation(fields: [managementCompanyId], references: [id], onDelete: Restrict)
   logo String?
+  finalWalkReportSettings Json?
   updatedAt DateTime @updatedAt
   @@index([managementCompanyId])
+}
+
+model FinalWalkReportDraft {
+  itemId String @id
+  item MakeReadyItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  payload Json
 }
 
 model Unit {
@@ -212,6 +219,7 @@ model MakeReadyItem {
   riskReasons          Json                  @default("[]")
   lastRiskEvaluatedAt  DateTime?
   completionStatus     String?
+  finalWalkReportDraft  FinalWalkReportDraft?
   sheetrockStatus      String?
   pestStatus           String?
   pestTreated          String?

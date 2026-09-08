@@ -5,6 +5,7 @@
 .pond-guide-entries > div { display: grid; align-content: start; gap: 6px; padding: 12px; background: var(--surface); border-left: 2px solid #528875; }
 .pond-guide-entries small { line-height: 1.5; }
 .pond-pixel { width: 40px; height: 40px; display: block; image-rendering: pixelated; }
+.pond-guide-entries .pond-pixel-portrait { width: 88px; height: 88px; margin-block: 4px 8px; }
 .pond-undiscovered { filter: brightness(.25); opacity: .6; }
 .pond-decoration-controls { display: flex; flex-wrap: wrap; gap: 16px; }
 .pond-decoration-controls label { display: grid; gap: 6px; min-width: 0; }
@@ -14,14 +15,16 @@
 .pond-wildlife:focus-visible, .pond-secret:focus-visible { outline: 2px dashed #ffeda3; outline-offset: 2px; }
 .pond-wildlife span, .pond-secret span { display: none; position: absolute; top: 100%; width: max-content; max-width: 140px; font-size: 11px; line-height: 1.4; background: #071e20; padding: 4px; pointer-events: none; }
 .pond-wildlife:is(:hover,:focus-visible) span, .pond-secret:is(:hover,:focus-visible) span { display: block; }
-.pond-wild-strider { left: 20%; top: 27%; --wild-color: #bdac66; --wild-detail: #332c20; }
+.pond-wild-strider { left: 20%; --visitor-top: 48%; --wild-color: #bdac66; --wild-detail: #332c20; }
 .pond-wild-butterfly { left: 65%; top: 15%; --wild-color: #ffcc78; --wild-detail: #743734; }
 .pond-wild-fireflies { left: 42%; top: 16%; --wild-color: #e0f892; --wild-detail: #739844; }
 .pond-wild-fireflies .pond-pixel { width: 60px; height: 60px; filter: drop-shadow(0 0 4px #abde68); }
-.pond-wild-snail { left: 8%; top: 89%; --wild-color: #c1a57b; --wild-detail: #774b39; }
-.pond-wild-turtle { left: 72%; top: 28%; --wild-color: #b4bc6e; --wild-detail: #497751; }
-.pond-wild-duck { left: 45%; top: 91%; --wild-color: #e5c978; --wild-detail: #b46c30; }
-.pond-wild-axolotl { left: 55%; top: 34%; --wild-color: #efa9bd; --wild-detail: #823c70; }
+.pond-wild-snail { left: 8%; --visitor-top: 89%; --wild-color: #c1a57b; --wild-detail: #774b39; }
+.pond-wild-turtle { left: 72%; --visitor-top: 72%; --wild-color: #b4bc6e; --wild-detail: #497751; }
+.pond-wild-duck { left: 45%; --visitor-top: 85%; --wild-color: #e5c978; --wild-detail: #b46c30; }
+.pond-wild-axolotl { left: 55%; --visitor-top: 58%; --wild-color: #efa9bd; --wild-detail: #823c70; }
+/* Keep the entire sprite below the horizon, including the 12px upward skate. */
+.pond-wildlife:not([data-habitat="sky"]) { top: clamp(calc(100% / 3 + 16px), var(--visitor-top, 60%), calc(100% - 76px)); }
 .pond-wild-wake { position: absolute; bottom: 4px; width: 32px; height: 2px; background: #99d0c877; box-shadow: 4px 4px #99d0c844, -4px 8px #99d0c822; }
 .frog-animated .pond-wild-strider { animation: pond-skate 12s steps(24) infinite alternate; }
 .frog-animated .pond-wild-butterfly { animation: pond-butterfly 7s steps(18) infinite alternate; }
@@ -34,20 +37,21 @@
 .frog-animated .pond-wild-axolotl { animation: pond-skate 18s steps(30) infinite alternate; }
 .frog-animated .pond-wild-turtle svg { animation: pond-turtle 8s steps(2) infinite; }
 .pond-wildlife:is(:hover,:focus-visible), .pond-wildlife:is(:hover,:focus-visible) svg { animation-play-state: paused !important; }
-.pond-secret { right: 9%; top: 12%; --wild-color: #f4d48e; --wild-detail: #5b725e; }
+.pond-secret { right: 9%; top: calc(100% / 3 + 48px); --wild-color: #f4d48e; --wild-detail: #5b725e; }
 .pond-secret-active { --wild-color: #fff2b7; }
 .pond-secret-active svg { filter: drop-shadow(0 0 6px #edcc79); }
-.pond-secret-effect { position: absolute; top: 12%; right: 9%; width: 64px; height: 64px; pointer-events: none; z-index: 92; }
+.pond-secret-effect { position: absolute; top: calc(100% / 3 + 48px); right: 9%; width: 64px; height: 64px; pointer-events: none; z-index: 92; }
+.pond-secret[data-habitat="sky"], .pond-secret-effect[data-habitat="sky"] { top: 12%; }
 .pond-secret-effect > i { position: absolute; left: calc(6px + var(--spark) * 11px); top: 24px; width: 4px; height: 4px; background: #ffe298; }
 .frog-animated .pond-secret-effect > i { animation: pond-secret-spark 2s steps(8) infinite; animation-delay: calc(var(--spark) * -.31s); }
 .pond-secret-effect-pond-12 > i { width: 4px; height: 12px; background: #eee1bf99; }
 .pond-secret-effect-pond-10 svg { --wild-color: #c4e2cb; opacity: .8; }
 .frog-animated .pond-secret-effect-pond-10 svg { animation: pond-ghost 4s steps(16) infinite alternate; }
 .pond-secret-effect-pond-08 > i, .pond-secret-effect-pond-09 > i { background: #f19bc8; box-shadow: 0 16px #8fd8f0; }
-.pond-crystal-notes { position: absolute; top: 25%; right: 4%; display: flex; flex-wrap: wrap; gap: 4px; max-width: 200px; z-index: 93; padding: 6px; background: #102126e8; }
+.pond-crystal-notes { position: absolute; top: calc(100% / 3 + 112px); right: 4%; display: flex; flex-wrap: wrap; gap: 4px; max-width: 200px; z-index: 93; padding: 6px; background: #102126e8; }
 .pond-crystal-notes small { flex-basis: 100%; color: #e0efea; }
 .pond-crystal-notes button { min-height: 44px; padding: 8px; }
-.pond-garden-stage { position: absolute; right: 4%; top: 25%; max-width: 150px; color: #e3f3c4; background: #102126dd; font-size: 11px; padding: 6px; z-index: 91; }
+.pond-garden-stage { position: absolute; right: 4%; top: calc(100% / 3 + 112px); max-width: 150px; color: #e3f3c4; background: #102126dd; font-size: 11px; padding: 6px; z-index: 91; }
 .pond-garden-stage::before { content: ''; display: block; margin: 0 auto 6px; width: 4px; height: 4px; background: #856043; }
 .pond-garden-stage-1::before { height: 8px; background: #8cba5a; box-shadow: -4px -4px #8cba5a; }
 .pond-garden-stage-2::before { height: 16px; background: #8cba5a; box-shadow: -4px -4px #8cba5a, 4px -8px #8cba5a; }
@@ -85,5 +89,5 @@
 @keyframes pond-secret-spark { to { translate: 0 -44px; opacity: 0; } }
 @keyframes pond-ghost { to { translate: -40px -16px; opacity: .2; } }
 @keyframes pond-petal { to { translate: 18px 650px; rotate: 90deg; } }
-@media (max-width: 500px) { .pond-secret { right: 4%; } .pond-wild-butterfly { left: 45%; } .pond-wild-turtle { left: 65%; } .pond-discovery-message { font-size: 12px; } }
+@media (max-width: 500px) { .pond-secret, .pond-secret-effect { right: 4%; } .pond-wild-butterfly { left: 45%; } .pond-wild-turtle { left: 65%; } .pond-discovery-message { font-size: 12px; } }
 @media (prefers-reduced-motion: reduce) { .frog-pond-shell:not(.frog-motion-opt-in) :is(.pond-wildlife,.pond-wildlife svg,.pond-season i,.pond-secret-effect i,.pond-secret-effect svg) { animation: none !important; } }

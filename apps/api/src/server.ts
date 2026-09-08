@@ -18,6 +18,7 @@ import { turnAssignmentRoutes } from "./routes/turnAssignments.js";
 import { finalWalkRoutes } from "./routes/finalWalks.js";
 import { startTurnScheduler } from "./lib/turnScheduler.js";
 import { propertyBrandingRoutes } from "./routes/propertyBranding.js";
+import { finalWalkReportRoutes } from "./routes/finalWalkReports.js";
 import { backupTransferRoutes } from "./routes/backupTransfer.js";
 import { customFieldRoutes } from "./routes/customFields.js";
 import { collaborationRoutes } from "./routes/collaboration.js";
@@ -142,6 +143,7 @@ app.register(async (api) => {
   api.addHook("preHandler", requireCsrf);
   await activityRoutes(api);
   await propertyBrandingRoutes(api);
+  await finalWalkReportRoutes(api);
   await adminRoutes(api);
   await analyticsRoutes(api);
   await automationRoutes(api);
