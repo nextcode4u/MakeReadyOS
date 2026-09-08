@@ -1,6 +1,6 @@
 # Living Pond
 
-Local implementation, not deployed. The pond remains a decorative view of accessible board data, never a task editor or a completion gate.
+Deployed through application release `b47399a` on 2026-09-07, including detailed field-guide art and sky/water/ground placement rules. The pond remains a decorative view of accessible board data, never a task editor or a completion gate.
 
 ## Interaction
 

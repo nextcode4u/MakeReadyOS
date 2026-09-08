@@ -1,6 +1,6 @@
 # Admin Final-Walk Report Editor
 
-Local implementation, not deployed.
+Deployed to mr-os.com in application release `b47399a` on 2026-09-07.
 
 ## Where To Open It
 
@@ -39,4 +39,6 @@ Verified technician/independent reviewer sign-offs, immutable issued revisions, 
 
 ## Verification
 
-Local API/web builds, lint, four domain/permission tests and the isolated Docker browser integration pass. Browser coverage includes actual saved logos, draft reloads, stale-edit conflicts, cross-property rejection, one-page PDF output, long-content rejection, mobile overflow and native backup/restore. No production records were changed; this feature has not been deployed.
+Local API/web builds, lint, four domain/permission tests and the isolated Docker browser integration pass. Browser coverage includes actual saved logos, draft reloads, stale-edit conflicts, cross-property rejection, one-page PDF output, long-content rejection, mobile overflow and native backup/restore.
+
+Production migration applied successfully after verified database backup `makereadyos-db-20260907-195137.dump` and uploads backup `makereadyos-uploads-20260907-195138.tgz`. Previous API/web images are tagged `rollback-5f26967`. Live preview loaded both saved TA branding images, downloaded a one-page Letter PDF and passed desktop/mobile overflow checks without saving inspection drafts or settings.
