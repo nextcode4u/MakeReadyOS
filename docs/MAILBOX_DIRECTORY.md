@@ -4,7 +4,7 @@ Deployed to mr-os.com in application release `5778f48` on 2026-09-07. Migration:
 
 ## Setup
 
-Under Setup > Units, choose **Unit directory property**, then open **Mailbox directory / import** alongside the availability and unit-directory imports. The property code/name stays visible above the preview and Apply button. Admins and property-scoped managers may import; API tokens and other roles cannot. This relocation and conversion prompt are local follow-up changes, not yet deployed.
+Under Setup > Units, choose **Unit directory property**, then open **Mailbox directory / import** alongside the availability and unit-directory imports. The property code/name stays visible above the preview and Apply button. Admins and property-scoped managers may import; API tokens and other roles cannot. This relocation and conversion prompt were deployed in web release `33b7b63` on 2026-09-07.
 
 Open **Conversion prompt / convert a spreadsheet, PDF or image** for a copyable, property-specific prompt. It requires two-column CSV, preserves leading zeros and source identifiers, excludes access codes/personal details, and asks for clarification rather than guessing. Clipboard failures select the visible prompt for manual copying. Changing the selected property resets the import text/preview and generates a prompt for the new property.
 
@@ -27,3 +27,5 @@ Resident door/access codes belong to the individual turn draft, never the perman
 API/web builds, lint and eight combined mailbox/report domain and permission tests passed. Isolated Docker browser checks passed in `logs/e2e-20260907-202754.txt`: property-targeted import preview/apply, leading zeros, stale-preview rejection, cross-property write rejection, unknown-unit blocking, Turn Details report entry, automatic mailbox population, opt-in resident codes, one-page PDF, mobile containment and native backup/restore. Production data was not changed.
 
 Production deployment: database backup `makereadyos-db-20260907-203121.dump` and upload backup `makereadyos-uploads-20260907-203122.tgz` verified before migration; previous images retained as `rollback-b47399a`. Live mailbox field, preselected turn report, masked code inputs, PDF download, mobile layout and read-only TA import preview passed. No production assignments or inspection drafts were saved by smoke testing.
+
+Web follow-up `33b7b63`: backups `makereadyos-db-20260907-224634.dump` and `makereadyos-uploads-20260907-224635.tgz` verified; prior web image retained as `rollback-5778f48`. API/database remained running. Live Units placement, property-specific prompts for both properties, clipboard copying and mobile containment passed without imports or record changes.
