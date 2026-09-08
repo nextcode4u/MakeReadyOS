@@ -1,7 +1,5 @@
 # Admin Final-Walk Report Editor
 
-Local implementation, not deployed.
-
 ## Where To Open It
 
 Setup > Properties > select a property > Branding > **Edit / Preview Final-Walk Report**. Save property/company logo changes before opening. The screen is admin-session-only; API tokens and other roles cannot use its endpoints.
@@ -39,4 +37,4 @@ Verified technician/independent reviewer sign-offs, immutable issued revisions, 
 
 ## Verification
 
-Local API/web builds, lint, four domain/permission tests and the isolated Docker browser integration pass. Browser coverage includes actual saved logos, draft reloads, stale-edit conflicts, cross-property rejection, one-page PDF output, long-content rejection, mobile overflow and native backup/restore. No production records were changed; this feature has not been deployed.
+Local API/web builds, lint, four domain/permission tests and the isolated Docker browser integration pass. Browser coverage includes actual saved logos, draft reloads, stale-edit conflicts, cross-property rejection, one-page PDF output, long-content rejection, mobile overflow and native backup/restore.
