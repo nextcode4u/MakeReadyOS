@@ -97,6 +97,7 @@ const operatingCalendarSchema = z.object({
 const unitSchema = z.object({
   propertyCode: z.string().min(1),
   number: z.string().min(1),
+  mailboxNumber: z.string().max(40).nullable().optional().default(null),
   floorPlanCode: z.string().nullable().optional().default(null),
   floorPlanName: z.string().nullable().optional().default(null),
   floorPlan: z.string().nullable(),
@@ -1706,6 +1707,7 @@ async function buildExport(): Promise<NativeBackup> {
       units: units.map((unit) => ({
         propertyCode: unit.property.code,
         number: unit.number,
+        mailboxNumber: unit.mailboxNumber,
         floorPlanCode: unit.floorPlanRecord?.code ?? null,
         floorPlanName: unit.floorPlanRecord?.name ?? null,
         floorPlan: unit.floorPlan,

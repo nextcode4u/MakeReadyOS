@@ -4,8 +4,8 @@ import { getFinalReport, previewFinalReport, saveFinalReportDraft, saveFinalRepo
 import { Modal } from "./Modal";
 import "./finalWalkReportEditor.css";
 
-export function FinalWalkReportEditor({ propertyId, propertyName, onClose }: { propertyId: string; propertyName: string; onClose: () => void }) {
-  const query = useQuery({ queryKey: ["final-report", propertyId], queryFn: () => getFinalReport(propertyId), staleTime: 0, gcTime: 0, refetchOnWindowFocus: false });
+export function FinalWalkReportEditor({ propertyId, propertyName, itemId, onClose }: { propertyId: string; propertyName: string; itemId?: string; onClose: () => void }) {
+  const query = useQuery({ queryKey: ["final-report", propertyId, itemId], queryFn: () => getFinalReport(propertyId, itemId), staleTime: 0, gcTime: 0, refetchOnWindowFocus: false });
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -95,7 +95,16 @@ function ReportEditor({ initial, onDirty, onBusy }: { initial: FinalReportData; 
             <label>Reason / detail{["ATTENTION", "NA"].includes(result(check.id).status) ? " (required)" : ""}<input maxLength={100} value={result(check.id).note} data-testid={`final-report-note-${check.id}`} onChange={event => updateResult(check.id, { note: event.target.value })} /></label>
           </div>)}
         </details>)}
-        <details><summary>Mailbox & handoff details</summary><p>Do not enter door, gate, staff or master codes. Secure resident-only code handling is not available in this draft workspace.</p>{([['mailbox','Mailbox number',40],['homeKeys','Home key count',20],['mailboxKeys','Mailbox key count',20],['fobs','Access fob count',20],['remotes','Garage remote count',20],['parking','Parking / garage assignment',60]] as const).map(([key,label,maxLength]) => <label key={key}>{label}<input maxLength={maxLength} value={draft[key]} onChange={event => updateDraft({ [key]: event.target.value })}/></label>)}</details>
+        <details open><summary>Mailbox & resident handoff details</summary>
+          <label>Mailbox source<select value={draft.mailboxSource ?? "CUSTOM"} onChange={event => updateDraft({ mailboxSource: event.target.value as "DIRECTORY" | "CUSTOM", ...(event.target.value === "DIRECTORY" ? { mailbox: item.directoryMailbox ?? "" } : {}) })}><option value="DIRECTORY">Unit mailbox directory (automatic)</option><option value="CUSTOM">Override for this report only</option></select></label>
+          <label>Mailbox number<input data-testid="report-mailbox" maxLength={40} value={draft.mailbox} readOnly={draft.mailboxSource === "DIRECTORY"} onChange={event => updateDraft({ mailbox: event.target.value })}/></label>
+          <p>{draft.mailboxSource === "DIRECTORY" ? "Uses the latest saved unit mailbox when previewing or printing. Manage assignments in Turn Details or Setup > Properties > Mailbox directory." : "This override does not change the unit directory."}</p>
+          {([['homeKeys','Home key count',20],['mailboxKeys','Mailbox key count',20],['fobs','Access fob count',20],['remotes','Garage remote count',20],['parking','Parking / garage assignment',60]] as const).map(([key,label,maxLength]) => <label key={key}>{label}<input maxLength={maxLength} value={draft[key]} onChange={event => updateDraft({ [key]: event.target.value })}/></label>)}
+          <p>Codes must be unique to this resident/turn. Never enter shared gate, staff, vendor or master codes. New turns start with no codes; protected backups contain saved codes.</p>
+          <label>Resident-only door code<input data-testid="report-door-code" type="password" autoComplete="new-password" maxLength={60} value={draft.residentDoorCode} onChange={event => updateDraft({ residentDoorCode: event.target.value })}/></label>
+          <label>Resident-only access code<input type="password" autoComplete="new-password" maxLength={60} value={draft.residentAccessCode} onChange={event => updateDraft({ residentAccessCode: event.target.value })}/></label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input style={{ width: "auto" }} type="checkbox" checked={draft.includeResidentCodes} onChange={event => updateDraft({ includeResidentCodes: event.target.checked })}/>I confirm these are resident-specific codes; include them on this report</label>
+        </details>
         <label>Resident-facing follow-up<textarea rows={3} maxLength={400} value={draft.followUp} onChange={event => updateDraft({ followUp: event.target.value })}/></label>
         <button type="button" className="button button-primary" data-testid="final-report-save-draft" disabled={!draftDirty} onClick={() => void run(async () => { validateDraft(); const saved = await saveFinalReportDraft(initial.property.id, item.id, { version: savedDraft.version, value: draft }); setSavedDraft(saved); setDraft(saved.value); setMessage("Inspection draft saved. Unit status and sign-offs were not changed."); })}>Save inspection draft</button>
         <small>{savedDraft.updatedAt ? `Saved ${new Date(savedDraft.updatedAt).toLocaleString()} / revision ${savedDraft.version}` : "No saved inspection draft yet."}</small>

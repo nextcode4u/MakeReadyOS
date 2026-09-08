@@ -22,13 +22,20 @@ export const reportDraftSchema = z.object({
   inspectionDate: z.union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => { const d = new Date(`${value}T12:00:00Z`); return Number.isFinite(d.getTime()) && d.toISOString().slice(0,10) === value; }, "Enter a valid date")]),
   results: z.record(resultSchema).refine(results => Object.keys(results).every(id => reportChecks.some(check => check.id === id)), "Unknown checklist entry").refine(results => Object.values(results).every(result => !["NA", "ATTENTION"].includes(result.status) || result.note.length > 0), "Add a reason for Not applicable or Needs attention"),
   mailbox: text(40), homeKeys: text(20), mailboxKeys: text(20), fobs: text(20), remotes: text(20), parking: text(60),
+  mailboxSource: z.enum(["DIRECTORY", "CUSTOM"]).optional(),
+  residentDoorCode: text(60).default(""), residentAccessCode: text(60).default(""),
+  includeResidentCodes: z.boolean().default(false),
   followUp: text(400),
 }).strict();
-export const emptyReportDraft = () => ({ inspectionDate: "", results: {} as Record<string, z.infer<typeof resultSchema>>, mailbox: "", homeKeys: "", mailboxKeys: "", fobs: "", remotes: "", parking: "", followUp: "" });
+export const emptyReportDraft = () => ({ inspectionDate: "", results: {} as Record<string, z.infer<typeof resultSchema>>, mailbox: "", mailboxSource: "DIRECTORY" as const, homeKeys: "", mailboxKeys: "", fobs: "", remotes: "", parking: "", followUp: "", residentDoorCode: "", residentAccessCode: "", includeResidentCodes: false });
 export const savedReportSettingsSchema = z.object({ version: z.number().int().positive(), value: reportSettingsSchema });
 export const savedReportDraftSchema = z.object({ version: z.number().int().positive(), value: reportDraftSchema, updatedAt: z.string().datetime() });
 export type ReportSettings = z.infer<typeof reportSettingsSchema>;
 export type ReportDraft = z.infer<typeof reportDraftSchema>;
+export function resolveReportMailbox(draft: ReportDraft, directoryMailbox: string | null): ReportDraft {
+  const mailboxSource = draft.mailboxSource ?? (draft.mailbox ? "CUSTOM" : "DIRECTORY");
+  return { ...draft, mailboxSource, mailbox: mailboxSource === "DIRECTORY" ? directoryMailbox ?? "" : draft.mailbox };
+}
 const escape = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 
 export function finalWalkReportHtml(context: { propertyName: string; propertyCode: string; propertyLogo: string | null; companyName: string | null; companyLogo: string | null; unitNumber: string | null; technician: string | null; reviewer: string | null }, settings: ReportSettings, draft: ReportDraft) {
@@ -40,6 +47,7 @@ export function finalWalkReportHtml(context: { propertyName: string; propertyCod
     return `<div class="check"><span>${escape(check.label)}${result.note ? `<small>${escape(result.note)}</small>` : ""}</span><b class="${result.status}">${labels[result.status]}</b></div>`;
   }).join("")}</section>`;
   const details = [["Mailbox", draft.mailbox], ["Home / mailbox keys", `${draft.homeKeys || "Not recorded"} / ${draft.mailboxKeys || "Not recorded"}`], ["Fobs / remotes", `${draft.fobs || "Not recorded"} / ${draft.remotes || "Not recorded"}`], ["Parking / garage", draft.parking]];
+  if (draft.includeResidentCodes) details.push(["Resident-only door code", draft.residentDoorCode], ["Resident-only access code", draft.residentAccessCode]);
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Draft final-walk report</title><style>
   *{box-sizing:border-box}body{margin:0;background:white;color:#20323a;font:11px/1.25 Tahoma,sans-serif}main{border-top:5px solid ${settings.accent};padding:8px 0;overflow-wrap:anywhere}h1{font:25px/1.15 Georgia,serif;margin:8px 0;color:${settings.accent}}h2{font-size:11px;color:${settings.accent};border-bottom:2px solid ${settings.accent};padding-bottom:3px;margin:8px 0 3px}.draft{padding:5px;background:#fff3d8;border:1px solid #aa772e;font-size:10px;font-weight:bold}.brand{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-top:8px}.brand>div{display:flex;gap:10px;align-items:center;max-width:49%}.brand img{width:90px;height:48px;object-fit:contain}.brand strong{font-size:14px}.brand small{display:block}.identity,.handoff{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;border-block:1px solid #ccd7d8;padding:7px 0}.identity strong,.handoff strong{display:block}.columns{display:grid;grid-template-columns:1fr 1fr;gap:18px}.check{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;border-bottom:1px solid #e1e8e8;padding:1px 0;font-size:9px;line-height:1.3}.check b{font-size:8px}.check small{display:block;font-size:8px;color:#674e35}.CHECKED{color:#245849}.ATTENTION{color:#a32028}.NOT_CHECKED{color:#665d53}.handoff{grid-template-columns:repeat(4,minmax(0,1fr));font-size:9px;margin-top:8px}.note{font-size:9px;margin:6px 0}.signoffs{display:grid;grid-template-columns:1fr 1fr;gap:18px;font-size:9px;margin-top:8px}.signoffs>div{border-top:2px solid ${settings.accent};padding-top:5px}.signoffs strong{display:block}footer{border-top:1px solid #ccd7d8;margin-top:7px;padding-top:5px;font-size:8px;display:flex;justify-content:space-between}@page{size:Letter;margin:.4in .4in .45in}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   </style></head><body><main><div class="draft">DRAFT / NOT FINALIZED / NOT FOR RESIDENT ISSUE - No verified sign-offs.</div>

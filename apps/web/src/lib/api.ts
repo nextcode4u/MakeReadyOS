@@ -10,7 +10,7 @@ export const getPropertyBranding = (id: string) => request<{ property: { id: str
 export const savePropertyBranding = (id: string, input: { managementCompanyId: string | null; logo: string | null }) => request<{ branding: PropertyBranding }>(`/property-branding/${id}`, { method: "PUT", body: JSON.stringify(input) });
 export type FinalReportSettings = { title: string; introduction: string; footer: string; accent: string };
 export type FinalReportResult = { status: "NOT_CHECKED" | "CHECKED" | "ATTENTION" | "NA"; note: string };
-export type FinalReportDraft = { inspectionDate: string; results: Record<string, FinalReportResult>; mailbox: string; homeKeys: string; mailboxKeys: string; fobs: string; remotes: string; parking: string; followUp: string };
+export type FinalReportDraft = { inspectionDate: string; results: Record<string, FinalReportResult>; mailbox: string; mailboxSource?: "DIRECTORY" | "CUSTOM"; homeKeys: string; mailboxKeys: string; fobs: string; remotes: string; parking: string; followUp: string; residentDoorCode: string; residentAccessCode: string; includeResidentCodes: boolean };
 export type FinalReportData = {
   property: { id: string; name: string; code: string };
   settings: { version: number; value: FinalReportSettings };
@@ -18,12 +18,17 @@ export type FinalReportData = {
   sections: { id: string; title: string }[];
   checks: { id: string; section: string; label: string }[];
   items: { id: string; unitNumber: string; boardGroup: string }[];
-  item: { id: string; unitNumber: string; technician: string | null; reviewer: string | null; checklists: { id: string; name: string; items: { id: string; title: string; completed: boolean; completedAt: string | null }[] }[] } | null;
+  item: { id: string; unitNumber: string; directoryMailbox: string | null; technician: string | null; reviewer: string | null; checklists: { id: string; name: string; items: { id: string; title: string; completed: boolean; completedAt: string | null }[] }[] } | null;
 };
 export const getFinalReport = (propertyId: string, itemId?: string) => request<FinalReportData>(`/final-walk-reports/${propertyId}${itemId ? `?itemId=${encodeURIComponent(itemId)}` : ""}`);
 export const saveFinalReportSettings = (propertyId: string, input: FinalReportData["settings"]) => request<FinalReportData["settings"]>(`/final-walk-reports/${propertyId}/settings`, { method: "PUT", body: JSON.stringify(input) });
 export const saveFinalReportDraft = (propertyId: string, itemId: string, input: { version: number; value: FinalReportDraft }) => request<FinalReportData["draft"]>(`/final-walk-reports/${propertyId}/items/${itemId}`, { method: "PUT", body: JSON.stringify(input) });
 export const previewFinalReport = (propertyId: string, input: { itemId?: string; settings: FinalReportSettings; draft: FinalReportDraft; format: "html" | "pdf" }) => request<{ html?: string; pdfBase64?: string }>(`/final-walk-reports/${propertyId}/preview`, { method: "POST", body: JSON.stringify(input) });
+export type MailboxDirectory = { property: { id: string; code: string; name: string }; units: { id: string; number: string; mailboxNumber: string | null }[] };
+export type MailboxPlan = { token: string; applied: boolean; errors: string[]; changes: { id: string; number: string; before: string | null; after: string; action: "UPDATE" | "KEEP" | "UNCHANGED" | "SKIP" }[] };
+export const getMailboxDirectory = (propertyId: string) => request<MailboxDirectory>(`/mailboxes/${propertyId}`);
+export const saveUnitMailbox = (propertyId: string, unitId: string, input: { mailboxNumber: string | null; expected: string | null }) => request<{ mailboxNumber: string | null }>(`/mailboxes/${propertyId}/${unitId}`, { method: "PATCH", body: JSON.stringify(input) });
+export const importMailboxDirectory = (propertyId: string, input: { mode: "DIRECTORY" | "UNIT_NUMBER"; text: string; overwrite: boolean; token?: string }) => request<MailboxPlan>(`/mailboxes/${propertyId}/import`, { method: "POST", body: JSON.stringify(input) });
 let csrfToken: string | null = null;
 
 function notifyApiUnreachable(path: string, method: string) {
