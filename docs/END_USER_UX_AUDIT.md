@@ -21,6 +21,8 @@ Preserve the existing visual language; prioritize orientation, safe saves, and f
 
 ## Verification
 
+UX-21 deployed as `ec6676c`. Database/upload backups `makereadyos-db-20260907-234918.dump` and `makereadyos-uploads-20260907-234919.tgz` validated; previous images retained as `rollback-personal-forecast`. All services healthy. Live administrator My Work showed 8 tentative upcoming turns separately from 1 confirmed assignment; mobile expected dates, unit opening and browser-error checks passed with no record changes. Screenshot reviewed. The first smoke attempt raced login; rerun waited for successful authentication and passed. GitHub CI remained running at deployment.
+
 UX-20 deployed as `665a0fb`; three projection tests, lint, production builds and browser regression passed (`logs/e2e-20260907-231929.txt`). Database/upload backups `232143.dump` / `232144.tgz` validated before deployment; rollback images `rollback-c4b3ebb` retained. Live check found 21 upcoming turns, confirmed mobile containment and unit opening with no record changes. A visual follow-up uses neutral start-date labels instead of inherited overdue red. Services healthy; GitHub CI was still running at the initial deployment checkpoint.
 
 - [ ] UX-10: Pool facility/chemical/daily form rejections escape to the global nonfatal action-error notice, and upload rejection is unhandled. (The current app no longer replaces the workspace on these errors.) Local error recovery with preserved inputs is implemented; facility failure/retry regression passes in `logs/e2e-20260907-005406.txt`. Chemical/daily/upload and other archive/delete/offline queue action errors still need review.
