@@ -1673,7 +1673,6 @@ export function OperationsPanel({
           {selectedProperty ? (
             <div className="editor-block property-editor">
               <PropertyBrandingPanel key={selectedProperty.id} propertyId={selectedProperty.id} isAdmin={role === "ADMIN"} />
-              <MailboxDirectoryPanel key={`mailbox-${selectedProperty.id}`} propertyId={selectedProperty.id} />
               <label>{isSpanish ? "Nombre" : "Name"}<input data-testid="property-edit-name" value={propertyDraft.name} onChange={(event) => setPropertyDraft((current) => ({ ...current, name: event.target.value }))} /></label>
               <label>{isSpanish ? "Código" : "Code"}<input data-testid="property-edit-code" value={propertyDraft.code} onChange={(event) => setPropertyDraft((current) => ({ ...current, code: event.target.value }))} /></label>
               <label>{isSpanish ? "Meta de ocupación %" : "Occupancy goal %"}<input data-testid="property-edit-occupancy-goal" type="number" min="0" max="100" step="0.1" value={propertyDraft.occupancyGoalPercent} onChange={(event) => setPropertyDraft((current) => ({ ...current, occupancyGoalPercent: event.target.value }))} /></label>
@@ -2147,6 +2146,9 @@ export function OperationsPanel({
               </div>
             ) : null}
             <button data-testid="unit-import-submit" className="button button-secondary" disabled={loading || !properties.length || !selectedPropertyId || !unitImportText.trim()} onClick={() => void importUnitDirectory()}>{isSpanish ? "Importar / actualizar directorio" : "Import / Update Directory"}</button>
+          </div>
+          <div className="editor-block unit-import-block">
+            {selectedProperty?.isActive ? <MailboxDirectoryPanel key={`mailbox-${selectedProperty.id}`} propertyId={selectedProperty.id} /> : <p className="helper-copy">{isSpanish ? "Seleccione una propiedad activa arriba para importar el directorio de buzones." : "Select an active property above to import its mailbox directory."}</p>}
           </div>
         </article>
       </section>

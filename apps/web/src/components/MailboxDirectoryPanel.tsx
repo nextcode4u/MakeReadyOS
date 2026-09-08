@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getMailboxDirectory, importMailboxDirectory, type MailboxPlan } from "../lib/api";
 
@@ -10,7 +10,29 @@ export function MailboxDirectoryPanel({ propertyId }: { propertyId: string }) {
   const [plan, setPlan] = useState<MailboxPlan | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [copyMessage, setCopyMessage] = useState("");
+  const promptRef = useRef<HTMLTextAreaElement>(null);
   const property = query.data?.property;
+  const conversionPrompt = `Convert the mailbox directory I provide into CSV for MakeReadyOS.
+
+TARGET PROPERTY: ${property ? `${property.code} / ${property.name}` : "Select a property in Setup > Units first"}
+
+Rules:
+- Include ONLY units belonging to this target property. If the property is unclear or multiple properties cannot be separated reliably, ask me to clarify before producing CSV.
+- Output exactly two columns, with this header: unit,mailbox
+- Output plain CSV only, without Markdown fences, commentary, extra columns or totals.
+- Treat unit and mailbox numbers as TEXT. Preserve leading zeros, letters, hyphens, building identifiers and meaningful punctuation. Do not turn 001 into 1 or invent property prefixes.
+- Copy the unit identifier exactly as used in the existing MakeReadyOS unit directory. If the source identifier cannot be matched reliably, ask me to clarify; do not guess.
+- Do not assume mailbox numbers match unit numbers. Only output an assignment explicitly supported by the source.
+- Exclude blank/unknown mailbox assignments. If a unit has conflicting assignments, ask for clarification rather than choosing one. Include each unit at most once.
+- Use proper CSV quoting for values containing commas or quotation marks; double embedded quotation marks.
+- Exclude resident names, email addresses, phone numbers, door/access/gate codes, staff/master codes and unrelated personal information.
+- If reading a screenshot, scanned PDF or handwritten sheet, do not guess unclear characters. Ask me to confirm them first.
+
+I will review the CSV and the property-specific import preview before applying it. Do not claim to have imported anything.
+
+SOURCE DIRECTORY:
+[I will paste the directory below or attach its file/image.]`;
   const update = (change: () => void) => { change(); setPlan(null); setError(""); };
   async function submit(apply: boolean) {
     setBusy(true); setError("");
@@ -26,6 +48,15 @@ export function MailboxDirectoryPanel({ propertyId }: { propertyId: string }) {
     {query.isError ? <p role="alert">Could not load directory. <button type="button" onClick={() => void query.refetch()}>Retry</button></p> : null}
     <fieldset disabled={busy || !property} style={{ minWidth: 0 }}>
       <legend>Import mailbox assignments</legend>
+      <details className="unit-import-help" data-testid="mailbox-import-ai-help"><summary>Conversion prompt / convert a spreadsheet, PDF or image</summary>
+        <p>Copy this prompt into your conversion tool, then provide the source directory. Remove unrelated resident details and access codes before sharing it. Review the converted CSV before importing.</p>
+        <button type="button" className="button button-secondary" onClick={async () => {
+          try { await navigator.clipboard.writeText(conversionPrompt); setCopyMessage("Conversion prompt copied."); }
+          catch { promptRef.current?.focus(); promptRef.current?.select(); setCopyMessage("Clipboard is unavailable. The prompt is selected; copy it manually."); }
+        }}>Copy conversion prompt</button>
+        {copyMessage ? <p role="status">{copyMessage}</p> : null}
+        <label>Mailbox conversion prompt<textarea ref={promptRef} data-testid="mailbox-conversion-prompt" readOnly rows={10} value={conversionPrompt}/></label>
+      </details>
       <label>Numbering<select data-testid="mailbox-import-mode" value={mode} onChange={event => update(() => setMode(event.target.value as typeof mode))}><option value="DIRECTORY">Mailbox numbers differ / import a directory</option><option value="UNIT_NUMBER">Mailbox number matches unit number</option></select></label>
       {mode === "DIRECTORY" ? <><p>Paste CSV or tab-separated columns <code>unit,mailbox</code>. Leading zeros are preserved. Blank mailbox cells are skipped, not cleared.</p><label>Directory file<input type="file" accept=".csv,.tsv,.txt" onChange={event => {
         const file = event.target.files?.[0]; if (!file) return;
