@@ -13,6 +13,41 @@ const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
+test("mailbox import lives in Units with a property-specific copyable conversion prompt", async ({ page, context }) => {
+  page.setDefaultTimeout(15000);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-operations").click();
+  const units = page.getByTestId("unit-management");
+  const propertySelect = units.getByTestId("unit-directory-property");
+  await expect.poll(() => propertySelect.locator("option").count()).toBeGreaterThan(2);
+  const properties = await propertySelect.locator("option").evaluateAll(options => options.map(option => ({ value: (option as HTMLOptionElement).value, label: option.textContent ?? "" })).filter(option => option.value));
+  expect(properties.length).toBeGreaterThan(1);
+  await propertySelect.selectOption(properties[0].value);
+  const panel = units.getByTestId("mailbox-directory-panel");
+  await panel.locator("summary").first().click();
+  await panel.getByTestId("mailbox-import-ai-help").locator("summary").click();
+  const prompt = panel.getByTestId("mailbox-conversion-prompt");
+  await expect(prompt).toContainText("unit,mailbox");
+  const firstPrompt = await prompt.inputValue();
+  expect(firstPrompt).toContain(properties[0].label.replace(" - ", " / "));
+  expect(firstPrompt).toContain("Do not assume mailbox numbers match unit numbers");
+  await panel.getByRole("button", { name: "Copy conversion prompt", exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(firstPrompt);
+  await panel.getByTestId("mailbox-import-text").fill("unit,mailbox\n101,001");
+  await propertySelect.selectOption(properties[1].value);
+  await panel.locator("summary").first().click();
+  await expect(panel.getByTestId("mailbox-import-text")).toHaveValue("");
+  await panel.getByTestId("mailbox-import-ai-help").locator("summary").click();
+  await expect(prompt).toContainText(properties[1].label.replace(" - ", " / "));
+  await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: () => Promise.reject(new Error("denied")) } }));
+  await panel.getByRole("button", { name: "Copy conversion prompt", exact: true }).click();
+  await expect(panel.getByRole("status")).toContainText("copy it manually");
+  expect(await prompt.evaluate(element => { const textarea = element as HTMLTextAreaElement; return textarea.selectionStart === 0 && textarea.selectionEnd === textarea.value.length; })).toBeTruthy();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+});
+
 test("mailbox directory imports populate turn reports and isolate resident codes", async ({ page }) => {
   test.setTimeout(120000); page.setDefaultTimeout(15000);
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");

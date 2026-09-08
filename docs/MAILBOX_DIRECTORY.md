@@ -4,7 +4,9 @@ Deployed to mr-os.com in application release `5778f48` on 2026-09-07. Migration:
 
 ## Setup
 
-Under Setup > Properties, select the property and open **Mailbox directory / import**. The property code/name stays visible above the preview and Apply button. Admins and property-scoped managers may import; API tokens and other roles cannot.
+Under Setup > Units, choose **Unit directory property**, then open **Mailbox directory / import** alongside the availability and unit-directory imports. The property code/name stays visible above the preview and Apply button. Admins and property-scoped managers may import; API tokens and other roles cannot. This relocation and conversion prompt are local follow-up changes, not yet deployed.
+
+Open **Conversion prompt / convert a spreadsheet, PDF or image** for a copyable, property-specific prompt. It requires two-column CSV, preserves leading zeros and source identifiers, excludes access codes/personal details, and asks for clarification rather than guessing. Clipboard failures select the visible prompt for manual copying. Changing the selected property resets the import text/preview and generates a prompt for the new property.
 
 - Choose **Mailbox number matches unit number** to explicitly populate existing active units. This is a bulk action, not an inferred or permanent rule for future units.
 - Otherwise upload/paste two-column CSV or TSV with `unit,mailbox` headers. Strings retain leading zeros; quoted CSV cells are supported. Do not include access codes.
