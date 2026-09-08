@@ -1374,6 +1374,11 @@ test("My Work forecasts personal upcoming turns without confirming assignments",
   await page.setViewportSize({ width: 390, height: 844 });
   const card = page.getByTestId(`my-work-forecast-${item.id}`);
   await expect(card).toContainText("Tentative assignment");
+  expect(await page.getByTestId("my-work-panel").evaluate(panel => {
+    const confirmed = Array.from(panel.querySelectorAll("h3")).find(heading => heading.textContent === "Confirmed assignments");
+    const upcoming = panel.querySelector('[data-testid="my-work-upcoming"]');
+    return Boolean(confirmed && upcoming && (confirmed.compareDocumentPosition(upcoming) & Node.DOCUMENT_POSITION_FOLLOWING));
+  })).toBeTruthy();
   await expect(card).toContainText(`Expected start: ${forecast.expectedStartDate.slice(0, 10)}`);
   await expect(card.getByRole("button", { name: "Start Work" })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
