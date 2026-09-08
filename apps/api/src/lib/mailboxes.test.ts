@@ -17,10 +17,32 @@ test("mailbox imports reject unknown and ambiguous units, do not clear blanks, a
   const plan = mailboxPlan("TA", units, input);
   assert.deepEqual(plan.changes.map(row => row.action), ["UPDATE", "SKIP"]);
   assert.notEqual(plan.token, mailboxPlan("TA", [{ ...units[0], mailboxNumber: "new" }, units[1]], input).token);
-  assert.equal(mailboxPlan("TA", units, { ...input, text: "unit,mailbox\nunknown,1\n001,2\n001,3" }).errors.length, 2);
+  const duplicates = mailboxPlan("TA", units, { ...input, text: "unit,mailbox\nunknown,1\n001,2\n001,3" });
+  assert.equal(duplicates.errors.length, 3);
+  assert.equal(duplicates.changes.length, 0);
   assert.equal(mailboxPlan("TA", [...units, { ...units[0], id: "dup" }], input).errors.length, 1);
   assert.throws(() => parseMailboxDirectory('unit,mailbox\n001,"unfinished'));
   assert.throws(() => parseMailboxDirectory('unit,mailbox,code\n001,1,SECRET'));
+});
+test("numeric mailbox unit matching ignores leading zeroes without guessing ambiguous assignments", () => {
+  const directory = [
+    { id: "a", number: "011", mailboxNumber: null },
+    { id: "b", number: "12", mailboxNumber: null },
+    { id: "c", number: "011A", mailboxNumber: null },
+  ];
+  const input = mailboxImportSchema.parse({ mode: "DIRECTORY", text: "unit,mailbox\n11,009\n0012,010\n011a,A-1" });
+  const plan = mailboxPlan("TA", directory, input);
+  assert.deepEqual(plan.errors, []);
+  assert.deepEqual(plan.changes.map(row => [row.number, row.after]), [["011", "009"], ["12", "010"], ["011A", "A-1"]]);
+  const duplicate = mailboxPlan("TA", directory, { ...input, text: "unit,mailbox\n11,1\n011,2" });
+  assert.equal(duplicate.errors.length, 2);
+  assert.equal(duplicate.changes.length, 0);
+  const ambiguousUnits = [...directory, { id: "d", number: "11", mailboxNumber: null }];
+  const ambiguous = mailboxPlan("TA", ambiguousUnits, { ...input, text: "unit,mailbox\n011,1" });
+  assert.equal(ambiguous.errors.length, 1);
+  assert.equal(ambiguous.changes.length, 0);
+  assert.equal(mailboxPlan("TA", directory, { ...input, text: "unit,mailbox\n11A,1" }).errors.length, 1);
+  assert.equal(mailboxPlan("TA", ambiguousUnits, { ...input, mode: "UNIT_NUMBER" }).changes.length, 4);
 });
 test("reports follow the directory unless explicitly overridden and never print codes by default", () => {
   const context = { propertyName: "Property", propertyCode: "TA", propertyLogo: null, companyName: null, companyLogo: null, unitNumber: "001", technician: null, reviewer: null };

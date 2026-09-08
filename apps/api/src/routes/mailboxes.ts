@@ -43,12 +43,13 @@ export async function mailboxRoutes(app: FastifyInstance) {
       catch (error) { throw Object.assign(error as Error, { statusCode: 400 }); }
       if (!input.token) return { ...plan, applied: false };
       if (input.token !== plan.token) throw Object.assign(new Error("The directory changed after preview. Preview again before applying."), { statusCode: 409 });
-      if (plan.errors.length) throw Object.assign(new Error("Resolve every preview error before importing."), { statusCode: 400 });
+      if (plan.errors.length && !input.skipInvalid) throw Object.assign(new Error("Resolve the flagged rows or explicitly choose to skip them and import valid rows."), { statusCode: 400 });
+      if (!plan.changes.some(change => change.action === "UPDATE")) throw Object.assign(new Error("No valid mailbox changes to import."), { statusCode: 400 });
       for (const change of plan.changes.filter(change => change.action === "UPDATE")) {
         const updated = await db.unit.updateMany({ where: { id: change.id, propertyId: property.id, isActive: true, mailboxNumber: change.before }, data: { mailboxNumber: change.after } });
         if (updated.count !== 1) throw Object.assign(new Error("A mailbox changed while importing. Preview again."), { statusCode: 409 });
       }
-      await db.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: property.id, entityType: "PROPERTY", entityId: property.id, action: "MAILBOX_DIRECTORY_IMPORTED", message: `Updated ${plan.changes.filter(change => change.action === "UPDATE").length} unit mailbox assignments` } });
+      await db.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: property.id, entityType: "PROPERTY", entityId: property.id, action: "MAILBOX_DIRECTORY_IMPORTED", message: `Updated ${plan.changes.filter(change => change.action === "UPDATE").length} unit mailbox assignments; skipped ${plan.errors.length} invalid rows` } });
       return { ...plan, applied: true };
     });
   });
