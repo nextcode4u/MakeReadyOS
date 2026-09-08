@@ -2,7 +2,7 @@
 
 ## Setup
 
-Under Setup > Units, choose **Unit directory property**, then open **Mailbox directory / import** alongside the availability and unit-directory imports. The property code/name stays visible above the preview and Apply button. Admins and property-scoped managers may import; API tokens and other roles cannot. This relocation and conversion prompt are local follow-up changes, not yet deployed.
+Under Setup > Units, choose **Unit directory property**, then open **Mailbox directory / import** alongside the availability and unit-directory imports. The property code/name stays visible above the preview and Apply button. Admins and property-scoped managers may import; API tokens and other roles cannot. This relocation and conversion prompt were deployed in web release `33b7b63` on 2026-09-07.
 
 Open **Conversion prompt / convert a spreadsheet, PDF or image** for a copyable, property-specific prompt. It requires two-column CSV, preserves leading zeros and source identifiers, excludes access codes/personal details, and asks for clarification rather than guessing. Clipboard failures select the visible prompt for manual copying. Changing the selected property resets the import text/preview and generates a prompt for the new property.
 
