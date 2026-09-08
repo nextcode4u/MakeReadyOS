@@ -10,7 +10,8 @@ Open **Conversion prompt / convert a spreadsheet, PDF or image** for a copyable,
 
 - Choose **Mailbox number matches unit number** to explicitly populate existing active units. This is a bulk action, not an inferred or permanent rule for future units.
 - Otherwise upload/paste two-column CSV or TSV with `unit,mailbox` headers. Strings retain leading zeros; quoted CSV cells are supported. Do not include access codes.
-- Preview is read-only. Unknown/ambiguous units and duplicate unit rows block Apply; import the unit directory first. Blank mailbox cells skip rather than erase assignments.
+- Local follow-up: numeric unit identifiers match without leading zeros (`11` matches `011`) only when unique within the selected property. Both stored unit numbers and mailbox values retain their formatting. Alphanumeric identifiers are not zero-normalized. If both `11` and `011` exist, directory rows are flagged as ambiguous; importing both aliases for one unit flags every duplicate. Not yet deployed.
+- Preview is read-only and may cover any subset of units. Local follow-up: unknown/ambiguous units, duplicate unit rows and invalid mailbox values can now be explicitly skipped with **Skip flagged rows and import valid rows only**. Every conflicting duplicate is excluded, not just later occurrences. Skipped rows remain listed after Apply; all-invalid files cannot apply. Malformed CSV/header errors still block parsing. Blank mailbox cells skip rather than erase assignments. This partial-import follow-up is not yet deployed.
 - Existing assignments are retained unless **Replace existing mailbox assignments** is checked. No unit creation, availability changes or cross-property matching occurs.
 - Apply requires the preview token; changed mappings or property scope require a new preview. All mailbox writes share a per-property transaction lock and audit only actor/unit/count, not codes.
 

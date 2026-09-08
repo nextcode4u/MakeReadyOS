@@ -28,7 +28,7 @@ export type MailboxDirectory = { property: { id: string; code: string; name: str
 export type MailboxPlan = { token: string; applied: boolean; errors: string[]; changes: { id: string; number: string; before: string | null; after: string; action: "UPDATE" | "KEEP" | "UNCHANGED" | "SKIP" }[] };
 export const getMailboxDirectory = (propertyId: string) => request<MailboxDirectory>(`/mailboxes/${propertyId}`);
 export const saveUnitMailbox = (propertyId: string, unitId: string, input: { mailboxNumber: string | null; expected: string | null }) => request<{ mailboxNumber: string | null }>(`/mailboxes/${propertyId}/${unitId}`, { method: "PATCH", body: JSON.stringify(input) });
-export const importMailboxDirectory = (propertyId: string, input: { mode: "DIRECTORY" | "UNIT_NUMBER"; text: string; overwrite: boolean; token?: string }) => request<MailboxPlan>(`/mailboxes/${propertyId}/import`, { method: "POST", body: JSON.stringify(input) });
+export const importMailboxDirectory = (propertyId: string, input: { mode: "DIRECTORY" | "UNIT_NUMBER"; text: string; overwrite: boolean; skipInvalid?: boolean; token?: string }) => request<MailboxPlan>(`/mailboxes/${propertyId}/import`, { method: "POST", body: JSON.stringify(input) });
 let csrfToken: string | null = null;
 
 function notifyApiUnreachable(path: string, method: string) {

@@ -66,12 +66,18 @@ test("mailbox directory imports populate turn reports and isolate resident codes
   const panel = page.getByTestId("mailbox-directory-panel");
   await panel.locator("summary").first().click();
   await expect(panel).toContainText(`Target property: ${item.property.code}`);
-  await panel.getByTestId("mailbox-import-text").fill(`unit,mailbox\n${unit.number},007`);
+  await panel.getByTestId("mailbox-import-text").fill(`unit,mailbox\n${unit.number},007\nNO-SUCH-UNIT,999`);
   await panel.getByRole("button", { name: "Preview mailbox import", exact: true }).click();
   await expect(panel.getByRole("status")).toContainText("1 mailbox assignments to update");
   expect((await (await page.request.get(root)).json()).units.find((u: { id: string }) => u.id === unit.id).mailboxNumber).toBeNull();
+  await expect(panel.getByRole("button", { name: `Apply mailbox import to ${item.property.code}`, exact: true })).toBeDisabled();
+  await panel.getByRole("checkbox", { name: "Skip flagged rows and import valid rows only" }).check();
   await panel.getByRole("button", { name: `Apply mailbox import to ${item.property.code}`, exact: true }).click();
   await expect(panel.getByRole("status")).toContainText("Saved: 1");
+  await expect(panel).toContainText("1 rows were skipped");
+  const afterPartial = await (await page.request.get(root)).json();
+  expect(afterPartial.units.length).toBe(directory.units.length);
+  expect(afterPartial.units.filter((u: { id: string }) => u.id !== unit.id)).toEqual(directory.units.filter((u: { id: string }) => u.id !== unit.id));
   const input = { mode: "UNIT_NUMBER", overwrite: true };
   const preview = await (await page.request.post(`${root}/import`, { headers, data: input })).json();
   expect((await page.request.patch(`${root}/${unit.id}`, { headers, data: { expected: "007", mailboxNumber: "008" } })).status()).toBe(200);
@@ -82,6 +88,7 @@ test("mailbox directory imports populate turn reports and isolate resident codes
   const bad = await (await page.request.post(`${root}/import`, { headers, data: badInput })).json();
   expect(bad.errors).toHaveLength(1);
   expect((await page.request.post(`${root}/import`, { headers, data: { ...badInput, token: bad.token } })).status()).toBe(400);
+  expect((await page.request.post(`${root}/import`, { headers, data: { ...badInput, token: bad.token, skipInvalid: true } })).status()).toBe(400);
   await page.getByTestId("tab-table").click();
   await page.getByRole("button", { name: `Open details for ${item.unitNumber}`, exact: true }).click();
   const turnPanel = page.getByTestId("turn-report-panel");
