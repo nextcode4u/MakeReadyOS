@@ -15,7 +15,7 @@ async function detectChromiumPath() {
   throw new Error("Chromium executable not found. Set CHROMIUM_PATH or install chromium in the API container.");
 }
 
-export async function renderPdfFromHtml(html: string, options?: { headerTemplate?: string; footerTemplate?: string }) {
+export async function renderPdfFromHtml(html: string, options?: { headerTemplate?: string; footerTemplate?: string; singlePage?: boolean }) {
   const executablePath = await detectChromiumPath();
   const browser = await chromium.launch({
     executablePath,
@@ -24,7 +24,20 @@ export async function renderPdfFromHtml(html: string, options?: { headerTemplate
   });
   try {
     const page = await browser.newPage();
+    if (options?.singlePage) {
+      await page.setViewportSize({ width: 739, height: 974 });
+      await page.emulateMedia({ media: "print" });
+      await page.route("**/*", route => route.abort());
+    }
     await page.setContent(html, { waitUntil: "load" });
+    if (options?.singlePage) {
+      await page.evaluate(async () => { await document.fonts.ready; await Promise.all(Array.from(document.images).map(image => image.decode())); });
+      const fits = await page.evaluate(() => {
+        const main = document.querySelector("main")!;
+        return main.getBoundingClientRect().height <= 974 && document.documentElement.scrollWidth <= 739;
+      });
+      if (!fits) throw Object.assign(new Error("This draft does not fit one Letter page. Shorten report wording or notes; no inspection details were clipped."), { statusCode: 422 });
+    }
     return await page.pdf({
       format: "Letter",
       printBackground: true,

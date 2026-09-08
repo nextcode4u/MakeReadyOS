@@ -2,6 +2,8 @@
 
 Status: reviewed source and requested workflow captured; the complete workflow and proposed resident handoff controls below are not implemented yet. Existing calendar automation and percentage assignment are separate, locally verified foundations, not completed inspections.
 
+Admin draft editor update: [FINAL_WALK_REPORT_EDITOR.md](FINAL_WALK_REPORT_EDITOR.md) describes the new connected property-branding preview and per-turn inspection drafts. This replaces the previous lack of an in-app draft preview, but does not implement verified sign-offs or resident issue. The historical sample remains fictional.
+
 ## Source And Goal
 
 Reviewed both pages of the user's `(Zaq) Apartment Make Ready Checklist 5.31.26 (1).pdf`, at `D:\Users\DELL\Downloads\MR Sheet\` (available locally under `/mnt/d/Users/DELL/Downloads/MR Sheet/`). Do not introduce a runtime dependency on that workstation path.

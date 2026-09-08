@@ -14,6 +14,8 @@ Migration: `20260907140000_property_branding`. No existing company assignments o
 
 ## Remaining Integrations
 
+Connected draft previews are now implemented locally under Branding > Edit / Preview Final-Walk Report. See [FINAL_WALK_REPORT_EDITOR.md](FINAL_WALK_REPORT_EDITOR.md). Actual saved logos and company/property names are rendered in the admin preview and draft PDF; finalized resident issue and immutable branding snapshots remain separate work.
+
 - [ ] Reusable read-only property identity component for property-specific headers, wiki, inspection screens and resident documents; do not add large logos to dense board rows or the mobile top bar.
 - [ ] Use the selected property's identity on resident reports and property-specific exports. A finalized inspection must snapshot the name/logo bytes with its revision so later company edits cannot rewrite issued documents.
 - [ ] Invitation and notification branding: handle multiple properties/companies explicitly; use neutral MakeReadyOS branding when there is no unambiguous company. Do not pick the first company arbitrarily.

@@ -8,6 +8,22 @@ export const createManagementCompany = (name: string) => request<{ company: Mana
 export const updateManagementCompany = (id: string, input: { name?: string; logo?: string | null }) => request<{ company: ManagementCompany }>(`/management-companies/${id}`, { method: "PATCH", body: JSON.stringify(input) });
 export const getPropertyBranding = (id: string) => request<{ property: { id: string; name: string; code: string; branding: PropertyBranding | null } }>(`/property-branding/${id}`);
 export const savePropertyBranding = (id: string, input: { managementCompanyId: string | null; logo: string | null }) => request<{ branding: PropertyBranding }>(`/property-branding/${id}`, { method: "PUT", body: JSON.stringify(input) });
+export type FinalReportSettings = { title: string; introduction: string; footer: string; accent: string };
+export type FinalReportResult = { status: "NOT_CHECKED" | "CHECKED" | "ATTENTION" | "NA"; note: string };
+export type FinalReportDraft = { inspectionDate: string; results: Record<string, FinalReportResult>; mailbox: string; homeKeys: string; mailboxKeys: string; fobs: string; remotes: string; parking: string; followUp: string };
+export type FinalReportData = {
+  property: { id: string; name: string; code: string };
+  settings: { version: number; value: FinalReportSettings };
+  draft: { version: number; value: FinalReportDraft; updatedAt: string | null };
+  sections: { id: string; title: string }[];
+  checks: { id: string; section: string; label: string }[];
+  items: { id: string; unitNumber: string; boardGroup: string }[];
+  item: { id: string; unitNumber: string; technician: string | null; reviewer: string | null; checklists: { id: string; name: string; items: { id: string; title: string; completed: boolean; completedAt: string | null }[] }[] } | null;
+};
+export const getFinalReport = (propertyId: string, itemId?: string) => request<FinalReportData>(`/final-walk-reports/${propertyId}${itemId ? `?itemId=${encodeURIComponent(itemId)}` : ""}`);
+export const saveFinalReportSettings = (propertyId: string, input: FinalReportData["settings"]) => request<FinalReportData["settings"]>(`/final-walk-reports/${propertyId}/settings`, { method: "PUT", body: JSON.stringify(input) });
+export const saveFinalReportDraft = (propertyId: string, itemId: string, input: { version: number; value: FinalReportDraft }) => request<FinalReportData["draft"]>(`/final-walk-reports/${propertyId}/items/${itemId}`, { method: "PUT", body: JSON.stringify(input) });
+export const previewFinalReport = (propertyId: string, input: { itemId?: string; settings: FinalReportSettings; draft: FinalReportDraft; format: "html" | "pdf" }) => request<{ html?: string; pdfBase64?: string }>(`/final-walk-reports/${propertyId}/preview`, { method: "POST", body: JSON.stringify(input) });
 let csrfToken: string | null = null;
 
 function notifyApiUnreachable(path: string, method: string) {
