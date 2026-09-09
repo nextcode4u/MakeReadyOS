@@ -585,6 +585,10 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
   }, [selectedPropertyId]);
 
   useEffect(() => {
+    if (!propertyId && properties[0]?.id) setPropertyId(properties[0].id);
+  }, [properties, propertyId]);
+
+  useEffect(() => {
     if (!openQuickAddRequest?.propertyId) return;
     setPropertyId(openQuickAddRequest.propertyId);
     setTab("grounds");
@@ -756,7 +760,8 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
       }];
     }).slice(0, 8);
   }, [issues]);
-  const canSubmitQuickIssue = Boolean(quickAddPhotos.length || quickAddDraft.description.trim());
+  const canSubmitQuickIssue = Boolean(propertyId && quickAddDraft.issueTypeName.trim()
+    && (quickAddPhotos.length || quickAddDraft.description.trim()));
 
   const refreshQueuedLeaseJobs = async () => {
     const jobs = await listOfflineSyncJobs();
@@ -875,6 +880,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
   }
 
   async function createQuickIssue(mode: "create" | "keep-walking" = "create") {
+    if (!canSubmitQuickIssue || createIssueMutation.isPending) return;
     const quickIssueInput = {
       propertyId,
       unitId: quickAddUnitId || null,
