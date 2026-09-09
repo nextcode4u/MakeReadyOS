@@ -1402,6 +1402,93 @@ test("board label creation retains failed drafts and locks a pending retry", asy
   expect(errors).toEqual([]);
 });
 
+test("calendar track creation preserves failures and locks pending drafts", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await login(page, adminEmail, adminPassword);
+  const fieldLabel = uniqueTag("Retry schedule date");
+  await page.getByTestId("tab-fields").click();
+  await page.getByTestId("custom-field-new").click();
+  await page.getByTestId("custom-field-label").fill(fieldLabel);
+  await page.getByTestId("custom-field-type").selectOption("DATE");
+  await page.getByTestId("custom-field-save").click();
+  await page.getByTestId("tab-operations").click();
+  const tracks = page.getByTestId("schedule-track-management");
+  await page.getByTestId("schedule-track-create-source").selectOption({ label: fieldLabel });
+  await page.getByTestId("schedule-track-create-name").fill("Repair follow-up");
+  await page.getByTestId("schedule-track-create-basis").selectOption("FIXED");
+  await page.getByTestId("schedule-track-create-color").fill("#123456");
+  await page.route("**/api/operations/schedule-tracks", route => route.request().method() === "POST"
+    ? route.fulfill({ status: 503, json: { message: "Calendar save unavailable" } }) : route.continue());
+  await page.getByTestId("schedule-track-create-submit").click();
+  await expect(tracks.getByRole("alert")).toContainText("Calendar save unavailable");
+  await expect(page.getByTestId("schedule-track-create-name")).toHaveValue("Repair follow-up");
+  await expect(page.getByTestId("schedule-track-create-color")).toHaveValue("#123456");
+  expect(errors).toEqual([]);
+  await page.unroute("**/api/operations/schedule-tracks");
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/operations/schedule-tracks", async route => {
+    if (route.request().method() === "POST") await held;
+    await route.continue();
+  });
+  const saved = page.waitForResponse(response => response.url().endsWith("/api/operations/schedule-tracks") && response.request().method() === "POST");
+  await page.getByTestId("schedule-track-create-submit").click();
+  try {
+    for (const suffix of ["source", "name", "basis", "color", "submit"]) {
+      await expect(page.getByTestId(`schedule-track-create-${suffix}`)).toBeDisabled();
+    }
+    for (const preset of await tracks.locator(".schedule-track-preset").all()) await expect(preset).toBeDisabled();
+  } finally { release(); }
+  const response = await saved;
+  expect(response.status(), await response.text()).toBe(201);
+  expect(response.request().postDataJSON()).toMatchObject({ displayName: "Repair follow-up", colorBasis: "FIXED", fixedColor: "#123456" });
+  await expect(page.getByTestId("schedule-track-create-name")).toHaveValue("");
+  await expect(tracks.getByRole("alert")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("calendar preset failures stay local and preserve a separate custom draft", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let attempted = 0;
+  await page.route("**/api/operations/schedule-tracks", async route => {
+    if (route.request().method() === "GET") {
+      const response = await route.fetch();
+      const body = await response.json();
+      // Expose a missing preset without changing seeded shared calendar records.
+      await route.fulfill({ response, json: { ...body, tracks: body.tracks.filter((track: { sourceField: string }) => track.sourceField !== "flooringDate") } });
+    } else if (route.request().method() === "POST") {
+      attempted++;
+      expect(route.request().postDataJSON().sourceField).toBe("flooringDate");
+      await held;
+      await route.fulfill({ status: 503, json: { message: "Preset save unavailable" } });
+    } else await route.continue();
+  });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-operations").click();
+  const tracks = page.getByTestId("schedule-track-management");
+  await page.getByTestId("schedule-track-create-source").selectOption("flooringDate");
+  await page.getByTestId("schedule-track-create-name").fill("Keep my custom draft");
+  const preset = page.getByTestId("schedule-track-preset-flooring");
+  await preset.click();
+  try {
+    await expect(preset).toBeDisabled();
+    await expect(page.getByTestId("schedule-track-create-name")).toBeDisabled();
+    await expect(page.getByTestId("schedule-track-create-submit")).toBeDisabled();
+  } finally { release(); }
+  await expect(tracks.getByRole("alert")).toContainText("Preset save unavailable");
+  await expect(page.getByTestId("schedule-track-create-name")).toHaveValue("Keep my custom draft");
+  await expect(preset).toBeEnabled();
+  await preset.click();
+  await expect.poll(() => attempted).toBe(2);
+  await expect(tracks.getByRole("alert")).toContainText("Preset save unavailable");
+  await expect(page.getByTestId("schedule-track-create-name")).toHaveValue("Keep my custom draft");
+  expect(errors).toEqual([]);
+});
+
 test("offline queue preserves account ownership across logout, reload and another-tab cookie changes", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));

@@ -104,6 +104,8 @@ export function BoardConfigurationPanel({
   const selectedColumn = columns.find((column) => column.fieldKey === selectedColumnKey) ?? null;
   const blankTrack = { sourceField: "", displayName: "", colorBasis: "NEUTRAL" as ScheduleTrack["colorBasis"], colorSourceField: null as string | null, fixedColor: "#58a6de", groupingMode: "NONE" as ScheduleTrack["groupingMode"], visibilityFilter: null, overdueEnabled: true, moveInSoonEnabled: true, isEnabled: true, isArchived: false };
   const [newTrack, setNewTrack] = useState(blankTrack);
+  const [newTrackError, setNewTrackError] = useState("");
+  const [newTrackPending, setNewTrackPending] = useState(false);
   const [selectedTrackId, setSelectedTrackId] = useState("");
   const selectedTrack = scheduleTracks.find((track) => track.id === selectedTrackId) ?? null;
   const activeScheduleTracks = scheduleTracks.filter((track) => !track.isArchived);
@@ -278,8 +280,21 @@ export function BoardConfigurationPanel({
     [ids[index], ids[swap]] = [ids[swap], ids[index]];
     await onReorderScheduleTracks(ids);
   };
+  const createScheduleTrack = async (input: Omit<ScheduleTrack, "id" | "sortOrder">, clearDraft = false) => {
+    if (loading || newTrackPending) return;
+    setNewTrackError("");
+    setNewTrackPending(true);
+    try {
+      await onCreateScheduleTrack(input);
+      if (clearDraft) setNewTrack(blankTrack);
+    } catch (error) {
+      setNewTrackError(error instanceof Error ? error.message : (isSpanish ? "No se pudo crear el carril. Intente de nuevo." : "Could not create the track. Please retry."));
+    } finally {
+      setNewTrackPending(false);
+    }
+  };
   const createSchedulePreset = async (preset: (typeof schedulePresets)[number]) => {
-    await onCreateScheduleTrack({
+    await createScheduleTrack({
       sourceField: preset.sourceField,
       displayName: preset.label,
       colorBasis: preset.colorBasis,
@@ -638,7 +653,7 @@ export function BoardConfigurationPanel({
             const sourceExists = scheduleSources.some((source) => source.key === preset.sourceField);
             const colorSourceExists = !preset.colorSourceField || scheduleColorSources.some((source) => source.key === preset.colorSourceField);
             const alreadyConfigured = configuredSources.has(preset.sourceField);
-            const disabled = loading || !sourceExists || !colorSourceExists || alreadyConfigured;
+            const disabled = loading || newTrackPending || !sourceExists || !colorSourceExists || alreadyConfigured;
             const note = alreadyConfigured ? (isSpanish ? "Ya configurado" : "Already configured") : !sourceExists ? (isSpanish ? "Falta el campo de fecha" : "Date field missing") : !colorSourceExists ? (isSpanish ? "Falta el campo de color" : "Color field missing") : (isSpanish ? "Crear preajuste" : "Create preset");
 
             return (
@@ -660,28 +675,28 @@ export function BoardConfigurationPanel({
         </div>
         <form className="schedule-track-create" onSubmit={(event) => {
           event.preventDefault();
-          void onCreateScheduleTrack({ ...newTrack, colorSourceField: newTrack.colorBasis === "FIELD" ? newTrack.colorSourceField : null, fixedColor: newTrack.colorBasis === "FIXED" ? newTrack.fixedColor : null })
-            .then(() => setNewTrack(blankTrack));
+          void createScheduleTrack({ ...newTrack, colorSourceField: newTrack.colorBasis === "FIELD" ? newTrack.colorSourceField : null, fixedColor: newTrack.colorBasis === "FIXED" ? newTrack.fixedColor : null }, true);
         }}>
-          <select data-testid="schedule-track-create-source" value={newTrack.sourceField} onChange={(event) => {
+          <select data-testid="schedule-track-create-source" value={newTrack.sourceField} disabled={loading || newTrackPending} onChange={(event) => {
             const source = scheduleSources.find((candidate) => candidate.key === event.target.value);
             setNewTrack((current) => ({ ...current, sourceField: event.target.value, displayName: source?.label ?? current.displayName }));
           }} required>
             <option value="">{isSpanish ? "Campo de fecha" : "Date field"}</option>
             {scheduleSources.filter((source) => !configuredSources.has(source.key)).map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}
           </select>
-          <input data-testid="schedule-track-create-name" placeholder={isSpanish ? "Nombre del carril" : "Track name"} value={newTrack.displayName} onChange={(event) => setNewTrack((current) => ({ ...current, displayName: event.target.value }))} required />
-          <select data-testid="schedule-track-create-basis" value={newTrack.colorBasis} onChange={(event) => setNewTrack((current) => ({ ...current, colorBasis: event.target.value as ScheduleTrack["colorBasis"] }))}>
+          <input data-testid="schedule-track-create-name" placeholder={isSpanish ? "Nombre del carril" : "Track name"} value={newTrack.displayName} disabled={loading || newTrackPending} onChange={(event) => setNewTrack((current) => ({ ...current, displayName: event.target.value }))} required />
+          <select data-testid="schedule-track-create-basis" value={newTrack.colorBasis} disabled={loading || newTrackPending} onChange={(event) => setNewTrack((current) => ({ ...current, colorBasis: event.target.value as ScheduleTrack["colorBasis"] }))}>
             <option value="STATUS">{isSpanish ? "Color por estado" : "Status color"}</option>
             <option value="SCOPE">{isSpanish ? "Color por alcance" : "Scope color"}</option>
             <option value="FIELD">{isSpanish ? "Color del campo seleccionado" : "Selected field color"}</option>
             <option value="FIXED">{isSpanish ? "Color fijo" : "Fixed color"}</option>
             <option value="NEUTRAL">{isSpanish ? "Neutro" : "Neutral"}</option>
           </select>
-          {newTrack.colorBasis === "FIELD" ? <select data-testid="schedule-track-create-color-source" value={newTrack.colorSourceField ?? ""} onChange={(event) => setNewTrack((current) => ({ ...current, colorSourceField: event.target.value || null }))} required><option value="">{isSpanish ? "Campo de color" : "Color field"}</option>{scheduleColorSources.map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}</select> : null}
-          {newTrack.colorBasis === "FIXED" ? <input data-testid="schedule-track-create-color" type="color" value={newTrack.fixedColor} onChange={(event) => setNewTrack((current) => ({ ...current, fixedColor: event.target.value }))} /> : null}
-          <button data-testid="schedule-track-create-submit" className="button button-primary" disabled={!newTrack.sourceField || !newTrack.displayName.trim()}>{isSpanish ? "Agregar carril" : "Add Track"}</button>
+          {newTrack.colorBasis === "FIELD" ? <select data-testid="schedule-track-create-color-source" value={newTrack.colorSourceField ?? ""} disabled={loading || newTrackPending} onChange={(event) => setNewTrack((current) => ({ ...current, colorSourceField: event.target.value || null }))} required><option value="">{isSpanish ? "Campo de color" : "Color field"}</option>{scheduleColorSources.map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}</select> : null}
+          {newTrack.colorBasis === "FIXED" ? <input data-testid="schedule-track-create-color" type="color" value={newTrack.fixedColor} disabled={loading || newTrackPending} onChange={(event) => setNewTrack((current) => ({ ...current, fixedColor: event.target.value }))} /> : null}
+          <button data-testid="schedule-track-create-submit" className="button button-primary" disabled={loading || newTrackPending || !newTrack.sourceField || !newTrack.displayName.trim()}>{isSpanish ? "Agregar carril" : "Add Track"}</button>
         </form>
+        {newTrackError ? <p role="alert" className="error-text">{newTrackError}</p> : null}
         <div className="schedule-track-guidance" data-testid="schedule-track-create-guidance">
           <div className="schedule-track-guidance-card">
             <strong>{isSpanish ? "Nuevo carril" : "New track"}</strong>
