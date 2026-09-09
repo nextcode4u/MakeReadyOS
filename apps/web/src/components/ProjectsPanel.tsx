@@ -1597,11 +1597,12 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                   <label>{isSpanish ? "Edificio" : "Building"}<input value={draft.building} onChange={(event) => setDraft((current) => ({ ...current, building: event.target.value }))} /></label>
                   <label>{isSpanish ? "Área" : "Area"}<input value={draft.area} onChange={(event) => setDraft((current) => ({ ...current, area: event.target.value }))} /></label>
                   <label>{isSpanish ? "Notas de ubicación" : "Location notes"}<textarea value={draft.locationNotes} onChange={(event) => setDraft((current) => ({ ...current, locationNotes: event.target.value }))} /></label>
-                  <label>{isSpanish ? "Mapa" : "Map"}
-                    <select value={draft.propertyMapId} onChange={(event) => setDraft((current) => ({ ...current, propertyMapId: event.target.value }))}>
+                  <label><span id="projects-capture-map-label">{isSpanish ? "Mapa" : "Map"}</span>
+                    <select aria-labelledby="projects-capture-map-label" aria-describedby="projects-capture-map-help" value={draft.propertyMapId} onChange={(event) => setDraft((current) => ({ ...current, propertyMapId: event.target.value, pinX: "", pinY: "" }))}>
                       <option value="">{isSpanish ? "Sin pin de mapa" : "No map pin"}</option>
                       {maps.map((map) => <option key={map.id} value={map.id}>{map.name}</option>)}
                     </select>
+                    <small id="projects-capture-map-help">{isSpanish ? "Cambiar de mapa borra el pin anterior; coloque uno nuevo si es necesario." : "Changing maps clears the previous pin; place a new one if needed."}</small>
                   </label>
                   {selectedCaptureMap ? (
                     <div className="projects-capture-map-picker">

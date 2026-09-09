@@ -140,6 +140,41 @@ test("project references reject foreign links and clears remove stale report det
   expect(exported.data.projectRecords.find((entry: any) => entry.propertyCode === a.property.code)).toMatchObject({ categoryName: null, propertyMapName: null, pinX: null, pinY: null });
 });
 
+test("project capture clears old coordinates when selecting a different map", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `MAPSW${Date.now()}`, name: "Map switch fixture" });
+  const { map: a } = await post("/property-maps", { propertyId: property.id, name: "First capture map" });
+  const { map: b } = await post("/property-maps", { propertyId: property.id, name: "Second capture map" });
+  await page.reload();
+  await page.getByTestId("module-rail-projects").click();
+  await page.getByTestId("projects-quick-capture-open").click();
+  const form = page.getByTestId("projects-quick-capture-form");
+  await form.getByRole("combobox", { name: "Property", exact: true }).selectOption(property.id);
+  await page.getByTestId("projects-quick-capture-title").fill("Map coordinates fixture");
+  await form.locator("summary").filter({ hasText: "More Details" }).click();
+  const select = form.getByRole("combobox", { name: "Map", exact: true });
+  await expect(select).toHaveAccessibleDescription("Changing maps clears the previous pin; place a new one if needed.");
+  await select.selectOption(a.id);
+  await form.locator(".projects-capture-map-canvas").click({ position: { x: 40, y: 50 } });
+  await expect(form.getByRole("button", { name: "Capture pin", exact: true })).toBeVisible();
+  await select.selectOption(b.id);
+  await expect(form.getByRole("button", { name: "Capture pin", exact: true })).toHaveCount(0);
+  await expect(form).toContainText("No pin set");
+  await select.selectOption("");
+  await select.selectOption(a.id);
+  await expect(form.getByRole("button", { name: "Capture pin", exact: true })).toHaveCount(0);
+  const saved = page.waitForResponse(response => response.url().endsWith("/api/projects/records") && response.request().method() === "POST");
+  await page.getByTestId("projects-quick-capture-save").click();
+  const response = await saved;
+  expect(response.status(), await response.text()).toBe(201);
+  expect((await response.json()).record).toMatchObject({ propertyId: property.id, propertyMapId: a.id, pinX: null, pinY: null });
+});
+
 test("native project child records cannot claim a different property than their parent", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
   const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
