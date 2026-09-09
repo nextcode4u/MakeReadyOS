@@ -146,8 +146,10 @@ export function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function diffInDays(from: Date, to: Date): number {
-  return Math.floor((startOfDay(to).getTime() - startOfDay(from).getTime()) / DAY_MS);
+export function calendarDayDifference(from: Date, to: Date): number {
+  // Calendar dates remain one day apart across 23- and 25-hour DST days.
+  const ordinal = (date: Date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  return (ordinal(to) - ordinal(from)) / DAY_MS;
 }
 
 export function isTurnReady(item: Pick<Partial<MakeReadyItem>, "vacancyStatus" | "completionStatus" | "makeReadyStatus">) {
@@ -160,11 +162,11 @@ export function isTurnReady(item: Pick<Partial<MakeReadyItem>, "vacancyStatus" |
 
 export function computeDerivedFields(item: Partial<MakeReadyItem>, now = new Date()) {
   const sourceVacantDate = item.vacatedDate ?? item.moveOutDate ?? null;
-  const daysVacant = sourceVacantDate ? Math.max(0, diffInDays(sourceVacantDate, now)) : 0;
-  const daysUntilMoveIn = item.moveInDate ? diffInDays(now, item.moveInDate) : null;
+  const daysVacant = sourceVacantDate ? Math.max(0, calendarDayDifference(sourceVacantDate, now)) : 0;
+  const daysUntilMoveIn = item.moveInDate ? calendarDayDifference(now, item.moveInDate) : null;
   const overdue = Boolean(
     item.makeReadyDate &&
-      diffInDays(item.makeReadyDate, now) > 0 &&
+      calendarDayDifference(item.makeReadyDate, now) > 0 &&
       !isTurnReady(item),
   );
   const moveInSoon = Boolean(
@@ -240,7 +242,7 @@ function isConditionMatch(item: Partial<MakeReadyItem>, condition: RuleCondition
       const left = rawValue instanceof Date ? rawValue : new Date(String(rawValue));
       const days = typeof condition.value === "number" ? condition.value : Number(condition.value);
       if (Number.isNaN(left.getTime()) || !Number.isInteger(days) || days < 0) return false;
-      const difference = diffInDays(new Date(), left);
+      const difference = calendarDayDifference(new Date(), left);
       return difference >= 0 && difference <= days;
     }
     case "dateMissing":

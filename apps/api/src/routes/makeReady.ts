@@ -956,8 +956,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     }
 
     return {
-      ...item,
-      ...computeDerivedFields(item),
+      ...withLiveTurnFields(item),
       projectedTurnStartDate: projectedTurnStart(item, item.property.operatingCalendar),
     };
   });

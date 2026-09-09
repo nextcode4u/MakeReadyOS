@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { computeDerivedFields, withLiveTurnFields } from "./board.js";
+import { calendarDayDifference, computeDerivedFields, withLiveTurnFields } from "./board.js";
 
 const now = new Date(2026, 8, 8, 12);
 const dates = { makeReadyDate: new Date(2026, 8, 1), moveInDate: new Date(2026, 8, 9), vacatedDate: new Date(2026, 7, 1) };
@@ -15,6 +15,32 @@ test("live read fields refresh stale flags without inventing an automation or ed
   assert.equal(live.lastAutomationAt, stamp);
   assert.equal(stored.overdue, false);
   assert.equal(stored.daysVacant, 999);
+});
+
+test("turn dates count civil days across spring and fall timezone transitions", () => {
+  const originalTimezone = process.env.TZ;
+  try {
+    for (const timezone of ["UTC", "America/Chicago", "Pacific/Auckland"]) {
+      process.env.TZ = timezone;
+      for (const [month, day] of [[2, 9], [10, 2], [8, 28], [3, 6]]) {
+        const today = new Date(2026, month, day, 12);
+        const yesterday = new Date(2026, month, day - 1);
+        const tomorrow = new Date(2026, month, day + 1);
+        const label = `${timezone} ${month + 1}/${day}`;
+        assert.equal(calendarDayDifference(yesterday, today), 1, label);
+        assert.equal(calendarDayDifference(today, yesterday), -1, label);
+        const live = computeDerivedFields({ makeReadyDate: yesterday, vacatedDate: yesterday, moveInDate: tomorrow }, today);
+        assert.equal(live.daysVacant, 1, label);
+        assert.equal(live.daysUntilMoveIn, 1, label);
+        assert.equal(live.overdue, true, label);
+        assert.equal(live.moveInSoon, true, label);
+        assert.equal(computeDerivedFields({ makeReadyDate: today }, today).overdue, false, label);
+      }
+    }
+  } finally {
+    if (originalTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTimezone;
+  }
 });
 
 test("ready vacancy statuses clear overdue and unfinished move-in warnings", () => {
