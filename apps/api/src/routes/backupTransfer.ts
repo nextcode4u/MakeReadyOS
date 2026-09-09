@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
+import { lockProjectCategories } from "../lib/projectCategoryLock.js";
 import { turnMaterialsSchema } from "../lib/turnMaterials.js";
 
 const backupFormat = "makereadyos.backup";
@@ -4400,6 +4401,7 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
     }
 
     const projectCategoryMap = new Map<string, string>();
+    if (!dryRun && backup.data.projectCategories.length) await lockProjectCategories(tx as Prisma.TransactionClient);
     for (const category of backup.data.projectCategories) {
       const propertyId = category.propertyCode ? propertyMap.get(category.propertyCode) ?? null : null;
       const portableKey = projectCategoryPortableKey(category);

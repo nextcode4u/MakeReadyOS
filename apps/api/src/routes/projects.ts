@@ -13,6 +13,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { createNotification } from "../lib/notifications.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
+import { lockProjectCategories } from "../lib/projectCategoryLock.js";
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { ensureStoredUploadParent, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
@@ -234,14 +235,18 @@ async function assertPropertyAccess(request: FastifyRequest, propertyId: string)
 async function ensureDefaultCategories() {
   const count = await prisma.projectCategory.count({ where: { propertyId: null } });
   if (count > 0) return;
-  await prisma.projectCategory.createMany({
-    data: defaultCategories.map((name, index) => ({
-      propertyId: null,
-      name,
-      color: defaultCategoryColors[index % defaultCategoryColors.length],
-      sortOrder: index,
-    })),
-    skipDuplicates: true,
+  await prisma.$transaction(async tx => {
+    await lockProjectCategories(tx);
+    if (await tx.projectCategory.count({ where: { propertyId: null } }) > 0) return;
+    await tx.projectCategory.createMany({
+      data: defaultCategories.map((name, index) => ({
+        propertyId: null,
+        name,
+        color: defaultCategoryColors[index % defaultCategoryColors.length],
+        sortOrder: index,
+      })),
+      skipDuplicates: true,
+    });
   });
 }
 
@@ -655,7 +660,12 @@ export async function projectRoutes(app: FastifyInstance) {
   app.post("/projects/categories", async (request, reply) => {
     if (!requireProjectsAccess(request, reply, "admin")) return;
     const input = projectCategorySchema.parse(request.body);
-    const category = await prisma.projectCategory.create({ data: input });
+    const category = await prisma.$transaction(async tx => {
+      await lockProjectCategories(tx);
+      const existing = await tx.projectCategory.findFirst({ where: { propertyId: input.propertyId ?? null, name: input.name } });
+      if (existing) throw Object.assign(new Error("A category with this name already exists in this scope, including inactive categories"), { statusCode: 409 });
+      return tx.projectCategory.create({ data: input });
+    });
     reply.code(201);
     return { category };
   });
@@ -664,7 +674,19 @@ export async function projectRoutes(app: FastifyInstance) {
     if (!requireProjectsAccess(request, reply, "admin")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const input = projectCategorySchema.partial().parse(request.body);
-    const category = await prisma.projectCategory.update({ where: { id }, data: input });
+    const category = await prisma.$transaction(async tx => {
+      await lockProjectCategories(tx);
+      const existing = await tx.projectCategory.findUnique({ where: { id } });
+      if (!existing) throw Object.assign(new Error("Project category not found"), { statusCode: 404 });
+      if (input.propertyId !== undefined && input.propertyId !== existing.propertyId) {
+        throw Object.assign(new Error("A category's property scope cannot change. Create a category in the intended property instead."), { statusCode: 409 });
+      }
+      if (input.name !== undefined && input.name !== existing.name) {
+        const duplicate = await tx.projectCategory.findFirst({ where: { propertyId: existing.propertyId, name: input.name, id: { not: id } } });
+        if (duplicate) throw Object.assign(new Error("A category with this name already exists in this scope, including inactive categories"), { statusCode: 409 });
+      }
+      return tx.projectCategory.update({ where: { id }, data: input });
+    });
     return { category };
   });
 

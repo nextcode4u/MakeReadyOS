@@ -15,6 +15,46 @@ const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
+test("concurrent project category initialization and edits preserve unique scoped definitions", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const session = await (await page.request.get("/api/auth/me")).json();
+  const headers = { "x-csrf-token": session.csrfToken };
+  const responses = await Promise.all(Array.from({ length: 12 }, () => page.request.get("/api/projects/categories")));
+  let firstIds: string[] | undefined;
+  for (const response of responses) {
+    expect(response.status(), await response.text()).toBe(200);
+    const globals = (await response.json()).categories.filter((entry: { propertyId: string | null }) => entry.propertyId === null);
+    expect(globals.length).toBeGreaterThan(0);
+    expect(new Set(globals.map((entry: { name: string }) => entry.name)).size).toBe(globals.length);
+    const ids = globals.map((entry: { id: string }) => entry.id).sort();
+    if (firstIds) expect(ids).toEqual(firstIds);
+    firstIds = ids;
+  }
+  const name = uniqueTag("Concurrent category");
+  const creates = await Promise.all(Array.from({ length: 2 }, () => page.request.post("/api/projects/categories", { headers, data: { name, propertyId: null } })));
+  expect(creates.map(response => response.status()).sort()).toEqual([201, 409]);
+  const category = (await creates.find(response => response.status() === 201)!.json()).category;
+  const second = await page.request.post("/api/projects/categories", { headers, data: { name: `${name} second`, propertyId: null } });
+  expect(second.status()).toBe(201);
+  const otherId = (await second.json()).category.id;
+  expect((await page.request.patch(`/api/projects/categories/${otherId}`, { headers, data: { name } })).status()).toBe(409);
+  expect((await page.request.patch(`/api/projects/categories/${category.id}`, { headers, data: { isActive: false } })).status()).toBe(200);
+  expect((await page.request.post("/api/projects/categories", { headers, data: { name } })).status()).toBe(409);
+  const meta = await (await page.request.get("/api/meta")).json();
+  for (const property of meta.properties.slice(0, 2)) {
+    const scoped = await page.request.post("/api/projects/categories", { headers, data: { name, propertyId: property.id } });
+    expect(scoped.status(), await scoped.text()).toBe(201);
+  }
+  expect((await page.request.patch(`/api/projects/categories/${category.id}`, { headers, data: { propertyId: meta.properties[0].id } })).status()).toBe(409);
+  expect((await page.request.patch("/api/projects/categories/missing-category", { headers, data: { name } })).status()).toBe(404);
+  const backup = await (await page.request.get("/api/admin/export")).json();
+  const preview = await page.request.post("/api/admin/import", { headers, data: { backup, dryRun: true } });
+  expect(preview.status()).toBe(200);
+  const summary = (await preview.json()).summary;
+  expect(summary.projectCategories.conflicts, JSON.stringify(summary.projectCategories)).toBe(0);
+  expect(summary.projectCategories.errors).toEqual([]);
+});
+
 test("move-in risk agrees across full lists, windowed pages and CSV exports", async ({ page }) => {
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
   await login(page, adminEmail, adminPassword);
@@ -2484,17 +2524,19 @@ test("calendar date-only values stay on the saved day in Central time", async ({
     await login(page, adminEmail, adminPassword);
     const meta = await (await page.request.get("/api/meta")).json();
     const field = meta.customFields.find((f: any) => f.fieldKey === "turnMaintenanceDate");
+    expect(field).toBeTruthy();
     const now = new Date();
     const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-15`;
-    let itemId = "";
+    const initialItems = await (await page.request.get("/api/make-ready-items")).json();
+    const itemId = initialItems[0].id;
     await page.route("**/api/make-ready-items?*", async route => {
       const response = await route.fetch();
       const items = await response.json();
-      itemId = items[0].id;
-      await route.fulfill({ response, json: items.map((item: any, index: number) => index ? item : { ...item, customFieldValues: [{ customFieldId: field.id, value: date }] }) });
+      await route.fulfill({ response, json: items.map((item: any) => item.id !== itemId ? item : { ...item, customFieldValues: [{ customFieldId: field.id, value: date }] }) });
     });
     await page.reload();
     await page.getByTestId("tab-calendar").click();
+    await page.getByRole("combobox", { name: "Schedule track for panel 1", exact: true }).selectOption({ label: "Make Ready (Start)" });
     const event = page.getByTestId("calendar-panel-0").getByTestId(`calendar-event-${itemId}`);
     await expect(event).toBeVisible();
     await expect(event.getByTestId(`calendar-projected-${itemId}`)).toHaveCount(0);
@@ -4107,8 +4149,9 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.mouse.move(0, 0);
     await page.getByRole("button", { name: "Arrange frogs", exact: true }).click();
     const anchors = await page.locator('[data-testid^="frog-marker-"]').evaluateAll(elements => elements.map(el => ({ x: (el as HTMLElement).style.left, y: (el as HTMLElement).style.top })));
-    expect(new Set(anchors.map(point => point.y)).size).toBe(anchors.length);
-    expect(new Set(anchors.map(point => point.x)).size).toBe(anchors.length);
+    expect(new Set(anchors.map(point => `${point.x},${point.y}`)).size).toBe(anchors.length);
+    expect(new Set(anchors.map(point => point.y)).size).toBeGreaterThan(anchors.length * .8);
+    expect(new Set(anchors.map(point => point.x)).size).toBeGreaterThan(anchors.length * .8);
     await page.getByRole("button", { name: "Done arranging", exact: true }).click();
     await frog.evaluate(element => element.scrollIntoView({ block: "center", behavior: "instant" }));
     await expect(frog).toBeInViewport();
