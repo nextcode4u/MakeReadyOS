@@ -16,7 +16,7 @@ import { getTurnReadiness } from "../lib/turnReadiness.js";
 import { isFinalWalkStatus } from "../lib/turnStatus.js";
 import { guardReadyMutation, lockTurnProperty, requestsInspection } from "../lib/turnMutationGuard.js";
 import { notifyAssignedStaff, notifyPropertyRoles } from "../lib/notifications.js";
-import { computeDerivedFields, editableFields, normalizeItemPatch } from "../lib/board.js";
+import { computeDerivedFields, editableFields, normalizeItemPatch, startOfDay, withLiveTurnFields } from "../lib/board.js";
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { evaluateAndPersistItemRisk, riskCategories } from "../lib/risk.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
@@ -237,17 +237,25 @@ async function makeReadyReportScopeLabel(propertyId: string | undefined) {
   return propertyScopeLabel(property);
 }
 
-function moveInRiskWhere(): Prisma.MakeReadyItemWhereInput {
+function unfinishedTurnWhere(): Prisma.MakeReadyItemWhereInput {
   const readyVacancies = ["VACANT READY", "VACANT_READY", "VACANT-READY", "VACANT LEASED READY", "VACANT_LEASED_READY", "VACANT-LEASED-READY", "VACANT NOT LEASED READY", "VACANT_NOT_LEASED_READY", "VACANT-NOT-LEASED-READY"];
+  return { OR: [
+    { makeReadyStatus: { in: ["FINAL WALK", "FINAL_WALK", "FINAL-WALK"], mode: "insensitive" } },
+    { AND: [
+      { OR: [{ vacancyStatus: null }, { vacancyStatus: { notIn: readyVacancies, mode: "insensitive" } }] },
+      { OR: [{ completionStatus: null }, { completionStatus: { notIn: ["YES", "DONE", "COMPLETE", "COMPLETED"], mode: "insensitive" } }] },
+    ] },
+  ] };
+}
+
+function overdueWhere(): Prisma.MakeReadyItemWhereInput {
+  return { AND: [unfinishedTurnWhere(), { makeReadyDate: { lt: startOfDay(new Date()) } }] };
+}
+
+function moveInRiskWhere(): Prisma.MakeReadyItemWhereInput {
   return {
     AND: [
-      { OR: [
-        { makeReadyStatus: { in: ["FINAL WALK", "FINAL_WALK", "FINAL-WALK"], mode: "insensitive" } },
-        { AND: [
-          { OR: [{ vacancyStatus: null }, { vacancyStatus: { notIn: readyVacancies, mode: "insensitive" } }] },
-          { OR: [{ completionStatus: null }, { completionStatus: { notIn: ["YES", "DONE", "COMPLETE", "COMPLETED"], mode: "insensitive" } }] },
-        ] },
-      ] },
+      unfinishedTurnWhere(),
       { OR: [
         { moveInDate: moveInWindowFilter("7") },
         { moveInDate: { lt: prisma.makeReadyItem.fields.makeReadyDate } },
@@ -323,7 +331,7 @@ async function buildMakeReadyExportWhere(
   if (query.riskLevel) andFilters.push({ riskLevel: query.riskLevel });
   if (query.riskCategory) andFilters.push({ riskReasons: { array_contains: [{ category: query.riskCategory }] } });
   if (query.moveInWindow) andFilters.push({ moveInDate: moveInWindowFilter(query.moveInWindow) });
-  if (query.overdueOnly) andFilters.push({ overdue: true });
+  if (query.overdueOnly) andFilters.push(overdueWhere());
   if (query.missingDatesOnly) andFilters.push({ OR: [{ makeReadyDate: null }, { vacatedDate: null }] });
   if (query.pestIssuesOnly) andFilters.push({ pestStatus: { notIn: ["NONE", "TREATED"] } });
   if (query.flooringNeededOnly) andFilters.push({ floorsStatus: "REPLACE CARPET" });
@@ -381,7 +389,8 @@ async function getMakeReadyExportBundle(request: FastifyRequest, query: z.infer<
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });
 
-  return { items, customFields };
+  const now = new Date();
+  return { items: items.map(item => withLiveTurnFields(item, now)), customFields };
 }
 
 function buildMakeReadyReportHtml(
@@ -850,7 +859,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     if (query.riskLevel) andFilters.push({ riskLevel: query.riskLevel });
     if (query.riskCategory) andFilters.push({ riskReasons: { array_contains: [{ category: query.riskCategory }] } });
     if (query.moveInWindow) andFilters.push({ moveInDate: moveInWindowFilter(query.moveInWindow) });
-    if (query.overdueOnly) andFilters.push({ overdue: true });
+    if (query.overdueOnly) andFilters.push(overdueWhere());
     if (query.missingDatesOnly) andFilters.push({ OR: [{ makeReadyDate: null }, { vacatedDate: null }] });
     if (query.pestIssuesOnly) andFilters.push({ pestStatus: { notIn: ["NONE", "TREATED"] } });
     if (query.flooringNeededOnly) andFilters.push({ floorsStatus: "REPLACE CARPET" });
@@ -919,8 +928,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     reply.header("x-has-more", String(query.limit ? query.offset + items.length < total : false));
     reply.header("x-next-offset", query.limit && query.offset + items.length < total ? String(query.offset + items.length) : "");
     return items.map((item) => ({
-      ...item,
-      ...computeDerivedFields(item),
+      ...withLiveTurnFields(item),
       projectedTurnStartDate: projectedTurnStart(item, item.property.operatingCalendar),
     }));
   });
@@ -1594,7 +1602,8 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       },
     });
 
-    return items.map((item) => ({
+    const now = new Date();
+    return items.map(item => withLiveTurnFields(item, now)).map((item) => ({
       id: item.id,
       title: item.itemName,
       unitNumber: item.unitNumber,

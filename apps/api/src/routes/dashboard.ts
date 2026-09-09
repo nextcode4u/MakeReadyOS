@@ -4,6 +4,7 @@ import { scopedAllowedPropertyIds } from "../lib/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { evaluateItemRisk } from "../lib/risk.js";
 import { availabilityChangeTitle, dashboardDateWindow } from "../lib/dashboardDates.js";
+import { withLiveTurnFields } from "../lib/board.js";
 
 export const dashboardQuerySchema = z.object({ propertyId: z.string().optional() });
 
@@ -89,7 +90,8 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const vacantLeasedStatuses = ["VACANT LEASED", "VACANT_LEASED", "VACANT LEASED READY", "VACANT LEASED NOT READY"];
     const readyStockStatuses = ["VACANT_READY", "VACANT NOT LEASED READY", "VACANT LEASED READY"];
     const ntvStatuses = ["NTV", "NTV NOT LEASED", "NTV_LEASED", "NTV LEASED"];
-    const activeItems = items.filter((item) => !item.isArchived);
+    const now = new Date();
+    const activeItems = items.filter((item) => !item.isArchived).map(item => withLiveTurnFields(item, now));
     const evaluated = activeItems.map((item) => ({
       item,
       risk: evaluateItemRisk({

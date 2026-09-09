@@ -1,4 +1,5 @@
 import { prisma } from "./prisma.js";
+import { withLiveTurnFields } from "./board.js";
 
 const dayMs = 24 * 60 * 60 * 1000;
 
@@ -58,7 +59,7 @@ export async function computePropertySnapshot(propertyId: string, date = startOf
   ]);
 
   const sectionTypes = boardSectionTypeMap(sections);
-  const activeItems = items.filter((item) => !item.isArchived);
+  const activeItems = items.filter((item) => !item.isArchived).map(item => withLiveTurnFields(item, date));
   const completedToday = items.filter((item) => {
     const completedAt = completionDateForItem(item);
     return Boolean(completedAt && completedAt >= date && completedAt < nextDay);
@@ -109,7 +110,7 @@ export async function analyticsSummary(wherePropertyId: { in: string[] } | strin
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   const snapshotsFrom = addDays(today, -30);
 
-  const [items, snapshots] = await Promise.all([
+  const [storedItems, snapshots] = await Promise.all([
     prisma.makeReadyItem.findMany({
       where: { propertyId: wherePropertyId, property: { isActive: true } },
       include: {
@@ -126,6 +127,7 @@ export async function analyticsSummary(wherePropertyId: { in: string[] } | strin
     }),
   ]);
 
+  const items = storedItems.map(item => withLiveTurnFields(item, now));
   const completed = items.map((item) => ({ item, completedAt: completionDateForItem(item) })).filter((entry) => entry.completedAt);
   const completedThisWeek = completed.filter((entry) => entry.completedAt! >= weekStart).length;
   const completedThisMonth = completed.filter((entry) => entry.completedAt! >= monthStart).length;
