@@ -2764,16 +2764,25 @@ function App() {
 
   const runAutomationMutation = useMutation({
     mutationFn: runAutomationNow,
+    onMutate: () => { setAutomationError(""); setAutomationMessage(""); },
     onSuccess: async (data) => {
       setAutomationError("");
       await queryClient.invalidateQueries({ queryKey: ["automations", "runs"] });
       await queryClient.invalidateQueries({ queryKey: ["activity"] });
       await queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
       const execution = data.execution;
+      const errors = execution.results.flatMap(result => result.errors.map(error => `${result.name}: ${error}`));
+      if (errors.length) {
+        setAutomationMessage("");
+        setAutomationError(`${tWithVars("ops.scheduledCheckCompletedCopy", language, { matched: execution.matchedCount, actions: execution.actionCount })} ${errors.join(" ")}`);
+        pushToast(t("ops.scheduledCheckFailed", language), errors.join(" "), "error");
+        return;
+      }
       setAutomationMessage(`Run completed: ${execution.matchedCount} matched, ${execution.actionCount} actions`);
       pushToast(t("ops.scheduledCheckCompleted", language), tWithVars("ops.scheduledCheckCompletedCopy", language, { matched: execution.matchedCount, actions: execution.actionCount }), "success");
     },
     onError: (error) => {
+      setAutomationMessage("");
       setAutomationError(error instanceof Error ? error.message : "Run automation failed");
       pushToast(t("ops.scheduledCheckFailed", language), error instanceof Error ? error.message : t("ops.runAutomationFailed", language), "error");
     },
