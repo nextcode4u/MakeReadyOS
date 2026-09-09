@@ -694,7 +694,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
     await queryClient.invalidateQueries({ queryKey: ["my-work"] });
   };
 
-  const createIssueMutation = useMutation({ mutationFn: createLeaseComplianceIssue, onSuccess: invalidate });
+  const createIssueMutation = useMutation({ mutationFn: (input: Parameters<typeof createLeaseComplianceIssue>[0]) => createLeaseComplianceIssue(input), onSuccess: invalidate });
   const updateIssueMutation = useMutation({ mutationFn: ({ id, input }: { id: string; input: Partial<Parameters<typeof createLeaseComplianceIssue>[0]> }) => updateLeaseComplianceIssue(id, input), onSuccess: invalidate });
   const addNoteMutation = useMutation({ mutationFn: ({ id, body }: { id: string; body: string }) => addLeaseComplianceIssueNote(id, body), onSuccess: invalidate });
   const persistMutation = useMutation({ mutationFn: ({ id, notes }: { id: string; notes?: string }) => markLeaseComplianceStillPersists(id, notes), onSuccess: invalidate });

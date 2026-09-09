@@ -554,7 +554,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
     await queryClient.invalidateQueries({ queryKey: ["my-work"] });
   };
 
-  const createIssueMutation = useMutation({ mutationFn: createPestIssue, onSuccess: invalidate });
+  const createIssueMutation = useMutation({ mutationFn: (input: Parameters<typeof createPestIssue>[0]) => createPestIssue(input), onSuccess: invalidate });
   const updateIssueMutation = useMutation({ mutationFn: ({ id, input }: { id: string; input: Partial<Parameters<typeof createPestIssue>[0]> }) => updatePestIssue(id, input), onSuccess: invalidate });
   const addNoteMutation = useMutation({ mutationFn: ({ id, body }: { id: string; body: string }) => addPestIssueNote(id, body), onSuccess: invalidate });
   const closeIssueMutation = useMutation({

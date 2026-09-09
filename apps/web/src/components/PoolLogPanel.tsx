@@ -460,7 +460,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
     onSuccess: invalidate,
   });
   const entryCreateMutation = useMutation({
-    mutationFn: createPoolLogEntry,
+    mutationFn: (input: Parameters<typeof createPoolLogEntry>[0]) => createPoolLogEntry(input),
     onSuccess: invalidate,
   });
   const attachmentUploadMutation = useMutation({
