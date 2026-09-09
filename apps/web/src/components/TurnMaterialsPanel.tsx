@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getTurnMaterials, saveTurnMaterials, type TurnMaterial } from "../lib/api";
 import { createMaterialId, encodeMaterialDraft, materialDraftKey, parseMaterialDraft, type MaterialEdit } from "../lib/materialDraft";
 import { Modal } from "./Modal";
+import { QuickMaterialsEntry } from "./QuickMaterialsEntry";
 
 const statuses = { NEEDED: "Needed", ORDERED: "Ordered", ON_HAND: "On hand", USED: "Used", CANCELLED: "Cancelled" };
 
@@ -19,6 +20,7 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [storageError, setStorageError] = useState("");
+  const [quickPending, setQuickPending] = useState(false);
   const persistDraft = (value: MaterialEdit) => {
     try { localStorage.setItem(storageKey, encodeMaterialDraft(userId, itemId, value)); setDraft(value); setStorageError(""); return true; }
     catch { setStorageError("This browser could not store your draft. Keep this screen open until you can save online."); return false; }
@@ -60,10 +62,17 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
         {query.data.rows.map(row => <article key={row.id} className="my-work-card" data-testid={`material-${row.id}`}>
           <div><strong style={{ overflowWrap: "anywhere" }}>{row.name}</strong><span>{row.quantity} {row.unit} / {statuses[row.status]}</span></div>
           {row.notes ? <p style={{ overflowWrap: "anywhere", whiteSpace: "pre-wrap" }}>{row.notes}</p> : null}
-          {canEdit && !query.data.readOnly ? <button type="button" className="button button-secondary" disabled={!!draft} onClick={() => open(row)}>Edit {row.name}</button> : null}
+          {canEdit && !query.data.readOnly ? <button type="button" className="button button-secondary" disabled={!!draft || quickPending} onClick={() => open(row)}>Edit {row.name}</button> : null}
         </article>)}
       </div>}
-      {canEdit && !query.data.readOnly ? <button type="button" className="button button-secondary" disabled={!!draft || query.data.rows.length >= 100} onClick={() => open()}>Add part / material</button> : <p className="helper-copy">Read-only parts list.</p>}
+      {canEdit && !query.data.readOnly ? <>
+        <QuickMaterialsEntry itemId={itemId} userId={userId} materials={query.data} disabled={!!draft || !!edit} onPending={setQuickPending} onSaved={result => {
+          client.setQueryData(key, result);
+          void client.invalidateQueries({ queryKey: ["final-walk", itemId] });
+        }}/>
+        <p className="helper-copy">Need a supplier note or a different starting status?</p>
+        <button type="button" className="button button-secondary" disabled={!!draft || quickPending || query.data.rows.length >= 100} onClick={() => open()}>Add part / material</button>
+      </> : <p className="helper-copy">Read-only parts list.</p>}
     </> : null}
     <Modal open={!!edit} title={`Parts & materials / ${title}`} onClose={close} testId="turn-material-editor">
       {edit ? <form onChange={event => {

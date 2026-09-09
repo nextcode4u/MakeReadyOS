@@ -1029,6 +1029,55 @@ test("changing the inspection status cannot waive an existing report requirement
   expect((await ready.json()).makeReadyStatus).toBe("DONE");
 });
 
+test("parts list supports visible keyboard batch entry, recovery and conflict protection", async ({ page }, testInfo) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const items = await (await page.request.get("/api/make-ready-items")).json();
+  const item = items.find((entry: any) => entry.unitNumber === "284") ?? items[0];
+  const root = `/api/make-ready-items/${item.id}/materials`;
+  const original = await (await page.request.get(root)).json();
+  await page.getByRole("button", { name: `Open details for ${item.unitNumber}`, exact: true }).click();
+  const panel = page.getByTestId("turn-materials");
+  const entry = page.getByTestId("quick-materials");
+  await expect(entry).toBeVisible();
+  await expect(page.getByTestId("turn-material-editor")).toHaveCount(0);
+  await entry.getByLabel("Part 1", { exact: true }).fill("Kitchen faucet");
+  await entry.getByLabel("Part 1", { exact: true }).press("Enter");
+  await expect(entry.getByLabel("Part 2", { exact: true })).toBeFocused();
+  await entry.getByLabel("Part 2", { exact: true }).fill("Paint");
+  await entry.getByLabel("Quantity 2", { exact: true }).fill("2.5");
+  await entry.getByLabel("Unit 2", { exact: true }).fill("gallons");
+  await entry.getByLabel("Unit 2", { exact: true }).press("Enter");
+  await expect(entry.getByLabel("Part 3", { exact: true })).toBeFocused();
+  expect((await (await page.request.get(root)).json()).rows).toEqual(original.rows);
+  await page.route(`**${root}`, route => route.request().method() === "PUT"
+    ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Temporary batch failure" }) }) : route.continue());
+  await entry.getByRole("button", { name: "Save parts list", exact: true }).click();
+  await expect(entry.getByRole("alert")).toContainText("Temporary batch failure");
+  await page.reload();
+  await page.getByRole("button", { name: `Open details for ${item.unitNumber}`, exact: true }).click();
+  await expect(entry.getByLabel("Part 1", { exact: true })).toHaveValue("Kitchen faucet");
+  await expect(entry.getByLabel("Quantity 2", { exact: true })).toHaveValue("2.5");
+  await expect(entry.getByLabel("Unit 2", { exact: true })).toHaveValue("gallons");
+  await page.unroute(`**${root}`);
+  await entry.getByRole("button", { name: "Save parts list", exact: true }).click();
+  await expect(entry).toContainText("Parts list saved to the team list");
+  const saved = await (await page.request.get(root)).json();
+  expect(saved.rows).toHaveLength(original.rows.length + 2);
+  expect(saved.rows.slice(-2)).toMatchObject([{ name: "Kitchen faucet", quantity: 1, unit: "each", status: "NEEDED" }, { name: "Paint", quantity: 2.5, unit: "gallons", status: "NEEDED" }]);
+  await expect(panel.getByRole("button", { name: "Edit Kitchen faucet", exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await entry.locator("input").evaluateAll(inputs => inputs.every(input => { const rect = input.getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth; }))).toBeTruthy();
+  await entry.screenshot({ path: testInfo.outputPath("parts-line-entry-mobile.png") });
+  await entry.getByLabel("Part 1", { exact: true }).fill("Stale unsaved line");
+  expect((await page.request.put(root, { headers, data: { version: saved.version, rows: original.rows } })).ok()).toBeTruthy();
+  await entry.getByRole("button", { name: "Save parts list", exact: true }).click();
+  await expect(entry.getByRole("alert")).toContainText("changed in another session");
+  await expect(entry.getByLabel("Part 1", { exact: true })).toHaveValue("Stale unsaved line");
+  page.once("dialog", dialog => dialog.accept());
+  await entry.getByRole("button", { name: "Discard unsaved lines", exact: true }).click();
+});
+
 test("turn materials survive saves, conflicts and native restore without leaking into resident reports", async ({ page }, testInfo) => {
   await page.addInitScript(() => Object.defineProperty(crypto, "randomUUID", { value: undefined, configurable: true }));
   test.setTimeout(90000);
