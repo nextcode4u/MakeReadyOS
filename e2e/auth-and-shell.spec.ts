@@ -15,6 +15,57 @@ const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
+test("move-in risk agrees across full lists, windowed pages and CSV exports", async ({ page }) => {
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const { csrfToken } = await (await session).json();
+  const headers = { "x-csrf-token": csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `RISK${Date.now()}`, name: "Risk parity test" });
+  const meta = await (await page.request.get("/api/meta")).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  const date = (offset: number) => {
+    const value = new Date(); value.setUTCDate(value.getUTCDate() + offset); value.setUTCHours(12, 0, 0, 0);
+    return value.toISOString();
+  };
+  const fixtures = [
+    { unitNumber: "RISK-INSPECTION", completionStatus: "YES", makeReadyStatus: "FINAL WALK", moveInDate: date(5), makeReadyDate: date(4), included: true },
+    { unitNumber: "RISK-UNSET", completionStatus: null, moveInDate: date(5), included: true },
+    { unitNumber: "RISK-READY", completionStatus: "YES", makeReadyStatus: "DONE", moveInDate: date(5), makeReadyDate: date(7), included: false },
+    { unitNumber: "RISK-VACANCY-READY", vacancyStatus: "VACANT LEASED READY", moveInDate: date(5), included: false },
+    { unitNumber: "RISK-CONFLICT", moveInDate: date(30), makeReadyDate: date(32), included: true },
+    { unitNumber: "RISK-LATER", moveInDate: date(30), makeReadyDate: date(20), included: false },
+  ];
+  const expected: string[] = [];
+  for (const { included, ...data } of fixtures) {
+    const { unit } = await post("/operations/units", { propertyId: property.id, number: data.unitNumber });
+    const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: data.unitNumber, vacancyStatus: "VACANT LEASED NOT READY", ...data });
+    if (included) expected.push(item.id);
+  }
+  const query = `propertyId=${property.id}&moveInRiskOnly=true&sortBy=unitNumber&sortDirection=asc`;
+  const full = await page.request.get(`/api/make-ready-items?${query}`);
+  expect(full.ok(), await full.text()).toBeTruthy();
+  expect((await full.json()).map((item: any) => item.id).sort()).toEqual(expected.sort());
+  const pages: string[] = [];
+  for (let offset = 0; offset < expected.length; offset++) {
+    const response = await page.request.get(`/api/make-ready-items?${query}&limit=1&offset=${offset}`);
+    expect(response.ok(), await response.text()).toBeTruthy();
+    expect(response.headers()["x-total-count"]).toBe(String(expected.length));
+    pages.push(...(await response.json()).map((item: any) => item.id));
+  }
+  expect(pages.sort()).toEqual(expected.sort());
+  const exported = await page.request.get(`/api/export/make-ready.csv?${query}`);
+  expect(exported.ok(), await exported.text()).toBeTruthy();
+  const csv = await exported.text();
+  for (const fixture of fixtures) {
+    if (fixture.included) expect(csv).toContain(fixture.unitNumber);
+    else expect(csv).not.toContain(fixture.unitNumber);
+  }
+});
+
 test("mark ready rejects incomplete work, self-review and archived turns", async ({ page }) => {
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
   await login(page, adminEmail, adminPassword);
