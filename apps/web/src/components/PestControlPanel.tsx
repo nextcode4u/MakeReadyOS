@@ -411,6 +411,10 @@ export function PestControlPanel({ properties, units, users, userRole, language,
   const [linkedMakeReadyItemId, setLinkedMakeReadyItemId] = useState("");
   const [quickAddUnitId, setQuickAddUnitId] = useState("");
   const [quickAddPhotos, setQuickAddPhotos] = useState<File[]>([]);
+  const [quickCreatedIssueId, setQuickCreatedIssueId] = useState<string | null>(null);
+  const [quickAddBusy, setQuickAddBusy] = useState(false);
+  const quickAddBusyRef = useRef(false);
+  const [quickAddError, setQuickAddError] = useState("");
   const [queuedPestJobs, setQueuedPestJobs] = useState<OfflineSyncJobSummary[]>([]);
   const [queueSyncing, setQueueSyncing] = useState(false);
   const [lastQueuedPestSummary, setLastQueuedPestSummary] = useState<{ title: string; fileCount: number } | null>(null);
@@ -429,6 +433,19 @@ export function PestControlPanel({ properties, units, users, userRole, language,
   const canEdit = ["ADMIN", "MANAGER", "TECH", "LEASING"].includes(userRole);
   const canAdmin = userRole === "ADMIN";
   const canView = ["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "VIEWER"].includes(userRole);
+
+  useEffect(() => {
+    if (!propertyId && properties.length) {
+      setPropertyId(properties.find(property => property.id === selectedPropertyId)?.id ?? properties[0].id);
+    }
+  }, [propertyId, properties, selectedPropertyId]);
+
+  useEffect(() => {
+    if (!quickCreatedIssueId || !quickAddPhotos.length) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [quickCreatedIssueId, quickAddPhotos.length]);
 
   useEffect(() => {
     const viewportMedia = window.matchMedia("(max-width: 860px)");
@@ -452,6 +469,8 @@ export function PestControlPanel({ properties, units, users, userRole, language,
   }, []);
 
   const resetQuickAddForm = () => {
+    setQuickCreatedIssueId(null);
+    setQuickAddError("");
     setQuickAddUnitId("");
     setQuickAddPhotos([]);
     setQuickAddDraft({
@@ -656,6 +675,10 @@ export function PestControlPanel({ properties, units, users, userRole, language,
 
   async function submitQuickAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (quickAddBusyRef.current || !propertyId) return;
+    quickAddBusyRef.current = true;
+    setQuickAddBusy(true);
+    setQuickAddError("");
     const formElement = event.currentTarget;
     const linkedMakeReadyId = (openQuickAddRequest?.makeReadyItemId ?? linkedMakeReadyItemId) || null;
     const quickIssueInput = {
@@ -672,26 +695,39 @@ export function PestControlPanel({ properties, units, users, userRole, language,
       priority: quickAddDraft.priority,
       requestDate: today(),
     };
+    let issueId = quickCreatedIssueId;
     try {
-      const created = await createIssueMutation.mutateAsync(quickIssueInput);
-      for (const file of quickAddPhotos) {
-        await uploadMutation.mutateAsync({ issueId: created.issue.id, file });
+      if (!issueId) {
+        try {
+          const created = await createIssueMutation.mutateAsync(quickIssueInput);
+          issueId = created.issue.id;
+          setQuickCreatedIssueId(issueId);
+        } catch (error) {
+          if (!(isApiError(error) && error.status === 0)) throw error;
+          await enqueuePestCreate(quickIssueInput, quickAddPhotos.map((file) => ({ file })));
+          setLastQueuedPestSummary({
+            title: selectedQuickAddUnit?.number ?? (quickAddDraft.area.trim() || quickAddDraft.pestType),
+            fileCount: quickAddPhotos.length,
+          });
+          await refreshQueuedPestJobs();
+        }
       }
+      if (issueId) {
+        for (const file of quickAddPhotos) {
+          await uploadMutation.mutateAsync({ issueId, file });
+          setQuickAddPhotos(current => current.filter(entry => entry !== file));
+        }
+      }
+      formElement.reset();
+      resetQuickAddForm();
+      if (captureInputRef.current) captureInputRef.current.value = "";
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
     } catch (error) {
-      if (!(isApiError(error) && error.status === 0)) {
-        throw error;
-      }
-      await enqueuePestCreate(quickIssueInput, quickAddPhotos.map((file) => ({ file })));
-      setLastQueuedPestSummary({
-        title: selectedQuickAddUnit?.number ?? (quickAddDraft.area.trim() || quickAddDraft.pestType),
-        fileCount: quickAddPhotos.length,
-      });
-      await refreshQueuedPestJobs();
+      setQuickAddError(`${issueId ? "Issue saved. Retry the remaining photos without creating another issue. " : ""}${error instanceof Error ? error.message : "Could not save this capture."}`);
+    } finally {
+      quickAddBusyRef.current = false;
+      setQuickAddBusy(false);
     }
-    formElement.reset();
-    resetQuickAddForm();
-    if (captureInputRef.current) captureInputRef.current.value = "";
-    if (uploadInputRef.current) uploadInputRef.current.value = "";
   }
 
   async function addToExistingIssue(issue: PestIssue) {
@@ -743,7 +779,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
           <p>{t(language, "pest.copy")}</p>
         </div>
         <div className="module-actions">
-          <select value={propertyId} onChange={(event) => { setPropertyId(event.target.value); setLinkedMakeReadyItemId(""); resetQuickAddForm(); }} aria-label={t(language, "pest.propertyAria")}>
+          <select value={propertyId} disabled={quickAddBusy} onChange={(event) => { if ((quickCreatedIssueId || quickAddPhotos.length) && !window.confirm("Discard the remaining capture photos and switch properties? Any saved issue will be kept.")) return; setPropertyId(event.target.value); setLinkedMakeReadyItemId(""); resetQuickAddForm(); }} aria-label={t(language, "pest.propertyAria")}>
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
           </select>
         </div>
@@ -820,6 +856,9 @@ export function PestControlPanel({ properties, units, users, userRole, language,
             </div>
           ) : null}
           <form data-testid="pest-quick-add-form" className="pool-form" onSubmit={(event) => void submitQuickAdd(event)}>
+            <fieldset disabled={quickAddBusy || !propertyId} className="pest-capture-controls">
+            {quickAddError ? <p role="alert">{quickAddError}</p> : null}
+            {quickCreatedIssueId ? <p role="status">The issue is saved. Only remaining photos will be uploaded. Clear files to finish without them; edit issue details from the active list.</p> : null}
             <div className="pool-entry-actions" style={{ marginBottom: 12, flexWrap: "wrap" }}>
               <button className="button button-secondary" type="button" onClick={() => captureInputRef.current?.click()}>{t(language, "pest.snapPicture")}</button>
               <button className="button button-secondary" type="button" onClick={() => uploadInputRef.current?.click()}>{t(language, "pest.uploadPhotoPdf")}</button>
@@ -869,6 +908,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
                 })}
               </div>
             ) : null}
+            {!quickCreatedIssueId ? <>
             {latestMatchingQuickAddIssue ? (
               <section className="lease-repeat-card" data-testid="pest-repeat-card">
                 <div className="lease-repeat-card-media">
@@ -979,9 +1019,11 @@ export function PestControlPanel({ properties, units, users, userRole, language,
             <label className="pool-textarea-wide">{t(language, "pest.notes")}
               <textarea data-testid="pest-quick-add-description" name="description" value={quickAddDraft.description} onChange={(event) => setQuickAddDraft((current) => ({ ...current, description: event.target.value }))} placeholder={t(language, "pest.notesPlaceholder")} />
             </label>
+            </> : null}
             <div className="pool-entry-actions" style={{ alignItems: "flex-end" }}>
-              <button data-testid="pest-quick-add-submit" className="button button-primary" type="submit" disabled={createIssueMutation.isPending}>{t(language, "pest.quickAddSubmit")}</button>
+              <button data-testid="pest-quick-add-submit" className="button button-primary" type="submit" disabled={quickAddBusy}>{quickCreatedIssueId ? quickAddPhotos.length ? "Retry remaining photos" : "Finish capture" : t(language, "pest.quickAddSubmit")}</button>
             </div>
+            </fieldset>
           </form>
         </section>
       ) : null}
