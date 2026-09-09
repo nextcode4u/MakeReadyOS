@@ -55,6 +55,69 @@ test("concurrent project category initialization and edits preserve unique scope
   expect(summary.projectCategories.errors).toEqual([]);
 });
 
+test("lease references stay property-scoped for technicians, leasing and native restores", async ({ page, playwright }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const fixtures: any[] = [];
+  for (const suffix of ["A", "B"]) {
+    const { property } = await post("/operations/properties", { code: `LR${Date.now()}${suffix}`, name: `Lease references ${suffix}` });
+    const { unit } = await post("/operations/units", { propertyId: property.id, number: "101" });
+    const { issueType } = await post("/lease-compliance/issue-types", { propertyId: property.id, name: `Fixture type ${suffix}` });
+    const { map } = await post("/property-maps", { propertyId: property.id, name: `Fixture map ${suffix}` });
+    fixtures.push({ property, unit, issueType, map });
+  }
+  const [a, b] = fixtures;
+  const valid = { propertyId: a.property.id, unitId: a.unit.id, issueTypeId: a.issueType.id, propertyMapId: a.map.id, issueTypeName: a.issueType.name, area: "Courtyard" };
+  const { issue } = await post("/lease-compliance/issues", valid);
+  for (const role of ["TECH", "LEASING"]) {
+    const username = `lease-ref-${role.toLowerCase()}-${Date.now()}`;
+    const password = "Test-Only-Reference!123";
+    await post("/admin/users", { username, password, fullName: `Reference ${role}`, role, propertyIds: [a.property.id] });
+    const client = await playwright.request.newContext({ baseURL: new URL(page.url()).origin });
+    try {
+      const signedIn = await client.post("/api/auth/login", { data: { identifier: username, password } });
+      expect(signedIn.status()).toBe(200);
+      const staffHeaders = { "x-csrf-token": (await signedIn.json()).csrfToken };
+      for (const invalid of [{ unitId: b.unit.id }, { issueTypeId: b.issueType.id }, { propertyMapId: b.map.id }]) {
+        const create = await client.post("/api/lease-compliance/issues", { headers: staffHeaders, data: { ...valid, ...invalid } });
+        expect(create.status(), await create.text()).toBe(400);
+        const edit = await client.patch(`/api/lease-compliance/issues/${issue.id}`, { headers: staffHeaders, data: invalid });
+        expect(edit.status(), await edit.text()).toBe(400);
+      }
+      expect((await client.post("/api/lease-compliance/issues", { headers: staffHeaders, data: { ...valid, propertyId: b.property.id } })).status()).toBe(403);
+      const saved = await client.patch(`/api/lease-compliance/issues/${issue.id}`, { headers: staffHeaders, data: { description: `Checked by ${role}` } });
+      expect(saved.status(), await saved.text()).toBe(200);
+      expect((await saved.json()).issue).toMatchObject({ unitId: a.unit.id, issueTypeId: a.issueType.id, propertyMapId: a.map.id });
+    } finally { await client.dispose(); }
+  }
+  expect((await page.request.patch(`/api/lease-compliance/issue-types/${a.issueType.id}`, { headers, data: { isActive: false } })).status()).toBe(200);
+  await post(`/property-maps/${a.map.id}/archive`, {});
+  expect((await page.request.patch(`/api/lease-compliance/issues/${issue.id}`, { headers, data: { description: "Historical links retained" } })).status()).toBe(200);
+  expect((await page.request.post("/api/lease-compliance/issues", { headers, data: valid })).status()).toBe(400);
+  const exported = await (await page.request.get("/api/admin/export")).json();
+  const source = exported.data.leaseComplianceIssues.find((entry: any) => entry.propertyCode === a.property.code);
+  expect(source).toBeTruthy();
+  const restoredDate = new Date(Date.now() + 1000).toISOString();
+  const partial = { ...exported, data: { ...Object.fromEntries(Object.keys(exported.data).map(key => [key, []])), properties: exported.data.properties.filter((entry: any) => entry.code === a.property.code), leaseComplianceIssues: [{ ...source, portableKey: `partial-${Date.now()}`, createdAt: restoredDate }] } };
+  const wrongType = structuredClone(partial);
+  wrongType.data.leaseComplianceIssues[0].issueTypeKey = `${b.property.code}|${b.issueType.name}`;
+  const refused = await post("/admin/import", { backup: wrongType, dryRun: false });
+  expect(refused.summary.leaseComplianceIssues.errors.join(" ")).toContain("must belong");
+  expect(refused.summary.leaseComplianceIssues.created).toBe(0);
+  const missingUnit = structuredClone(partial);
+  missingUnit.data.leaseComplianceIssues[0].unitNumber = "UNKNOWN-UNIT";
+  expect((await post("/admin/import", { backup: missingUnit, dryRun: true })).summary.leaseComplianceIssues.errors.join(" ")).toContain("Unit UNKNOWN-UNIT is missing");
+  const restored = await post("/admin/import", { backup: partial, dryRun: false });
+  expect(restored.summary.leaseComplianceIssues.errors).toEqual([]);
+  expect(restored.summary.leaseComplianceIssues.created).toBe(1);
+  const records = await (await page.request.get(`/api/lease-compliance/issues?propertyId=${a.property.id}`)).json();
+  expect(records.issues.find((entry: any) => entry.createdAt === restoredDate)).toMatchObject({ unitId: a.unit.id, issueTypeId: a.issueType.id, propertyMapId: a.map.id });
+});
+
 test("move-in risk agrees across full lists, windowed pages and CSV exports", async ({ page }) => {
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
   await login(page, adminEmail, adminPassword);
