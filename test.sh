@@ -52,6 +52,7 @@ mkdir -p "$LOG_DIR"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/riskScope.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/scheduledAutomations.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/ntvPreWalk.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/sessionConstraint.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/audit.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/adminUsername.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/dashboardDates.test.ts"
@@ -518,6 +519,15 @@ mkdir -p "$LOG_DIR"
     echo
 
     echo "Checking authenticated session and protected routes"
+    echo "Checking account-bound request constraints"
+    curl -fsS -b "$COOKIE_JAR" -H "X-MROS-Expected-User: $ADMIN_USER_ID" "http://localhost:${API_PORT:-4000}/api/meta" >/dev/null
+    EXPECTED_ACCOUNT_STATUS="$(curl -s -o /dev/null -b "$COOKIE_JAR" -H "X-MROS-Expected-User: another-account" -w "%{http_code}" "http://localhost:${API_PORT:-4000}/api/meta")"
+    EXPECTED_ACCOUNT_ANON="$(curl -s -o /dev/null -H "X-MROS-Expected-User: $ADMIN_USER_ID" -w "%{http_code}" "http://localhost:${API_PORT:-4000}/api/meta")"
+    EXPECTED_ACCOUNT_CSRF="$(curl -s -o /dev/null -b "$COOKIE_JAR" -H "X-MROS-Expected-User: $ADMIN_USER_ID" -H "Content-Type: application/json" -d '{}' -w "%{http_code}" "http://localhost:${API_PORT:-4000}/api/operations/options")"
+    if [ "$EXPECTED_ACCOUNT_STATUS" != "409" ] || [ "$EXPECTED_ACCOUNT_ANON" != "401" ] || [ "$EXPECTED_ACCOUNT_CSRF" != "403" ]; then
+      echo "ERROR: account constraint must reject mismatches without bypassing authentication or CSRF"
+      exit 1
+    fi
     curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/auth/me"
     echo
     META_JSON="$(mktemp)"

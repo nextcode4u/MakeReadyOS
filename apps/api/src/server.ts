@@ -6,6 +6,7 @@ import type { FastifyRequest } from "fastify";
 import { z } from "zod";
 import { authConfig, deriveRequestOrigin, validateTrustedOrigin } from "./lib/config.js";
 import { loadSessionUser, requireApiTokenRateLimit, requireApiTokenScope, requireAuthenticated, requireCsrf } from "./lib/auth.js";
+import { requireExpectedSessionUser } from "./lib/sessionConstraint.js";
 import { openApiDocument } from "./lib/openapi.js";
 import { prisma } from "./lib/prisma.js";
 import { authRoutes } from "./routes/auth.js";
@@ -140,6 +141,7 @@ app.register(async (api) => {
 
 app.register(async (api) => {
   api.addHook("preHandler", requireAuthenticated);
+  api.addHook("preHandler", requireExpectedSessionUser);
   api.addHook("preHandler", requireApiTokenRateLimit);
   api.addHook("preHandler", requireApiTokenScope);
   api.addHook("preHandler", requireCsrf);
