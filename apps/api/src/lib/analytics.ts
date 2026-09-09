@@ -31,12 +31,13 @@ export function completionDateForItem(item: {
   completionStatus?: string | null;
   makeReadyStatus?: string | null;
   cleaningStatus?: string | null;
-}) {
-  if (item.archivedAt) return item.archivedAt;
+}, asOf = new Date()) {
+  let candidate = item.archivedAt ?? null;
   if (isCompleteStatus(item.completionStatus) || isCompleteStatus(item.makeReadyStatus) || isCompleteStatus(item.cleaningStatus)) {
-    return item.moveInDate ?? item.updatedAt;
+    candidate ??= item.moveInDate ?? item.updatedAt;
   }
-  return null;
+  // These are legacy estimates, not sign-offs; a future estimate is not completed work.
+  return candidate && candidate <= asOf ? candidate : null;
 }
 
 function boardSectionTypeMap(sections: Array<{ propertyId: string; key: string; sectionType: string }>) {
@@ -47,7 +48,7 @@ function isVacantStatus(value?: string | null) {
   return Boolean(value && ["VACANT", "VACANT_NOT_LEASED", "VACANT_READY", "VACANT NOT LEASED READY", "VACANT NOT LEASED NOT READY", "VACANT LEASED", "VACANT_LEASED", "VACANT LEASED READY", "VACANT LEASED NOT READY"].includes(value));
 }
 
-export async function computePropertySnapshot(propertyId: string, date = startOfDay()) {
+export async function computePropertySnapshot(propertyId: string, date = startOfDay(), asOf = new Date()) {
   const nextDay = addDays(date, 1);
   const next7 = addDays(date, 7);
   const [items, sections] = await Promise.all([
@@ -61,7 +62,7 @@ export async function computePropertySnapshot(propertyId: string, date = startOf
   const sectionTypes = boardSectionTypeMap(sections);
   const activeItems = items.filter((item) => !item.isArchived).map(item => withLiveTurnFields(item, date));
   const completedToday = items.filter((item) => {
-    const completedAt = completionDateForItem(item);
+    const completedAt = completionDateForItem(item, asOf);
     return Boolean(completedAt && completedAt >= date && completedAt < nextDay);
   });
 
@@ -102,8 +103,7 @@ export async function runAnalyticsSnapshot(propertyIds?: string[]) {
   return { date, count: snapshots.length, snapshots };
 }
 
-export async function analyticsSummary(wherePropertyId: { in: string[] } | string | undefined) {
-  const now = new Date();
+export async function analyticsSummary(wherePropertyId: { in: string[] } | string | undefined, now = new Date()) {
   const today = startOfDay(now);
   const weekStart = new Date(today);
   weekStart.setDate(weekStart.getDate() - weekStart.getDay());
@@ -128,7 +128,7 @@ export async function analyticsSummary(wherePropertyId: { in: string[] } | strin
   ]);
 
   const items = storedItems.map(item => withLiveTurnFields(item, now));
-  const completed = items.map((item) => ({ item, completedAt: completionDateForItem(item) })).filter((entry) => entry.completedAt);
+  const completed = items.map((item) => ({ item, completedAt: completionDateForItem(item, now) })).filter((entry) => entry.completedAt);
   const completedThisWeek = completed.filter((entry) => entry.completedAt! >= weekStart).length;
   const completedThisMonth = completed.filter((entry) => entry.completedAt! >= monthStart).length;
   const durations = completed.map((entry) => daysBetween(entry.item.vacatedDate ?? entry.item.createdAt, entry.completedAt)).filter((value): value is number => value !== null);
@@ -172,7 +172,7 @@ export async function analyticsSummary(wherePropertyId: { in: string[] } | strin
         current.overdueCount += item.overdue ? 1 : 0;
         current.highRiskCount += ["HIGH", "CRITICAL"].includes(item.riskLevel) ? 1 : 0;
       }
-      const completedAt = completionDateForItem(item);
+      const completedAt = completionDateForItem(item, now);
       if (completedAt) {
         current.completedTurns += 1;
         const duration = daysBetween(item.vacatedDate ?? item.createdAt, completedAt);
@@ -278,7 +278,7 @@ export async function analyticsSummary(wherePropertyId: { in: string[] } | strin
   const recurringProblemUnits = Array.from(unitGroups.values()).map((turns) => {
     const activeTurns = turns.filter((item) => !item.isArchived);
     const completedTurns = turns
-      .map((item) => ({ item, completedAt: completionDateForItem(item) }))
+      .map((item) => ({ item, completedAt: completionDateForItem(item, now) }))
       .filter((entry) => entry.completedAt);
     const turnDurations = completedTurns
       .map((entry) => daysBetween(entry.item.vacatedDate ?? entry.item.createdAt, entry.completedAt))
