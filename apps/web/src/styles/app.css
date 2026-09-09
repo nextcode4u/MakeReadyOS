@@ -1156,6 +1156,12 @@
 .turn-material-fields { display: grid; gap: .75rem; min-width: 0; margin: 0; padding: 0; border: 0; }
 .turn-material-fields label { display: grid; gap: .3rem; min-width: 0; }
 .turn-material-fields input, .turn-material-fields select, .turn-material-fields textarea { box-sizing: border-box; width: 100%; min-width: 0; }
+.material-entry-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, .7fr) minmax(0, 1fr); gap: .5rem; }
+.material-entry-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+@media (max-width: 480px) {
+  .material-entry-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-bottom: .65rem; border-bottom: 1px solid var(--border); }
+  .material-entry-row > label:first-child { grid-column: 1 / -1; }
+}
 .my-work-tags { display: flex; gap: .35rem; flex-wrap: wrap; }
 .my-work-tags b,
 .my-work-tags span { padding: .22rem .38rem; border-radius: .3rem; background: var(--panel-soft); font-size: .66rem; }
