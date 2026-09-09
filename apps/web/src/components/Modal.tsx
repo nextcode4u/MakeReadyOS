@@ -12,19 +12,14 @@ type Props = {
 
 const openDialogs: HTMLElement[] = [];
 let originalOverflow = "";
-const focusableSelector = 'button:not(:disabled), [href], input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+const focusableSelector = 'button:not(:disabled), [href], input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])';
 function focusableElements(panel: HTMLElement) {
   return [...panel.querySelectorAll<HTMLElement>(focusableSelector)].filter(element => element.tabIndex >= 0 && element.getClientRects().length > 0 && !element.closest("[inert]"));
 }
 
-export function Modal({ open, title, children, actions, onClose, testId }: Props) {
+export function useDialogFocus(open: boolean, onClose: () => void) {
   const panelRef = useRef<HTMLElement>(null);
-  const titleId = useId();
   const close = useEffectEvent(onClose);
-  const language =
-    typeof document !== "undefined" && document.documentElement.lang.toLowerCase().startsWith("es")
-      ? "es"
-      : "en";
   useEffect(() => {
     if (!open) {
       return undefined;
@@ -69,6 +64,16 @@ export function Modal({ open, title, children, actions, onClose, testId }: Props
       if (wasTop && opener?.isConnected) opener.focus();
     };
   }, [open]);
+  return panelRef;
+}
+
+export function Modal({ open, title, children, actions, onClose, testId }: Props) {
+  const panelRef = useDialogFocus(open, onClose);
+  const titleId = useId();
+  const language =
+    typeof document !== "undefined" && document.documentElement.lang.toLowerCase().startsWith("es")
+      ? "es"
+      : "en";
 
   if (!open) {
     return null;
