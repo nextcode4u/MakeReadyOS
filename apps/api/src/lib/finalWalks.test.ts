@@ -14,6 +14,18 @@ test("final walk handoff follows order, skips ineligible users and never wraps",
   assert.equal(nextInspector(queue, null, []), undefined);
 });
 
+test("initial inspection and handoff skip the repair assignee without reordering backups", async () => {
+  const { independentInspectors, nextInspector } = await import("./finalWalks.js");
+  const staff = [{ id: "tech", fullName: "Repair Tech" }, { id: "leasing", fullName: "Leasing" }, { id: "manager", fullName: "Manager" }];
+  const eligible = independentInspectors(staff, " repair TECH ").map(user => user.id);
+  assert.deepEqual(eligible, ["leasing", "manager"]);
+  assert.equal(nextInspector(["tech", "leasing", "manager"], null, eligible), "leasing");
+  assert.equal(nextInspector(["leasing", "tech", "manager"], "leasing", eligible), "manager");
+  assert.deepEqual(independentInspectors(staff, null), staff);
+  assert.deepEqual(independentInspectors(staff, " "), staff);
+  assert.deepEqual(independentInspectors([staff[0]], "Repair Tech"), []);
+});
+
 test("final walk settings reject non-managers and out-of-scope managers", async t => {
   const { finalWalkRoutes } = await import("../routes/finalWalks.js");
   const { default: Fastify } = await import("fastify");

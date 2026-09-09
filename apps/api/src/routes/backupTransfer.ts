@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
+import { turnMaterialsSchema } from "../lib/turnMaterials.js";
 
 const backupFormat = "makereadyos.backup";
 const backupVersion = 1;
@@ -135,6 +136,7 @@ const makeReadyItemSchema = z.object({
   lastRiskEvaluatedAt: nullableDate.optional().default(null),
   completionStatus: z.string().nullable(),
   finalWalkReportDraft: savedReportDraftSchema.nullable().optional().default(null),
+  materials: turnMaterialsSchema.optional().default([]),
   sheetrockStatus: z.string().nullable(),
   pestStatus: z.string().nullable(),
   pestTreated: z.string().nullable(),
@@ -1743,6 +1745,7 @@ async function buildExport(): Promise<NativeBackup> {
         lastRiskEvaluatedAt: item.lastRiskEvaluatedAt?.toISOString() ?? null,
         completionStatus: item.completionStatus,
         finalWalkReportDraft: savedReportDraftSchema.nullable().parse(item.finalWalkReportDraft?.payload ?? null),
+        materials: turnMaterialsSchema.parse(item.materials),
         sheetrockStatus: item.sheetrockStatus,
         pestStatus: item.pestStatus,
         pestTreated: item.pestTreated,
@@ -3182,6 +3185,7 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
               lastRiskEvaluatedAt: dateValue(item.lastRiskEvaluatedAt),
               completionStatus: item.completionStatus,
               ...(item.finalWalkReportDraft ? { finalWalkReportDraft: { create: { payload: item.finalWalkReportDraft } } } : {}),
+              materials: item.materials,
               sheetrockStatus: item.sheetrockStatus,
               pestStatus: item.pestStatus,
               pestTreated: item.pestTreated,

@@ -12,6 +12,7 @@ import { applyAutomationRules } from "../lib/automationAssignments.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
 import { finalWalkCategory, pendingWalkStatuses, syncFinalWalks } from "../lib/finalWalks.js";
+import { getTurnReadiness } from "../lib/turnReadiness.js";
 import { notifyAssignedStaff, notifyPropertyRoles } from "../lib/notifications.js";
 import { computeDerivedFields, editableFields, normalizeItemPatch } from "../lib/board.js";
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
@@ -1338,6 +1339,8 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       const assigned = await db.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, assignedUserId: user.id, status: { in: pendingWalkStatuses } } });
       if (!assigned || current.makeReadyStatus !== "FINAL WALK" || current.isArchived) throw Object.assign(new Error("Only the assigned inspector can sign off this pending final walk"), { statusCode: 403 });
     }
+    const blockers = await getTurnReadiness(db, id, user.fullName);
+    if (blockers.length) throw Object.assign(new Error(`Cannot mark ready: ${blockers.slice(0, 8).join("; ")}${blockers.length > 8 ? `; plus ${blockers.length - 8} more. Review completion blockers in turn details.` : ""}`), { statusCode: 409 });
     await db.makeReadyItem.update({
       where: { id },
       data: {
@@ -1346,7 +1349,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
         archivedAt: null,
         completionStatus: "YES",
         makeReadyStatus: "DONE",
-        vacancyStatus: readyVacancyStatus(existing.vacancyStatus),
+        vacancyStatus: readyVacancyStatus(current.vacancyStatus),
       },
     });
     await db.workAssignmentBlock.updateMany({ where: { itemId: id, category: finalWalkCategory, status: { in: pendingWalkStatuses } }, data: { status: "DONE" } });

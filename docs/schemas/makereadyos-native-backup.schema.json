@@ -210,6 +210,9 @@
       "additionalProperties": true,
       "required": ["portableKey", "propertyCode", "unitNumber", "boardGroup"],
       "properties": {
+        "materials": { "type": "array", "maxItems": 100, "items": { "type": "object", "additionalProperties": false, "required": ["id", "name", "quantity", "unit", "status", "notes"], "properties": {
+          "id": { "type": "string", "format": "uuid" }, "name": { "type": "string", "minLength": 1, "maxLength": 160 }, "quantity": { "type": "number", "exclusiveMinimum": 0, "maximum": 100000 }, "unit": { "type": "string", "minLength": 1, "maxLength": 24 }, "status": { "enum": ["NEEDED", "ORDERED", "ON_HAND", "USED", "CANCELLED"] }, "notes": { "type": "string", "maxLength": 1000 }
+        } } },
         "portableKey": { "type": "string" },
         "propertyCode": { "type": "string" },
         "unitNumber": { "type": "string" },

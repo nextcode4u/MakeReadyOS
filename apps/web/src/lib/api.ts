@@ -12,6 +12,8 @@ export type FinalReportSettings = { title: string; introduction: string; footer:
 export type FinalReportResult = { status: "NOT_CHECKED" | "CHECKED" | "ATTENTION" | "NA"; note: string };
 export type FinalReportDraft = { inspectionDate: string; results: Record<string, FinalReportResult>; mailbox: string; mailboxSource?: "DIRECTORY" | "CUSTOM"; homeKeys: string; mailboxKeys: string; fobs: string; remotes: string; parking: string; followUp: string; residentDoorCode: string; residentAccessCode: string; includeResidentCodes: boolean };
 export type FinalReportData = {
+  canEditSettings: boolean;
+  canEditDraft: boolean;
   property: { id: string; name: string; code: string };
   settings: { version: number; value: FinalReportSettings };
   draft: { version: number; value: FinalReportDraft; updatedAt: string | null };
@@ -1201,7 +1203,7 @@ export type WorkAssignmentBlock = {
 };
 
 export type FinalWalkSettings = { inspectors: string[]; enabled: boolean; staff: Array<{ id: string; fullName: string; role: string }> };
-export type FinalWalkAssignment = { ready: boolean; block: (WorkAssignmentBlock & { inspectorQueue: string[] }) | null; next: { id: string; fullName: string } | null };
+export type FinalWalkAssignment = { ready: boolean; reportAvailable?: boolean; blockers?: string[]; block: (WorkAssignmentBlock & { inspectorQueue: string[] }) | null; next: { id: string; fullName: string } | null };
 export function getFinalWalkSettings(propertyId: string) { return request<FinalWalkSettings>(`/automations/final-walk/${propertyId}`); }
 export function saveFinalWalkSettings(propertyId: string, input: Omit<FinalWalkSettings, "staff">) { return request<{ saved: boolean; assigned: number }>(`/automations/final-walk/${propertyId}`, { method: "PUT", body: JSON.stringify(input) }); }
 export function getFinalWalk(itemId: string) { return request<FinalWalkAssignment>(`/make-ready-items/${itemId}/final-walk`); }
@@ -2654,10 +2656,10 @@ export function deleteItemComment(itemId: string, commentId: string) {
   return request<{ ok: true }>(`/make-ready-items/${itemId}/comments/${commentId}`, { method: "DELETE" });
 }
 
-export function uploadItemAttachment(itemId: string, file: File) {
+export function uploadItemAttachment(itemId: string, file: File, inspectionStage?: "INITIAL_WALK") {
   const data = new FormData();
   data.append("file", file);
-  return request<{ attachment: ItemAttachment }>(`/make-ready-items/${itemId}/attachments`, { method: "POST", body: data });
+  return request<{ attachment: ItemAttachment }>(`/make-ready-items/${itemId}/attachments${inspectionStage ? `?inspectionStage=${inspectionStage}` : ""}`, { method: "POST", body: data });
 }
 
 export function attachmentDownloadUrl(id: string) {
@@ -5213,6 +5215,11 @@ export function getWebhookDeliveries(id: string, input: { limit?: number; offset
 export function getWebhookHealth(id: string) {
   return request<WebhookHealthResponse>(`/admin/integrations/webhooks/${id}/health`);
 }
+
+export type TurnMaterial = { id: string; name: string; quantity: number; unit: string; status: "NEEDED" | "ORDERED" | "ON_HAND" | "USED" | "CANCELLED"; notes: string };
+export type TurnMaterials = { rows: TurnMaterial[]; version: number; readOnly: boolean };
+export function getTurnMaterials(id: string) { return request<TurnMaterials>(`/make-ready-items/${id}/materials`); }
+export function saveTurnMaterials(id: string, input: { rows: TurnMaterial[]; version: number }) { return request<TurnMaterials>(`/make-ready-items/${id}/materials`, { method: "PUT", body: JSON.stringify(input) }); }
 
 export function createWebhookTestPayload(id: string, input: { eventType?: WebhookEventType; enqueue?: boolean }) {
   return request<{ webhook: WebhookEndpointRecord; delivery: WebhookDeliveryAttempt; notice: string }>(

@@ -4,6 +4,9 @@ import { createNotification } from "./notifications.js";
 
 export const finalWalkCategory = "FINAL_WALK_INSPECTION";
 export const pendingWalkStatuses = ["PLANNED", "IN_PROGRESS"];
+export function independentInspectors<T extends { id: string; fullName: string }>(staff: T[], assignedTech: string | null) {
+  return staff.filter(person => !assignedTech?.trim() || person.fullName.trim().toLocaleLowerCase() !== assignedTech.trim().toLocaleLowerCase());
+}
 export async function inspectorStaff(db: Prisma.TransactionClient, propertyId: string) {
   return db.user.findMany({ where: { isActive: true, role: { in: [UserRole.ADMIN, UserRole.MANAGER, UserRole.LEASING, UserRole.TECH] }, OR: [{ role: UserRole.ADMIN }, { propertyAccess: { some: { propertyId } } }] }, select: { id: true, fullName: true, role: true }, orderBy: { fullName: "asc" } });
 }
@@ -30,7 +33,7 @@ export async function syncFinalWalks(propertyId: string, itemId?: string) {
       }
       let block = blocks[0];
       if (!block && policy?.enabled && ready) {
-        const assignee = nextInspector(policy.inspectors, null, staff.map(user => user.id));
+        const assignee = nextInspector(policy.inspectors, null, independentInspectors(staff, item.assignedTech).map(user => user.id));
         if (!assignee) continue;
         block = await db.workAssignmentBlock.create({ data: { propertyId, itemId: item.id, assignedUserId: assignee, category: finalWalkCategory, inspectorQueue: policy.inspectors, plannedDate: item.makeReadyDate ?? new Date(), estimatedHours: .5, notes: "Final walk inspection; separate from repair assignment." } });
         assigned++;

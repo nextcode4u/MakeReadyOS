@@ -2,8 +2,9 @@ import { z } from "zod";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { allowedPropertyIds, requireManagerOrAdmin } from "../lib/auth.js";
 import { prisma } from "../lib/prisma.js";
-import { finalWalkCategory, inspectorStaff, nextInspector, pendingWalkStatuses, syncFinalWalks } from "../lib/finalWalks.js";
+import { finalWalkCategory, independentInspectors, inspectorStaff, nextInspector, pendingWalkStatuses, syncFinalWalks } from "../lib/finalWalks.js";
 import { createNotification } from "../lib/notifications.js";
+import { getTurnReadiness } from "../lib/turnReadiness.js";
 
 async function propertyContext(request: FastifyRequest, reply: FastifyReply) {
   if (await requireManagerOrAdmin(request, reply)) return null;
@@ -41,8 +42,10 @@ export async function finalWalkRoutes(app: FastifyInstance) {
     if (ids !== null && !ids.includes(item.propertyId)) return reply.code(403).send({ message: "Property access denied" });
     const block = await prisma.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, status: { in: pendingWalkStatuses } }, include: { assignedUser: { select: { id: true, fullName: true } } }, orderBy: { createdAt: "asc" } });
     const staff = await inspectorStaff(prisma, item.propertyId);
-    const nextId = block && nextInspector(block.inspectorQueue, block.assignedUserId, staff.map(user => user.id));
-    return { block, ready: item.makeReadyStatus === "FINAL WALK", next: staff.find(user => user.id === nextId) ?? null };
+    const completedBlock = !block && item.makeReadyStatus === "DONE" ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, status: "DONE" }, orderBy: { createdAt: "desc" } }) : null;
+    const reportAvailable = !item.isArchived && (block ?? completedBlock)?.assignedUserId === request.currentUser!.id && item.assignedTech?.trim().toLowerCase() !== request.currentUser!.fullName.trim().toLowerCase();
+    const nextId = block && nextInspector(block.inspectorQueue, block.assignedUserId, independentInspectors(staff, item.assignedTech).map(user => user.id));
+    return { block, reportAvailable, ready: item.makeReadyStatus === "FINAL WALK", blockers: await getTurnReadiness(prisma, id, request.currentUser!.fullName), next: staff.find(user => user.id === nextId) ?? null };
   });
   app.post("/make-ready-items/:id/final-walk/handoff", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
@@ -60,7 +63,7 @@ export async function finalWalkRoutes(app: FastifyInstance) {
       if (!block || block.assignedUserId !== input.expectedAssigneeId) throw Object.assign(new Error("Assignment changed. Refresh before handing off."), { statusCode: 409 });
       if (user.id !== block.assignedUserId && user.role !== "ADMIN" && user.role !== "MANAGER") throw Object.assign(new Error("Only the assigned inspector or a manager can hand off"), { statusCode: 403 });
       const staff = await inspectorStaff(db, item.propertyId);
-      const next = nextInspector(block.inspectorQueue, block.assignedUserId, staff.map(entry => entry.id));
+      const next = nextInspector(block.inspectorQueue, block.assignedUserId, independentInspectors(staff, currentItem.assignedTech).map(entry => entry.id));
       if (!next) throw Object.assign(new Error("No eligible next inspector. This walk remains assigned; contact your manager."), { statusCode: 409 });
       await db.workAssignmentBlock.update({ where: { id: block.id }, data: { assignedUserId: next } });
       await createNotification({ userId: next, propertyId: item.propertyId, itemId: id, category: "ASSIGNMENT", title: "Final walk handed off to you", message: `${item.unitNumber}: ${input.reason}`, dedupeKey: `final-walk-handoff:${block.id}:${next}` }, db);
