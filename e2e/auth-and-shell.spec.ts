@@ -3609,6 +3609,10 @@ test.describe("MakeReadyOS browser flows", () => {
     expect(new Set(anchors.map(point => point.y)).size).toBe(anchors.length);
     expect(new Set(anchors.map(point => point.x)).size).toBe(anchors.length);
     await page.getByRole("button", { name: "Done arranging", exact: true }).click();
+    await frog.evaluate(element => element.scrollIntoView({ block: "center", behavior: "instant" }));
+    await expect(frog).toBeInViewport();
+    await page.mouse.move(0, 0);
+    await expect.poll(() => frog.evaluate(element => element.matches(":hover"))).toBe(false);
     const initialBox = await frog.boundingBox();
     await expect.poll(async () => {
       const box = await frog.boundingBox();
@@ -3616,6 +3620,7 @@ test.describe("MakeReadyOS browser flows", () => {
     }, { timeout: 5000 }).toBeGreaterThan(8);
     const moving = await frog.boundingBox();
     await page.mouse.move(moving!.x + moving!.width / 2, moving!.y + moving!.height / 2);
+    await expect.poll(() => frog.evaluate(element => element.matches(":hover"))).toBe(true);
     const original = await frog.boundingBox();
     await page.waitForTimeout(600);
     const hovered = await frog.boundingBox();

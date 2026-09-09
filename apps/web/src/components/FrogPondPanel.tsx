@@ -659,6 +659,14 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
     automaticSound(raining && beat % 2 === 0 ? "rain" : awakeAdult && beat % 3 === 0 ? "frog" : "bubble");
   }, [frameTick, renderedFrogs, raining]);
 
+  function holdFrog(element: HTMLButtonElement, id: string) {
+    const scene = sceneRef.current;
+    if (!scene?.clientWidth || !scene.clientHeight) return;
+    // Stop at the interpolated position, not the next animation destination.
+    const style = getComputedStyle(element);
+    setHeld({ id, x: parseFloat(style.left) / scene.clientWidth * 100, y: parseFloat(style.top) / scene.clientHeight * 100 });
+  }
+
   useEffect(() => {
     if (!motionEnabled || flies.length === 0 || renderedFrogs.length === 0) return;
     const sceneRect = sceneRef.current?.getBoundingClientRect();
@@ -964,6 +972,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
                 style={{
                   left: `${x}%`,
                   top: `${y}%`,
+                  transition: !rearranging && held?.id === item.id && !snack?.guests.includes(item.id) ? "none" : undefined,
                   "--frog-color": color,
                   "--frog-sprite": `url("${sheet.url}")`,
                   "--frog-tadpole": `url("${tadpoleUrl}")`,
@@ -986,9 +995,9 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
                   setCollection(current => ({ ...current, greeted: true }));
                   playSound(pose === "tadpole" ? "bubble" : catching ? "catch" : "frog");
                 }}
-                onPointerEnter={() => setHeld({ id: item.id, x, y })}
+                onPointerEnter={event => holdFrog(event.currentTarget, item.id)}
                 onPointerLeave={event => { if (document.activeElement !== event.currentTarget) setHeld(null); }}
-                onFocus={() => setHeld({ id: item.id, x, y })}
+                onFocus={event => holdFrog(event.currentTarget, item.id)}
                 onBlur={() => setHeld(null)}
                 onPointerDown={(event) => startDrag(event, item.id)}
                 onPointerMove={moveDrag}
