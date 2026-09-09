@@ -1177,6 +1177,43 @@ test("command search traps keyboard focus and closes from results without losing
   await page.keyboard.press("Escape");
 });
 
+test("lease capture selects a real property after delayed metadata", async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let expectedPropertyId = "";
+  const overviewProperties: string[] = [];
+  page.on("request", request => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/lease-compliance/overview") overviewProperties.push(url.searchParams.get("propertyId") ?? "");
+  });
+  await page.route("**/api/meta", async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    expectedPropertyId = body.properties[0].id;
+    await held;
+    return route.fulfill({ response });
+  });
+  await login(page, adminEmail, adminPassword);
+  try {
+    await page.getByTestId("module-rail-lease-compliance").click();
+    await expect(page.getByRole("heading", { name: "No properties available" })).toBeVisible();
+  } finally { release(); }
+  await expect.poll(() => expectedPropertyId).not.toBe("");
+  await expect(page.getByLabel("Lease Compliance property")).toHaveValue(expectedPropertyId);
+  await expect.poll(() => overviewProperties).toContain(expectedPropertyId);
+  const description = uniqueTag("Late property lease capture");
+  await page.getByTestId("lease-quick-capture-area").fill("Courtyard");
+  await page.getByTestId("lease-quick-capture-description").fill(description);
+  await expect(page.getByTestId("lease-quick-capture-submit")).toBeDisabled();
+  await page.getByTestId("lease-quick-capture-issue-type").selectOption({ label: "Other" });
+  const saved = page.waitForResponse(response => response.url().endsWith("/api/lease-compliance/issues") && response.request().method() === "POST");
+  await page.getByTestId("lease-quick-capture-submit").click();
+  const response = await saved;
+  expect(response.request().postDataJSON().propertyId).toBe(expectedPropertyId);
+  expect(response.status(), await response.text()).toBe(201);
+  await expect(page.getByTestId("lease-quick-capture-description")).toHaveValue("");
+});
+
 test("pool setup requires explicit property selection after delayed metadata", async ({ page }) => {
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
