@@ -55,6 +55,47 @@ test("concurrent project category initialization and edits preserve unique scope
   expect(summary.projectCategories.errors).toEqual([]);
 });
 
+test("Pest edits preserve status and explicit unlinking and return the current version", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `PP${Date.now()}`, name: "Pest patch lifecycle" });
+  const { unit } = await post("/operations/units", { propertyId: property.id, number: "101" });
+  const meta = await (await page.request.get("/api/meta")).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  const turn = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, unitNumber: unit.number, itemName: unit.number, boardGroup: section.key });
+  const { issue } = await post("/pest/issues", { propertyId: property.id, unitId: unit.id, pestType: "Ants", status: "Treated" });
+  expect(issue.area).toBeNull();
+  expect(issue.makeReadyItemId).toBe(turn.id);
+  const patch = async (data: object) => {
+    const response = await page.request.patch(`/api/pest/issues/${issue.id}`, { headers, data });
+    expect(response.status(), await response.text()).toBe(200); return (await response.json()).issue;
+  };
+  const followed = await patch({ status: "Treated", followUpRequired: true, expectedUpdatedAt: issue.updatedAt });
+  const edited = await patch({ description: "Treatment checked", expectedUpdatedAt: followed.updatedAt });
+  expect(edited).toMatchObject({ status: "Treated", followUpRequired: true, makeReadyItemId: turn.id });
+  const unlinked = await patch({ makeReadyItemId: null, expectedUpdatedAt: edited.updatedAt });
+  expect(unlinked).toMatchObject({ makeReadyItemId: null, unitId: unit.id });
+  const prioritized = await patch({ priority: "High", expectedUpdatedAt: unlinked.updatedAt });
+  expect(prioritized).toMatchObject({ status: "Treated", makeReadyItemId: null, description: "Treatment checked" });
+  const records = (await (await page.request.get(`/api/pest/issues?propertyId=${property.id}`)).json()).issues;
+  expect(records.find((entry: any) => entry.id === issue.id).updatedAt).toBe(prioritized.updatedAt);
+  const restoredLink = await patch({ unitId: unit.id, expectedUpdatedAt: prioritized.updatedAt });
+  expect(restoredLink.makeReadyItemId).toBe(turn.id);
+  expect((await page.request.patch(`/api/pest/issues/${issue.id}`, { headers, data: { description: "Stale draft", expectedUpdatedAt: issue.updatedAt } })).status()).toBe(409);
+  const closed = await patch({ status: "Closed", expectedUpdatedAt: restoredLink.updatedAt });
+  expect(closed.closedAt).toBeTruthy();
+  const { issue: historical } = await post("/pest/issues", { propertyId: property.id, area: "Historical fixture", pestType: "Ants", status: "Closed" });
+  expect(historical.closedAt).toBeNull();
+  const historicalEdit = await page.request.patch(`/api/pest/issues/${historical.id}`, { headers, data: { description: "Keep unknown close date unknown" } });
+  expect(historicalEdit.status()).toBe(200);
+  expect((await historicalEdit.json()).issue.closedAt).toBeNull();
+  expect((await page.request.patch(`/api/pest/issues/${historical.id}`, { headers, data: { area: null } })).status()).toBe(400);
+});
+
 test("Lease detail drafts survive failed saves, reopening and reviewed conflicts on mobile", async ({ page }, testInfo) => {
   await login(page, adminEmail, adminPassword);
   const me = await (await page.request.get("/api/auth/me")).json();

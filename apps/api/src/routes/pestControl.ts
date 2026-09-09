@@ -62,7 +62,9 @@ export const pestIssueSchema = z.object({
   description: z.string().trim().max(4000).nullable().optional(),
 });
 
-export const pestIssuePatchSchema = pestIssueSchema.partial();
+export const pestIssuePatchSchema = pestIssueSchema.partial().extend({
+  expectedUpdatedAt: z.string().datetime().optional(),
+});
 
 export const pestIssueQuerySchema = z.object({
   propertyId: z.string().optional(),
@@ -173,7 +175,7 @@ async function resolveLinkedMakeReadyItem(input: {
   propertyId: string;
   unitId?: string | null;
   makeReadyItemId?: string | null;
-}, previousItemId?: string | null) {
+}, previousItemId?: string | null, discoverUnitTurn = true) {
   if (input.makeReadyItemId) {
     const item = await prisma.makeReadyItem.findUnique({ where: { id: input.makeReadyItemId } });
     if (!item || item.propertyId !== input.propertyId) {
@@ -187,7 +189,7 @@ async function resolveLinkedMakeReadyItem(input: {
     }
     return item;
   }
-  if (!input.unitId) return null;
+  if (!input.unitId || !discoverUnitTurn) return null;
   return prisma.makeReadyItem.findFirst({
     where: {
       propertyId: input.propertyId,
@@ -205,8 +207,8 @@ type PestReferences = {
   assignedUserId?: string | null;
 };
 
-async function validatePestReferences(propertyId: string, input: PestReferences, previous?: PestReferences) {
-  const linkedItem = await resolveLinkedMakeReadyItem({ ...input, propertyId }, previous?.makeReadyItemId);
+async function validatePestReferences(propertyId: string, input: PestReferences, previous?: PestReferences, discoverUnitTurn = true) {
+  const linkedItem = await resolveLinkedMakeReadyItem({ ...input, propertyId }, previous?.makeReadyItemId, discoverUnitTurn);
   const unitId = input.unitId ?? (previous ? null : linkedItem?.unitId ?? null);
   if (unitId) {
     const unit = await prisma.unit.findUnique({ where: { id: unitId }, select: { propertyId: true, isActive: true } });
@@ -288,6 +290,23 @@ async function applyRecurringFlags(issueId: string, unitId: string | null | unde
       managerReviewRequired: countYear >= 3,
     },
   });
+}
+
+async function currentPestIssue(id: string) {
+  const issue = await prisma.pestIssue.findUnique({
+    where: { id },
+    include: {
+      property: true,
+      unit: true,
+      vendor: true,
+      assignedUser: { select: { id: true, fullName: true } },
+      makeReadyItem: { select: { id: true, unitNumber: true, moveInDate: true } },
+      notes: { orderBy: { createdAt: "desc" } },
+      attachments: { orderBy: { createdAt: "desc" } },
+    },
+  });
+  if (!issue) throw Object.assign(new Error("The saved pest request is no longer available. Refresh before retrying."), { statusCode: 409 });
+  return issue;
 }
 
 function issueWhere(query: z.infer<typeof pestIssueQuerySchema>, request: FastifyRequest) {
@@ -546,51 +565,42 @@ export async function pestControlRoutes(app: FastifyInstance) {
       },
     });
     reply.code(201);
-    return { issue };
+    return { issue: await currentPestIssue(issue.id) };
   });
 
   app.patch("/pest/issues/:id", async (request, reply) => {
     if (!requirePestAccess(request, reply, "edit")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = pestIssuePatchSchema.parse(request.body);
+    const { expectedUpdatedAt, ...input } = pestIssuePatchSchema.parse(request.body);
     const existing = await prisma.pestIssue.findUnique({ where: { id } });
     if (!existing) throw Object.assign(new Error("Pest request not found"), { statusCode: 404 });
     await assertPropertyAccess(request, existing.propertyId);
     if (input.propertyId !== undefined && input.propertyId !== existing.propertyId) {
       throw Object.assign(new Error("Pest request property cannot be changed by editing"), { statusCode: 409 });
     }
+    const conflict = () => Object.assign(new Error("This pest request changed while you were editing. Reload the current request and review your changes before retrying."), { statusCode: 409 });
+    if (expectedUpdatedAt !== undefined && new Date(expectedUpdatedAt).getTime() !== existing.updatedAt.getTime()) throw conflict();
     const { linkedItem, unitId } = await validatePestReferences(existing.propertyId, {
       unitId: input.unitId === undefined ? existing.unitId : input.unitId,
       makeReadyItemId: input.makeReadyItemId === undefined ? existing.makeReadyItemId : input.makeReadyItemId,
       vendorId: input.vendorId === undefined ? existing.vendorId : input.vendorId,
       assignedUserId: input.assignedUserId === undefined ? existing.assignedUserId : input.assignedUserId,
-    }, existing);
-    const followUpRequired = input.followUpRequired ?? existing.followUpRequired;
-    const nextStatus = input.status ?? (followUpRequired ? "Needs Follow Up" : existing.status);
+    }, existing, input.unitId !== undefined && input.makeReadyItemId === undefined);
+    if (!unitId && !(input.area === undefined ? existing.area : input.area)?.trim()) {
+      return reply.code(400).send({ message: "Unit or area is required" });
+    }
+    const linksChanged = input.unitId !== undefined || input.makeReadyItemId !== undefined;
+    const nextStatus = input.status ?? (input.followUpRequired === true ? "Needs Follow Up" : undefined);
     const issue = await prisma.pestIssue.update({
-      where: { id },
+      where: { id, updatedAt: existing.updatedAt },
       data: {
-        unitId,
-        makeReadyItemId: linkedItem?.id ?? (input.makeReadyItemId === undefined ? existing.makeReadyItemId : input.makeReadyItemId),
-        building: input.building === undefined ? existing.building : input.building,
-        area: input.area === undefined ? existing.area : input.area,
-        requestDate: input.requestDate ?? existing.requestDate,
-        pestType: input.pestType ?? existing.pestType,
-        additionalPestType: input.additionalPestType === undefined ? existing.additionalPestType : input.additionalPestType,
+        ...input,
+        propertyId: undefined,
+        unitId: linksChanged ? unitId : undefined,
+        makeReadyItemId: linksChanged ? linkedItem?.id ?? null : undefined,
         status: nextStatus,
-        priority: input.priority ?? existing.priority,
-        source: input.source ?? existing.source,
-        vendorId: input.vendorId === undefined ? existing.vendorId : input.vendorId,
-        thirdPartyWorkOrderNumber: input.thirdPartyWorkOrderNumber === undefined ? existing.thirdPartyWorkOrderNumber : input.thirdPartyWorkOrderNumber,
-        reportedBy: input.reportedBy === undefined ? existing.reportedBy : input.reportedBy,
-        assignedUserId: input.assignedUserId === undefined ? existing.assignedUserId : input.assignedUserId,
-        treatmentDate: input.treatmentDate === undefined ? existing.treatmentDate : input.treatmentDate,
-        followUpRequired,
-        followUpDate: input.followUpDate === undefined ? existing.followUpDate : input.followUpDate,
-        followUpNotes: input.followUpNotes === undefined ? existing.followUpNotes : input.followUpNotes,
-        description: input.description === undefined ? existing.description : input.description,
         updatedById: request.currentUser!.id,
-        ...(nextStatus === "Closed" && !existing.closedAt ? { closedAt: new Date(), closedById: request.currentUser!.id } : {}),
+        ...(input.status === "Closed" && existing.status !== "Closed" && !existing.closedAt ? { closedAt: new Date(), closedById: request.currentUser!.id } : {}),
       },
       include: {
         property: true,
@@ -601,6 +611,9 @@ export async function pestControlRoutes(app: FastifyInstance) {
         notes: { orderBy: { createdAt: "desc" } },
         attachments: { orderBy: { createdAt: "desc" } },
       },
+    }).catch(error => {
+      if (error && typeof error === "object" && "code" in error && error.code === "P2025") throw conflict();
+      throw error;
     });
     await applyRecurringFlags(issue.id, issue.unitId);
     await syncMakeReadyPestState(existing.makeReadyItemId);
@@ -629,7 +642,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
         priority: issue.priority,
       },
     });
-    return { issue };
+    return { issue: await currentPestIssue(issue.id) };
   });
 
   app.post("/pest/issues/:id/notes", async (request, reply) => {
