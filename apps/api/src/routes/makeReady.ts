@@ -236,6 +236,25 @@ async function makeReadyReportScopeLabel(propertyId: string | undefined) {
   return propertyScopeLabel(property);
 }
 
+function moveInRiskWhere(): Prisma.MakeReadyItemWhereInput {
+  const readyVacancies = ["VACANT LEASED READY", "VACANT_LEASED_READY", "VACANT-LEASED-READY", "VACANT NOT LEASED READY", "VACANT_NOT_LEASED_READY", "VACANT-NOT-LEASED-READY"];
+  return {
+    AND: [
+      { OR: [
+        { makeReadyStatus: { in: ["FINAL WALK", "FINAL_WALK", "FINAL-WALK"], mode: "insensitive" } },
+        { AND: [
+          { OR: [{ vacancyStatus: null }, { vacancyStatus: { notIn: readyVacancies, mode: "insensitive" } }] },
+          { OR: [{ completionStatus: null }, { completionStatus: { notIn: ["YES", "DONE", "COMPLETE", "COMPLETED"], mode: "insensitive" } }] },
+        ] },
+      ] },
+      { OR: [
+        { moveInDate: moveInWindowFilter("7") },
+        { moveInDate: { lt: prisma.makeReadyItem.fields.makeReadyDate } },
+      ] },
+    ],
+  };
+}
+
 async function buildMakeReadyExportWhere(
   request: FastifyRequest,
   query: z.infer<typeof makeReadyExportQuerySchema>,
@@ -309,14 +328,7 @@ async function buildMakeReadyExportWhere(
   if (query.flooringNeededOnly) andFilters.push({ floorsStatus: "REPLACE CARPET" });
   if (query.paintNeededOnly) andFilters.push({ paintStatus: { not: null }, NOT: { paintStatus: "GOOD" } });
   if (query.moveInRiskOnly) {
-    const soon = moveInWindowFilter("7");
-    andFilters.push({
-      OR: [
-        { moveInSoon: true },
-        { AND: [{ moveInDate: soon }, { completionStatus: { not: "YES" } }] },
-        { riskReasons: { array_contains: [{ category: "MOVE_IN_RISK" }] } },
-      ],
-    });
+    andFilters.push(moveInRiskWhere());
   }
   if (query.q) {
     andFilters.push({
@@ -805,14 +817,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     if (query.flooringNeededOnly) andFilters.push({ floorsStatus: "REPLACE CARPET" });
     if (query.paintNeededOnly) andFilters.push({ paintStatus: { not: null }, NOT: { paintStatus: "GOOD" } });
     if (query.moveInRiskOnly) {
-      const soon = moveInWindowFilter("7");
-      andFilters.push({
-        OR: [
-          { moveInSoon: true },
-          { AND: [{ moveInDate: soon }, { completionStatus: { not: "YES" } }] },
-          { riskReasons: { array_contains: [{ category: "MOVE_IN_RISK" }] } },
-        ],
-      });
+      andFilters.push(moveInRiskWhere());
     }
 
     const searchFilter: Prisma.MakeReadyItemWhereInput | undefined = query.q
