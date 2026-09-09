@@ -1039,7 +1039,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
       ) : null}
 
       {tab === "dashboard" ? (
-        overviewQuery.isLoading ? <StatusState title={t(language, "pest.loadingTitle")} description={t(language, "pest.loadingCopy")} /> : overviewQuery.isError || !overviewQuery.data ? <StatusState title={t(language, "pest.failedTitle")} description={t(language, "pest.failedCopy")} tone="error" /> : (
+        overviewQuery.isLoading ? <StatusState title={t(language, "pest.loadingTitle")} description={t(language, "pest.loadingCopy")} /> : overviewQuery.isError || !overviewQuery.data ? <StatusState title={t(language, "pest.failedTitle")} description={t(language, "pest.failedCopy")} tone="error" action={{ label: t(language, "connection.retryNow"), onClick: () => void overviewQuery.refetch() }} /> : (
           <div className="dashboard-grid">
             <section className="panel-card">
               <h2>{t(language, "dashboard.overview")}</h2>

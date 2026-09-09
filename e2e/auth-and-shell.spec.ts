@@ -2505,6 +2505,38 @@ test("mobile header stays compact and keeps navigation and account tools accessi
   await expect(page.getByTestId("onboarding-open")).toBeVisible();
 });
 
+for (const module of ["pool", "pest", "lease-compliance", "projects", "pm", "property-wiki"] as const) {
+  test(`${module} dashboard can retry in place without discarding capture text`, async ({ page }) => {
+    await login(page, adminEmail, adminPassword);
+    let fail = true;
+    let requests = 0;
+    await page.route(`**/api/${module}/overview**`, route => {
+      requests++;
+      return fail ? route.fulfill({ status: 503, json: { message: "Temporary dashboard outage" } }) : route.continue();
+    });
+    await page.getByTestId(`module-rail-${module}`).click();
+    const error = page.getByRole("alert").filter({ has: page.getByRole("heading", { name: /failed to load/i }) });
+    await expect(error).toBeVisible();
+    const captureId = module === "pest" ? "pest-quick-add-description"
+      : module === "lease-compliance" ? "lease-quick-capture-description"
+      : module === "projects" ? "projects-quick-capture-description" : null;
+    if (module === "projects") await page.getByTestId("projects-quick-capture-open").click();
+    if (captureId) await page.getByTestId(captureId).fill("Keep this unsaved capture after retry");
+    let navigations = 0;
+    page.on("framenavigated", frame => { if (frame === page.mainFrame()) navigations++; });
+    const priorRequests = requests;
+    fail = false;
+    const recovered = page.waitForResponse(response => response.url().includes(`/api/${module}/overview`) && response.request().method() === "GET");
+    await error.getByRole("button", { name: "Retry now", exact: true }).click();
+    expect((await recovered).status()).toBe(200);
+    await expect(error).toHaveCount(0);
+    expect(requests).toBeGreaterThan(priorRequests);
+    expect(navigations).toBe(0);
+    if (captureId) await expect(page.getByTestId(captureId)).toHaveValue("Keep this unsaved capture after retry");
+    await expect(page.getByRole("heading", { name: "Startup error" })).toHaveCount(0);
+  });
+}
+
 for (const [tab, endpoint, empty, responseKey] of [
   ["Calendar", "calendar", "No tasks scheduled in this range.", "tasks"],
   ["Tasks", "tasks", "No PM tasks found", "tasks"],
@@ -2532,6 +2564,48 @@ for (const [tab, endpoint, empty, responseKey] of [
     await expect(panel.getByRole("alert")).toHaveCount(0);
   });
 }
+
+test("project capture keeps retained photo previews valid and releases removed previews", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(crypto, "randomUUID", { value: undefined, configurable: true });
+    const active = new Set<string>();
+    (window as any).__projectPreviewUrls = active;
+    const create = URL.createObjectURL.bind(URL);
+    const revoke = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = value => { const url = create(value); active.add(url); return url; };
+    URL.revokeObjectURL = url => { active.delete(url); revoke(url); };
+  });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("module-rail-projects").click();
+  await page.getByTestId("projects-quick-capture-open").click();
+  const upload = page.getByTestId("projects-quick-capture-form").locator('input[type="file"]').last();
+  const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
+  const images = page.locator(".projects-capture-preview img");
+  await upload.setInputFiles({ name: "first.png", mimeType: "image/png", buffer: bytes });
+  await expect(images).toHaveCount(1);
+  const first = await images.first().getAttribute("src");
+  const usable = (url: string) => page.evaluate(url => fetch(url).then(response => response.ok).catch(() => false), url);
+  expect(await usable(first!)).toBe(true);
+  await upload.setInputFiles({ name: "second.png", mimeType: "image/png", buffer: bytes });
+  await expect(images).toHaveCount(2);
+  expect(await usable(first!)).toBe(true);
+  const second = await images.last().getAttribute("src");
+  await page.locator(".projects-capture-preview").first().getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(images).toHaveCount(1);
+  expect(await usable(second!)).toBe(true);
+  expect(await usable(first!)).toBe(false);
+  await page.evaluate(() => {
+    const original = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
+      original.call(this, blob => { (window as any).__finishProjectPreview = () => callback(blob); }, type, quality);
+    };
+  });
+  await upload.setInputFiles({ name: "pending.png", mimeType: "image/png", buffer: bytes });
+  await expect.poll(() => page.evaluate(() => typeof (window as any).__finishProjectPreview)).toBe("function");
+  await page.getByTestId("module-rail-pool").click();
+  await page.evaluate(() => (window as any).__finishProjectPreview());
+  await expect.poll(() => page.evaluate(() => (window as any).__projectPreviewUrls.size)).toBe(0);
+});
 
 test("project list failures show retry instead of a false empty state", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
