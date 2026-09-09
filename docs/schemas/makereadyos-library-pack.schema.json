@@ -163,6 +163,7 @@
             "required": ["value", "color"],
             "properties": {
               "value": { "type": "string", "minLength": 1, "maxLength": 80 },
+              "displayName": { "type": ["string", "null"], "minLength": 1, "maxLength": 80, "description": "Optional presentation name; value remains the stable workflow key." },
               "color": { "$ref": "#/$defs/hexColor" },
               "textColor": { "$ref": "#/$defs/hexColor" },
               "sortOrder": { "type": "integer", "minimum": 0 }
