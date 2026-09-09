@@ -2471,19 +2471,22 @@ export type MetaResponse = {
   };
 };
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export type AccountBoundRequest = { expectedUserId: string };
+
+async function request<T>(path: string, init?: RequestInit & Partial<AccountBoundRequest>): Promise<T> {
+  const { expectedUserId, ...fetchInit } = init ?? {};
   const method = (init?.method || "GET").toUpperCase();
   const hasJsonBody = init?.body !== undefined && init?.body !== null && !(init.body instanceof FormData);
+  const headers = new Headers(fetchInit.headers);
+  if (hasJsonBody && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (csrfToken && !["GET", "HEAD", "OPTIONS"].includes(method)) headers.set("X-CSRF-Token", csrfToken);
+  if (expectedUserId !== undefined) headers.set("X-MROS-Expected-User", expectedUserId);
   let response: Response;
   try {
     response = await fetch(`${apiBaseUrl}${path}`, {
       credentials: "include",
-      headers: {
-        ...(hasJsonBody ? { "Content-Type": "application/json" } : {}),
-        ...(csrfToken && !["GET", "HEAD", "OPTIONS"].includes(method) ? { "X-CSRF-Token": csrfToken } : {}),
-        ...(init?.headers ?? {}),
-      },
-      ...init,
+      ...fetchInit,
+      headers,
     });
   } catch (error) {
     if (init?.signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
@@ -2644,22 +2647,22 @@ export function chargeReportPrintableReportUrl(itemId: string, options?: { group
   return `${apiBaseUrl}/make-ready-items/${encodeURIComponent(itemId)}/charge-report.pdf${params.toString() ? `?${params.toString()}` : ""}`;
 }
 
-export function createItemComment(itemId: string, body: string) {
-  return request<{ comment: ItemComment }>(`/make-ready-items/${itemId}/comments`, { method: "POST", body: JSON.stringify({ body }) });
+export function createItemComment(itemId: string, body: string, account?: AccountBoundRequest) {
+  return request<{ comment: ItemComment }>(`/make-ready-items/${itemId}/comments`, { ...account, method: "POST", body: JSON.stringify({ body }) });
 }
 
-export function updateItemComment(itemId: string, commentId: string, body: string) {
-  return request<{ comment: ItemComment }>(`/make-ready-items/${itemId}/comments/${commentId}`, { method: "PATCH", body: JSON.stringify({ body }) });
+export function updateItemComment(itemId: string, commentId: string, body: string, account?: AccountBoundRequest) {
+  return request<{ comment: ItemComment }>(`/make-ready-items/${itemId}/comments/${commentId}`, { ...account, method: "PATCH", body: JSON.stringify({ body }) });
 }
 
-export function deleteItemComment(itemId: string, commentId: string) {
-  return request<{ ok: true }>(`/make-ready-items/${itemId}/comments/${commentId}`, { method: "DELETE" });
+export function deleteItemComment(itemId: string, commentId: string, account?: AccountBoundRequest) {
+  return request<{ ok: true }>(`/make-ready-items/${itemId}/comments/${commentId}`, { ...account, method: "DELETE" });
 }
 
-export function uploadItemAttachment(itemId: string, file: File, inspectionStage?: "INITIAL_WALK") {
+export function uploadItemAttachment(itemId: string, file: File, inspectionStage?: "INITIAL_WALK", account?: AccountBoundRequest) {
   const data = new FormData();
   data.append("file", file);
-  return request<{ attachment: ItemAttachment }>(`/make-ready-items/${itemId}/attachments${inspectionStage ? `?inspectionStage=${inspectionStage}` : ""}`, { method: "POST", body: data });
+  return request<{ attachment: ItemAttachment }>(`/make-ready-items/${itemId}/attachments${inspectionStage ? `?inspectionStage=${inspectionStage}` : ""}`, { ...account, method: "POST", body: data });
 }
 
 export function attachmentDownloadUrl(id: string) {
@@ -2727,12 +2730,12 @@ export function createChecklistTemplate(input: {
   return request<{ template: ChecklistTemplate }>("/checklist-templates", { method: "POST", body: JSON.stringify(input) });
 }
 
-export function attachChecklist(itemId: string, templateId: string) {
-  return request<{ instance: ChecklistInstance }>(`/make-ready-items/${itemId}/checklists`, { method: "POST", body: JSON.stringify({ templateId }) });
+export function attachChecklist(itemId: string, templateId: string, account?: AccountBoundRequest) {
+  return request<{ instance: ChecklistInstance }>(`/make-ready-items/${itemId}/checklists`, { ...account, method: "POST", body: JSON.stringify({ templateId }) });
 }
 
-export function updateChecklistItem(id: string, input: { completed?: boolean; notes?: string | null }) {
-  return request<{ checklistItem: ChecklistInstance["items"][number] }>(`/checklist-items/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+export function updateChecklistItem(id: string, input: { completed?: boolean; notes?: string | null }, account?: AccountBoundRequest) {
+  return request<{ checklistItem: ChecklistInstance["items"][number] }>(`/checklist-items/${id}`, { ...account, method: "PATCH", body: JSON.stringify(input) });
 }
 
 export function getMyWork(userId?: string) {
@@ -2831,8 +2834,8 @@ export function createLeaseComplianceIssue(input: {
   locationNotes?: string | null;
   tags?: string[];
   assignedUserId?: string | null;
-}) {
-  return request<{ issue: LeaseComplianceIssue }>("/lease-compliance/issues", { method: "POST", body: JSON.stringify(input) });
+}, account?: AccountBoundRequest) {
+  return request<{ issue: LeaseComplianceIssue }>("/lease-compliance/issues", { ...account, method: "POST", body: JSON.stringify(input) });
 }
 
 export function updateLeaseComplianceIssue(id: string, input: Partial<Parameters<typeof createLeaseComplianceIssue>[0]>) {
@@ -2863,12 +2866,13 @@ export function dismissLeaseComplianceRecurringFlag(id: string, notes: string) {
   return request<{ issue: LeaseComplianceIssue }>(`/lease-compliance/issues/${encodeURIComponent(id)}/dismiss-recurring`, { method: "POST", body: JSON.stringify({ notes }) });
 }
 
-export async function uploadLeaseComplianceIssuePhoto(issueId: string, file: File, options?: { photoCategory?: LeaseCompliancePhotoCategory; caption?: string }) {
+export async function uploadLeaseComplianceIssuePhoto(issueId: string, file: File, options?: { photoCategory?: LeaseCompliancePhotoCategory; caption?: string }, account?: AccountBoundRequest) {
   const form = new FormData();
   form.append("file", file);
   if (options?.photoCategory) form.append("photoCategory", options.photoCategory);
   if (options?.caption) form.append("caption", options.caption);
   return request<{ photo: LeaseComplianceIssuePhoto }>(`/lease-compliance/issues/${encodeURIComponent(issueId)}/photos`, {
+    ...account,
     method: "POST",
     body: form,
   });
@@ -2958,8 +2962,8 @@ export function createPestIssue(input: {
   followUpDate?: string | null;
   followUpNotes?: string | null;
   description?: string | null;
-}) {
-  return request<{ issue: PestIssue }>("/pest/issues", { method: "POST", body: JSON.stringify(input) });
+}, account?: AccountBoundRequest) {
+  return request<{ issue: PestIssue }>("/pest/issues", { ...account, method: "POST", body: JSON.stringify(input) });
 }
 
 export function updatePestIssue(id: string, input: Partial<Parameters<typeof createPestIssue>[0]>) {
@@ -3012,12 +3016,13 @@ export function deletePestVendor(id: string) {
   return request<{ ok: true }>(`/pest/vendors/${id}`, { method: "DELETE" });
 }
 
-export async function uploadPestIssueAttachment(issueId: string, file: File, options?: { photoType?: PestPhotoType; caption?: string }) {
+export async function uploadPestIssueAttachment(issueId: string, file: File, options?: { photoType?: PestPhotoType; caption?: string }, account?: AccountBoundRequest) {
   const form = new FormData();
   form.append("file", file);
   if (options?.photoType) form.append("photoType", options.photoType);
   if (options?.caption) form.append("caption", options.caption);
   return request<{ attachment: PestIssueAttachment }>(`/pest/issues/${issueId}/attachments`, {
+    ...account,
     method: "POST",
     body: form,
   });
@@ -3183,8 +3188,8 @@ export function createProjectRecord(input: {
   dueDate?: string | null;
   completedDate?: string | null;
   tags?: string[];
-}) {
-  return request<{ record: ProjectRecord }>("/projects/records", { method: "POST", body: JSON.stringify(input) });
+}, account?: AccountBoundRequest) {
+  return request<{ record: ProjectRecord }>("/projects/records", { ...account, method: "POST", body: JSON.stringify(input) });
 }
 
 export function updateProjectRecord(id: string, input: Partial<Parameters<typeof createProjectRecord>[0]>) {
@@ -3207,12 +3212,12 @@ export function updateProjectTask(id: string, input: { title?: string; status?: 
   return request<{ task: ProjectTask }>(`/projects/tasks/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
-export function uploadProjectAttachment(id: string, file: File, attachmentType?: ProjectAttachmentType, caption?: string) {
+export function uploadProjectAttachment(id: string, file: File, attachmentType?: ProjectAttachmentType, caption?: string, account?: AccountBoundRequest) {
   const data = new FormData();
   data.append("file", file);
   if (attachmentType) data.append("attachmentType", attachmentType);
   if (caption) data.append("caption", caption);
-  return request<{ attachment: ProjectAttachment }>(`/projects/records/${encodeURIComponent(id)}/attachments`, { method: "POST", body: data });
+  return request<{ attachment: ProjectAttachment }>(`/projects/records/${encodeURIComponent(id)}/attachments`, { ...account, method: "POST", body: data });
 }
 
 export function updateProjectAttachment(id: string, input: {
@@ -4278,8 +4283,9 @@ export function batchMakeReadyItems(input:
   return request<{ ok: true; count: number }>("/make-ready-items/batch", { method: "POST", body: JSON.stringify(input) });
 }
 
-export function patchMakeReadyItem(id: string, data: Record<string, unknown>) {
+export function patchMakeReadyItem(id: string, data: Record<string, unknown>, account?: AccountBoundRequest) {
   return request<MakeReadyItem>(`/make-ready-items/${id}`, {
+    ...account,
     method: "PATCH",
     body: JSON.stringify(data),
   });
@@ -4544,8 +4550,8 @@ export function createPoolLogEntry(input: {
   notes?: string | null;
   safetyChecks?: Array<{ label: string; value: PoolSafetyCheck["value"]; notes?: string | null; sortOrder?: number }>;
   chemicalAdditions?: Array<{ chemicalId?: string | null; chemicalName: string; amount: number; unit: PoolChemical["unit"]; notes?: string | null }>;
-}) {
-  return request<{ entry: PoolLogEntry }>("/pool/entries", { method: "POST", body: JSON.stringify(input) });
+}, account?: AccountBoundRequest) {
+  return request<{ entry: PoolLogEntry }>("/pool/entries", { ...account, method: "POST", body: JSON.stringify(input) });
 }
 
 export function poolLogExportCsvUrl(filters: { propertyId?: string; from?: string; to?: string } = {}) {
@@ -4564,10 +4570,10 @@ export function poolLogPrintableReportUrl(filters: { propertyId?: string; from?:
   return `${apiBaseUrl}/pool/report.pdf${params.toString() ? `?${params.toString()}` : ""}`;
 }
 
-export function uploadPoolLogAttachment(entryId: string, file: File) {
+export function uploadPoolLogAttachment(entryId: string, file: File, account?: AccountBoundRequest) {
   const data = new FormData();
   data.append("file", file);
-  return request<{ attachment: PoolLogAttachment }>(`/pool/entries/${entryId}/attachments`, { method: "POST", body: data });
+  return request<{ attachment: PoolLogAttachment }>(`/pool/entries/${entryId}/attachments`, { ...account, method: "POST", body: data });
 }
 
 export function poolAttachmentDownloadUrl(id: string) {
@@ -4669,18 +4675,18 @@ export function getPreventiveMaintenanceHistory(filters: {
   return request<{ tasks: PreventiveMaintenanceTask[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>(`/pm/history${params.toString() ? `?${params.toString()}` : ""}`);
 }
 
-export function completePreventiveMaintenanceTask(id: string, input: { outcome: "PASS" | "FAIL" | "COMPLETE"; notes?: string | null }) {
-  return request<{ task: PreventiveMaintenanceTask }>(`/pm/tasks/${encodeURIComponent(id)}/complete`, { method: "POST", body: JSON.stringify(input) });
+export function completePreventiveMaintenanceTask(id: string, input: { outcome: "PASS" | "FAIL" | "COMPLETE"; notes?: string | null }, account?: AccountBoundRequest) {
+  return request<{ task: PreventiveMaintenanceTask }>(`/pm/tasks/${encodeURIComponent(id)}/complete`, { ...account, method: "POST", body: JSON.stringify(input) });
 }
 
-export function skipPreventiveMaintenanceTask(id: string, input: { notes?: string | null }) {
-  return request<{ task: PreventiveMaintenanceTask }>(`/pm/tasks/${encodeURIComponent(id)}/skip`, { method: "POST", body: JSON.stringify(input) });
+export function skipPreventiveMaintenanceTask(id: string, input: { notes?: string | null }, account?: AccountBoundRequest) {
+  return request<{ task: PreventiveMaintenanceTask }>(`/pm/tasks/${encodeURIComponent(id)}/skip`, { ...account, method: "POST", body: JSON.stringify(input) });
 }
 
-export function uploadPreventiveMaintenanceAttachment(taskId: string, file: File) {
+export function uploadPreventiveMaintenanceAttachment(taskId: string, file: File, account?: AccountBoundRequest) {
   const data = new FormData();
   data.append("file", file);
-  return request<{ attachment: PreventiveMaintenanceTaskAttachment }>(`/pm/tasks/${encodeURIComponent(taskId)}/attachments`, { method: "POST", body: data });
+  return request<{ attachment: PreventiveMaintenanceTaskAttachment }>(`/pm/tasks/${encodeURIComponent(taskId)}/attachments`, { ...account, method: "POST", body: data });
 }
 
 export function preventiveMaintenanceAttachmentDownloadUrl(id: string) {

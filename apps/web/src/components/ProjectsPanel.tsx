@@ -987,7 +987,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   };
 
   const createMutation = useMutation({
-    mutationFn: createProjectRecord,
+    mutationFn: (input: Parameters<typeof createProjectRecord>[0]) => createProjectRecord(input),
     onSuccess: invalidate,
   });
 
