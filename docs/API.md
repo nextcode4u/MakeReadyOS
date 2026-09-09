@@ -74,6 +74,10 @@ Project category/map links must resolve within the project property (shared glob
 
 `PATCH /api/pm/templates/:id` rejects a different `propertyId` with 409. Templates and generated tasks cannot be transferred through an ordinary edit. Same-property edits retain normal role and property authorization.
 
+### Pest References
+
+Pest create/edit requests validate unit and vendor property ownership and assignee access. Newly selected references must be active; new assignees must have a Pest editing role (admin, manager, tech or leasing). Explicit linked make-ready items must belong to the selected unit/property and cannot be newly selected when archived. Unchanged valid historical inactive links remain editable. A changed issue `propertyId` is rejected with 409 rather than ignored. These rules do not automatically repair historical links or guarantee native-import consistency.
+
 ### Native Import Outcomes
 
 `POST /api/admin/import` returns `dryRun`, `applied`, `mode`, and `summary`. `applied: false` means preview or rejection before the write transaction; no merge records were changed. `applied: true` means the merge and its audit entry committed together. The summary can still contain conflicts for matching settings retained during a merge, so conflicts alone do not imply rollback. A workspace refresh failure after a confirmed response does not undo the import. If the response is lost, review current data before retrying; this endpoint does not yet provide an idempotency key or durable client-visible request receipt.

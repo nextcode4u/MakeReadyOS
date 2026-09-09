@@ -173,11 +173,17 @@ async function resolveLinkedMakeReadyItem(input: {
   propertyId: string;
   unitId?: string | null;
   makeReadyItemId?: string | null;
-}) {
+}, previousItemId?: string | null) {
   if (input.makeReadyItemId) {
     const item = await prisma.makeReadyItem.findUnique({ where: { id: input.makeReadyItemId } });
     if (!item || item.propertyId !== input.propertyId) {
       throw Object.assign(new Error("Linked make-ready item not found for this property"), { statusCode: 400 });
+    }
+    if (input.unitId && item.unitId !== input.unitId) {
+      throw Object.assign(new Error("Linked make-ready item must belong to the selected unit"), { statusCode: 400 });
+    }
+    if (item.isArchived && item.id !== previousItemId) {
+      throw Object.assign(new Error("Select an active make-ready item"), { statusCode: 400 });
     }
     return item;
   }
@@ -190,6 +196,38 @@ async function resolveLinkedMakeReadyItem(input: {
     },
     orderBy: [{ updatedAt: "desc" }],
   });
+}
+
+type PestReferences = {
+  unitId?: string | null;
+  makeReadyItemId?: string | null;
+  vendorId?: string | null;
+  assignedUserId?: string | null;
+};
+
+async function validatePestReferences(propertyId: string, input: PestReferences, previous?: PestReferences) {
+  const linkedItem = await resolveLinkedMakeReadyItem({ ...input, propertyId }, previous?.makeReadyItemId);
+  const unitId = input.unitId ?? (previous ? null : linkedItem?.unitId ?? null);
+  if (unitId) {
+    const unit = await prisma.unit.findUnique({ where: { id: unitId }, select: { propertyId: true, isActive: true } });
+    if (!unit || unit.propertyId !== propertyId || (unitId !== previous?.unitId && !unit.isActive)) {
+      throw Object.assign(new Error("Select an active unit belonging to this property"), { statusCode: 400 });
+    }
+  }
+  if (input.vendorId) {
+    const vendor = await prisma.pestVendor.findUnique({ where: { id: input.vendorId }, select: { propertyId: true, isActive: true } });
+    if (!vendor || vendor.propertyId !== propertyId || (input.vendorId !== previous?.vendorId && !vendor.isActive)) {
+      throw Object.assign(new Error("Select an active pest vendor belonging to this property"), { statusCode: 400 });
+    }
+  }
+  if (input.assignedUserId) {
+    const user = await prisma.user.findUnique({ where: { id: input.assignedUserId }, select: { role: true, isActive: true, propertyAccess: { select: { propertyId: true } } } });
+    if (!user || (user.role !== UserRole.ADMIN && !user.propertyAccess.some(access => access.propertyId === propertyId))
+      || (input.assignedUserId !== previous?.assignedUserId && (!user.isActive || !pestRoleAccess(user.role).edit))) {
+      throw Object.assign(new Error("Select active pest staff with access to this property"), { statusCode: 400 });
+    }
+  }
+  return { linkedItem, unitId };
 }
 
 async function syncMakeReadyPestState(makeReadyItemId: string | null | undefined) {
@@ -435,11 +473,11 @@ export async function pestControlRoutes(app: FastifyInstance) {
       return reply.code(400).send({ message: "Unit or area is required" });
     }
     await assertPropertyAccess(request, input.propertyId);
-    const linkedItem = await resolveLinkedMakeReadyItem(input);
+    const { linkedItem, unitId } = await validatePestReferences(input.propertyId, input);
     const issue = await prisma.pestIssue.create({
       data: {
         propertyId: input.propertyId,
-        unitId: input.unitId || linkedItem?.unitId || null,
+        unitId,
         makeReadyItemId: linkedItem?.id ?? input.makeReadyItemId ?? null,
         building: input.building ?? null,
         area: input.area ?? null,
@@ -508,17 +546,21 @@ export async function pestControlRoutes(app: FastifyInstance) {
     const existing = await prisma.pestIssue.findUnique({ where: { id } });
     if (!existing) throw Object.assign(new Error("Pest request not found"), { statusCode: 404 });
     await assertPropertyAccess(request, existing.propertyId);
-    const linkedItem = await resolveLinkedMakeReadyItem({
-      propertyId: existing.propertyId,
+    if (input.propertyId !== undefined && input.propertyId !== existing.propertyId) {
+      throw Object.assign(new Error("Pest request property cannot be changed by editing"), { statusCode: 409 });
+    }
+    const { linkedItem, unitId } = await validatePestReferences(existing.propertyId, {
       unitId: input.unitId === undefined ? existing.unitId : input.unitId,
       makeReadyItemId: input.makeReadyItemId === undefined ? existing.makeReadyItemId : input.makeReadyItemId,
-    });
+      vendorId: input.vendorId === undefined ? existing.vendorId : input.vendorId,
+      assignedUserId: input.assignedUserId === undefined ? existing.assignedUserId : input.assignedUserId,
+    }, existing);
     const followUpRequired = input.followUpRequired ?? existing.followUpRequired;
     const nextStatus = input.status ?? (followUpRequired ? "Needs Follow Up" : existing.status);
     const issue = await prisma.pestIssue.update({
       where: { id },
       data: {
-        unitId: input.unitId === undefined ? existing.unitId : input.unitId,
+        unitId,
         makeReadyItemId: linkedItem?.id ?? (input.makeReadyItemId === undefined ? existing.makeReadyItemId : input.makeReadyItemId),
         building: input.building === undefined ? existing.building : input.building,
         area: input.area === undefined ? existing.area : input.area,
