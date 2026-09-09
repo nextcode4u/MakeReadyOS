@@ -512,6 +512,63 @@ test("project capture clears old coordinates when selecting a different map", as
   expect((await response.json()).record).toMatchObject({ propertyId: property.id, propertyMapId: a.id, pinX: null, pinY: null });
 });
 
+test("partial native project restores retain existing scoped maps and pins", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property: a } = await post("/operations/properties", { code: `PM${Date.now()}A`, name: "Partial map A" });
+  const { property: b } = await post("/operations/properties", { code: `PM${Date.now()}B`, name: "Partial map B" });
+  await post("/property-maps", { propertyId: b.id, name: "Matching map name" });
+  const { map } = await post("/property-maps", { propertyId: a.id, name: "Matching map name" });
+  await post("/property-maps", { propertyId: b.id, name: "Foreign only map" });
+  const { record } = await post("/projects/records", { propertyId: a.id, recordType: "Project", title: "Map restore source", status: "Planning", propertyMapId: map.id, pinX: 20, pinY: 30 });
+  await post(`/projects/records/${record.id}/comments`, { body: "Retained project note" });
+  const exported = await (await page.request.get("/api/admin/export")).json();
+  const source = exported.data.projectRecords.find((entry: any) => entry.propertyCode === a.code);
+  const comment = exported.data.projectComments.find((entry: any) => entry.recordKey === source.portableKey);
+  for (const includeProperty of [true, false]) {
+    const key = `partial-map-${includeProperty}-${Date.now()}`;
+    const backup = { ...exported, data: {
+      ...Object.fromEntries(Object.keys(exported.data).map(section => [section, []])),
+      properties: includeProperty ? exported.data.properties.filter((entry: any) => entry.code === a.code) : [],
+      projectRecords: [{ ...source, portableKey: key, title: key, createdAt: new Date().toISOString() }],
+      projectComments: [{ ...comment, recordKey: key }],
+    } };
+    const invalid = structuredClone(backup);
+    invalid.data.projectRecords[0].propertyMapName = "Foreign only map";
+    const rejected = await post("/admin/import", { backup: invalid, dryRun: false });
+    expect(rejected.applied).toBe(false);
+    expect(rejected.summary.projectRecords.errors.join(" ")).toContain("missing");
+    const preview = await post("/admin/import", { backup, dryRun: true });
+    expect(preview.summary.projectRecords.errors).toEqual([]);
+    expect(preview.summary.projectRecords.created).toBe(1);
+    const applied = await post("/admin/import", { backup, dryRun: false });
+    expect(applied.applied).toBe(true);
+    expect(applied.summary.projectRecords.created).toBe(1);
+    const records = (await (await page.request.get(`/api/projects/records?propertyId=${a.id}`)).json()).records;
+    const restored = records.find((entry: any) => entry.title === key);
+    expect(restored).toBeTruthy();
+    const detail = (await (await page.request.get(`/api/projects/records/${restored.id}`)).json()).record;
+    expect(detail).toMatchObject({ propertyId: a.id, propertyMapId: map.id, pinX: 20, pinY: 30 });
+    expect(detail.comments.map((entry: any) => entry.body)).toEqual(["Retained project note"]);
+    await post(`/property-maps/${map.id}/archive`, {});
+  }
+  await post("/property-maps", { propertyId: a.id, name: map.name });
+  for (const includeMap of [true, false]) {
+    const backup = { ...exported, data: {
+      ...Object.fromEntries(Object.keys(exported.data).map(section => [section, []])),
+      projectRecords: [{ ...source, title: "Ambiguous map must not import" }],
+      propertyMaps: includeMap ? exported.data.propertyMaps.filter((entry: any) => entry.propertyCode === a.code) : [],
+    } };
+    const rejected = await post("/admin/import", { backup, dryRun: false });
+    expect(rejected.applied).toBe(false);
+    expect(rejected.summary.projectRecords.errors.join(" ")).toContain("ambiguous");
+  }
+});
+
 test("native project child records cannot claim a different property than their parent", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
   const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
