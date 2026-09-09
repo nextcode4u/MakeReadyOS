@@ -2615,6 +2615,72 @@ test("concurrent lease setup requests initialize defaults without duplicates", a
   }
 });
 
+test("pest quick capture retries remaining photos without creating another issue", async ({ page }, testInfo) => {
+  await login(page, adminEmail, adminPassword);
+  let creates = 0;
+  let issueId = "";
+  let uploads = 0;
+  let secondStarted = false;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.route("**/api/pest/issues", async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    creates++;
+    const response = await route.fetch();
+    expect(response.ok(), await response.text()).toBeTruthy();
+    issueId = (await response.json()).issue.id;
+    return route.fulfill({ response });
+  });
+  await page.route("**/api/pest/issues/*/attachments", async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    uploads++;
+    expect(route.request().url()).toContain(`/issues/${issueId}/attachments`);
+    if (uploads === 2) {
+      secondStarted = true;
+      await held;
+      return route.fulfill({ status: 503, json: { message: "Photo service temporarily unavailable" } });
+    }
+    return route.continue();
+  });
+  await page.getByTestId("module-rail-pest").click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const form = page.getByTestId("pest-quick-add-form");
+  await expect(page.getByTestId("pest-control-panel").locator(".module-actions select")).not.toHaveValue("");
+  const area = uniqueTag("Photo retry courtyard");
+  await page.getByTestId("pest-quick-add-area").fill(area);
+  await page.getByTestId("pest-quick-add-description").fill("Record this issue once, with both photos.");
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII=", "base64");
+  await form.locator('input[type="file"]').last().setInputFiles([
+    { name: "first-evidence.png", mimeType: "image/png", buffer: png },
+    { name: "second-evidence.png", mimeType: "image/png", buffer: png },
+  ]);
+  await page.getByTestId("pest-quick-add-submit").click();
+  try {
+    await expect.poll(() => secondStarted).toBe(true);
+    await expect(page.getByTestId("pest-quick-add-submit")).toBeDisabled();
+    await expect(page.getByTestId("pest-control-panel").locator(".module-actions select")).toBeDisabled();
+  } finally { release(); }
+  await expect(form.getByRole("alert")).toContainText("Issue saved. Retry the remaining photos");
+  await expect(form.locator(".selected-media-strip")).not.toContainText("first-evidence.png");
+  await expect(form.locator(".selected-media-strip")).toContainText("second-evidence.png");
+  await form.screenshot({ path: testInfo.outputPath("pest-photo-retry-mobile.png") });
+  await form.getByRole("button", { name: "Retry remaining photos" }).click();
+  await expect(page.getByTestId("pest-quick-add-description")).toHaveValue("");
+  expect(creates).toBe(1);
+  expect(uploads).toBe(3);
+  const savedResponse = await page.request.get(`/api/pest/issues?q=${encodeURIComponent(area)}`);
+  expect(savedResponse.ok(), await savedResponse.text()).toBeTruthy();
+  const saved = await savedResponse.json();
+  expect(saved.issues).toHaveLength(1);
+  expect(saved.issues[0].id).toBe(issueId);
+  expect(saved.issues[0].attachments).toHaveLength(2);
+  expect(errors).toEqual([]);
+  await expect(page.locator("#app-error-notice")).toHaveCount(0);
+  await assertNoPageHorizontalOverflow(page);
+});
+
 test("pest and lease setup forms reset safely after asynchronous saves", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
   const errors: string[] = [];

@@ -12649,6 +12649,15 @@ textarea {
   gap: 0.35rem;
 }
 
+.pool-form .pest-capture-controls {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  gap: .65rem;
+}
+
 .pool-form input,
 .pool-form select,
 .pool-form textarea {
