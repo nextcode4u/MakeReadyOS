@@ -52,4 +52,18 @@ test("scheduled writes recheck paused rules and changed or archived items under 
   assert.equal(writes, 1);
   assert.equal(result.actionCount, 1);
   assert.deepEqual(result.results[0].errors, []);
+  stub(prisma.automationRule, "findMany", async () => [rule, { ...rule, id: "next-rule" }]);
+  const recorded: string[] = [];
+  stub(prisma.automationRun, "create", async ({ data }: any) => {
+    if (data.ruleId === "rule") throw Object.assign(new Error("Deleted rule foreign key"), { code: "P2003" });
+    recorded.push(data.ruleId);
+    return data;
+  });
+  // The stubbed query supplies two rule snapshots to exercise per-rule isolation.
+  const continued = await executeScheduledAutomationRules({ ruleId: "rule", mode: "SCHEDULED" });
+  assert.equal(continued.rulesEvaluated, 2);
+  assert.match(continued.results[0].errors.join(";"), /Run history could not be saved/);
+  assert.match(continued.results[0].errors.join(";"), /may already have been applied/);
+  assert.deepEqual(recorded, ["next-rule"]);
+  assert.deepEqual(continued.results[1].errors, []);
 });

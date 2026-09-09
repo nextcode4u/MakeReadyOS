@@ -364,6 +364,8 @@ export async function executeScheduledAutomationRules(options: {
           matchedItemsTruncated: matchedCount > matchedItems.length,
         },
       },
+    }).catch(() => {
+      errors.push("Run history could not be saved. Some actions may already have been applied; review the affected items before running again.");
     });
     summaries.push({ ruleId: rule.id, name: rule.name, checkedCount, matchedCount, actionCount, warnings, errors });
   }

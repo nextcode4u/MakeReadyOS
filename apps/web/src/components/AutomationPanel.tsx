@@ -1634,7 +1634,7 @@ export function AutomationPanel({ onOpenSchedule, role, language = "en", propert
           ) : null}
         </header>
         {message ? <div className="admin-message success">{message}</div> : null}
-        {error ? <div className="admin-message error">{error}</div> : null}
+        {error ? <div className="admin-message error" role="alert">{error}</div> : null}
         {!creating && !selected ? (
           <StatusState title={isSpanish ? "Elige una regla" : "Choose a rule"} description={isSpanish ? "Selecciona una regla de automatizacion o crea una nueva." : "Select an automation rule or create a new one."} tone="subtle" />
         ) : (

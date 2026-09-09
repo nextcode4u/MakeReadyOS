@@ -4691,6 +4691,19 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("automation-run-now").click();
     await expect((await runResponse).status()).toBe(200);
     await expect(page.getByTestId("automation-run-history").getByText("MANUAL").first()).toBeVisible();
+    const panel = page.getByTestId("automation-panel");
+    await page.route("**/api/automations/*/run", route => route.fulfill({ json: {
+      execution: { mode: "MANUAL", rulesEvaluated: 1, checkedCount: 3, matchedCount: 2, actionCount: 1,
+        results: [{ ruleId: "fixture", name: "Readiness check", checkedCount: 3, matchedCount: 2, actionCount: 1, warnings: [], errors: ["Pending parts prevent readiness."] }] },
+    } }));
+    await page.getByTestId("automation-run-now").click();
+    await expect(panel.getByRole("alert")).toContainText("Pending parts prevent readiness.");
+    await expect(panel.getByRole("alert")).toContainText("1 actions");
+    await expect(panel.locator(".admin-message.success")).toHaveCount(0);
+    await page.unroute("**/api/automations/*/run");
+    await page.getByTestId("automation-run-now").click();
+    await expect(panel.locator(".admin-message.success")).toContainText("Run completed:");
+    await expect(panel.getByRole("alert")).toHaveCount(0);
   });
 
   test("admin can preview and install least-loaded staff automation starters as review-first rules", async ({ page }) => {
