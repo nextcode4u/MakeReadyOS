@@ -2847,8 +2847,8 @@ export function createLeaseComplianceIssue(input: {
   return request<{ issue: LeaseComplianceIssue }>("/lease-compliance/issues", { ...account, method: "POST", body: JSON.stringify(input) });
 }
 
-export function updateLeaseComplianceIssue(id: string, input: Partial<Parameters<typeof createLeaseComplianceIssue>[0]> & { expectedUpdatedAt?: string }) {
-  return request<{ issue: LeaseComplianceIssue }>(`/lease-compliance/issues/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+export function updateLeaseComplianceIssue(id: string, input: Partial<Parameters<typeof createLeaseComplianceIssue>[0]> & { expectedUpdatedAt?: string }, account?: AccountBoundRequest) {
+  return request<{ issue: LeaseComplianceIssue }>(`/lease-compliance/issues/${encodeURIComponent(id)}`, { ...account, method: "PATCH", body: JSON.stringify(input) });
 }
 
 export function addLeaseComplianceIssueNote(id: string, body: string) {

@@ -55,6 +55,84 @@ test("concurrent project category initialization and edits preserve unique scope
   expect(summary.projectCategories.errors).toEqual([]);
 });
 
+test("Lease detail drafts survive failed saves, reopening and reviewed conflicts on mobile", async ({ page }, testInfo) => {
+  await login(page, adminEmail, adminPassword);
+  const me = await (await page.request.get("/api/auth/me")).json();
+  const headers = { "x-csrf-token": me.csrfToken };
+  const meta = await (await page.request.get("/api/meta")).json();
+  const created = await page.request.post("/api/lease-compliance/issues", { headers, data: { propertyId: meta.properties[0].id, area: "Draft courtyard", building: "Original building", issueTypeName: "Draft edit fixture" } });
+  expect(created.status(), await created.text()).toBe(201);
+  const { issue } = await created.json();
+  await page.getByTestId("module-rail-lease-compliance").click();
+  const panel = page.getByTestId("lease-compliance-panel");
+  await panel.getByRole("combobox", { name: "Lease Compliance property", exact: true }).selectOption(issue.propertyId);
+  await panel.getByRole("button", { name: "Active Issues", exact: true }).click();
+  const card = page.getByTestId(`lease-issue-${issue.id}`);
+  const editor = page.getByTestId(`lease-editor-${issue.id}`);
+  await card.locator(".compact-issue-summary").click();
+  await page.setViewportSize({ width: 412, height: 915 });
+  let attempts = 0;
+  const payloads: any[] = [];
+  await page.route(`**/api/lease-compliance/issues/${issue.id}`, async route => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    attempts++; payloads.push(route.request().postDataJSON());
+    expect(route.request().headers()["x-mros-expected-user"]).toBe(me.user.id);
+    if (attempts === 1) await route.fulfill({ status: 503, json: { message: "Fixture save unavailable" } });
+    else await route.continue();
+  });
+  await editor.getByLabel("Building", { exact: true }).fill("New building");
+  await editor.getByLabel("Area", { exact: true }).fill("Back patio");
+  expect(attempts).toBe(0);
+  await editor.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(editor.getByRole("alert")).toContainText("Fixture save unavailable");
+  await expect(editor.getByLabel("Area", { exact: true })).toHaveValue("Back patio");
+  await expect(card.locator(".compact-issue-summary button")).toHaveCount(0);
+  await card.locator(".compact-issue-summary").click();
+  await expect(editor).toHaveCount(0);
+  await expect(card.locator(".compact-issue-summary")).toHaveAttribute("aria-expanded", "false");
+  await card.locator(".compact-issue-summary").click();
+  await editor.getByRole("button", { name: "Resume draft", exact: true }).click();
+  await expect(editor.getByLabel("Building", { exact: true })).toHaveValue("New building");
+  await page.reload();
+  await page.getByTestId("module-rail-lease-compliance").click();
+  await panel.getByRole("combobox", { name: "Lease Compliance property", exact: true }).selectOption(issue.propertyId);
+  await panel.getByRole("button", { name: "Active Issues", exact: true }).click();
+  await card.locator(".compact-issue-summary").click();
+  await editor.getByRole("button", { name: "Resume draft", exact: true }).click();
+  await expect(editor.getByLabel("Building", { exact: true })).toHaveValue("New building");
+  await editor.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(editor.getByText("Changes saved.", { exact: true })).toBeVisible();
+  expect(payloads[1]).toEqual({ building: "New building", area: "Back patio", expectedUpdatedAt: issue.updatedAt });
+  await editor.getByLabel("Area", { exact: true }).fill("My reviewed draft");
+  const competing = await page.request.patch(`/api/lease-compliance/issues/${issue.id}`, { headers, data: { area: "Another staff edit" } });
+  expect(competing.status(), await competing.text()).toBe(200);
+  await editor.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(editor.getByRole("alert")).toContainText("changed while you were editing");
+  await editor.getByRole("button", { name: "Refresh latest", exact: true }).click();
+  await expect(editor.getByText(/Saved: Another staff edit/)).toBeVisible();
+  await expect(editor.getByLabel("Area", { exact: true })).toHaveValue("My reviewed draft");
+  await expect(editor.getByRole("button", { name: "Save changes", exact: true })).toBeDisabled();
+  page.once("dialog", dialog => dialog.accept());
+  await editor.getByRole("button", { name: "Keep my edits over latest values", exact: true }).click();
+  await editor.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(editor.getByText("Changes saved.", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await editor.screenshot({ path: testInfo.outputPath("lease-editor-mobile.png") });
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith("makereadyos:lease-edit:")) throw new Error("Fixture storage unavailable");
+      return original.call(this, key, value);
+    };
+  });
+  await editor.getByLabel("Area", { exact: true }).fill("Memory-only draft");
+  await expect(editor.getByRole("alert")).toContainText("could not store your draft");
+  await expect(editor.getByLabel("Area", { exact: true })).toHaveValue("Memory-only draft");
+  await editor.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(editor.getByText("Changes saved.", { exact: true })).toBeVisible();
+  await expect(editor.getByRole("alert")).toHaveCount(0);
+});
+
 test("Lease edits reject stale drafts and concurrent location clears without losing unrelated fields", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
   const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
@@ -165,6 +243,7 @@ test("Pest and Lease staff pickers work without visiting Admin for technicians a
         await picker.fill("Picker TECH");
         const saved = staffPage.waitForResponse(response => response.url().endsWith(`/api/${module}/issues/${issue.id}`) && response.request().method() === "PATCH");
         await card.getByRole("listbox").getByRole("button", { name: "Picker TECH / TECH", exact: true }).click();
+        if (module === "lease-compliance") await card.getByRole("button", { name: "Save changes", exact: true }).click();
         const result = await saved;
         expect(result.status(), await result.text()).toBe(200);
         expect((await result.json()).issue.assignedUserId).toBe(staff[0].id);
