@@ -4403,10 +4403,9 @@ function App() {
                   await adminPropertyAccessMutation.mutateAsync({ id, propertyIds });
                 }}
                 onBackupImported={async () => {
-                  await queryClient.invalidateQueries({ queryKey: ["meta"] });
-                  await queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
-                  await queryClient.invalidateQueries({ queryKey: ["saved-views"] });
-                  pushToast(t("ops.backupImported", language), t("ops.backupImportedCopy", language), "success");
+                  await queryClient.invalidateQueries({ queryKey: ["meta"] }, { throwOnError: true });
+                  await queryClient.invalidateQueries({ queryKey: ["make-ready-items"] }, { throwOnError: true });
+                  await queryClient.invalidateQueries({ queryKey: ["saved-views"] }, { throwOnError: true });
                 }}
               />
             )

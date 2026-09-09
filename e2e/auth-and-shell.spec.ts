@@ -106,16 +106,112 @@ test("lease references stay property-scoped for technicians, leasing and native 
   const wrongType = structuredClone(partial);
   wrongType.data.leaseComplianceIssues[0].issueTypeKey = `${b.property.code}|${b.issueType.name}`;
   const refused = await post("/admin/import", { backup: wrongType, dryRun: false });
+  expect(refused.applied).toBe(false);
   expect(refused.summary.leaseComplianceIssues.errors.join(" ")).toContain("must belong");
   expect(refused.summary.leaseComplianceIssues.created).toBe(0);
   const missingUnit = structuredClone(partial);
   missingUnit.data.leaseComplianceIssues[0].unitNumber = "UNKNOWN-UNIT";
   expect((await post("/admin/import", { backup: missingUnit, dryRun: true })).summary.leaseComplianceIssues.errors.join(" ")).toContain("Unit UNKNOWN-UNIT is missing");
   const restored = await post("/admin/import", { backup: partial, dryRun: false });
+  expect(restored.applied).toBe(true);
   expect(restored.summary.leaseComplianceIssues.errors).toEqual([]);
   expect(restored.summary.leaseComplianceIssues.created).toBe(1);
   const records = await (await page.request.get(`/api/lease-compliance/issues?propertyId=${a.property.id}`)).json();
   expect(records.issues.find((entry: any) => entry.createdAt === restoredDate)).toMatchObject({ unitId: a.unit.id, issueTypeId: a.issueType.id, propertyMapId: a.map.id });
+});
+
+test("native merge distinguishes preflight rejection from committed records with retained conflicts", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const exported = await (await page.request.get("/api/admin/export")).json();
+  const option = exported.data.boardOptions[0];
+  expect(option).toBeTruthy();
+  const code = `MERGE${Date.now()}`;
+  const backup = { ...exported, data: {
+    ...Object.fromEntries(Object.keys(exported.data).map(key => [key, []])),
+    properties: [{ code, name: "Merge outcome fixture", isActive: true }],
+    boardOptions: [{ ...option, displayName: "Conflicting import fixture" }],
+  } };
+  const run = async (data: unknown, dryRun: boolean) => {
+    const response = await page.request.post("/api/admin/import", { headers, data: { backup: data, dryRun } });
+    expect(response.status(), await response.text()).toBe(200);
+    return response.json();
+  };
+  const duplicate = structuredClone(backup);
+  duplicate.data.properties.push({ ...duplicate.data.properties[0] });
+  const blocked = await run(duplicate, false);
+  expect(blocked.applied).toBe(false);
+  expect(blocked.summary.properties.created).toBe(0);
+  const preview = await run(backup, true);
+  expect(preview.applied).toBe(false);
+  expect(preview.summary.properties.created).toBe(1);
+  expect(preview.summary.boardOptions.conflicts).toBe(1);
+  const before = await (await page.request.get("/api/meta")).json();
+  expect(before.properties.some((entry: any) => entry.code === code)).toBe(false);
+  const merged = await run(backup, false);
+  expect(merged.applied).toBe(true);
+  expect(merged.summary.properties.created).toBe(1);
+  expect(merged.summary.boardOptions.conflicts).toBe(1);
+  const after = await (await page.request.get("/api/admin/export")).json();
+  expect(after.data.properties.some((entry: any) => entry.code === code)).toBe(true);
+  expect(after.data.boardOptions.find((entry: any) => entry.fieldKey === option.fieldKey && entry.value === option.value)).toEqual(option);
+});
+
+test("backup outcomes retain confirmed merges through conflicts and failed refresh", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-admin").click();
+  await expect(page.getByTestId("backup-transfer-panel")).toBeVisible();
+  let outcome: "blocked" | "partial" | "applied" = "blocked";
+  let commits = 0;
+  let release: (() => void) | undefined;
+  let failRefresh = false;
+  await page.route("**/api/meta", async route => {
+    if (failRefresh) await route.fulfill({ status: 503, json: { message: "Refresh unavailable" } });
+    else await route.continue();
+  });
+  await page.route("**/api/admin/import", async route => {
+    const { dryRun } = route.request().postDataJSON();
+    if (!dryRun) {
+      commits++;
+      if (outcome === "blocked") await new Promise<void>(resolve => { release = resolve; });
+    }
+    await route.fulfill({ status: 200, json: { dryRun, applied: !dryRun && outcome !== "blocked", mode: "merge", summary: {
+      properties: { created: dryRun || outcome !== "blocked" ? 1 : 0, skipped: 0, conflicts: !dryRun && outcome !== "applied" ? 1 : 0, errors: !dryRun && outcome !== "applied" ? ["Changed after preview"] : [] },
+    } } });
+  });
+  const previewFile = async (name: string) => {
+    await expect(page.getByTestId("backup-file-input")).toBeEnabled();
+    await page.getByTestId("backup-file-input").setInputFiles({ name, mimeType: "application/json", buffer: Buffer.from(JSON.stringify({ format: "makereadyos.backup" })) });
+    await expect(page.getByTestId("backup-message")).toContainText("File loaded");
+    await page.getByTestId("backup-dry-run-button").click();
+    await expect(page.getByTestId("backup-confirm-import-button")).toBeEnabled();
+  };
+  await previewFile("blocked.json");
+  await page.getByTestId("backup-confirm-import-button").click();
+  await expect.poll(() => Boolean(release)).toBe(true);
+  await expect(page.getByTestId("backup-file-input")).toBeDisabled();
+  await expect(page.getByTestId("backup-confirm-import-button")).toBeDisabled();
+  await expect(page.getByTestId("backup-export-button")).toBeDisabled();
+  release!();
+  await expect(page.getByTestId("backup-message")).toContainText("Import blocked");
+  await expect(page.getByTestId("backup-import-summary")).toContainText("No records were changed");
+  outcome = "partial";
+  await previewFile("partial.json");
+  await page.getByTestId("backup-confirm-import-button").click();
+  await expect(page.getByTestId("backup-message")).toContainText("Merge applied with conflicts");
+  await expect(page.getByTestId("backup-import-summary")).not.toContainText("No records");
+  await expect(page.getByTestId("backup-confirm-import-button")).toBeDisabled();
+  outcome = "applied";
+  await previewFile("confirmed.json");
+  failRefresh = true;
+  await page.getByTestId("backup-confirm-import-button").click();
+  await expect(page.getByTestId("backup-refresh-error")).toContainText("Merge applied", { timeout: 15000 });
+  await expect(page.getByTestId("backup-import-summary")).toBeVisible();
+  await expect(page.getByTestId("backup-confirm-import-button")).toBeDisabled();
+  failRefresh = false;
+  await page.getByTestId("backup-refresh-button").click();
+  await expect(page.getByTestId("backup-refresh-error")).toHaveCount(0);
+  expect(commits).toBe(3);
 });
 
 test("move-in risk agrees across full lists, windowed pages and CSV exports", async ({ page }) => {

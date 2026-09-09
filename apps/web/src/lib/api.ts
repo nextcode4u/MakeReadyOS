@@ -3466,7 +3466,7 @@ export function exportNativeBackup() {
 }
 
 export function importNativeBackup(backup: unknown, dryRun: boolean) {
-  return request<{ dryRun: boolean; mode: "merge"; summary: BackupImportSummary }>("/admin/import", {
+  return request<{ dryRun: boolean; applied: boolean; mode: "merge"; summary: BackupImportSummary }>("/admin/import", {
     method: "POST",
     body: JSON.stringify({ backup, dryRun, mode: "merge" }),
   });
