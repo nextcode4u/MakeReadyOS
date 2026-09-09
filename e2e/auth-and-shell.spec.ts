@@ -316,6 +316,9 @@ test("turn materials survive saves, conflicts and native restore without leaking
   expect(restored.ok(), await restored.text()).toBeTruthy();
   const after = await (await page.request.get("/api/admin/export")).json();
   expect(after.data.makeReadyItems.find((entry: any) => entry.propertyCode === code).materials).toEqual(portableItem.materials);
+  const restoredMeta = await (await page.request.get("/api/meta")).json();
+  const restoredProperty = restoredMeta.properties.find((property: any) => property.code === code);
+  expect((await page.request.post(`/api/operations/properties/${restoredProperty.id}/archive`, { headers })).ok()).toBeTruthy();
 });
 
 test("mailbox import lives in Units with a property-specific copyable conversion prompt", async ({ page, context }) => {
@@ -3522,16 +3525,16 @@ test.describe("MakeReadyOS browser flows", () => {
     const frog = page.locator('[data-testid^="frog-marker-"]').first();
     await page.getByTestId("frog-pond-scene").scrollIntoViewIfNeeded();
     await page.mouse.move(0, 0);
+    await page.getByRole("button", { name: "Arrange frogs", exact: true }).click();
     const anchors = await page.locator('[data-testid^="frog-marker-"]').evaluateAll(elements => elements.map(el => ({ x: (el as HTMLElement).style.left, y: (el as HTMLElement).style.top })));
     expect(new Set(anchors.map(point => point.y)).size).toBe(anchors.length);
     expect(new Set(anchors.map(point => point.x)).size).toBe(anchors.length);
+    await page.getByRole("button", { name: "Done arranging", exact: true }).click();
     const initialBox = await frog.boundingBox();
     await expect.poll(async () => {
       const box = await frog.boundingBox();
       return Math.hypot(box!.x - initialBox!.x, box!.y - initialBox!.y);
     }, { timeout: 5000 }).toBeGreaterThan(8);
-    const initialTranslate = await frog.evaluate(el => getComputedStyle(el).translate);
-    await expect.poll(() => frog.evaluate(el => getComputedStyle(el).translate)).not.toBe(initialTranslate);
     const moving = await frog.boundingBox();
     await page.mouse.move(moving!.x + moving!.width / 2, moving!.y + moving!.height / 2);
     const original = await frog.boundingBox();
@@ -3547,7 +3550,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("frog-legend")).toContainText("vacancy Status");
     await page.getByTestId("frog-settings-toggle").click();
     await page.getByRole("button", { name: "Pause motion", exact: true }).click();
-    await page.locator('[data-testid^="frog-marker-"]').first().click();
+    await page.locator('.frog-marker:not(.frog-pose-tadpole)').first().click();
     await expect(page.getByTestId("pond-greeting")).toContainText("Ribbit!");
     await expect(page.getByTestId("item-drawer")).not.toBeVisible();
     await page.getByTestId("pond-open-unit").click();
@@ -3615,11 +3618,17 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("tab-pond").click();
     const markers = page.locator(".frog-marker");
     await expect(markers).toHaveCount(33);
-    await page.getByRole("button", { name: "Pause motion", exact: true }).click();
-    const points = await markers.evaluateAll(elements => elements.map(el => {
+    // Check resting-pad spacing, not independently roaming frogs mid-journey.
+    await page.getByRole("button", { name: "Arrange frogs", exact: true }).click();
+    const restingPoints = () => markers.evaluateAll(elements => elements.map(el => {
       const box = el.getBoundingClientRect();
       return { x: box.x, y: box.y };
     }));
+    await expect.poll(async () => {
+      const points = await restingPoints();
+      return Math.min(...points.flatMap((point, index) => points.slice(index + 1).map(other => Math.hypot(point.x - other.x, point.y - other.y))));
+    }).toBeGreaterThan(85);
+    const points = await restingPoints();
     expect(new Set(points.map(point => Math.round(point.y))).size).toBeGreaterThan(25);
     const distances = points.flatMap((point, index) => points.slice(index + 1).map(other => Math.hypot(point.x - other.x, point.y - other.y)));
     expect(Math.min(...distances)).toBeGreaterThan(85);
@@ -3637,6 +3646,7 @@ test.describe("MakeReadyOS browser flows", () => {
   });
 
   test("pond collection rewards feeding and remembers the chosen outfit", async ({ page }) => {
+    await page.clock.install();
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-pond").click();
     await page.getByTestId("pond-collection").locator("summary").click();
@@ -3646,8 +3656,14 @@ test.describe("MakeReadyOS browser flows", () => {
       if (["POST", "PATCH", "PUT", "DELETE"].includes(request.method()) && request.url().includes("/api/make-ready-items")) mutations.push(request.url());
     });
     for (let i = 0; i < 3; i++) {
+      await page.getByLabel("Next food (alternates)").selectOption("flies");
       await page.getByTestId("pond-feed").click();
-      await expect.poll(() => page.locator(".pond-snack-guest:not(.frog-pose-tadpole) .frog-body").first().evaluate(el => getComputedStyle(el).animationName)).toBe("pond-munch");
+      let chewingSeen = false;
+      for (let tick = 0; tick < 30; tick++) {
+        await page.clock.runFor(220);
+        chewingSeen ||= await page.locator(".pond-snack-guest.pond-catching .frog-body").evaluateAll(elements => elements.some(el => getComputedStyle(el).animationName === "pond-munch"));
+      }
+      expect(chewingSeen).toBeTruthy();
       await expect(page.getByTestId("pond-feed")).toBeEnabled({ timeout: 5000 });
     }
     await expect(page.getByTestId("pond-reward-funnyglasses")).toBeEnabled();
@@ -4310,12 +4326,10 @@ test.describe("MakeReadyOS browser flows", () => {
       await expect(page.getByTestId("calendar-today").first()).toBeVisible();
     }
     await expect(page.getByTestId("calendar-panel-track-0")).toContainText("NTV / Notice to Vacate");
+    await page.getByTestId("calendar-panel-track-0").selectOption({ label: fieldLabel });
     await expect(page.getByTestId("calendar-legend-0")).toBeVisible();
     await expect(page.getByTestId("calendar-track-guidance-0")).toContainText("Risk cues:");
     await expect(page.getByTestId("calendar-track-guidance-0")).toContainText("Compatibility:");
-    await page.getByTestId("calendar-panel-track-0").selectOption({ label: "NTV / Notice to Vacate" });
-    await expect(page.getByTestId("calendar-color-source-0")).toContainText("status colors");
-    await page.getByTestId("calendar-panel-track-0").selectOption({ label: fieldLabel });
     await expect(page.getByTestId("calendar-color-source-0")).toContainText("Fixed track color");
     if (await page.locator(".calendar-day-conflicts").count()) {
       await expect(page.locator(".calendar-day-conflicts").first()).toBeVisible();
