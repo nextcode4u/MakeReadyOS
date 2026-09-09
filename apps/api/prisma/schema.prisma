@@ -1250,6 +1250,7 @@ model OperatingCalendar {
   scopeDay                Int?
   workStartDay            Int?
   autoPopulateEnabled     Boolean  @default(false)
+  turnStageDays           Int[]    @default([])
   notes                   String?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt

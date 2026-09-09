@@ -6,9 +6,9 @@ import { applyBusinessDayOffset } from "../lib/operatingCalendar.js";
 import { prisma } from "../lib/prisma.js";
 import { isSchedulableTurn, turnDefinitions, turnSetupPrefix, turnSetupSchema, turnStages } from "../lib/turnSetup.js";
 
-async function setupContext(request: FastifyRequest, reply: FastifyReply) {
+async function setupContext(request: FastifyRequest, reply: FastifyReply, payload = request.body) {
   if (await requireManagerOrAdmin(request, reply)) return null;
-  const input = turnSetupSchema.parse(request.body);
+  const input = turnSetupSchema.parse(payload);
   const ids = allowedPropertyIds(request.currentUser!);
   if (ids !== null && !ids.includes(input.propertyId)) {
     reply.code(403).send({ message: "Property access denied" });
@@ -23,6 +23,14 @@ async function setupContext(request: FastifyRequest, reply: FastifyReply) {
 }
 
 export async function turnSetupRoutes(app: FastifyInstance) {
+  app.get("/automations/turn-setup/:propertyId", async (request, reply) => {
+    const context = await setupContext(request, reply, request.params);
+    if (!context) return;
+    const rules = await prisma.automationRule.findMany({ where: { propertyId: context.property.id, templateId: { startsWith: turnSetupPrefix } }, select: { enabled: true, isArchived: true } });
+    const saved = turnSetupSchema.shape.days.safeParse(context.property.operatingCalendar?.turnStageDays ?? []);
+    reply.header("Cache-Control", "no-store");
+    return { propertyId: context.property.id, days: saved.success ? saved.data : null, configured: rules.filter(rule => rule.enabled && !rule.isArchived).length, hasRules: rules.length > 0 };
+  });
   app.post("/automations/turn-setup/pause", async (request, reply) => {
     const context = await setupContext(request, reply);
     if (!context) return;
@@ -65,7 +73,7 @@ export async function turnSetupRoutes(app: FastifyInstance) {
         if (field.fieldType !== "DATE" || field.module !== "make-ready" || field.isArchived || field.deletedAt) throw Object.assign(new Error(`Restore or correct the ${stage.label} custom date field before enabling scheduling`), { statusCode: 409 });
         fieldIds.set(stage.field, field.id);
       }
-      await tx.operatingCalendar.upsert({ where: { propertyId: input.propertyId }, create: { propertyId: input.propertyId, noWeekendScheduling: true }, update: { noWeekendScheduling: true } });
+      await tx.operatingCalendar.upsert({ where: { propertyId: input.propertyId }, create: { propertyId: input.propertyId, noWeekendScheduling: true, turnStageDays: input.days }, update: { noWeekendScheduling: true, turnStageDays: input.days } });
       const definitions = turnDefinitions(input.propertyId, input.days, fieldIds);
       const result: Array<{ id: string; name: string }> = [];
       for (const [index, definition] of definitions.entries()) {

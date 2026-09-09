@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { enableTurnSetup, pauseTurnSetup, previewTurnSetup, runAutomationNow, type Property, type TurnSetupPreview } from "../lib/api";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { enableTurnSetup, getTurnSetup, pauseTurnSetup, previewTurnSetup, runAutomationNow, type Property, type TurnSetupPreview } from "../lib/api";
 
 const stages = ["Make Ready (Start)", "Painting", "Cleaning", "Flooring / carpet contingency", "Expected Finish"];
 
@@ -8,13 +8,28 @@ export function TurnSchedulingGuide({ properties, onOpenSchedule }: { properties
   const queryClient = useQueryClient();
   const [propertyId, setPropertyId] = useState(properties.length === 1 ? properties[0].id : "");
   const [days, setDays] = useState([1, 1, 1, 1, 1]);
+  const [savedDays, setSavedDays] = useState([1, 1, 1, 1, 1]);
+  const [loadedProperty, setLoadedProperty] = useState("");
+  const settings = useQuery({ queryKey: ["turn-setup-settings", propertyId], queryFn: () => getTurnSetup(propertyId), enabled: !!propertyId });
   const [preview, setPreview] = useState<TurnSetupPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
   const [enabledRules, setEnabledRules] = useState<Array<{ id: string; name: string }> | null>(null);
   const validDays = days.every((day) => Number.isInteger(day) && day >= 1 && day <= 10);
-  const valid = Boolean(propertyId) && validDays;
+  const valid = Boolean(propertyId) && loadedProperty === propertyId && validDays;
+  const dirty = loadedProperty === propertyId && JSON.stringify(days) !== JSON.stringify(savedDays);
+  useEffect(() => {
+    if (!settings.data || loadedProperty === propertyId) return;
+    const stored = settings.data.days ?? [1, 1, 1, 1, 1];
+    setDays(stored); setSavedDays(stored); setLoadedProperty(propertyId);
+  }, [settings.data, loadedProperty, propertyId]);
+  useEffect(() => {
+    if (!dirty && !busy) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty, busy]);
   const resetReview = () => { setPreview(null); setError(""); setResult(""); setEnabledRules(null); };
   const review = async () => {
     setBusy(true); setError(""); setResult(""); setPreview(null);
@@ -28,6 +43,7 @@ export function TurnSchedulingGuide({ properties, onOpenSchedule }: { properties
     try {
       const rules = enabledRules ?? (await enableTurnSetup({ propertyId, days })).rules;
       setEnabledRules(rules); saved = true;
+      setSavedDays(days);
       let actions = 0;
       const problems: string[] = [];
       for (const rule of rules) {
@@ -59,16 +75,23 @@ export function TurnSchedulingGuide({ properties, onOpenSchedule }: { properties
   return <section className="turn-setup span-full" data-testid="turn-scheduling-guide">
     <header><p className="eyebrow">Automatic baseline</p><h2>Put your turns on the calendar</h2><p>Properties start with a five-working-day plan automatically. Import your units with a Vacated date; eligible turns get missing dates within five minutes while the server is running. No activation or pack installation needed.</p><p>Use this guide only to customize the plan, fill dates now, or pause scheduling. Existing dates and previously paused plans stay unchanged.</p></header>
     <fieldset disabled={busy}>
-      <legend>1. Choose the property and review a proposed plan</legend>
-      <label>Schedule turns for<select data-testid="turn-setup-property" value={propertyId} onChange={(event) => { setPropertyId(event.target.value); resetReview(); }}><option value="">Choose a property</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}</select></label>
+      <legend>1. Choose the property and review your plan</legend>
+      <label>Schedule turns for<select data-testid="turn-setup-property" value={propertyId} onChange={(event) => {
+        if (dirty && !window.confirm("Discard the unsaved scheduling durations and switch properties?")) return;
+        setPropertyId(event.target.value); setLoadedProperty(""); resetReview();
+      }}><option value="">Choose a property</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}</select></label>
+      {settings.isLoading ? <p role="status">Loading saved schedule...</p> : null}
+      {settings.isError ? <p role="alert">Could not load the saved schedule. <button type="button" onClick={() => void settings.refetch()}>Retry</button></p> : null}
+      {settings.data ? <p data-testid="turn-saved-plan">{settings.data.days ? "Saved durations loaded for this property." : settings.data.hasRules ? "Legacy plan: original durations were not recorded. These proposed one-day stages will not replace existing rules until you preview and apply them." : "No saved guided plan. Review the proposed one-day stages before applying."} {settings.data.configured} guided rules enabled. Previously recorded dates stay unchanged.</p> : null}
+      {dirty ? <p>Unsaved scheduling durations. Preview and apply to save this plan.</p> : null}
       <p>The first workday is after the recorded <strong>Vacated</strong> date. Weekends are excluded; existing Monday/Friday restrictions are respected.</p>
-      <p>These durations are a proposed plan, not a readout of saved settings. Preview before applying; changing the plan never moves dates already recorded.</p>
-      <div className="turn-setup-stages">{stages.map((stage, index) => {
+      <p>Preview before applying. Durations describe the saved guided plan, not manually edited rules or completed work. Paused rules stay paused until you explicitly apply or resume the plan.</p>
+      {propertyId && loadedProperty === propertyId ? <div className="turn-setup-stages">{stages.map((stage, index) => {
         const firstDay = cumulative + 1;
         cumulative += Number(days[index]) || 0;
-        return <label key={stage}><strong>{stage}</strong><span>{!validDays ? "Enter valid durations" : index === 0 ? "Start: working day 1" : `Finish target: working day ${cumulative}`}</span>{validDays ? <span>Planned work: {firstDay === cumulative ? `day ${firstDay}` : `days ${firstDay}-${cumulative}`}</span> : null}<span className="turn-setup-duration"><input aria-label={`${stage} days`} type="number" min="1" max="10" value={Number.isNaN(days[index]) ? "" : days[index]} onChange={(event) => { setDays(days.map((day, i) => i === index ? event.target.valueAsNumber : day)); resetReview(); }} /> day(s)</span></label>;
-      })}</div>
-      <p><strong>{validDays ? `${days.reduce((sum, day) => sum + day, 0)} working days total.` : "Enter 1-10 whole working days for each stage."}</strong> Weekends and excluded weekdays extend the calendar span; a longer plan is not a seven-day turn.</p>
+        return <label key={stage}><strong>{stage}</strong><span>{!validDays ? "Enter valid durations" : index === 0 ? "Start: working day 1" : `Finish target: working day ${cumulative}`}</span>{validDays ? <span>Planned work: {firstDay === cumulative ? `day ${firstDay}` : `days ${firstDay}-${cumulative}`}</span> : null}<span className="turn-setup-duration"><input aria-label={`${stage} days`} type="number" min="1" max="10" disabled={!propertyId || loadedProperty !== propertyId} value={Number.isNaN(days[index]) ? "" : days[index]} onChange={(event) => { setDays(days.map((day, i) => i === index ? event.target.valueAsNumber : day)); resetReview(); }} /> day(s)</span></label>;
+      })}</div> : null}
+      <p><strong>{!propertyId || loadedProperty !== propertyId ? "Choose a property and load its plan first." : validDays ? `${days.reduce((sum, day) => sum + day, 0)} working days total.` : "Enter 1-10 whole working days for each stage."}</strong> Weekends and excluded weekdays extend the calendar span; a longer plan is not a seven-day turn.</p>
       <p>Only Make Ready (Start) is a start-date calendar. Painting, cleaning and flooring use end-of-stage targets; Expected Finish is the whole-unit ready target. These dates do not book vendors or prove work is complete.</p>
       <button className="button button-secondary" disabled={!valid || busy} onClick={() => void review()} data-testid="turn-setup-preview">{busy ? "Working..." : "2. Preview my calendar dates"}</button>
     </fieldset>
