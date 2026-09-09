@@ -2905,6 +2905,15 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
   }
   const projectCategoryKeys = new Set(backup.data.projectCategories.map((category) => projectCategoryPortableKey(category)));
   const projectRecordKeys = new Set(backup.data.projectRecords.map((record) => record.portableKey));
+  const projectRecordsByKey = new Map(backup.data.projectRecords.map(record => [record.portableKey, record]));
+  for (const section of ["projectComments", "projectTasks", "projectAttachments", "projectWikiReferences"] as const) {
+    for (const child of backup.data[section]) {
+      const parent = projectRecordsByKey.get(child.recordKey);
+      if (parent && child.propertyCode !== parent.propertyCode) {
+        summary[section].errors.push(`Project child records must use the same property as parent ${child.recordKey}`);
+      }
+    }
+  }
   const pestVendorKeys = new Set(backup.data.pestVendors.map((vendor) => vendor.portableKey));
   const pestIssueKeys = new Set(backup.data.pestIssues.map((issue) => issue.portableKey));
   for (const category of backup.data.projectCategories) {
@@ -2941,6 +2950,14 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
   }
   for (const reference of backup.data.projectWikiReferences) {
     if (!projectRecordKeys.has(reference.recordKey)) summary.projectWikiReferences.errors.push(`Project record ${reference.recordKey} is missing for wiki reference`);
+    const importedTarget = reference.targetType === "ENTRY"
+      ? backup.data.propertyWikiEntries.find(entry => entry.portableKey === reference.targetKey)
+      : reference.targetType === "VENDOR"
+        ? backup.data.propertyWikiVendors.find(vendor => vendor.portableKey === reference.targetKey)
+        : backup.data.propertyWikiAssets.find(asset => asset.portableKey === reference.targetKey);
+    if (importedTarget && importedTarget.propertyCode !== reference.propertyCode) {
+      summary.projectWikiReferences.errors.push(`Project wiki target must use the same property as reference ${reference.recordKey}`);
+    }
     if (reference.targetType === "ENTRY" && !backup.data.propertyWikiEntries.some((entry) => entry.portableKey === reference.targetKey)) {
       const existingEntry = await prisma.propertyWikiEntry.findFirst({ where: { title: reference.targetKey } }).catch(() => null);
       if (!existingEntry) summary.projectWikiReferences.errors.push(`Property Wiki entry ${reference.targetKey} is missing for project wiki reference`);
