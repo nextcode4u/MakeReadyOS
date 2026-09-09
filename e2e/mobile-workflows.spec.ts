@@ -138,8 +138,13 @@ test.describe("mobile workflow coverage", () => {
 
     await openModuleRailPanel(page, "module-rail-pool", "pool", "pool-log-panel");
     await page.getByTestId("pool-tab-setup").click();
+    await page.getByRole("combobox", { name: "Pool log property", exact: true }).selectOption("");
+    await expect(page.getByTestId("pool-facility-submit")).toBeDisabled();
+    await page.getByRole("combobox", { name: "Pool log property", exact: true }).selectOption({ index: 1 });
     await page.getByTestId("pool-facility-name").fill(poolFacility);
     await page.getByTestId("pool-facility-submit").click();
+    await expect(page.getByTestId("pool-facility-name")).toHaveValue("");
+    await expect(page.getByTestId("pool-log-panel").getByText(poolFacility, { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Daily log" }).click();
     await expect(page.getByTestId("pool-daily-form")).toBeVisible();
     await page.locator('select[name="facilityId"]').selectOption({ label: poolFacility });
