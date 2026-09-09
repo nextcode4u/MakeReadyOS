@@ -41,7 +41,7 @@ mkdir -p "$LOG_DIR"
   echo
 
   echo "Running isolated report and email regression tests"
-  node --test "$ROOT_DIR/e2e/service-worker.test.mjs" "$ROOT_DIR/e2e/hooks-lint.test.mjs" "$ROOT_DIR/e2e/offline-sync.test.mjs" "$ROOT_DIR/e2e/availability-status.test.mjs" "$ROOT_DIR/e2e/material-draft.test.mjs"
+  node --test "$ROOT_DIR/e2e/service-worker.test.mjs" "$ROOT_DIR/e2e/hooks-lint.test.mjs" "$ROOT_DIR/e2e/offline-sync.test.mjs" "$ROOT_DIR/e2e/availability-status.test.mjs" "$ROOT_DIR/e2e/material-draft.test.mjs" "$ROOT_DIR/e2e/structured-filters.test.mjs"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/e2e/lease-matching.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/leaseLookup.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/operationalReports.test.ts"
