@@ -855,6 +855,10 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   }, [propertyId]);
 
   useEffect(() => {
+    if (!propertyId && properties[0]?.id) setPropertyId(properties[0].id);
+  }, [properties, propertyId]);
+
+  useEffect(() => {
     if (tab === "projects" || tab === "recommendations" || tab === "bids" || tab === "archive") {
       setLastRecordsTab(tab);
     }
@@ -1576,7 +1580,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
               </div>
               <label>{isSpanish ? "Descripción corta" : "Short description"}<textarea data-testid="projects-quick-capture-description" value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder={isSpanish ? "Concreto suelto en la banqueta del Edificio 4. Riesgo de tropiezo." : "Loose concrete at Building 4 sidewalk. Trip hazard."} /></label>
               <div className="pool-entry-actions">
-                <button data-testid="projects-quick-capture-save" className="button button-primary" type="submit" disabled={!hasQuickCaptureContent(draft, captureFiles) || createMutation.isPending || uploadMutation.isPending}>{isSpanish ? "Guardar" : "Save"}</button>
+                <button data-testid="projects-quick-capture-save" className="button button-primary" type="submit" disabled={!propertyId || !hasQuickCaptureContent(draft, captureFiles) || createMutation.isPending || uploadMutation.isPending}>{isSpanish ? "Guardar" : "Save"}</button>
               </div>
               <details open={showMoreDetails} onToggle={(event) => setShowMoreDetails((event.currentTarget as HTMLDetailsElement).open)}>
                 <summary>{isSpanish ? "Más detalles" : "More Details"}</summary>

@@ -1177,7 +1177,7 @@ test("command search traps keyboard focus and closes from results without losing
   await page.keyboard.press("Escape");
 });
 
-for (const module of ["pm", "maps"] as const) {
+for (const module of ["pm", "maps", "projects"] as const) {
   test(`${module} selects a usable property after delayed metadata`, async ({ page }) => {
     let release!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; });
@@ -1190,14 +1190,26 @@ for (const module of ["pm", "maps"] as const) {
     });
     await login(page, adminEmail, adminPassword);
     try {
-      await page.getByTestId(module === "pm" ? "module-rail-pm" : "tab-maps").click();
-      if (module === "pm") await expect(page.getByRole("heading", { name: "No properties available" })).toBeVisible();
+      await page.getByTestId(module === "maps" ? "tab-maps" : `module-rail-${module}`).click();
+      if (module !== "maps") await expect(page.getByRole("heading", { name: "No properties available" })).toBeVisible();
       else await expect(page.getByTestId("property-maps-panel")).toBeVisible();
     } finally { release(); }
     await expect.poll(() => expectedPropertyId).not.toBe("");
     if (module === "pm") {
       await expect(page.getByTestId("preventive-maintenance-panel")).toBeVisible();
       await expect(page.getByLabel("PM property")).toHaveValue(expectedPropertyId);
+    } else if (module === "projects") {
+      await page.getByTestId("projects-quick-capture-open").click();
+      const form = page.getByTestId("projects-quick-capture-form");
+      await expect(form.locator("select").nth(1)).toHaveValue(expectedPropertyId);
+      await page.getByTestId("projects-quick-capture-title").fill(uniqueTag("Delayed property project"));
+      await page.getByTestId("projects-quick-capture-description").fill("Inspect courtyard gate latch");
+      const saved = page.waitForResponse(response => response.url().endsWith("/api/projects/records") && response.request().method() === "POST");
+      await page.getByTestId("projects-quick-capture-save").click();
+      const response = await saved;
+      expect(response.request().postDataJSON().propertyId).toBe(expectedPropertyId);
+      expect(response.status(), await response.text()).toBe(201);
+      await expect(page.getByRole("button", { name: "View Record", exact: true })).toBeVisible();
     } else {
       await expect(page.getByTestId("property-maps-property-select")).toHaveValue(expectedPropertyId);
       const name = uniqueTag("Delayed metadata map");
