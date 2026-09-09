@@ -1,9 +1,11 @@
 # Reliability And Polish Queue
 
-Updated: 2026-09-06. Prioritize existing daily workflows over new modules.
+Updated: 2026-09-09. Prioritize existing daily workflows over new modules.
 Checked items mean implementation and verification; see the release checkpoint below for deployed coverage. Field validation remains separate.
 
 ## Current Follow-Up
+
+Latest verified local checkpoint: `2d0d658`. All 176 browser checks passed in `logs/e2e-20260909-035602.txt`; full API/build/lint/dependency checks passed in `logs/test-20260909-035329.txt`. This includes the later Project/Pest/PM scope and reference fixes and property-scoped operational staff pickers. Production and origin remain `0ec90ff`; subsequent commits are not pushed or deployed. Earlier checkpoints below are historical, not current release status.
 
 2026-09-09 full browser checkpoint: all 170 tests pass in `logs/e2e-20260909-024418.txt` at runtime commit `10424dc`, including technician/inspector handoff, one-page draft PDF, initial-walk evidence, project scope, native-import outcomes, offline ownership, desktop and mobile flows. This supersedes the earlier full-browser failure/pending notes for those runtime changes. Production remains `0ec90ff`; later commits have not been pushed or deployed. Last full API/build gate `logs/test-20260909-023744.txt` predates the small project-scope patch, whose isolated tests and API build pass; another full API gate is next.
 
