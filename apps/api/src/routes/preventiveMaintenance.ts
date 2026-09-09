@@ -558,19 +558,20 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
       throw Object.assign(new Error("PM template property cannot be changed by editing. Create a template in the correct property instead."), { statusCode: 409 });
     }
     const nextAssignedRole = input.assignedRole ?? existing.assignedRole;
-    const assignedUser = "assignedUserId" in input
+    const assignmentChanged = "assignedUserId" in input || nextAssignedRole !== existing.assignedRole;
+    const assignedUser = assignmentChanged
       ? await findAssignablePmUser({
         propertyId: existing.propertyId,
         assignedRole: nextAssignedRole,
-        assignedUserId: input.assignedUserId ?? null,
+        assignedUserId: input.assignedUserId === undefined ? existing.assignedUserId : input.assignedUserId,
       })
       : null;
     const template = await prisma.preventiveMaintenanceTemplate.update({
       where: { id },
       data: {
         ...input,
-        assignedUserId: "assignedUserId" in input ? assignedUser?.id ?? null : undefined,
-        assignedUserName: "assignedUserId" in input ? assignedUser?.fullName ?? null : undefined,
+        assignedUserId: assignmentChanged ? assignedUser?.id ?? null : undefined,
+        assignedUserName: assignmentChanged ? assignedUser?.fullName ?? null : undefined,
         updatedById: request.currentUser!.id,
       },
     });
