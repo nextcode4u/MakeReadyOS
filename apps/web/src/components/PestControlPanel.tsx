@@ -584,7 +584,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
   });
   const deleteAttachmentMutation = useMutation({ mutationFn: deletePestIssueAttachment, onSuccess: invalidate });
 
-  const assignableUsers = useMemo(() => users.filter((user) => user.role !== "CLEANER"), [users]);
+  const assignableUsers = useMemo(() => users.filter((user) => ["ADMIN", "MANAGER", "TECH", "LEASING"].includes(user.role)), [users]);
   const propertyUnits = useMemo(() => units.filter((unit) => unit.propertyId === propertyId), [propertyId, units]);
   const vendors = vendorsQuery.data?.vendors ?? overviewQuery.data?.vendors ?? [];
   const activeVendors = useMemo(() => vendors.filter((vendor) => vendor.isActive), [vendors]);

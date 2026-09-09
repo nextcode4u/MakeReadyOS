@@ -55,6 +55,59 @@ test("concurrent project category initialization and edits preserve unique scope
   expect(summary.projectCategories.errors).toEqual([]);
 });
 
+test("Pest technicians and leasing cannot save foreign references or mismatched unit turns", async ({ page, playwright }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const fixtures: any[] = [];
+  for (const suffix of ["A", "B"]) {
+    const { property } = await post("/operations/properties", { code: `PEST${Date.now()}${suffix}`, name: `Pest references ${suffix}` });
+    const { unit } = await post("/operations/units", { propertyId: property.id, number: "101" });
+    const { vendor } = await post("/pest/vendors", { propertyId: property.id, vendorName: `Reference pest vendor ${suffix}` });
+    fixtures.push({ property, unit, vendor });
+  }
+  const [a, b] = fixtures;
+  const password = "Test-Only-Pest!123";
+  const staff: any[] = [];
+  for (const role of ["TECH", "LEASING"]) {
+    const username = `pest-${role.toLowerCase()}-${Date.now()}`;
+    const { user } = await post("/admin/users", { username, password, fullName: `Scoped pest ${role}`, role, propertyIds: [a.property.id] });
+    staff.push({ ...user, username });
+  }
+  const { user: outside } = await post("/admin/users", { username: `pest-outside-${Date.now()}`, password, fullName: "Other pest tech", role: "TECH", propertyIds: [b.property.id] });
+  const { unit: secondUnit } = await post("/operations/units", { propertyId: a.property.id, number: "102" });
+  const meta = await (await page.request.get("/api/meta")).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === a.property.id && entry.sectionType === "MAKE_READY");
+  const turn = await post("/make-ready-items", { propertyId: a.property.id, unitId: secondUnit.id, unitNumber: secondUnit.number, itemName: secondUnit.number, boardGroup: section.key });
+  const base = { propertyId: a.property.id, unitId: a.unit.id, vendorId: a.vendor.id, assignedUserId: staff[0].id, pestType: "Ants", area: "Kitchen" };
+  const { issue } = await post("/pest/issues", base);
+  for (const actor of staff) {
+    const client = await playwright.request.newContext({ baseURL: new URL(page.url()).origin });
+    try {
+      const loginResponse = await client.post("/api/auth/login", { data: { identifier: actor.username, password } });
+      expect(loginResponse.status()).toBe(200);
+      const actorHeaders = { "x-csrf-token": (await loginResponse.json()).csrfToken };
+      for (const invalid of [{ unitId: b.unit.id }, { vendorId: b.vendor.id }, { assignedUserId: outside.id }, { makeReadyItemId: turn.id }]) {
+        const create = await client.post("/api/pest/issues", { headers: actorHeaders, data: { ...base, ...invalid } });
+        expect(create.status(), await create.text()).toBe(400);
+        const edit = await client.patch(`/api/pest/issues/${issue.id}`, { headers: actorHeaders, data: invalid });
+        expect(edit.status(), await edit.text()).toBe(400);
+      }
+      const saved = await client.patch(`/api/pest/issues/${issue.id}`, { headers: actorHeaders, data: { description: `Reviewed by ${actor.role}` } });
+      expect(saved.status(), await saved.text()).toBe(200);
+      expect((await saved.json()).issue).toMatchObject({ propertyId: a.property.id, unitId: a.unit.id, vendorId: a.vendor.id, assignedUserId: staff[0].id });
+    } finally { await client.dispose(); }
+  }
+  expect((await page.request.patch(`/api/pest/vendors/${a.vendor.id}`, { headers, data: { isActive: false } })).status()).toBe(200);
+  const historical = await page.request.patch(`/api/pest/issues/${issue.id}`, { headers, data: { description: "Historical vendor retained" } });
+  expect(historical.status(), await historical.text()).toBe(200);
+  expect((await historical.json()).issue.vendorId).toBe(a.vendor.id);
+  expect((await page.request.post("/api/pest/issues", { headers, data: base })).status()).toBe(400);
+});
+
 test("PM template edits keep generated tasks in their original property", async ({ page, playwright }) => {
   await login(page, adminEmail, adminPassword);
   const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
