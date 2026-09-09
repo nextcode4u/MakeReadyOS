@@ -27,7 +27,11 @@ test("confirmed lease photos survive reload without duplicate creates or uploads
   const install = async () => page.evaluate(source => {
     const exports = {};
     const host = window as any;
-    new Function("exports", "require", source)(exports, () => ({
+    const session = { userId: "owner-a" };
+    new Function("exports", "require", source)(exports, (name: string) => name === "./verifiedSession" ? {
+      getVerifiedSession: () => session,
+      isCurrentSession: (snapshot: unknown) => snapshot === session,
+    } : ({
       ApiError: class ApiError extends Error {},
       createLeaseComplianceIssue: () => host.testCreateLease(),
       uploadLeaseComplianceIssuePhoto: (id: string, file: File) => host.testUploadLease(id, file.name),
@@ -37,7 +41,7 @@ test("confirmed lease photos survive reload without duplicate creates or uploads
   await install();
   const id = await page.evaluate(async () => {
     const queue = (window as any).testQueue;
-    const job = await queue.enqueueLeaseCreate({ propertyId: "test-property", description: "Fixture" }, [
+    const job = await queue.enqueueLeaseCreate("owner-a", { propertyId: "test-property", description: "Fixture" }, [
       { file: new File(["first photo"], "first.jpg", { type: "image/jpeg" }) },
       { file: new File(["second photo"], "second.jpg", { type: "image/jpeg" }) },
     ]);

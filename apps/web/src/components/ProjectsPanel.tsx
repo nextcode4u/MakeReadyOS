@@ -1,4 +1,5 @@
 import { DragEvent, FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { getVerifiedSession, isCurrentSession, requireVerifiedUserId } from "../lib/verifiedSession";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   convertProjectRecommendation,
@@ -887,7 +888,9 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   }, [quickCreateMode]);
 
   const refreshOfflineQueue = async () => {
-    setQueuedCaptures(await listQueuedProjectCaptures());
+    const session = getVerifiedSession();
+    const jobs = await listQueuedProjectCaptures();
+    if (isCurrentSession(session)) setQueuedCaptures(jobs);
   };
 
   const overviewQuery = useQuery({
@@ -987,7 +990,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   };
 
   const createMutation = useMutation({
-    mutationFn: (input: Parameters<typeof createProjectRecord>[0]) => createProjectRecord(input),
+    mutationFn: ({ input, ownerUserId }: { input: Parameters<typeof createProjectRecord>[0]; ownerUserId: string }) => createProjectRecord(input, { expectedUserId: ownerUserId }),
     onSuccess: invalidate,
   });
 
@@ -1024,7 +1027,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
     onSuccess: invalidate,
   });
   const uploadMutation = useMutation({
-    mutationFn: ({ id, file, attachmentType, caption }: { id: string; file: File; attachmentType: ProjectAttachmentType; caption?: string }) => uploadProjectAttachment(id, file, attachmentType, caption),
+    mutationFn: ({ id, file, attachmentType, caption, ownerUserId = requireVerifiedUserId() }: { id: string; file: File; attachmentType: ProjectAttachmentType; caption?: string; ownerUserId?: string }) => uploadProjectAttachment(id, file, attachmentType, caption, { expectedUserId: ownerUserId }),
     onSuccess: invalidate,
   });
   const attachmentUpdateMutation = useMutation({
@@ -1210,6 +1213,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   }, [selectedMapId, selectedRecordId]);
 
   const saveQuickCapture = async () => {
+    const ownerUserId = requireVerifiedUserId();
     const generatedTitle = draft.title.trim() || buildAutoProjectTitle(draft, categoryOptions);
     if (!propertyId || !hasQuickCaptureContent(draft, captureFiles)) return;
     const recordInput = {
@@ -1264,7 +1268,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
       }));
     };
     const queueFullCapture = async (reason: "offline" | "retry") => {
-      const queued = await enqueueProjectCapture({
+      const queued = await enqueueProjectCapture(ownerUserId, {
         recordInput,
         files: stagedFiles,
         attachmentType: "GENERAL",
@@ -1283,7 +1287,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
 
     let record: ProjectRecord;
     try {
-      const result = await createMutation.mutateAsync(recordInput);
+      const result = await createMutation.mutateAsync({ input: recordInput, ownerUserId });
       record = result.record;
     } catch (error) {
       if (isApiError(error) && error.status === 0) {
@@ -1297,13 +1301,13 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
     try {
       for (; nextUploadIndex < captureFiles.length; nextUploadIndex += 1) {
         const staged = captureFiles[nextUploadIndex];
-        await uploadMutation.mutateAsync({ id: record.id, file: staged.file, attachmentType: "GENERAL", caption: "" });
+        await uploadMutation.mutateAsync({ id: record.id, file: staged.file, attachmentType: "GENERAL", caption: "", ownerUserId });
       }
       setLastCaptureOutcome({ mode: "saved", record });
     } catch (error) {
       if (isApiError(error) && error.status === 0) {
         const pendingFiles = captureFiles.slice(nextUploadIndex).map((entry) => ({ file: entry.file, attachmentType: "GENERAL" as ProjectAttachmentType, caption: "" }));
-        await enqueueProjectAttachmentUpload({
+        await enqueueProjectAttachmentUpload(ownerUserId, {
           propertyId: record.propertyId,
           recordId: record.id,
           recordTitle: record.title,

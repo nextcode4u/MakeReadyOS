@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { requireVerifiedUserId } from "../lib/verifiedSession";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createPoolChemical,
@@ -460,16 +461,17 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
     onSuccess: invalidate,
   });
   const entryCreateMutation = useMutation({
-    mutationFn: (input: Parameters<typeof createPoolLogEntry>[0]) => createPoolLogEntry(input),
+    mutationFn: ({ input, ownerUserId }: { input: Parameters<typeof createPoolLogEntry>[0]; ownerUserId: string }) => createPoolLogEntry(input, { expectedUserId: ownerUserId }),
     onSuccess: invalidate,
   });
   const attachmentUploadMutation = useMutation({
     mutationFn: async ({ entryId, file }: { entryId: string; file: File }) => {
+      const ownerUserId = requireVerifiedUserId();
       try {
-        return await uploadPoolLogAttachment(entryId, file);
+        return await uploadPoolLogAttachment(entryId, file, { expectedUserId: ownerUserId });
       } catch (error) {
         if (isApiError(error) && error.status === 0) {
-          await enqueuePoolUpload(entryId, propertyId || undefined, [file]);
+          await enqueuePoolUpload(ownerUserId, entryId, propertyId || undefined, [file]);
           return { attachment: null };
         }
         throw error;
@@ -515,6 +517,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
 
   async function submitDailyLog(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const ownerUserId = requireVerifiedUserId();
     setFormError("");
     if (!propertyId) return;
     const form = event.currentTarget;
@@ -566,12 +569,12 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
       }] : [],
     };
     try {
-      await entryCreateMutation.mutateAsync(entryInput);
+      await entryCreateMutation.mutateAsync({ input: entryInput, ownerUserId });
     } catch (error) {
       if (!(isApiError(error) && error.status === 0)) {
         throw error;
       }
-      await enqueuePoolCreate(entryInput);
+      await enqueuePoolCreate(ownerUserId, entryInput);
     }
     form.reset();
     setSelectedChemicalId("");
