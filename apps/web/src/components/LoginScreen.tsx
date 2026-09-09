@@ -89,6 +89,9 @@ export function LoginScreen({ onSubmit, errorMessage, loading, infoMessage, lang
             {t(selectedLanguage, "auth.identifier")}
             <input
               data-testid="login-email"
+              name="username"
+              autoComplete="username"
+              spellCheck={false}
               value={identifier}
               onChange={(event) => setIdentifier(event.target.value)}
               type="text"
@@ -103,6 +106,8 @@ export function LoginScreen({ onSubmit, errorMessage, loading, infoMessage, lang
             {t(selectedLanguage, "auth.password")}
             <input
               data-testid="login-password"
+              name="password"
+              autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               type="password"

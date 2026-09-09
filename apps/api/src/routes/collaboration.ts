@@ -19,6 +19,8 @@ import { plannedTurnStart } from "../lib/turnStartProjection.js";
 import { myWorkForecast } from "../lib/myWorkForecast.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
+import { lockTurnProperty } from "../lib/turnMutationGuard.js";
+import { checklistMutation } from "../lib/checklistMutation.js";
 
 const maxUploadMb = Number(process.env.MAX_UPLOAD_MB ?? 0);
 const maxUploadBytes = maxUploadMb > 0 ? maxUploadMb * 1024 * 1024 : null;
@@ -1231,15 +1233,18 @@ export async function collaborationRoutes(app: FastifyInstance) {
     if (!item) return;
     const template = await prisma.checklistTemplate.findUnique({ where: { id: templateId }, include: { items: true } });
     if (!template || (template.propertyId && template.propertyId !== item.propertyId)) return reply.code(400).send({ message: "Checklist template is not available for this property" });
-    const instance = await prisma.checklistInstance.create({
-      data: {
-        itemId: item.id,
-        propertyId: item.propertyId,
-        templateId: template.id,
-        name: template.name,
-        items: { create: template.items.map((entry) => ({ title: entry.label, notes: entry.notes, required: entry.required, dueOffsetDays: entry.dueOffsetDays, tradeCategory: entry.tradeCategory, sortOrder: entry.sortOrder })) },
-      },
-      include: { items: { orderBy: { sortOrder: "asc" } } },
+    const instance = await prisma.$transaction(async db => {
+      await lockTurnProperty(db, item.propertyId);
+      return db.checklistInstance.create({
+        data: {
+          itemId: item.id,
+          propertyId: item.propertyId,
+          templateId: template.id,
+          name: template.name,
+          items: { create: template.items.map((entry) => ({ title: entry.label, notes: entry.notes, required: entry.required, dueOffsetDays: entry.dueOffsetDays, tradeCategory: entry.tradeCategory, sortOrder: entry.sortOrder })) },
+        },
+        include: { items: { orderBy: { sortOrder: "asc" } } },
+      });
     });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, propertyId: item.propertyId, entityType: "CHECKLIST_INSTANCE", entityId: instance.id, action: "CHECKLIST_ATTACHED", message: `Added ${template.name} checklist to ${item.unitNumber}` });
     reply.code(201);
@@ -1254,15 +1259,20 @@ export async function collaborationRoutes(app: FastifyInstance) {
     if (!existing) return reply.code(404).send({ message: "Checklist item not found" });
     const item = await getScopedItem(request, reply, existing.instance.itemId);
     if (!item) return;
-    const completed = input.completed ?? existing.completed;
     const user = request.currentUser!;
-    const checklistItem = await prisma.checklistInstanceItem.update({
-      where: { id },
-      data: { completed, notes: input.notes === undefined ? existing.notes : input.notes, completedAt: completed ? new Date() : null, completedById: completed ? user.id : null },
-      include: { completedBy: { select: { fullName: true } } },
+    const { checklistItem, completionChanged } = await prisma.$transaction(async db => {
+      await lockTurnProperty(db, item.propertyId);
+      const current = await db.checklistInstanceItem.findUniqueOrThrow({ where: { id } });
+      const mutation = checklistMutation(current, input, user.id);
+      const updated = await db.checklistInstanceItem.update({
+        where: { id }, data: mutation.data,
+        include: { completedBy: { select: { fullName: true } } },
+      });
+      return { checklistItem: updated, completionChanged: mutation.completionChanged };
     });
-    await writeAuditLog({ request, actorUserId: user.id, propertyId: item.propertyId, entityType: "CHECKLIST_ITEM", entityId: id, action: completed ? "CHECKLIST_ITEM_COMPLETED" : "CHECKLIST_ITEM_REOPENED", message: `${completed ? "Completed" : "Reopened"} ${checklistItem.title} on ${item.unitNumber}` });
-    if (completed) {
+    const action = completionChanged ? (checklistItem.completed ? "CHECKLIST_ITEM_COMPLETED" : "CHECKLIST_ITEM_REOPENED") : "CHECKLIST_ITEM_UPDATED";
+    await writeAuditLog({ request, actorUserId: user.id, propertyId: item.propertyId, entityType: "CHECKLIST_ITEM", entityId: id, action, message: `${completionChanged ? (checklistItem.completed ? "Completed" : "Reopened") : "Updated"} ${checklistItem.title} on ${item.unitNumber}` });
+    if (completionChanged && checklistItem.completed) {
       await queueWebhookEvent({
         eventType: "checklist.completed",
         propertyId: item.propertyId,

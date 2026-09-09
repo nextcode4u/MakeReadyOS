@@ -149,8 +149,10 @@ function diffInDays(from: Date, to: Date): number {
   return Math.floor((startOfDay(to).getTime() - startOfDay(from).getTime()) / DAY_MS);
 }
 
-export function isTurnReady(item: Pick<Partial<MakeReadyItem>, "vacancyStatus" | "completionStatus">) {
+export function isTurnReady(item: Pick<Partial<MakeReadyItem>, "vacancyStatus" | "completionStatus" | "makeReadyStatus">) {
   const normalize = (value: string | null | undefined) => String(value ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+  // Repair completion is an inspection handoff, not final readiness.
+  if (normalize(item.makeReadyStatus) === "FINAL_WALK") return false;
   return ["VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY"].includes(normalize(item.vacancyStatus))
     || ["DONE", "YES", "COMPLETE", "COMPLETED"].includes(normalize(item.completionStatus));
 }

@@ -34,6 +34,19 @@ test("mark ready rejects incomplete work, self-review and archived turns", async
   expect((await page.request.put(`${root}/materials`, { headers, data: { version: 0, rows: [material] } })).ok()).toBeTruthy();
   const { template } = await post("/checklist-templates", { propertyId: property.id, name: "Required repair and optional work", items: [{ title: "Verify repair", required: true }, { title: "Optional work", required: false }] });
   const { instance } = await post(`/make-ready-items/${item.id}/checklists`, { templateId: template.id });
+  const readySection = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "READY");
+  for (const data of [{ makeReadyStatus: "DONE" }, { vacancyStatus: "VACANT NOT LEASED READY" }, { boardGroup: readySection.key }]) {
+    expect((await page.request.patch(root, { headers, data })).status()).toBe(409);
+  }
+  const { unit: secondUnit } = await post("/operations/units", { propertyId: property.id, number: "GATE-2" });
+  const second = await post("/make-ready-items", { propertyId: property.id, unitId: secondUnit.id, boardGroup: section.key, itemName: secondUnit.number, unitNumber: secondUnit.number, vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" });
+  for (const change of [{ action: "SET_FIELD", field: "makeReadyStatus", value: "DONE" }, { action: "MOVE_GROUP", boardGroup: readySection.key }]) {
+    const response = await page.request.post("/api/make-ready-items/batch", { headers, data: { ids: [second.id, item.id], ...change } });
+    expect(response.status(), await response.text()).toBe(409);
+    const unchanged = await (await page.request.get(`/api/make-ready-items/${second.id}`)).json();
+    expect(unchanged.boardGroup).toBe(section.key);
+    expect(unchanged.makeReadyStatus).not.toBe("DONE");
+  }
   const attempt = () => page.request.post(`${root}/mark-ready`, { headers });
   expect((await attempt()).status()).toBe(409);
   await page.reload();
@@ -44,7 +57,15 @@ test("mark ready rejects incomplete work, self-review and archived turns", async
   await expect(blockers).toContainText("cannot approve their own");
   expect((await page.request.patch(`${root}`, { headers, data: { assignedTech: null } })).ok()).toBeTruthy();
   expect((await attempt()).status()).toBe(409);
-  expect((await page.request.patch(`/api/checklist-items/${instance.items.find((task: any) => task.required).id}`, { headers, data: { completed: true } })).ok()).toBeTruthy();
+  const taskUrl = `/api/checklist-items/${instance.items.find((task: any) => task.required).id}`;
+  const completionResponse = await page.request.patch(taskUrl, { headers, data: { completed: true } });
+  expect(completionResponse.ok()).toBeTruthy();
+  const { checklistItem: originalCompletion } = await completionResponse.json();
+  const noteResponse = await page.request.patch(taskUrl, { headers, data: { notes: "Repair confirmed", completed: true } });
+  expect(noteResponse.ok()).toBeTruthy();
+  const { checklistItem: noteEdit } = await noteResponse.json();
+  expect(noteEdit.completedAt).toBe(originalCompletion.completedAt);
+  expect(noteEdit.completedById).toBe(originalCompletion.completedById);
   expect((await attempt()).status()).toBe(409);
   expect((await page.request.put(`${root}/materials`, { headers, data: { version: 1, rows: [{ ...material, status: "ON_HAND" }] } })).ok()).toBeTruthy();
   await blockers.getByRole("button", { name: "Recheck completion blockers" }).click();
@@ -79,9 +100,18 @@ test("turn materials survive saves, conflicts and native restore without leaking
   await modal.getByRole("button", { name: "Save material", exact: true }).click();
   await expect(modal.getByRole("alert")).toContainText("Temporary save failure");
   await expect(modal.getByLabel("Part / material", { exact: true })).toHaveValue("Internal-only filter purchase");
+  await modal.getByRole("button", { name: "Keep draft on this device", exact: true }).click();
+  await expect(panel.getByTestId("material-draft-recovery")).toContainText("not saved to the team list");
+  await page.reload();
+  await page.getByRole("button", { name: `Open details for ${item.unitNumber}`, exact: true }).click();
+  await panel.getByRole("button", { name: "Resume material draft", exact: true }).click();
+  await expect(modal.getByLabel("Part / material", { exact: true })).toHaveValue("Internal-only filter purchase");
+  await expect(modal.getByLabel("Quantity", { exact: true })).toHaveValue("2");
+  await expect(modal.getByLabel("Notes / supplier / order reference")).toHaveValue("PRIVATE-SUPPLIER-ORDER");
   await page.unroute(`**${root}`);
   await modal.getByRole("button", { name: "Save material", exact: true }).click();
   await expect(modal).toBeHidden();
+  await expect(panel.getByTestId("material-draft-recovery")).toHaveCount(0);
   await expect(panel).toContainText("2 each / Needed");
   const saved = await (await page.request.get(root)).json();
   expect(saved.rows).toHaveLength(1);
@@ -1160,6 +1190,15 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
   await guide.screenshot({ path: testInfo.outputPath("final-walk-setup-mobile.png") });
   const assignmentUrl = `${origin}/api/make-ready-items/${item.id}/final-walk`;
   expect((await (await page.request.get(assignmentUrl)).json()).block).toBeNull();
+  const { unit: batchUnit } = await post("/operations/units", { propertyId: property.id, number: "WALK-BATCH" });
+  const batchItem = await post("/make-ready-items", { propertyId: property.id, unitId: batchUnit.id, boardGroup: section.key, unitNumber: batchUnit.number, itemName: batchUnit.number, completionStatus: "NO", vacancyStatus: "VACANT NOT LEASED NOT READY" });
+  await post("/make-ready-items/batch", { action: "SET_FIELD", ids: [batchItem.id], field: "completionStatus", value: "YES" });
+  const batchTurn = await (await page.request.get(`${origin}/api/make-ready-items/${batchItem.id}`)).json();
+  expect(batchTurn.makeReadyStatus).toBe("FINAL WALK");
+  const batchWalk = await (await page.request.get(`${origin}/api/make-ready-items/${batchItem.id}/final-walk`)).json();
+  expect(batchWalk.block.assignedUserId).toBe(users[0].id);
+  const bypass = await page.request.patch(`${origin}/api/make-ready-items/${batchItem.id}`, { headers, data: { makeReadyStatus: "DONE" } });
+  expect(bypass.status(), await bypass.text()).toBe(409);
   const techContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   try {
     const techPage = await techContext.newPage();
@@ -1287,7 +1326,7 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
         await expect(inspectionCard.getByRole("button", { name: "Inspect or hand off", exact: true })).toHaveCount(1);
         await expect(inspectionCard.getByRole("button", { name: "Open work item", exact: true })).toHaveCount(0);
         await expect(inspectionCard.locator("progress")).toHaveCount(0);
-        await staffPage.getByRole("button", { name: "Inspect or hand off", exact: true }).click();
+        await inspectionCard.getByRole("button", { name: "Inspect or hand off", exact: true }).click();
         const controls = staffPage.getByTestId("final-walk-controls");
         await expect(controls.getByLabel("Handoff reason")).toHaveCount(0);
         await controls.getByRole("button", { name: "Cannot do this inspection?", exact: true }).click();
@@ -1352,6 +1391,10 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
         await staffPage.getByRole("button", { name: "Final walk passed / mark ready", exact: true }).click();
         const done = await finishing;
         expect(done.ok(), await done.text()).toBeTruthy();
+        expect((await (await context.request.get(assignmentUrl)).json()).block).toBeNull();
+        const repeatCompletion = await page.request.patch(`${origin}/api/make-ready-items/${item.id}`, { headers, data: { completionStatus: "YES" } });
+        expect(repeatCompletion.ok(), await repeatCompletion.text()).toBeTruthy();
+        expect((await repeatCompletion.json()).makeReadyStatus).toBe("DONE");
         expect((await (await context.request.get(assignmentUrl)).json()).block).toBeNull();
         const completedReport = await context.request.get(`${root}?itemId=${item.id}`);
         expect(completedReport.ok()).toBeTruthy();
@@ -3735,9 +3778,14 @@ test.describe("MakeReadyOS browser flows", () => {
     let userEmail = `${userName}@example.com`;
     const userRowId = `admin-user-row-${slugify(userName)}`;
 
+    await page.goto("/");
+    await expect(page.getByTestId("login-email")).toHaveAttribute("autocomplete", "username");
+    await expect(page.getByTestId("login-password")).toHaveAttribute("autocomplete", "current-password");
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-admin").click();
     await expect(page.getByTestId("admin-panel")).toBeVisible();
+    await expect(page.getByTestId("admin-create-username")).toHaveAttribute("autocomplete", "section-create-user username");
+    await expect(page.getByTestId("admin-create-password")).toHaveAttribute("autocomplete", "section-create-user new-password");
 
     await page.getByTestId("admin-create-full-name").fill(userName);
     await page.getByTestId("admin-create-username").fill(userName);
@@ -3763,6 +3811,8 @@ test.describe("MakeReadyOS browser flows", () => {
       expect(bounds.sectionLeft).toBeGreaterThanOrEqual(0);
     }
     await userRow.getByRole("button", { name: "Edit account" }).click();
+    await expect(page.getByTestId("admin-reset-password-input")).toHaveAttribute("autocomplete", "section-reset-user new-password");
+    await expect(page.getByTestId("admin-reset-password-input")).toHaveAccessibleName(/reset password/i);
     await expect(page.getByTestId("admin-edit-email")).toBeInViewport();
     userEmail = `${userName}-recovery@example.com`;
     await page.getByTestId("admin-edit-email").fill(userEmail);

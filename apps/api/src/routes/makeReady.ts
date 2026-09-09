@@ -13,6 +13,7 @@ import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
 import { finalWalkCategory, pendingWalkStatuses, syncFinalWalks } from "../lib/finalWalks.js";
 import { getTurnReadiness } from "../lib/turnReadiness.js";
+import { guardReadyMutation, lockTurnProperty, requestsInspection } from "../lib/turnMutationGuard.js";
 import { notifyAssignedStaff, notifyPropertyRoles } from "../lib/notifications.js";
 import { computeDerivedFields, editableFields, normalizeItemPatch } from "../lib/board.js";
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
@@ -1129,7 +1130,20 @@ export async function makeReadyRoutes(app: FastifyInstance) {
 
     const updated = (payload.action === "ARCHIVE" || payload.action === "RESTORE")
       ? { count: items.length }
-      : await prisma.makeReadyItem.updateMany({ where: { id: { in: payload.ids } }, data });
+      : await prisma.$transaction(async db => {
+        for (const propertyId of [...new Set(items.map(item => item.propertyId))].sort()) await lockTurnProperty(db, propertyId);
+        const currentItems = await db.makeReadyItem.findMany({ where: { id: { in: payload.ids } }, orderBy: { id: "asc" } });
+        if (currentItems.length !== items.length) throw Object.assign(new Error("Selected turns changed. Reload before retrying."), { statusCode: 409 });
+        for (const current of currentItems) {
+          await guardReadyMutation(db, current, data, user.fullName);
+          const next = { ...data, ...(requestsInspection(current, data) ? { makeReadyStatus: "FINAL WALK" } : {}) };
+          await db.makeReadyItem.update({ where: { id: current.id }, data: next });
+        }
+        return { count: currentItems.length };
+      }, { timeout: 30000 });
+    if (payload.action === "SET_FIELD" && ["completionStatus", "makeReadyStatus"].includes(payload.field)) {
+      for (const item of items) await syncFinalWalks(item.propertyId, item.id);
+    }
     if (payload.action === "ASSIGN_TECH" && payload.value) {
       for (const item of items) {
         await notifyAssignedStaff({
@@ -1207,21 +1221,21 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       return { message: "Select an active staff member with access to the target property" };
     }
 
-    await prisma.makeReadyItem.update({
-      where: { id },
-      data: normalizeItemPatch(payload),
+    const requestedInspection = await prisma.$transaction(async db => {
+      await lockTurnProperty(db, existing.propertyId);
+      const current = await db.makeReadyItem.findUniqueOrThrow({ where: { id } });
+      const data = normalizeItemPatch(payload);
+      await guardReadyMutation(db, current, data, user.fullName);
+      const requested = requestsInspection(current, data);
+      await db.makeReadyItem.update({ where: { id }, data: { ...data, ...(requested ? { makeReadyStatus: "FINAL WALK" } : {}) } });
+      return requested;
     });
 
     const triggerTypes = ["ITEM_UPDATED"];
     if (changedKeys.some((key) => key.endsWith("Date"))) triggerTypes.push("DATE_FIELD_CHANGED");
     if (changedKeys.some((key) => statusTriggerFields.has(key))) triggerTypes.push("STATUS_FIELD_CHANGED");
-    let updated = await processItem(id, { triggerTypes, request });
-    if (changedKeys.includes("completionStatus") && (updated.completionStatus ?? "").toUpperCase() === "YES" && updated.makeReadyStatus !== "FINAL WALK") {
-      await prisma.makeReadyItem.update({
-        where: { id },
-        data: { makeReadyStatus: "FINAL WALK" },
-      });
-      updated = await processItem(id, { triggerTypes: ["STATUS_FIELD_CHANGED"], request });
+    const updated = await processItem(id, { triggerTypes, request });
+    if (requestedInspection) {
       await syncFinalWalks(updated.propertyId, updated.id);
       const namedInspector = await prisma.workAssignmentBlock.count({ where: { itemId: updated.id, category: finalWalkCategory, status: { in: pendingWalkStatuses } } });
       if (!namedInspector) await notifyPropertyRoles({
