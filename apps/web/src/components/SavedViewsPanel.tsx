@@ -5,6 +5,7 @@ import { sortOptions, tableColumnPresets, type VisibleColumnOption } from "../li
 import { t, tWithVars } from "../lib/i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusState } from "./StatusState";
+import { statusDisplayName } from "../lib/statusDisplayName";
 
 type AppView = "table" | "kanban" | "calendar" | "dashboard";
 
@@ -217,7 +218,7 @@ export function SavedViewsPanel({
                 <option value="__vacant__">{t(language, "savedViews.vacantNotLeased")}</option>
                 <option value="__vacant_leased__">{t(language, "savedViews.vacantLeased")}</option>
                 <option value="__ntv__">{t(language, "savedViews.noticeToVacate")}</option>
-                {Object.values(labelsByField.vacancyStatus ?? {}).filter((option) => !option.isArchived).map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}
+                {Object.values(labelsByField.vacancyStatus ?? {}).filter((option) => !option.isArchived).map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}
               </select>
             </label>
             <label>
@@ -250,14 +251,14 @@ export function SavedViewsPanel({
               {t(language, "savedViews.scope")}
               <select data-testid="saved-view-scope-filter" value={config.scopeLevel} onChange={(event) => onConfigChange({ scopeLevel: event.target.value })}>
                 <option value="">{t(language, "savedViews.allScopes")}</option>
-                {Object.values(labelsByField.scopeLevel ?? {}).filter((option) => !option.isArchived).map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}
+                {Object.values(labelsByField.scopeLevel ?? {}).filter((option) => !option.isArchived).map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}
               </select>
             </label>
             <label>
               {t(language, "savedViews.makeReadyStatus")}
               <select data-testid="filter-make-ready-status" value={config.makeReadyStatus} onChange={(event) => onConfigChange({ makeReadyStatus: event.target.value })}>
                 <option value="">{t(language, "savedViews.allMakeReadyStatuses")}</option>
-                {Object.values(labelsByField.makeReadyStatus ?? {}).filter((option) => !option.isArchived).map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}
+                {Object.values(labelsByField.makeReadyStatus ?? {}).filter((option) => !option.isArchived).map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}
               </select>
             </label>
             <label>

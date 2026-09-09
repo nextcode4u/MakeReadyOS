@@ -41,6 +41,7 @@ const floorPlanSchema = z.object({
 const boardOptionSchema = z.object({
   fieldKey: z.string().min(1),
   value: z.string(),
+  displayName: z.string().max(80).nullable().optional(),
   color: z.string(),
   textColor: z.string(),
   sortOrder: z.number().int(),
@@ -1644,6 +1645,7 @@ async function buildExport(): Promise<NativeBackup> {
       boardOptions: boardOptions.map((option) => ({
         fieldKey: option.fieldKey,
         value: option.value,
+        displayName: option.displayName,
         color: option.color,
         textColor: option.textColor,
         sortOrder: option.sortOrder,
@@ -2558,7 +2560,7 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
   rejectDuplicates("customFieldOptions", backup.data.customFieldOptions.map((option) => `${option.fieldKey}|${option.label}`));
   rejectDuplicates("customFieldValues", backup.data.customFieldValues.map((value) => `${value.itemKey}|${value.fieldKey}`));
   rejectDuplicates("savedViews", backup.data.savedViews.map((view) => `${view.module}|${view.name}`));
-  rejectDuplicates("automationRules", backup.data.automationRules.map((rule) => `${rule.triggerType}|${rule.name}`));
+  rejectDuplicates("automationRules", backup.data.automationRules.map((rule) => JSON.stringify([rule.propertyCode ?? null, rule.triggerType, rule.name])));
   rejectDuplicates("checklistTemplates", backup.data.checklistTemplates.map((template) => `${template.propertyCode ?? "global"}|${template.scope ?? ""}|${template.name}`));
   rejectDuplicates("chargePriceSheetItems", backup.data.chargePriceSheetItems.map((entry) => `${entry.propertyCode}|${entry.name}`));
   rejectDuplicates("comments", backup.data.comments.map((comment) => `${comment.itemKey}|${comment.authorName}|${comment.createdAt}`));
@@ -3092,7 +3094,13 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
 
     for (const option of backup.data.boardOptions) {
       const existing = await tx.labelDefinition.findUnique({ where: { fieldKey_value: { fieldKey: option.fieldKey, value: option.value } } });
-      if (existing) summary.boardOptions.skipped += 1;
+      if (existing) {
+        summary.boardOptions.skipped += 1;
+        if ((option.displayName !== undefined && (existing.displayName ?? null) !== option.displayName) || existing.color !== option.color || existing.textColor !== option.textColor || existing.isArchived !== option.isArchived || existing.sortOrder !== option.sortOrder) {
+          summary.boardOptions.conflicts += 1;
+          summary.boardOptions.errors.push(`Existing shared status settings retained for ${option.fieldKey}: ${option.value}`);
+        }
+      }
       else {
         summary.boardOptions.created += 1;
         if (!dryRun) await tx.labelDefinition.create({ data: option });

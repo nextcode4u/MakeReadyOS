@@ -56,6 +56,16 @@ Tokens can also be scoped to specific properties. Property scope is an additiona
 
 ## Core Endpoints
 
+### Shared Status Names
+
+Built-in status definitions have a fixed `value` and an optional `displayName`. Editing a display name changes presentation, not turn records or readiness semantics. Filters, item writes, automation conditions and imported status values continue to use `value`. `PATCH /api/operations/options/:id` rejects a different `value` with `409`; use `displayName` instead, or `null` to restore the canonical label. This does not repair historical values renamed before this protection existed.
+
+Creating, editing, reordering, archiving and restoring shared status definitions require ADMIN because these choices apply across properties. Managers may read/use existing definitions. Property-template and library imports by managers may reuse existing definitions, but adding shared definitions requires an admin. Direct create/edit requests reject duplicate visible names within a field, including archived choices.
+
+Native exports and property templates preserve `displayName`. Native merge import retains existing shared definitions and reports conflicting presentation settings instead of overwriting them; old backups without display names remain supported. Merge import is not an exact overwrite restore.
+
+### Endpoint List
+
 - `GET /api/meta`
 - `GET /api/operations/properties`
 - `GET /api/operations/units?propertyId=`

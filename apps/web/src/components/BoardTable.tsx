@@ -11,6 +11,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { LabelPill } from "./LabelPill";
 import { Modal } from "./Modal";
 import { StatusState } from "./StatusState";
+import { statusDisplayName } from "../lib/statusDisplayName";
 
 type Props = {
   items: MakeReadyItem[];
@@ -23,6 +24,7 @@ type Props = {
   canEditField: (item: MakeReadyItem, key: string) => boolean;
   canEditCustomFields: boolean;
   canManageItems: boolean;
+  canManageSharedOptions: boolean;
   properties: Property[];
   units: Unit[];
   floorPlans: FloorPlan[];
@@ -56,7 +58,7 @@ type Props = {
   onOpenBoardSetup: () => void;
   onAddBuiltInOption: (fieldKey: string, value: string, color: string) => Promise<void>;
   onAddCustomOption: (field: CustomField, value: string, color: string) => Promise<void>;
-  onUpdateBuiltInOption: (id: string, data: Partial<Pick<LabelDefinition, "value" | "color" | "textColor">>) => Promise<void>;
+  onUpdateBuiltInOption: (id: string, data: Partial<Pick<LabelDefinition, "value" | "displayName" | "color" | "textColor">>) => Promise<void>;
   onArchiveBuiltInOption: (id: string, restore: boolean) => Promise<void>;
   onReorderBuiltInOptions: (ids: string[]) => Promise<void>;
   onUpdateCustomOptions: (field: CustomField, options: CustomField["options"]) => Promise<void>;
@@ -163,7 +165,7 @@ function CellState({ dirty, state, testId }: { dirty: boolean; state?: SaveState
   );
 }
 
-export function BoardTable({ items, labelsByField, customFields, columnDefinitions, visibleColumns, onPatch, onPatchCustomField, canEditField, canEditCustomFields, canManageItems, properties, units, floorPlans, staff, boardGroups, boardSections, language, preferredPropertyId, archiveState, searchText, onCreateUnit, onCreateItem, onBatch, onOpenFieldManager, onOpenBoardSetup, onAddBuiltInOption, onAddCustomOption, onUpdateBuiltInOption, onArchiveBuiltInOption, onReorderBuiltInOptions, onUpdateCustomOptions, onCreateFloorPlan, onUpdateFloorPlan, onArchiveFloorPlan, onRenameBuiltInColumn, onRenameCustomColumn, onHideColumn, onSortColumn, onOpenItem, onAssignFloorPlan, onReorderColumns, onRenameSection }: Props) {
+export function BoardTable({ items, labelsByField, customFields, columnDefinitions, visibleColumns, onPatch, onPatchCustomField, canEditField, canEditCustomFields, canManageItems, canManageSharedOptions, properties, units, floorPlans, staff, boardGroups, boardSections, language, preferredPropertyId, archiveState, searchText, onCreateUnit, onCreateItem, onBatch, onOpenFieldManager, onOpenBoardSetup, onAddBuiltInOption, onAddCustomOption, onUpdateBuiltInOption, onArchiveBuiltInOption, onReorderBuiltInOptions, onUpdateCustomOptions, onCreateFloorPlan, onUpdateFloorPlan, onArchiveFloorPlan, onRenameBuiltInColumn, onRenameCustomColumn, onHideColumn, onSortColumn, onOpenItem, onAssignFloorPlan, onReorderColumns, onRenameSection }: Props) {
   const isSpanish = language === "es";
   const visibleColumnSet = useMemo(() => visibleColumns === null ? null : new Set([...requiredTableColumnKeys, ...visibleColumns]), [visibleColumns]);
   const defaultHiddenColumnSet = useMemo(() => new Set<string>(defaultHiddenTableColumnKeys), []);
@@ -593,10 +595,11 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   };
 
   const openOptionManager = (fieldKey: string, label: string, customField?: CustomField) => {
+    if (!customField && !canManageSharedOptions) return;
     setQuickOption({ value: "", color: "#58a6de" });
     const options = customField
       ? customField.options.map((option) => ({ id: option.id, value: option.label, color: option.color, isArchived: option.isArchived }))
-      : Object.values(labelsByField[fieldKey] ?? {}).map((option) => ({ id: option.id, value: option.value, color: option.color, isArchived: Boolean(option.isArchived) }));
+      : Object.values(labelsByField[fieldKey] ?? {}).map((option) => ({ id: option.id, value: option.displayName ?? option.value, color: option.color, isArchived: Boolean(option.isArchived) }));
     setOptionDrafts(Object.fromEntries(options.map((option) => [option.id, { value: option.value, color: option.color, isArchived: option.isArchived }])));
     setOptionTarget({ fieldKey, label, customField });
   };
@@ -650,7 +653,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
   const optionArchiveChanges = optionsForTarget.flatMap((option) => {
     const draft = optionDrafts[option.id];
     if (!draft || draft.isArchived === Boolean(option.isArchived)) return [];
-    const label = "value" in option ? option.value : option.label;
+    const label = "value" in option ? statusDisplayName(option) : option.label;
     return [{ id: option.id, label, archived: draft.isArchived }];
   });
   const activeManagedOptionCount = optionsForTarget.filter((option) => !option.isArchived).length;
@@ -675,8 +678,8 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
         for (const option of optionsForTarget as LabelDefinition[]) {
           const next = optionDrafts[option.id];
           if (!next) continue;
-          if (next.value !== option.value || next.color !== option.color) {
-            await onUpdateBuiltInOption(option.id, { value: next.value, color: next.color });
+          if (next.value !== (option.displayName ?? option.value) || next.color !== option.color) {
+            await onUpdateBuiltInOption(option.id, { displayName: next.value, color: next.color });
           }
           if (next.isArchived !== Boolean(option.isArchived)) {
             await onArchiveBuiltInOption(option.id, !next.isArchived);
@@ -768,7 +771,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
           <button data-testid="batch-assign-tech" className="button button-secondary" disabled={!batchTech || batchPending} onClick={() => applyDirectBatch({ action: "ASSIGN_TECH", ids: selectedIds, value: batchTech || null })}>{isSpanish ? "Asignar" : "Assign"}</button>
           <select data-testid="batch-status-select" value={batchStatus} onChange={(event) => setBatchStatus(event.target.value)}>
             <option value="">{isSpanish ? "Definir make-ready..." : "Set make-ready..."}</option>
-            {Object.values(labelsByField.makeReadyStatus ?? {}).filter((label) => !label.isArchived).map((label) => <option key={label.id} value={label.value}>{label.value}</option>)}
+            {Object.values(labelsByField.makeReadyStatus ?? {}).filter((label) => !label.isArchived).map((label) => <option key={label.id} value={label.value}>{statusDisplayName(label)}</option>)}
           </select>
           <button className="button button-secondary" disabled={!batchStatus || batchPending} onClick={() => applyDirectBatch({ action: "SET_FIELD", ids: selectedIds, field: "makeReadyStatus", value: batchStatus || null })}>{isSpanish ? "Definir" : "Set"}</button>
           <select data-testid="batch-group-select" value={batchGroup} onChange={(event) => setBatchGroup(event.target.value)}>
@@ -1229,9 +1232,9 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                   onBlur={() => handleBlur(cell, draft)}
                                 >
                                   <option value="">Select</option>
-                                  {options.map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}
+                                  {options.map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}
                                 </select>
-                                {canManageItems ? <button type="button" data-testid={`manage-options-${column.key}-${slug(item.unitNumber)}`} className="cell-manage-link" onMouseDown={(event) => event.preventDefault()} onClick={() => openOptionManager(column.key, column.label)}>{isSpanish ? "+ Agregar opcion" : "+ Add option"}</button> : null}
+                                {canManageSharedOptions ? <button type="button" data-testid={`manage-options-${column.key}-${slug(item.unitNumber)}`} className="cell-manage-link" onMouseDown={(event) => event.preventDefault()} onClick={() => openOptionManager(column.key, column.label)}>{isSpanish ? "+ Agregar opcion" : "+ Add option"}</button> : null}
                                 {feedback}
                               </div>
                             ) : (

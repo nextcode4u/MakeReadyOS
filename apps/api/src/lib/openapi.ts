@@ -1392,13 +1392,14 @@ export const openApiDocument = {
       },
       BoardOption: {
         type: "object",
-        required: ["id", "fieldKey", "value", "label", "color"],
+        required: ["id", "fieldKey", "value", "color", "textColor"],
         properties: {
           id: { type: "string" },
           fieldKey: { type: "string" },
-          value: { type: "string" },
-          label: { type: "string" },
+          value: { type: "string", description: "Immutable workflow value used by turn writes, filters and automation conditions." },
+          displayName: { type: ["string", "null"], description: "Optional presentation name; does not change workflow meaning." },
           color: { type: "string" },
+          textColor: { type: "string" },
           sortOrder: { type: "integer" },
           isArchived: { type: "boolean" },
           createdAt: { type: "string", format: "date-time" },
@@ -3281,7 +3282,7 @@ export const openApiDocument = {
       },
       post: {
         tags: ["Operations"],
-        summary: "Create built-in board option",
+        summary: "Create shared built-in board option (admin only)",
         security: [{ cookieSession: [] }],
         requestBody: {
           required: true,
@@ -3293,14 +3294,14 @@ export const openApiDocument = {
     "/api/operations/options/{id}": {
       patch: {
         tags: ["Operations"],
-        summary: "Update built-in board option",
+        summary: "Update shared status presentation without changing workflow values (admin only)",
         security: [{ cookieSession: [] }],
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
         requestBody: {
           required: true,
           content: { "application/json": { schema: ref("BoardOptionPatchRequest") } },
         },
-        responses: { "200": { description: "Board option updated.", ...json(ref("BoardOptionResponse")) } },
+        responses: { "200": { description: "Board option presentation updated.", ...json(ref("BoardOptionResponse")) }, "403": { $ref: "#/components/responses/Forbidden" }, "409": { description: "Workflow value cannot change, or display name conflicts with another choice." } },
       },
       delete: {
         tags: ["Operations"],

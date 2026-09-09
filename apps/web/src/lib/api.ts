@@ -2201,6 +2201,7 @@ export type LabelDefinition = {
   id: string;
   fieldKey: string;
   value: string;
+  displayName?: string | null;
   color: string;
   textColor: string;
   sortOrder: number;
@@ -4218,7 +4219,7 @@ export function createBoardOption(input: { fieldKey: string; value: string; colo
   return request<{ option: LabelDefinition }>("/operations/options", { method: "POST", body: JSON.stringify(input) });
 }
 
-export function updateBoardOption(id: string, input: Partial<Pick<LabelDefinition, "value" | "color" | "textColor">>) {
+export function updateBoardOption(id: string, input: Partial<Pick<LabelDefinition, "value" | "displayName" | "color" | "textColor">>) {
   return request<{ option: LabelDefinition }>(`/operations/options/${id}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 

@@ -58,6 +58,8 @@ mkdir -p "$LOG_DIR"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/adminUsername.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/dashboardDates.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/analytics.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/boardOptionSafety.test.ts"
+  TSX_TSCONFIG_PATH="$ROOT_DIR/apps/web/tsconfig.json" node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/e2e/status-display-name.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/notifications.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/turnSetup.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/turnStartProjection.test.ts"
@@ -845,7 +847,7 @@ mkdir -p "$LOG_DIR"
     TEST_OPTION_ID="$(node -e 'const fs=require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).option?.id || "");' "$TEST_OPTION_JSON")"
     UPDATE_OPTION_STATUS="$(curl -s -o /tmp/makereadyos-option-update.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PATCH \
-      -d '{"value":"QA PAINT TOUCH UP","color":"#654321"}' \
+      -d '{"displayName":"QA PAINT TOUCH UP","color":"#654321"}' \
       "http://localhost:${API_PORT:-4000}/api/operations/options/$TEST_OPTION_ID")"
     ARCHIVE_OPTION_STATUS="$(curl -s -o /tmp/makereadyos-option-archive.json -b "$COOKIE_JAR" -w "%{http_code}" \
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X POST \
@@ -854,6 +856,7 @@ mkdir -p "$LOG_DIR"
       -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X DELETE \
       "http://localhost:${API_PORT:-4000}/api/operations/options/$TEST_OPTION_ID")"
     echo "Board option statuses: create=$CREATE_OPTION_STATUS update=$UPDATE_OPTION_STATUS archive=$ARCHIVE_OPTION_STATUS delete=$DELETE_OPTION_STATUS"
+    node -e 'const fs=require("fs"); const option=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).option; if (option.value !== "QA TOUCH UP" || option.displayName !== "QA PAINT TOUCH UP") process.exit(1);' /tmp/makereadyos-option-update.json
     if [ "$CREATE_OPTION_STATUS" != "201" ] || [ "$UPDATE_OPTION_STATUS" != "200" ] || [ "$ARCHIVE_OPTION_STATUS" != "200" ] || [ "$DELETE_OPTION_STATUS" != "409" ]; then
       cat "$TEST_OPTION_JSON" /tmp/makereadyos-option-update.json /tmp/makereadyos-option-archive.json /tmp/makereadyos-option-delete.json
       exit 1
@@ -1605,7 +1608,7 @@ const required = [
   body.version === 1,
   data && Array.isArray(data.properties),
   Array.isArray(data.floorPlans) && data.floorPlans.some((plan) => plan.name === "QA A1 Managed"),
-  Array.isArray(data.boardOptions) && data.boardOptions.some((option) => option.value === "QA PAINT TOUCH UP" && option.isArchived),
+  Array.isArray(data.boardOptions) && data.boardOptions.some((option) => option.value === "QA TOUCH UP" && option.displayName === "QA PAINT TOUCH UP" && option.isArchived),
   Array.isArray(data.boardSections) && data.boardSections.some((section) => section.sectionType === "ARCHIVE"),
   data.boardColumns?.some((column) => column.fieldKey === "vacatedDate" && column.label === "QA Vacated"),
   data.scheduleTracks?.some((track) => track.sourceField === "moveOutDate" && "overdueEnabled" in track),

@@ -10,6 +10,7 @@ import { t, tWithVars } from "../lib/i18n";
 import { openPestQuickAdd, openPestWorkspace } from "../lib/pestNavigation";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { LabelPill } from "./LabelPill";
+import { statusDisplayName } from "../lib/statusDisplayName";
 import { Modal } from "./Modal";
 import { StatusState } from "./StatusState";
 import { HistoryCoverageNotice } from "./HistoryCoverageNotice";
@@ -767,7 +768,7 @@ export function ItemDrawer({
                     <span>{column.label}</span>
                     <select data-testid={`drawer-field-${column.key}`} value={typeof value === "string" ? value : ""} disabled={!editable || busy} onChange={(event) => void commit(column.key, event.target.value || null)}>
                       <option value="">{t(language, "drawer.unset")}</option>
-                      {options.map((option) => <option key={option.id} value={option.value}>{option.value}{option.isArchived ? " (archived)" : ""}</option>)}
+                      {options.map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}{option.isArchived ? " (archived)" : ""}</option>)}
                     </select>
                   </label>
                 );
@@ -883,7 +884,7 @@ export function ItemDrawer({
                 onChange={(event) => void commit("completionStatus", event.target.value || null)}
               >
                 <option value="">{t(language, "drawer.unset")}</option>
-                {completionOptions.map((option) => <option key={option.id} value={option.value}>{option.value}{option.isArchived ? " (archived)" : ""}</option>)}
+                {completionOptions.map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}{option.isArchived ? " (archived)" : ""}</option>)}
               </select>
             </label>
           </div>

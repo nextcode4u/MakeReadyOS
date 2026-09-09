@@ -1180,6 +1180,7 @@ model LabelDefinition {
   id         String   @id @default(cuid())
   fieldKey   String
   value      String
+  displayName String?
   color      String
   textColor  String   @default("#0b1020")
   sortOrder  Int      @default(0)
