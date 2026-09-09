@@ -873,7 +873,7 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
       {overviewQuery.isLoading ? (
         <StatusState title={t(language, "wiki.loadingTitle")} description={t(language, "wiki.loadingCopy")} />
       ) : overviewQuery.isError ? (
-        <StatusState title={t(language, "wiki.failedTitle")} description={t(language, "wiki.failedCopy")} tone="error" />
+        <StatusState title={t(language, "wiki.failedTitle")} description={t(language, "wiki.failedCopy")} tone="error" action={{ label: t(language, "connection.retryNow"), onClick: () => void overviewQuery.refetch() }} />
       ) : (
         <>
           {activeTab === "overview" ? (

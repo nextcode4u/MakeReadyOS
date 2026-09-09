@@ -68,7 +68,7 @@ type Props = {
 };
 
 type Tab = "dashboard" | "projects" | "recommendations" | "map" | "bids" | "archive" | "reports";
-type StagedCaptureFile = { id: string; file: File; previewUrl: string };
+type StagedCaptureFile = { id: string; file: File };
 type PropertyWalkSummary = { count: number; highPriority: number; needsBid: number };
 type CategoryDraft = { name: string; color: string; sortOrder: string; propertyScoped: boolean };
 type CaptureOutcome =
@@ -232,6 +232,22 @@ async function buildImagePreviewUrl(file: File) {
   } catch {
     return sourceUrl;
   }
+}
+
+function ProjectCaptureImage({ file }: { file: File }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    let disposed = false;
+    let previewUrl = "";
+    setUrl("");
+    void buildImagePreviewUrl(file).then(next => {
+      previewUrl = next;
+      if (disposed) { if (next) URL.revokeObjectURL(next); }
+      else setUrl(next);
+    }).catch(() => { if (!disposed) setUrl(""); });
+    return () => { disposed = true; if (previewUrl) URL.revokeObjectURL(previewUrl); };
+  }, [file]);
+  return url ? <img loading="lazy" decoding="async" src={url} alt={file.name} /> : <div className="projects-photo-file">FILE</div>;
 }
 
 function buildAutoProjectTitle(
@@ -757,6 +773,7 @@ function ProjectDetail({
 
 export function ProjectsPanel({ properties, users, userRole, language = "en", selectedPropertyId, openRecordRequest, openCreateRequest }: Props) {
   const queryClient = useQueryClient();
+  const captureSequence = useRef(0);
   const captureInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const captureMapCanvasRef = useRef<HTMLDivElement | null>(null);
@@ -793,10 +810,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   const isMobileCaptureViewport = isTouchMobileViewport();
 
   function resetQuickCapture(nextPropertyId = propertyId) {
-    setCaptureFiles((current) => {
-      current.forEach((entry) => entry.previewUrl && URL.revokeObjectURL(entry.previewUrl));
-      return [];
-    });
+    setCaptureFiles([]);
     setDraft(recordDraft(nextPropertyId));
     setQuickCreateMode("recommendation");
     setShowMoreDetails(false);
@@ -872,10 +886,6 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
     }));
   }, [quickCreateMode]);
 
-  useEffect(() => () => {
-    captureFiles.forEach((entry) => entry.previewUrl && URL.revokeObjectURL(entry.previewUrl));
-  }, [captureFiles]);
-
   const refreshOfflineQueue = async () => {
     setQueuedCaptures(await listQueuedProjectCaptures());
   };
@@ -942,7 +952,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
     await queryClient.invalidateQueries({ queryKey: ["my-work"] });
   };
 
-  const appendCaptureFiles = async (files: FileList | File[]) => {
+  const appendCaptureFiles = (files: FileList | File[]) => {
     const incoming = Array.from(files);
     if (!incoming.length) return;
     const accepted = incoming.filter((file) => isAllowedProjectAttachment(file, "GENERAL"));
@@ -957,11 +967,10 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
       setProjectUploadNotice(null);
     }
     if (!accepted.length) return;
-    const stagedEntries = await Promise.all(accepted.map(async (file, index) => ({
-      id: `${file.name}-${file.lastModified}-${Date.now()}-${index}`,
+    const stagedEntries = accepted.map(file => ({
+      id: `capture-${++captureSequence.current}`,
       file,
-      previewUrl: await buildImagePreviewUrl(file),
-    })));
+    }));
     setCaptureFiles((current) => [
       ...current,
       ...stagedEntries,
@@ -969,10 +978,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   };
 
   const removeCaptureFile = (id: string) => {
-    setCaptureFiles((current) => current.filter((entry) => {
-      if (entry.id === id && entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
-      return entry.id !== id;
-    }));
+    setCaptureFiles((current) => current.filter((entry) => entry.id !== id));
   };
 
   const handleCaptureDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -1244,10 +1250,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
     };
     const stagedFiles = captureFiles.map((entry) => entry.file);
     const clearCaptureDraft = () => {
-      setCaptureFiles((current) => {
-        current.forEach((entry) => entry.previewUrl && URL.revokeObjectURL(entry.previewUrl));
-        return [];
-      });
+      setCaptureFiles([]);
       setDraft(recordDraft(propertyId));
       setQuickCreateMode("recommendation");
       setShowMoreDetails(false);
@@ -1425,7 +1428,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
       </div>
 
       {tab === "dashboard" ? (
-        overviewQuery.isLoading ? <StatusState title="Loading Projects" description="Gathering dashboard counts and recent project activity." /> : overviewQuery.isError || !overviewQuery.data ? <StatusState title="Projects failed to load" description="Refresh the workspace and try again." tone="error" /> : (
+        overviewQuery.isLoading ? <StatusState title="Loading Projects" description="Gathering dashboard counts and recent project activity." /> : overviewQuery.isError || !overviewQuery.data ? <StatusState title="Projects failed to load" description="Refresh the workspace and try again." tone="error" action={{ label: t(language, "connection.retryNow"), onClick: () => void overviewQuery.refetch() }} /> : (
           <div className="pool-kpi-grid">
             {Object.entries(overviewQuery.data.summary).map(([key, value]) => (
               <article key={key} className={`pool-kpi ${key === "deferredMaintenance" || key === "overdue" ? "warning" : key === "actualCompletedCostThisYear" ? "" : ""}`}>
@@ -1545,7 +1548,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                 <div className="projects-capture-preview-grid">
                   {captureFiles.map((entry) => (
                     <article key={entry.id} className="projects-capture-preview">
-                      {entry.previewUrl ? <img loading="lazy" decoding="async" src={entry.previewUrl} alt={entry.file.name} /> : <div className="projects-photo-file">FILE</div>}
+                      <ProjectCaptureImage file={entry.file} />
                       <div className="projects-photo-meta">
                         <strong>{entry.file.name}</strong>
                         <span>{Math.round(entry.file.size / 1024)} KB</span>

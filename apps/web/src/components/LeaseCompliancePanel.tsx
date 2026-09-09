@@ -1386,7 +1386,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
       ) : null}
 
       {tab === "dashboard" ? (
-        overviewQuery.isLoading ? <StatusState title={t(language, "lease.loadingTitle")} description={t(language, "lease.loadingCopy")} /> : overviewQuery.isError || !overviewQuery.data ? <StatusState title={t(language, "lease.failedTitle")} description={t(language, "lease.failedCopy")} tone="error" /> : (
+        overviewQuery.isLoading ? <StatusState title={t(language, "lease.loadingTitle")} description={t(language, "lease.loadingCopy")} /> : overviewQuery.isError || !overviewQuery.data ? <StatusState title={t(language, "lease.failedTitle")} description={t(language, "lease.failedCopy")} tone="error" action={{ label: t(language, "connection.retryNow"), onClick: () => void overviewQuery.refetch() }} /> : (
           <div className="dashboard-grid">
             <section className="panel-card">
               <h2>{t(language, "dashboard.overview")}</h2>

@@ -687,7 +687,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
       {overviewQuery.isLoading ? (
         <StatusState title={isSpanish ? "Cargando registro de piscina" : "Loading pool log"} description={isSpanish ? "Cargando piscinas, químicos y lecturas de hoy." : "Fetching pools, chemicals, and today’s readings."} />
       ) : overviewQuery.isError ? (
-        <StatusState title={isSpanish ? "No se pudo cargar el registro de piscina" : "Pool log failed to load"} description={isSpanish ? "Actualice e inténtelo de nuevo." : "Refresh and try again."} tone="error" />
+        <StatusState title={isSpanish ? "No se pudo cargar el registro de piscina" : "Pool log failed to load"} description={isSpanish ? "Actualice e inténtelo de nuevo." : "Refresh and try again."} tone="error" action={{ label: t(language, "connection.retryNow"), onClick: () => void overviewQuery.refetch() }} />
       ) : tab === "overview" ? (
         <>
           <div className="pool-kpi-grid">

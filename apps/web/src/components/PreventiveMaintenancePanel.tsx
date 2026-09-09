@@ -513,7 +513,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   }
 
   if (overviewQuery.isError) {
-    return <StatusState title={t(language, "pm.failedTitle")} description={t(language, "pm.failedCopy")} tone="error" />;
+    return <StatusState title={t(language, "pm.failedTitle")} description={t(language, "pm.failedCopy")} tone="error" action={{ label: t(language, "connection.retryNow"), onClick: () => void overviewQuery.refetch() }} />;
   }
 
   return (
