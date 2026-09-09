@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { basename, extname } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { stringify } from "csv-stringify/sync";
-import { UserRole } from "@prisma/client";
+import { UserRole, type Prisma } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { booleanFlag } from "../lib/booleanFlag.js";
@@ -404,21 +404,23 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
       await ensureDefaultIssueTypes(propertyId, request.currentUser!.id);
       await ensureSettings(propertyId, request.currentUser!.id);
     }
-    const [issues, settings, issueTypes, assignableUsers] = await Promise.all([
-      prisma.leaseComplianceIssue.findMany({
-        where: {
-          propertyId: scoped.where,
-          isArchived: false,
-        },
-        include: {
-          property: true,
-          unit: true,
-          assignedUser: { select: { id: true, fullName: true, role: true } },
-          photos: { orderBy: { createdAt: "desc" }, take: 1 },
-        },
-        orderBy: [{ updatedAt: "desc" }],
-        take: 40,
-      }),
+    const now = new Date();
+    const summaryWhere = { propertyId: scoped.where, isArchived: false };
+    const noticeWhere = { status: { in: ["Resident Notified", "Notice Sent"] } };
+    const violationWhere = { OR: [{ status: "Violation Needed" }, { noticeStage: "Violation Needed" }] };
+    const recentIssues = (filter: Prisma.LeaseComplianceIssueWhereInput = {}) => prisma.leaseComplianceIssue.findMany({
+      where: { ...filter, ...summaryWhere },
+      include: {
+        property: true,
+        unit: true,
+        assignedUser: { select: { id: true, fullName: true, role: true } },
+        photos: { orderBy: { createdAt: "desc" }, take: 1 },
+      },
+      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+      take: 10,
+    });
+    const [issues, settings, issueTypes, assignableUsers, noticeIssues, violationIssues, resolvedIssues] = await Promise.all([
+      recentIssues(),
       propertyId ? prisma.leaseComplianceSettings.findUnique({ where: { propertyId } }) : null,
       propertyId ? prisma.leaseComplianceIssueType.findMany({ where: { propertyId, isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }) : [],
       propertyId && leaseComplianceRoleAccess(request.currentUser!.role).edit ? prisma.user.findMany({
@@ -430,27 +432,35 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
         select: { id: true, fullName: true, role: true },
         orderBy: [{ fullName: "asc" }, { id: "asc" }],
       }) : [],
+      recentIssues(noticeWhere),
+      recentIssues(violationWhere),
+      recentIssues({ resolvedDate: { lte: now } }),
     ]);
-    const currentMonth = startOfMonth();
-    const summary = {
-      openIssues: issues.filter((issue) => issue.status === "Open").length,
-      needsNotice: issues.filter((issue) => ["Resident Notified", "Notice Sent"].includes(issue.status)).length,
-      violationNeeded: issues.filter((issue) => issue.status === "Violation Needed" || issue.noticeStage === "Violation Needed").length,
-      resolvedThisMonth: issues.filter((issue) => issue.resolvedDate && issue.resolvedDate >= currentMonth).length,
-      recurringConcerns: issues.filter((issue) => issue.recurringConcern).length,
-      managerReviewRequired: issues.filter((issue) => issue.managerReviewRequired).length,
-      overdueOpen: issues.filter((issue) => Math.floor((Date.now() - issue.createdAt.getTime()) / 86400000) >= (settings?.warningDays ?? 7) && !issue.resolvedDate).length,
-    };
+    const [openIssues, needsNotice, violationNeeded, resolvedThisMonth, recurringConcerns, managerReviewRequired, overdueOpen] = await Promise.all([
+      prisma.leaseComplianceIssue.count({ where: { ...summaryWhere, status: "Open" } }),
+      prisma.leaseComplianceIssue.count({ where: { ...summaryWhere, ...noticeWhere } }),
+      prisma.leaseComplianceIssue.count({ where: { ...summaryWhere, ...violationWhere } }),
+      prisma.leaseComplianceIssue.count({ where: { ...summaryWhere, resolvedDate: { gte: startOfMonth(now), lte: now } } }),
+      prisma.leaseComplianceIssue.count({ where: { ...summaryWhere, recurringConcern: true } }),
+      prisma.leaseComplianceIssue.count({ where: { ...summaryWhere, managerReviewRequired: true } }),
+      prisma.leaseComplianceIssue.count({ where: {
+        ...summaryWhere,
+        status: { notIn: ["Resolved", "Archived"] },
+        resolvedDate: null,
+        createdAt: { lte: new Date(now.getTime() - (settings?.warningDays ?? 7) * 86400000) },
+      } }),
+    ]);
+    const summary = { openIssues, needsNotice, violationNeeded, resolvedThisMonth, recurringConcerns, managerReviewRequired, overdueOpen };
     return {
       permissions: leaseComplianceRoleAccess(request.currentUser!.role),
       assignableUsers,
       summary,
       issueTypes,
       settings,
-      recentIssues: issues.slice(0, 10),
-      needsNotice: issues.filter((issue) => ["Resident Notified", "Notice Sent"].includes(issue.status)).slice(0, 10),
-      violationNeeded: issues.filter((issue) => issue.status === "Violation Needed" || issue.noticeStage === "Violation Needed").slice(0, 10),
-      recentResolved: issues.filter((issue) => issue.resolvedDate).slice(0, 10),
+      recentIssues: issues,
+      needsNotice: noticeIssues,
+      violationNeeded: violationIssues,
+      recentResolved: resolvedIssues,
     };
   });
 

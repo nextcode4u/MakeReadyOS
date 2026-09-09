@@ -55,6 +55,44 @@ test("concurrent project category initialization and edits preserve unique scope
   expect(summary.projectCategories.errors).toEqual([]);
 });
 
+test("Lease overview totals and queues include issues older than its recent activity", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `LC${Date.now()}`, name: "Complete Lease totals" });
+  const { property: outside } = await post("/operations/properties", { code: `LCOUT${Date.now()}`, name: "Outside Lease totals" });
+  expect((await page.request.patch("/api/lease-compliance/settings", { headers, data: { propertyId: property.id, warningDays: 0 } })).status()).toBe(200);
+  const base = { propertyId: property.id, area: "Courtyard", issueTypeName: "Overview fixture" };
+  const { issue: notice } = await post("/lease-compliance/issues", { ...base, status: "Notice Sent" });
+  const { issue: violation } = await post("/lease-compliance/issues", { ...base, noticeStage: "Violation Needed" });
+  for (let index = 0; index < 51; index++) {
+    const { issue } = await post("/lease-compliance/issues", base);
+    if (index >= 45) await post(`/lease-compliance/issues/${issue.id}/resolve`, { resolutionNotes: "Verified correction" });
+  }
+  const { issue: archived } = await post("/lease-compliance/issues", base);
+  await post(`/lease-compliance/issues/${archived.id}/archive`, { archiveNotes: "Excluded fixture" });
+  await post("/lease-compliance/issues", { ...base, propertyId: outside.id });
+  const response = await page.request.get(`/api/lease-compliance/overview?propertyId=${property.id}`);
+  expect(response.status()).toBe(200);
+  const overview = await response.json();
+  expect(overview.summary).toMatchObject({ openIssues: 46, needsNotice: 1, violationNeeded: 1, overdueOpen: 47, resolvedThisMonth: 6 });
+  expect(overview.recentIssues).toHaveLength(10);
+  expect(overview.recentIssues.map((issue: any) => issue.id)).not.toContain(notice.id);
+  expect(overview.needsNotice.map((issue: any) => issue.id)).toEqual([notice.id]);
+  expect(overview.violationNeeded.map((issue: any) => issue.id)).toEqual([violation.id]);
+  expect(overview.recentResolved).toHaveLength(6);
+  await page.getByTestId("module-rail-lease-compliance").click();
+  const panel = page.getByTestId("lease-compliance-panel");
+  await panel.getByRole("combobox", { name: "Lease Compliance property", exact: true }).selectOption(property.id);
+  await panel.getByRole("button", { name: "Dashboard", exact: true }).click();
+  await expect(panel.locator(".dashboard-kpis > div").filter({ hasText: "Open Issues" }).locator("strong")).toHaveText("46");
+  await expect(panel.locator(".dashboard-kpis > div").filter({ hasText: "Aging Watch" }).locator("strong")).toHaveText("47");
+});
+
 test("Pest and Lease staff pickers work without visiting Admin for technicians and leasing", async ({ page, browser }) => {
   test.setTimeout(120_000);
   await login(page, adminEmail, adminPassword);
