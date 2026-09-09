@@ -54,7 +54,6 @@ type Tab = "dashboard" | "active" | "grounds" | "needs-notice" | "violation" | "
 type Props = {
   properties: Property[];
   units: Unit[];
-  users: Array<{ id: string; fullName: string; role: UserRole }>;
   userRole: UserRole;
   language: UserLanguage;
   selectedPropertyId?: string;
@@ -502,7 +501,7 @@ function IssueCard({
   );
 }
 
-export function LeaseCompliancePanel({ properties, units, users, userRole, language, selectedPropertyId, openQuickAddRequest, workspaceRequest }: Props) {
+export function LeaseCompliancePanel({ properties, units, userRole, language, selectedPropertyId, openQuickAddRequest, workspaceRequest }: Props) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>("dashboard");
   const [isMobileLayout, setIsMobileLayout] = useState(() => isTouchMobileViewport());
@@ -574,12 +573,6 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
   };
 
   const propertyUnits = useMemo(() => units.filter((unit) => unit.propertyId === propertyId), [propertyId, units]);
-  const assignableUsers = useMemo(() => users.filter((user) => user.role !== "VIEWER"), [users]);
-  const assignableUserOptions = useMemo<SearchSelectOption[]>(() => assignableUsers.map((user) => ({
-    value: user.id,
-    label: `${user.fullName} / ${user.role}`,
-    keywords: [user.fullName, user.role],
-  })), [assignableUsers]);
 
   useEffect(() => {
     if (selectedPropertyId) setPropertyId(selectedPropertyId);
@@ -629,6 +622,12 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
     queryFn: () => getLeaseComplianceIssueTypes(propertyId),
     enabled: Boolean(propertyId) && permissions.view,
   });
+  const assignableUsers = overviewQuery.data?.assignableUsers ?? [];
+  const assignableUserOptions: SearchSelectOption[] = assignableUsers.map((user) => ({
+    value: user.id,
+    label: `${user.fullName} / ${user.role}`,
+    keywords: [user.fullName, user.role],
+  }));
   const settingsQuery = useQuery({
     queryKey: ["lease-compliance", "settings", propertyId],
     queryFn: () => getLeaseComplianceSettings(propertyId),

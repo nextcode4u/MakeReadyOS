@@ -324,6 +324,13 @@ const okResponse = {
   properties: { ok: { type: "boolean" } },
 };
 
+const operationalStaff = arrayOf({
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "fullName", "role"],
+  properties: { id: { type: "string" }, fullName: { type: "string" }, role: { type: "string" } },
+});
+
 const generatedResponseSchemas = {
   HealthResponse: envelope("ok", { type: "boolean" }),
   AuthUser: {
@@ -841,6 +848,7 @@ const generatedResponseSchemas = {
     additionalProperties: true,
     properties: {
       summary: ref("PestOverviewSummary"),
+      assignableUsers: operationalStaff,
       recentRequests: arrayOf(ref("PestIssue")),
       recentTreatments: arrayOf(ref("PestIssue")),
       upcomingFollowUps: arrayOf(ref("PestIssue")),
@@ -871,6 +879,7 @@ const generatedResponseSchemas = {
     properties: {
       permissions: ref("ModulePermissions"),
       summary: ref("LeaseComplianceOverviewSummary"),
+      assignableUsers: operationalStaff,
       issueTypes: arrayOf(ref("LeaseComplianceIssueType")),
       settings: { anyOf: [ref("LeaseComplianceSettings"), { type: "null" }] },
       recentIssues: arrayOf(ref("LeaseComplianceIssue")),

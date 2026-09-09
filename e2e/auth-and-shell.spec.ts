@@ -55,6 +55,59 @@ test("concurrent project category initialization and edits preserve unique scope
   expect(summary.projectCategories.errors).toEqual([]);
 });
 
+test("Pest and Lease staff pickers work without visiting Admin for technicians and leasing", async ({ page, browser }) => {
+  test.setTimeout(120_000);
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `STAFF${Date.now()}`, name: "Picker property" });
+  const { property: outside } = await post("/operations/properties", { code: `OUT${Date.now()}`, name: "Outside picker property" });
+  const password = "Test-Only-Staff!123";
+  const staff: any[] = [];
+  for (const role of ["TECH", "LEASING"]) {
+    const username = `picker-${role.toLowerCase()}-${Date.now()}`;
+    const { user } = await post("/admin/users", { username, password, fullName: `Picker ${role}`, role, propertyIds: [property.id] });
+    staff.push({ ...user, username });
+  }
+  const { user: foreign } = await post("/admin/users", { username: `picker-foreign-${Date.now()}`, password, fullName: "Outside picker tech", role: "TECH", propertyIds: [outside.id] });
+  for (const actor of [...staff, { username: adminEmail, password: adminPassword, role: "ADMIN" }]) {
+    const context = await browser.newContext();
+    const staffPage = await context.newPage();
+    try {
+      const adminRequests: string[] = [];
+      staffPage.on("request", request => { if (new URL(request.url()).pathname === "/api/admin/users") adminRequests.push(request.url()); });
+      await login(staffPage, actor.username, actor.password ?? password);
+      for (const module of ["pest", "lease-compliance"]) {
+        const { issue } = await post(`/${module}/issues`, { propertyId: property.id, area: "Courtyard", ...(module === "pest" ? { pestType: "Ants" } : { issueTypeName: "Patio concern" }) });
+        await staffPage.getByTestId(`module-rail-${module}`).click();
+        const panel = staffPage.getByTestId(module === "pest" ? "pest-control-panel" : "lease-compliance-panel");
+        await panel.getByRole("combobox").first().selectOption(property.id);
+        const overview = await staffPage.request.get(`/api/${module}/overview?propertyId=${property.id}`);
+        expect(overview.status()).toBe(200);
+        const choices = (await overview.json()).assignableUsers;
+        expect(choices.map((entry: any) => entry.id)).toEqual(expect.arrayContaining(staff.map(entry => entry.id)));
+        expect(choices.map((entry: any) => entry.id)).not.toContain(foreign.id);
+        for (const choice of choices) expect(Object.keys(choice).sort()).toEqual(["fullName", "id", "role"]);
+        await panel.getByRole("button", { name: module === "pest" ? "Active" : "Active Issues", exact: true }).click();
+        const card = staffPage.getByTestId(`${module === "pest" ? "pest" : "lease"}-issue-${issue.id}`);
+        await card.locator(".compact-issue-summary").click();
+        const picker = card.getByPlaceholder("Search user...", { exact: true });
+        await picker.fill("Picker TECH");
+        const saved = staffPage.waitForResponse(response => response.url().endsWith(`/api/${module}/issues/${issue.id}`) && response.request().method() === "PATCH");
+        await card.getByRole("listbox").getByRole("button", { name: "Picker TECH / TECH", exact: true }).click();
+        const result = await saved;
+        expect(result.status(), await result.text()).toBe(200);
+        expect((await result.json()).issue.assignedUserId).toBe(staff[0].id);
+        await expect(picker).toHaveValue("Picker TECH / TECH");
+      }
+      expect(adminRequests).toEqual([]);
+    } finally { await context.close(); }
+  }
+});
+
 test("Pest technicians and leasing cannot save foreign references or mismatched unit turns", async ({ page, playwright }) => {
   await login(page, adminEmail, adminPassword);
   const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };

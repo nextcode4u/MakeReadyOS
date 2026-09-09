@@ -47,7 +47,6 @@ type Tab = "dashboard" | "active" | "make-ready" | "vendors" | "archive" | "repo
 type Props = {
   properties: Property[];
   units: Unit[];
-  users: Array<{ id: string; fullName: string; role: UserRole }>;
   userRole: UserRole;
   language: UserLanguage;
   selectedPropertyId?: string;
@@ -414,7 +413,7 @@ function CaptureFilePreview({ file }: { file: File }) {
   return isImage ? url ? <img src={url} alt={file.name} /> : null : <span className="issue-media-file-badge">PDF</span>;
 }
 
-export function PestControlPanel({ properties, units, users, userRole, language, selectedPropertyId, openQuickAddRequest, workspaceRequest }: Props) {
+export function PestControlPanel({ properties, units, userRole, language, selectedPropertyId, openQuickAddRequest, workspaceRequest }: Props) {
   const queryClient = useQueryClient();
   const [isMobileLayout, setIsMobileLayout] = useState(() => isTouchMobileViewport());
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -584,7 +583,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
   });
   const deleteAttachmentMutation = useMutation({ mutationFn: deletePestIssueAttachment, onSuccess: invalidate });
 
-  const assignableUsers = useMemo(() => users.filter((user) => ["ADMIN", "MANAGER", "TECH", "LEASING"].includes(user.role)), [users]);
+  const assignableUsers = overviewQuery.data?.assignableUsers ?? [];
   const propertyUnits = useMemo(() => units.filter((unit) => unit.propertyId === propertyId), [propertyId, units]);
   const vendors = vendorsQuery.data?.vendors ?? overviewQuery.data?.vendors ?? [];
   const activeVendors = useMemo(() => vendors.filter((vendor) => vendor.isActive), [vendors]);
