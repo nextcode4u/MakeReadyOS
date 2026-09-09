@@ -1941,6 +1941,18 @@ test("guided weekday scheduling populates all five calendar tracks without dupli
   await expect(page.getByTestId("turn-scheduling-guide")).toBeVisible();
   await expect(page.getByTestId("automation-template-library")).not.toBeVisible();
   await page.getByTestId("turn-setup-property").selectOption(property.id);
+  const scheduleGuide = page.getByTestId("turn-scheduling-guide");
+  await scheduleGuide.getByLabel("Make Ready (Start) days", { exact: true }).fill("2");
+  await scheduleGuide.getByLabel("Painting days", { exact: true }).fill("3");
+  await scheduleGuide.getByLabel("Cleaning days", { exact: true }).fill("2");
+  await expect(scheduleGuide).toContainText("9 working days total");
+  await expect(scheduleGuide).toContainText("Planned work: days 3-5");
+  await expect(scheduleGuide).toContainText("Finish target: working day 5");
+  await expect(scheduleGuide).toContainText("Only Make Ready (Start) is a start-date calendar");
+  await page.getByTestId("turn-setup-preview").click();
+  await page.getByText("Review proposed dates (1 of 1 units)").click();
+  await expect(scheduleGuide).toContainText("2026-09-17");
+  for (const stage of ["Make Ready (Start)", "Painting", "Cleaning"]) await scheduleGuide.getByLabel(`${stage} days`, { exact: true }).fill("1");
   await page.getByTestId("turn-setup-preview").click();
   await expect(page.getByTestId("turn-scheduling-guide")).toContainText("5 missing dates");
   await page.getByText("Review proposed dates (1 of 1 units)").click();

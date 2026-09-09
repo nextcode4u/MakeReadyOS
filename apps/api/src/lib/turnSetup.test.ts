@@ -31,6 +31,12 @@ test("weekday turn pack fills five dates, preserving existing dates and excludin
   const longerResult = applyRules(item as any, longerRepairs, {}, { operatingCalendar: calendar });
   assert.equal(longerResult.customFieldUpdates.find(entry => entry.fieldId === "turnMaintenanceDate")?.value, "2026-09-07");
   assert.equal(longerResult.next.makeReadyDate?.getDate(), 15);
+  const multiStageRules = turnDefinitions("p", [2, 3, 2, 1, 1], ids).map((rule, index) => ({ ...rule, id: String(index) }));
+  const multiStage = applyRules(item as any, multiStageRules, {}, { operatingCalendar: calendar });
+  assert.deepEqual(multiStageRules.map(rule => "offsetDays" in rule.actions[0] ? rule.actions[0].offsetDays : null), [1, 5, 7, 8, 9]);
+  assert.deepEqual(multiStage.customFieldUpdates.map(entry => entry.value), ["2026-09-07", "2026-09-11", "2026-09-15"]);
+  assert.equal(multiStage.next.flooringDate?.getDate(), 16);
+  assert.equal(multiStage.next.makeReadyDate?.getDate(), 17);
 });
 
 test("turn setup rejects non-managers and inaccessible properties before writes", async (t) => {

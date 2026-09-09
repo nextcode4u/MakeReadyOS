@@ -13,7 +13,8 @@ export function TurnSchedulingGuide({ properties, onOpenSchedule }: { properties
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
   const [enabledRules, setEnabledRules] = useState<Array<{ id: string; name: string }> | null>(null);
-  const valid = Boolean(propertyId) && days.every((day) => Number.isInteger(day) && day >= 1 && day <= 10);
+  const validDays = days.every((day) => Number.isInteger(day) && day >= 1 && day <= 10);
+  const valid = Boolean(propertyId) && validDays;
   const resetReview = () => { setPreview(null); setError(""); setResult(""); setEnabledRules(null); };
   const review = async () => {
     setBusy(true); setError(""); setResult(""); setPreview(null);
@@ -58,14 +59,17 @@ export function TurnSchedulingGuide({ properties, onOpenSchedule }: { properties
   return <section className="turn-setup span-full" data-testid="turn-scheduling-guide">
     <header><p className="eyebrow">Automatic baseline</p><h2>Put your turns on the calendar</h2><p>Properties start with a five-working-day plan automatically. Import your units with a Vacated date; eligible turns get missing dates within five minutes while the server is running. No activation or pack installation needed.</p><p>Use this guide only to customize the plan, fill dates now, or pause scheduling. Existing dates and previously paused plans stay unchanged.</p></header>
     <fieldset disabled={busy}>
-      <legend>1. Choose the property and confirm your plan</legend>
+      <legend>1. Choose the property and review a proposed plan</legend>
       <label>Schedule turns for<select data-testid="turn-setup-property" value={propertyId} onChange={(event) => { setPropertyId(event.target.value); resetReview(); }}><option value="">Choose a property</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}</select></label>
       <p>The first workday is after the recorded <strong>Vacated</strong> date. Weekends are excluded; existing Monday/Friday restrictions are respected.</p>
+      <p>These durations are a proposed plan, not a readout of saved settings. Preview before applying; changing the plan never moves dates already recorded.</p>
       <div className="turn-setup-stages">{stages.map((stage, index) => {
+        const firstDay = cumulative + 1;
         cumulative += Number(days[index]) || 0;
-        return <label key={stage}><strong>{stage}</strong><span>{index === 0 ? "Start: working day 1" : `Target: working day ${cumulative || "-"}`}</span><span className="turn-setup-duration"><input aria-label={`${stage} days`} type="number" min="1" max="10" value={Number.isNaN(days[index]) ? "" : days[index]} onChange={(event) => { setDays(days.map((day, i) => i === index ? event.target.valueAsNumber : day)); resetReview(); }} /> day(s)</span></label>;
+        return <label key={stage}><strong>{stage}</strong><span>{!validDays ? "Enter valid durations" : index === 0 ? "Start: working day 1" : `Finish target: working day ${cumulative}`}</span>{validDays ? <span>Planned work: {firstDay === cumulative ? `day ${firstDay}` : `days ${firstDay}-${cumulative}`}</span> : null}<span className="turn-setup-duration"><input aria-label={`${stage} days`} type="number" min="1" max="10" value={Number.isNaN(days[index]) ? "" : days[index]} onChange={(event) => { setDays(days.map((day, i) => i === index ? event.target.valueAsNumber : day)); resetReview(); }} /> day(s)</span></label>;
       })}</div>
-      <p><strong>{days.reduce((sum, day) => sum + (Number(day) || 0), 0)} working days total.</strong> Five working days usually fits seven calendar days. Extra closed weekdays extend it.</p>
+      <p><strong>{validDays ? `${days.reduce((sum, day) => sum + day, 0)} working days total.` : "Enter 1-10 whole working days for each stage."}</strong> Weekends and excluded weekdays extend the calendar span; a longer plan is not a seven-day turn.</p>
+      <p>Only Make Ready (Start) is a start-date calendar. Painting, cleaning and flooring use end-of-stage targets; Expected Finish is the whole-unit ready target. These dates do not book vendors or prove work is complete.</p>
       <button className="button button-secondary" disabled={!valid || busy} onClick={() => void review()} data-testid="turn-setup-preview">{busy ? "Working..." : "2. Preview my calendar dates"}</button>
     </fieldset>
     {error ? <p role="alert" className="error-text">{error}</p> : null}
