@@ -2516,6 +2516,37 @@ test("invite mode clears and disables the manual password", async ({ page }) => 
   await expect(submit).toBeDisabled();
 });
 
+for (const language of ["en", "es"] as const) {
+  test(`admin account fields align and user counts remain separated in ${language}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await login(page, adminEmail, adminPassword);
+    await page.route("**/api/auth/me", async route => {
+      const response = await route.fetch();
+      const body = await response.json();
+      await route.fulfill({ response, json: { ...body, user: { ...body.user, language } } });
+    });
+    await page.reload();
+    await page.getByTestId("tab-admin").click();
+    const name = page.getByTestId("admin-create-full-name");
+    const username = page.getByTestId("admin-create-username");
+    for (const width of [1280, 980, 412]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(name).toBeVisible();
+      const left = await name.boundingBox();
+      const right = await username.boundingBox();
+      expect(Math.abs(left!.height - right!.height)).toBeLessThan(2);
+      if (Math.abs(left!.x - right!.x) > 20) expect(Math.abs(left!.y - right!.y)).toBeLessThan(2);
+      else expect(right!.y).toBeGreaterThan(left!.y + left!.height);
+      const heading = page.locator('.admin-section .section-header').first();
+      const title = await heading.locator('strong').boundingBox();
+      const count = await heading.locator('span').boundingBox();
+      expect(count!.x - title!.x - title!.width).toBeGreaterThanOrEqual(8);
+      await expect.poll(() => page.evaluate(() => Math.max(document.body.scrollWidth, document.documentElement.scrollWidth) - window.innerWidth)).toBeLessThanOrEqual(4);
+      if (width !== 980) await testInfo.attach(`admin-alignment-${language}-${width}.png`, { body: await page.screenshot(), contentType: "image/png" });
+    }
+  });
+}
+
 test("email username checkbox preserves failed account drafts and creates a working login", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
   await page.getByTestId("tab-admin").click();
