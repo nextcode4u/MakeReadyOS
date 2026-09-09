@@ -55,6 +55,50 @@ test("concurrent project category initialization and edits preserve unique scope
   expect(summary.projectCategories.errors).toEqual([]);
 });
 
+test("project managers cannot mutate another property and viewers cannot receive assignments", async ({ page, playwright }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property: a } = await post("/operations/properties", { code: `PA${Date.now()}`, name: "Project access A" });
+  const { property: b } = await post("/operations/properties", { code: `PB${Date.now()}`, name: "Project access B" });
+  const { record: own } = await post("/projects/records", { propertyId: a.id, recordType: "Project", title: "Allowed project", status: "Planning" });
+  const { record: outside } = await post("/projects/records", { propertyId: b.id, recordType: "Recommendation", title: "Other property project", status: "Open" });
+  const { task } = await post(`/projects/records/${outside.id}/tasks`, { title: "Other property task" });
+  const password = "Test-Only-Project!123";
+  const username = `project-manager-${Date.now()}`;
+  await post("/admin/users", { username, password, fullName: "Project Scoped Manager", role: "MANAGER", propertyIds: [a.id] });
+  const { user: viewer } = await post("/admin/users", { username: `project-viewer-${Date.now()}`, password, fullName: "Project Viewer", role: "VIEWER", propertyIds: [a.id] });
+  const client = await playwright.request.newContext({ baseURL: new URL(page.url()).origin });
+  try {
+    const loginResponse = await client.post("/api/auth/login", { data: { identifier: username, password } });
+    expect(loginResponse.status()).toBe(200);
+    const scopedHeaders = { "x-csrf-token": (await loginResponse.json()).csrfToken };
+    for (const [method, path, data] of [
+      ["PATCH", `/projects/records/${outside.id}`, { title: "Must not change" }],
+      ["POST", `/projects/records/${outside.id}/convert`, {}],
+      ["POST", `/projects/records/${outside.id}/comments`, { body: "Must not be added" }],
+      ["POST", `/projects/records/${outside.id}/tasks`, { title: "Must not be added" }],
+      ["PATCH", `/projects/tasks/${task.id}`, { title: "Must not change" }],
+    ] as const) {
+      const denied = await client.fetch(`/api${path}`, { method, headers: scopedHeaders, data });
+      expect(denied.status(), await denied.text()).toBe(403);
+    }
+    const changed = await client.patch(`/api/projects/records/${own.id}`, { headers: scopedHeaders, data: { title: "Allowed edit" } });
+    expect(changed.status(), await changed.text()).toBe(200);
+    expect((await client.patch(`/api/projects/records/${own.id}`, { headers: scopedHeaders, data: { propertyId: b.id } })).status()).toBe(409);
+    expect((await client.patch(`/api/projects/records/${own.id}`, { headers: scopedHeaders, data: { assignedUserId: viewer.id } })).status()).toBe(400);
+    expect((await client.post(`/api/projects/records/${own.id}/tasks`, { headers: scopedHeaders, data: { title: "Viewer task", assignedUserId: viewer.id } })).status()).toBe(400);
+    const kept = await (await page.request.get(`/api/projects/records/${outside.id}`)).json();
+    expect(kept.record.title).toBe("Other property project");
+    expect(kept.record.recordType).toBe("Recommendation");
+    expect(kept.record.comments).toHaveLength(0);
+    expect(kept.record.tasks.map((entry: any) => entry.title)).toEqual(["Other property task"]);
+  } finally { await client.dispose(); }
+});
+
 test("lease references stay property-scoped for technicians, leasing and native restores", async ({ page, playwright }) => {
   await login(page, adminEmail, adminPassword);
   const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
