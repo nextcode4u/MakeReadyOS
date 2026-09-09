@@ -2616,6 +2616,20 @@ test("concurrent lease setup requests initialize defaults without duplicates", a
 });
 
 test("pest quick capture retries remaining photos without creating another issue", async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    const originalCreate = URL.createObjectURL.bind(URL);
+    const originalRevoke = URL.revokeObjectURL.bind(URL);
+    const state = { created: 0, active: new Set<string>() };
+    (window as any).__capturePreviewUrls = state;
+    URL.createObjectURL = blob => {
+      const url = originalCreate(blob);
+      if (blob instanceof File && /^(first|second|document)-evidence\.(png|pdf)$/.test(blob.name)) {
+        state.created++; state.active.add(url);
+      }
+      return url;
+    };
+    URL.revokeObjectURL = url => { state.active.delete(url); originalRevoke(url); };
+  });
   await login(page, adminEmail, adminPassword);
   let creates = 0;
   let issueId = "";
@@ -2656,6 +2670,11 @@ test("pest quick capture retries remaining photos without creating another issue
     { name: "first-evidence.png", mimeType: "image/png", buffer: png },
     { name: "second-evidence.png", mimeType: "image/png", buffer: png },
   ]);
+  await expect(form.getByAltText("first-evidence.png")).toBeVisible();
+  await expect(form.getByAltText("second-evidence.png")).toBeVisible();
+  const allocated = await page.evaluate(() => (window as any).__capturePreviewUrls.created);
+  await page.getByTestId("pest-quick-add-description").fill("Updated notes must not allocate more photo previews.");
+  expect(await page.evaluate(() => (window as any).__capturePreviewUrls.created)).toBe(allocated);
   await page.getByTestId("pest-quick-add-submit").click();
   try {
     await expect.poll(() => secondStarted).toBe(true);
@@ -2668,6 +2687,7 @@ test("pest quick capture retries remaining photos without creating another issue
   await form.screenshot({ path: testInfo.outputPath("pest-photo-retry-mobile.png") });
   await form.getByRole("button", { name: "Retry remaining photos" }).click();
   await expect(page.getByTestId("pest-quick-add-description")).toHaveValue("");
+  await expect.poll(() => page.evaluate(() => (window as any).__capturePreviewUrls.active.size)).toBe(0);
   expect(creates).toBe(1);
   expect(uploads).toBe(3);
   const savedResponse = await page.request.get(`/api/pest/issues?q=${encodeURIComponent(area)}`);
@@ -2676,6 +2696,12 @@ test("pest quick capture retries remaining photos without creating another issue
   expect(saved.issues).toHaveLength(1);
   expect(saved.issues[0].id).toBe(issueId);
   expect(saved.issues[0].attachments).toHaveLength(2);
+  const beforePdf = await page.evaluate(() => (window as any).__capturePreviewUrls.created);
+  await form.locator('input[type="file"]').last().setInputFiles({ name: "document-evidence.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 preview-only fixture") });
+  await expect(form.locator(".selected-media-strip")).toContainText("document-evidence.pdf");
+  expect(await page.evaluate(() => (window as any).__capturePreviewUrls.created)).toBe(beforePdf);
+  await form.getByRole("button", { name: "Clear Files", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__capturePreviewUrls.active.size)).toBe(0);
   expect(errors).toEqual([]);
   await expect(page.locator("#app-error-notice")).toHaveCount(0);
   await assertNoPageHorizontalOverflow(page);

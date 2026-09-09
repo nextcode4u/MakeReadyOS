@@ -401,6 +401,18 @@ function PestIssueCard({
   );
 }
 
+function CaptureFilePreview({ file }: { file: File }) {
+  const [url, setUrl] = useState("");
+  const isImage = file.type.startsWith("image/");
+  useEffect(() => {
+    if (!isImage) return;
+    const next = URL.createObjectURL(file);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [file, isImage]);
+  return isImage ? url ? <img src={url} alt={file.name} /> : null : <span className="issue-media-file-badge">PDF</span>;
+}
+
 export function PestControlPanel({ properties, units, users, userRole, language, selectedPropertyId, openQuickAddRequest, workspaceRequest }: Props) {
   const queryClient = useQueryClient();
   const [isMobileLayout, setIsMobileLayout] = useState(() => isTouchMobileViewport());
@@ -897,11 +909,9 @@ export function PestControlPanel({ properties, units, users, userRole, language,
             {quickAddPhotos.length ? (
               <div className="issue-media-strip selected-media-strip">
                 {quickAddPhotos.map((file, index) => {
-                  const preview = URL.createObjectURL(file);
-                  const image = file.type.startsWith("image/");
                   return (
                     <div key={`${file.name}-${file.lastModified}-${index}`} className="issue-media-chip selected">
-                      {image ? <img src={preview} alt={file.name} onLoad={() => URL.revokeObjectURL(preview)} /> : <span className="issue-media-file-badge">PDF</span>}
+                      <CaptureFilePreview file={file} />
                       <span>{file.name}</span>
                     </div>
                   );
