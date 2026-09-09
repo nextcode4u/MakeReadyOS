@@ -1,4 +1,5 @@
 import { localDateStamp } from "./dateTime";
+import { acceptVerifiedSession, clearVerifiedSession, getVerifiedSession, isCurrentSession } from "./verifiedSession";
 
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api";
 export type ManagementCompany = { id: string; name: string; logo: string | null; updatedAt: string };
@@ -2474,7 +2475,11 @@ export type MetaResponse = {
 export type AccountBoundRequest = { expectedUserId: string };
 
 async function request<T>(path: string, init?: RequestInit & Partial<AccountBoundRequest>): Promise<T> {
+  const sessionAtStart = getVerifiedSession();
   const { expectedUserId, ...fetchInit } = init ?? {};
+  if (expectedUserId !== undefined && (!expectedUserId || sessionAtStart.userId !== expectedUserId)) {
+    throw new ApiError(409, "Sign in with the account that saved this work before retrying.", { code: "SESSION_ACCOUNT_CHANGED" });
+  }
   const method = (init?.method || "GET").toUpperCase();
   const hasJsonBody = init?.body !== undefined && init?.body !== null && !(init.body instanceof FormData);
   const headers = new Headers(fetchInit.headers);
@@ -2507,8 +2512,9 @@ async function request<T>(path: string, init?: RequestInit & Partial<AccountBoun
       // Ignore JSON parsing errors for non-JSON failures.
     }
 
-    if (response.status === 401) {
+    if (isCurrentSession(sessionAtStart) && (response.status === 401 || (details as { code?: string } | undefined)?.code === "SESSION_ACCOUNT_CHANGED")) {
       csrfToken = null;
+      clearVerifiedSession();
     }
 
     throw new ApiError(response.status, message, details);
@@ -2516,7 +2522,7 @@ async function request<T>(path: string, init?: RequestInit & Partial<AccountBoun
 
   if (response.headers.get("content-type")?.includes("application/json")) {
     const body = (await response.json()) as T & { csrfToken?: string | null };
-    if (typeof body === "object" && body && "csrfToken" in body) {
+    if ((path === "/auth/me" || path === "/auth/login") && isCurrentSession(sessionAtStart) && typeof body === "object" && body && "csrfToken" in body) {
       csrfToken = body.csrfToken ?? null;
     }
     return body;
@@ -3313,8 +3319,11 @@ export function makeReadyPdfReportUrl(filters: MakeReadyItemFilters = {}) {
   return `${apiBaseUrl}/export/make-ready.pdf${params.toString() ? `?${params.toString()}` : ""}`;
 }
 
-export function getCurrentUser() {
-  return request<{ user: CurrentUser; roles: UserRole[]; csrfToken: string }>("/auth/me");
+export async function getCurrentUser() {
+  const startedWith = getVerifiedSession();
+  const response = await request<{ user: CurrentUser; roles: UserRole[]; csrfToken: string }>("/auth/me");
+  if (!acceptVerifiedSession(response.user.id, startedWith)) throw new ApiError(409, "The account changed while loading. Retry with the current account.");
+  return response;
 }
 
 export async function probeApiConnection(signal: AbortSignal) {
@@ -3329,23 +3338,34 @@ export function passwordAction(action: "forgot-password" | "reset-password" | "c
   return request<{ ok?: boolean; message?: string }>(`/auth/${action}`, { method: "POST", body: JSON.stringify(payload) });
 }
 
-export function login(identifier: string, password: string) {
-  return request<{ user: CurrentUser; roles: UserRole[]; csrfToken: string }>("/auth/login", {
+export async function login(identifier: string, password: string) {
+  clearVerifiedSession();
+  csrfToken = null;
+  const startedWith = getVerifiedSession();
+  const response = await request<{ user: CurrentUser; roles: UserRole[]; csrfToken: string }>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ identifier, password }),
   });
+  if (!acceptVerifiedSession(response.user.id, startedWith)) throw new ApiError(409, "The account changed while signing in. Retry with the current account.");
+  return response;
 }
 
 export function logout() {
-  return request<{ ok: true }>("/auth/logout", {
+  clearVerifiedSession();
+  const pending = request<{ ok: true }>("/auth/logout", {
     method: "POST",
   });
+  csrfToken = null;
+  return pending;
 }
 
 export function logoutAllSessions() {
-  return request<{ ok: true }>("/auth/logout-all", {
+  clearVerifiedSession();
+  const pending = request<{ ok: true }>("/auth/logout-all", {
     method: "POST",
   });
+  csrfToken = null;
+  return pending;
 }
 
 export function updateCurrentUserPreferences(input: { language: UserLanguage }) {
