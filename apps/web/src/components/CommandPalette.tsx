@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FloorPlan, MakeReadyItem, Property, SavedView, StaffOption, UserLanguage } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
+import { useDialogFocus } from "./Modal";
 
 export type CommandPaletteView =
   | "dashboard"
@@ -67,6 +68,7 @@ function searchableText(value: string | null | undefined) {
 }
 
 export function CommandPalette({ open, language, items, properties, views, staff, floorPlans, workspaceGroups, onClose, onOpenItem, onNavigate, onOpenNotifications, onOpenOnboarding, onApplyBasicMode, onOpenShortcutHelp, onLoadView }: Props) {
+  const panelRef = useDialogFocus(open, onClose);
   const isSpanish = language === "es";
   const [query, setQuery] = useState("");
   useEffect(() => {
@@ -100,8 +102,8 @@ export function CommandPalette({ open, language, items, properties, views, staff
   return (
     <>
       <div className="palette-backdrop" onClick={onClose} aria-hidden="true" />
-      <section className="command-palette" data-testid="command-palette" aria-label={isSpanish ? "Busqueda rapida y comandos" : "Quick search and commands"}>
-        <input autoFocus data-testid="command-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isSpanish ? "Buscar unidades, vistas, propiedades, personal..." : "Search units, views, properties, staff..."} onKeyDown={(event) => { if (event.key === "Escape") onClose(); }} />
+      <section ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" className="command-palette" data-testid="command-palette" aria-label={isSpanish ? "Busqueda rapida y comandos" : "Quick search and commands"}>
+        <input data-testid="command-search" aria-label={isSpanish ? "Buscar unidades y comandos" : "Search units and commands"} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isSpanish ? "Buscar unidades, vistas, propiedades, personal..." : "Search units, views, properties, staff..."} />
         {!match ? (
           <div className="palette-actions">
             {workspaceGroups.map((group) => (

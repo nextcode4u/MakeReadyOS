@@ -1025,6 +1025,43 @@ test("shared dialogs keep keyboard focus inside and return it on Escape", async 
   await expect(opener).toBeFocused();
 });
 
+test("command search traps keyboard focus and closes from results without losing its opener", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const opener = page.getByTestId("command-palette-button");
+  await opener.click();
+  const dialog = page.getByRole("dialog", { name: "Quick search and commands" });
+  const search = dialog.getByRole("textbox", { name: "Search units and commands" });
+  await expect(search).toBeFocused();
+  const last = dialog.getByRole("button").last();
+  await page.keyboard.press("Shift+Tab");
+  await expect(last).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(search).toBeFocused();
+  await search.fill("wiki");
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByTestId("command-palette-result-wiki")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(opener).toBeFocused();
+  await opener.click();
+  await expect(search).toHaveValue("");
+  await search.fill("no-matching-record-987654321");
+  await expect(dialog).toContainText("No matching operational records");
+  await page.keyboard.press("Tab");
+  await expect(search).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(opener).toBeFocused();
+  await page.setViewportSize({ width: 390, height: 500 });
+  await page.keyboard.press("Control+k");
+  await expect(dialog).toBeVisible();
+  const bounds = await dialog.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(500);
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+  await page.keyboard.press("Escape");
+});
+
 test("pool setup save failures stay in the form and preserve entries for retry", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
   const uncaught: string[] = [];
@@ -3227,6 +3264,15 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("item-drawer")).toContainText("TA 284");
     await expect(page.getByTestId("drawer-field-assignedTech")).toBeVisible();
     await expect(page.getByTestId("drawer-risk-section")).toBeVisible();
+    const drawer = page.getByTestId("item-drawer");
+    await page.getByTestId("item-drawer-close").focus();
+    await page.keyboard.press("Control+k");
+    await expect(page.getByTestId("command-search")).toBeFocused();
+    await page.getByTestId("command-search").click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("command-palette")).toHaveCount(0);
+    await expect(drawer).toBeVisible();
+    await expect(page.getByTestId("item-drawer-close")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("item-drawer")).toHaveCount(0);
     await page.getByTestId("tab-kanban").click();
