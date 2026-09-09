@@ -3316,13 +3316,14 @@ test("past-due starts keep unfinished previous-month turns visible without movin
   await login(page, adminEmail, adminPassword);
   const meta = await (await page.request.get("/api/meta")).json();
   const start = meta.customFields.find((field: any) => field.fieldKey === "turnMaintenanceDate");
-  let pendingId = "";
+  const source = await page.request.get("/api/make-ready-items");
+  expect(source.ok()).toBeTruthy();
+  const items = (await source.json()).slice(0, 5);
+  expect(items).toHaveLength(5);
+  const pendingId = items[0].id;
   let completed = false;
   await page.route("**/api/make-ready-items?*", async route => {
-    const response = await route.fetch();
-    const items = (await response.json()).slice(0, 5);
-    pendingId = items[0].id;
-    await route.fulfill({ response, json: items.map((item: any, index: number) => ({
+    await route.fulfill({ json: items.map((item: any, index: number) => ({
       ...item,
       vacancyStatus: index === 2 ? "VACANT_LEASED_READY" : index === 4 ? "OCCUPIED" : "VACANT NOT LEASED NOT READY",
       completionStatus: index === 1 || completed ? "DONE" : "NO",
@@ -4795,10 +4796,11 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.mouse.move(0, 0);
     await expect.poll(() => frog.evaluate(element => element.matches(":hover"))).toBe(false);
     const initialBox = await frog.boundingBox();
+    // Sleepy frogs can rest for 200 / 3 * .65 * 220ms between authored hops.
     await expect.poll(async () => {
       const box = await frog.boundingBox();
       return Math.hypot(box!.x - initialBox!.x, box!.y - initialBox!.y);
-    }, { timeout: 5000 }).toBeGreaterThan(8);
+    }, { timeout: 15000 }).toBeGreaterThan(8);
     const moving = await frog.boundingBox();
     await page.mouse.move(moving!.x + moving!.width / 2, moving!.y + moving!.height / 2);
     await expect.poll(() => frog.evaluate(element => element.matches(":hover"))).toBe(true);
