@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma.js";
 import { finalWalkCategory, independentInspectors, inspectorStaff, nextInspector, pendingWalkStatuses, syncFinalWalks } from "../lib/finalWalks.js";
 import { createNotification } from "../lib/notifications.js";
 import { getTurnReadiness } from "../lib/turnReadiness.js";
+import { isFinalWalkStatus } from "../lib/turnStatus.js";
 
 async function propertyContext(request: FastifyRequest, reply: FastifyReply) {
   if (await requireManagerOrAdmin(request, reply)) return null;
@@ -45,7 +46,7 @@ export async function finalWalkRoutes(app: FastifyInstance) {
     const completedBlock = !block && item.makeReadyStatus === "DONE" ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, status: "DONE" }, orderBy: { createdAt: "desc" } }) : null;
     const reportAvailable = !item.isArchived && (block ?? completedBlock)?.assignedUserId === request.currentUser!.id && item.assignedTech?.trim().toLowerCase() !== request.currentUser!.fullName.trim().toLowerCase();
     const nextId = block && nextInspector(block.inspectorQueue, block.assignedUserId, independentInspectors(staff, item.assignedTech).map(user => user.id));
-    return { block, reportAvailable, ready: item.makeReadyStatus === "FINAL WALK", blockers: await getTurnReadiness(prisma, id, request.currentUser!.fullName), next: staff.find(user => user.id === nextId) ?? null };
+    return { block, reportAvailable, ready: isFinalWalkStatus(item.makeReadyStatus), blockers: await getTurnReadiness(prisma, id, request.currentUser!.fullName), next: staff.find(user => user.id === nextId) ?? null };
   });
   app.post("/make-ready-items/:id/final-walk/handoff", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);

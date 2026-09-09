@@ -130,6 +130,40 @@ test("mark ready rejects incomplete work, self-review and archived turns", async
   expect((await (await page.request.get(root)).json()).isArchived).toBe(true);
 });
 
+test("changing the inspection status cannot waive an existing report requirement", async ({ page }) => {
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await session).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `HIST${Date.now()}`, name: "Inspection history test" });
+  const { unit } = await post("/operations/units", { propertyId: property.id, number: "HISTORY-1" });
+  const meta = await (await page.request.get("/api/meta")).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" });
+  const root = `/api/make-ready-items/${item.id}`;
+  expect((await page.request.patch(root, { headers, data: { completionStatus: "YES" } })).ok()).toBeTruthy();
+  const report = await (await page.request.get(`/api/final-walk-reports/${property.id}?itemId=${item.id}`)).json();
+  const reportUrl = `/api/final-walk-reports/${property.id}/items/${item.id}`;
+  const saved = await page.request.put(reportUrl, { headers, data: { version: report.draft.version, value: report.draft.value } });
+  expect(saved.ok(), await saved.text()).toBeTruthy();
+  expect((await page.request.patch(root, { headers, data: { makeReadyStatus: "LITE" } })).ok()).toBeTruthy();
+  const blocked = await page.request.post(`${root}/mark-ready`, { headers });
+  expect(blocked.status(), await blocked.text()).toBe(409);
+  expect((await blocked.json()).message).toContain("final-walk checks are not recorded");
+  expect((await (await page.request.get(root)).json()).makeReadyStatus).toBe("LITE");
+  const value = report.draft.value;
+  value.inspectionDate = new Date().toISOString().slice(0, 10);
+  for (const check of report.checks) value.results[check.id] = { status: "CHECKED", note: "Inspected" };
+  const complete = await page.request.put(reportUrl, { headers, data: { version: (await saved.json()).version, value } });
+  expect(complete.ok(), await complete.text()).toBeTruthy();
+  const ready = await page.request.post(`${root}/mark-ready`, { headers });
+  expect(ready.ok(), await ready.text()).toBeTruthy();
+  expect((await ready.json()).makeReadyStatus).toBe("DONE");
+});
+
 test("turn materials survive saves, conflicts and native restore without leaking into resident reports", async ({ page }, testInfo) => {
   test.setTimeout(90000);
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");

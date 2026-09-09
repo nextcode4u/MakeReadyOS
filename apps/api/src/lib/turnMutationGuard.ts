@@ -1,5 +1,6 @@
 import type { MakeReadyItem, Prisma } from "@prisma/client";
 import { getTurnReadiness } from "./turnReadiness.js";
+import { isFinalWalkStatus } from "./turnStatus.js";
 
 const normalized = (value: unknown) => String(value ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
 const readyPhases = new Set(["DONE", "COMPLETE", "COMPLETED", "READY"]);
@@ -25,7 +26,7 @@ export async function guardReadyMutation(db: Prisma.TransactionClient, current: 
   const groupChanged = typeof patch.boardGroup === "string" && patch.boardGroup !== current.boardGroup;
   const readyGroup = groupChanged && await db.boardSection.findFirst({ where: { propertyId: current.propertyId, key: patch.boardGroup as string, sectionType: "READY", isActive: true } });
   if (!readyGroup && !readyStatusIntent(current, patch)) return;
-  const inspection = normalized(current.makeReadyStatus) === "FINAL_WALK"
+  const inspection = isFinalWalkStatus(current.makeReadyStatus)
     || await db.finalWalkReportDraft.findUnique({ where: { itemId: current.id }, select: { itemId: true } })
     || await db.workAssignmentBlock.findFirst({ where: { itemId: current.id, category: "FINAL_WALK_INSPECTION" }, select: { id: true } });
   if (inspection) throw Object.assign(new Error(`${current.unitNumber}: complete this inspection using Final walk / Mark ready, not a status or group edit.`), { statusCode: 409 });

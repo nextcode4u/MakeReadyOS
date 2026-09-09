@@ -3,6 +3,7 @@ import { createNotification } from "./notifications.js";
 import { prisma } from "./prisma.js";
 import { queueWebhookEvent } from "./webhookQueue.js";
 import { isTurnReady } from "./board.js";
+import { isFinalWalkStatus } from "./turnStatus.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -109,7 +110,7 @@ function maxLevel(reasons: RiskReason[], score: number): RiskLevel {
 }
 
 export function evaluateItemRisk(item: RiskItem, now = new Date(), policyInput?: Partial<RiskPolicyInput> | null) {
-  const awaitingInspection = String(item.makeReadyStatus ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_") === "FINAL_WALK";
+  const awaitingInspection = isFinalWalkStatus(item.makeReadyStatus);
   if (item.boardSectionType === "READY" && !awaitingInspection) {
     return { riskScore: 0, riskLevel: "NONE" as RiskLevel, riskReasons: [], lastRiskEvaluatedAt: now };
   }
