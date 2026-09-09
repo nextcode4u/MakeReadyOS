@@ -4063,7 +4063,7 @@ function App() {
                 columns={metaQuery.data?.columns ?? []}
                 scheduleTracks={scheduleTracksQuery.data?.tracks ?? []}
                 customFields={metaQuery.data?.customFields ?? []}
-                loading={optionCreateMutation.isPending || optionUpdateMutation.isPending || optionArchiveMutation.isPending || renameSectionMutation.isPending || floorPlanCreateMutation.isPending || floorPlanUpdateMutation.isPending || floorPlanArchiveMutation.isPending || columnUpdateMutation.isPending || scheduleTrackCreateMutation.isPending || scheduleTrackUpdateMutation.isPending || scheduleTrackReorderMutation.isPending || scheduleTrackArchiveMutation.isPending}
+                loading={optionCreateMutation.isPending || optionUpdateMutation.isPending || optionArchiveMutation.isPending || optionReorderMutation.isPending || renameSectionMutation.isPending || floorPlanCreateMutation.isPending || floorPlanUpdateMutation.isPending || floorPlanArchiveMutation.isPending || columnUpdateMutation.isPending || scheduleTrackCreateMutation.isPending || scheduleTrackUpdateMutation.isPending || scheduleTrackReorderMutation.isPending || scheduleTrackArchiveMutation.isPending}
                 onCreateOption={async (input) => { await optionCreateMutation.mutateAsync(input); }}
                 onUpdateOption={async (id, input) => { await optionUpdateMutation.mutateAsync({ id, data: input }); }}
                 onArchiveOption={async (id, restore) => { await optionArchiveMutation.mutateAsync({ id, restore }); }}
