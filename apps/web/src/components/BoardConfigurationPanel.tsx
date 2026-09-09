@@ -290,9 +290,11 @@ export function BoardConfigurationPanel({
     await runConfigAction("options", () => onReorderOptions(ids));
   };
   const moveTrack = async (id: string, offset: -1 | 1) => {
+    const activeIndex = activeScheduleTracks.findIndex((track) => track.id === id);
+    const neighbor = activeScheduleTracks[activeIndex + offset];
+    if (activeIndex < 0 || !neighbor) return;
     const index = scheduleTracks.findIndex((track) => track.id === id);
-    const swap = index + offset;
-    if (index < 0 || swap < 0 || swap >= scheduleTracks.length) return;
+    const swap = scheduleTracks.findIndex((track) => track.id === neighbor.id);
     const ids = scheduleTracks.map((track) => track.id);
     [ids[index], ids[swap]] = [ids[swap], ids[index]];
     await runConfigAction("tracks", () => onReorderScheduleTracks(ids));

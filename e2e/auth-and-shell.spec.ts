@@ -1611,6 +1611,40 @@ test("floor plan archive and restore call the intended actions and fit mobile se
   expect(errors).toEqual([]);
 });
 
+test("calendar track reorder skips archived rows and preserves their position", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const original = (await (await page.request.get("/api/operations/schedule-tracks")).json()).tracks as Array<{ id: string; sourceField: string; isArchived: boolean }>;
+  const [first, hidden, next] = original.filter(track => !track.isArchived);
+  expect(next).toBeTruthy();
+  const sourceRow = (track: { sourceField: string }) => page.getByTestId(`schedule-track-row-${track.sourceField.replace(/[^a-zA-Z0-9]+/g, "-")}`);
+  try {
+    expect((await page.request.post(`/api/operations/schedule-tracks/${hidden.id}/archive`, { headers })).status()).toBe(200);
+    await page.getByTestId("tab-operations").click();
+    await expect(sourceRow(hidden)).toContainText("Archived");
+    await expect(sourceRow(first).locator("..").getByRole("button", { name: "Move track up", exact: true })).toBeDisabled();
+    const expected = original.map(track => track.id);
+    const a = expected.indexOf(first.id);
+    const b = expected.indexOf(next.id);
+    [expected[a], expected[b]] = [expected[b], expected[a]];
+    const saved = page.waitForResponse(response => response.url().endsWith("/api/operations/schedule-tracks/reorder") && response.request().method() === "PUT");
+    await sourceRow(first).locator("..").getByRole("button", { name: "Move track down", exact: true }).click();
+    const response = await saved;
+    expect(response.status(), await response.text()).toBe(200);
+    expect(response.request().postDataJSON().ids).toEqual(expected);
+    const stored = (await (await page.request.get("/api/operations/schedule-tracks")).json()).tracks;
+    expect(stored.map((track: { id: string }) => track.id)).toEqual(expected);
+    expect(stored.find((track: { id: string }) => track.id === hidden.id).isArchived).toBe(true);
+    await expect(sourceRow(first).locator("..").getByRole("button", { name: "Move track up", exact: true })).toBeEnabled();
+    const reversed = page.waitForResponse(result => result.url().endsWith("/api/operations/schedule-tracks/reorder") && result.request().method() === "PUT");
+    await sourceRow(first).locator("..").getByRole("button", { name: "Move track up", exact: true }).click();
+    expect((await reversed).request().postDataJSON().ids).toEqual(original.map(track => track.id));
+  } finally {
+    expect((await page.request.post(`/api/operations/schedule-tracks/${hidden.id}/restore`, { headers })).status()).toBe(200);
+    expect((await page.request.put("/api/operations/schedule-tracks/reorder", { headers, data: { ids: original.map(track => track.id) } })).status()).toBe(200);
+  }
+});
+
 test("offline queue preserves account ownership across logout, reload and another-tab cookie changes", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
