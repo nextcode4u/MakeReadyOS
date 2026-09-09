@@ -247,6 +247,7 @@ test("changing the inspection status cannot waive an existing report requirement
 });
 
 test("turn materials survive saves, conflicts and native restore without leaking into resident reports", async ({ page }, testInfo) => {
+  await page.addInitScript(() => Object.defineProperty(crypto, "randomUUID", { value: undefined, configurable: true }));
   test.setTimeout(90000);
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
   await login(page, adminEmail, adminPassword);
@@ -258,6 +259,7 @@ test("turn materials survive saves, conflicts and native restore without leaking
   const panel = page.getByTestId("turn-materials");
   await panel.getByRole("button", { name: "Add part / material" }).click();
   const modal = page.getByTestId("turn-material-editor");
+  await expect(modal).toBeVisible();
   await modal.getByLabel("Part / material", { exact: true }).fill("Internal-only filter purchase");
   await modal.getByLabel("Quantity", { exact: true }).fill("2");
   await modal.getByLabel("Notes / supplier / order reference").fill("PRIVATE-SUPPLIER-ORDER");
