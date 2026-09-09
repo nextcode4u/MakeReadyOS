@@ -153,7 +153,7 @@ export function isTurnReady(item: Pick<Partial<MakeReadyItem>, "vacancyStatus" |
   const normalize = (value: string | null | undefined) => String(value ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
   // Repair completion is an inspection handoff, not final readiness.
   if (normalize(item.makeReadyStatus) === "FINAL_WALK") return false;
-  return ["VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY"].includes(normalize(item.vacancyStatus))
+  return ["VACANT_READY", "VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY"].includes(normalize(item.vacancyStatus))
     || ["DONE", "YES", "COMPLETE", "COMPLETED"].includes(normalize(item.completionStatus));
 }
 

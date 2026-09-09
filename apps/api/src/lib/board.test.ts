@@ -6,7 +6,7 @@ const now = new Date(2026, 8, 8, 12);
 const dates = { makeReadyDate: new Date(2026, 8, 1), moveInDate: new Date(2026, 8, 9), vacatedDate: new Date(2026, 7, 1) };
 
 test("ready vacancy statuses clear overdue and unfinished move-in warnings", () => {
-  for (const vacancyStatus of ["VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY", " vacant leased ready ", "vacant-not-leased-ready"]) {
+  for (const vacancyStatus of ["VACANT_READY", "VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY", " vacant leased ready ", "vacant-not-leased-ready"]) {
     const result = computeDerivedFields({ ...dates, vacancyStatus, completionStatus: null, overdue: true, moveInSoon: true }, now);
     assert.equal(result.overdue, false);
     assert.equal(result.moveInSoon, false);
@@ -32,6 +32,7 @@ test("pending final walks retain overdue and move-in warnings despite repair com
   const inspected = computeDerivedFields({ ...dates, makeReadyStatus: "DONE", completionStatus: "YES", vacancyStatus: "VACANT LEASED READY" }, now);
   assert.equal(inspected.overdue, false);
   assert.equal(inspected.moveInSoon, false);
+  assert.equal(computeDerivedFields({ ...dates, makeReadyStatus: "FINAL WALK", vacancyStatus: "VACANT_READY" }, now).overdue, true);
 });
 
 test("not-ready and reopened turns still receive overdue warnings", () => {

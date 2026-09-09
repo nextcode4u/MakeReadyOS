@@ -249,7 +249,7 @@ export function itemMatchesStructuredFilters(
     const normalize = (value: string | null | undefined) => String(value ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
     // Match API readiness: repair completion does not clear a pending final walk.
     const ready = normalize(item.makeReadyStatus) !== "FINAL_WALK"
-      && (["VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY"].includes(normalize(item.vacancyStatus))
+      && (["VACANT_READY", "VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY"].includes(normalize(item.vacancyStatus))
         || ["DONE", "YES", "COMPLETE", "COMPLETED"].includes(normalize(item.completionStatus)));
     const imminentIncomplete = dateWithinNextDays(item.moveInDate, 7, now) && !ready;
     const conflict = Boolean(item.moveInDate && item.makeReadyDate && new Date(item.moveInDate) < new Date(item.makeReadyDate));

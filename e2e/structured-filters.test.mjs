@@ -25,7 +25,7 @@ test("ready turns do not retain move-in risk from historical date conflicts", ()
   for (const completionStatus of ["YES", "DONE", "COMPLETE", "COMPLETED"]) {
     assert.equal(matches({ completionStatus, makeReadyDate: "2026-09-12T12:00:00" }), false);
   }
-  for (const vacancyStatus of ["VACANT LEASED READY", "VACANT_NOT_LEASED_READY"]) {
+  for (const vacancyStatus of ["VACANT_READY", "VACANT LEASED READY", "VACANT_NOT_LEASED_READY"]) {
     assert.equal(matches({ vacancyStatus }), false);
   }
 });
