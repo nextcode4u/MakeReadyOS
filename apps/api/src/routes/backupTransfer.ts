@@ -2992,11 +2992,21 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
     if (!propertyCodes.has(issue.propertyCode) && !(await prisma.property.findUnique({ where: { code: issue.propertyCode } }))) {
       summary.leaseComplianceIssues.errors.push(`Property ${issue.propertyCode} is missing for lease issue ${issue.issueTypeName}`);
     }
-    if (issue.issueTypeKey && !leaseComplianceIssueTypeKeys.has(issue.issueTypeKey)) {
-      const [propertyCode, name] = issue.issueTypeKey.split("|");
-      const property = await prisma.property.findUnique({ where: { code: propertyCode } });
-      const existingIssueType = property ? await prisma.leaseComplianceIssueType.findFirst({ where: { propertyId: property.id, name } }) : null;
-      if (!existingIssueType) summary.leaseComplianceIssues.errors.push(`Lease issue type ${issue.issueTypeKey} is missing for issue ${issue.issueTypeName}`);
+    if (issue.unitNumber && !backup.data.units.some(unit => unit.propertyCode === issue.propertyCode && unit.number === issue.unitNumber)) {
+      const property = await prisma.property.findUnique({ where: { code: issue.propertyCode } });
+      const unit = property ? await prisma.unit.findUnique({ where: { propertyId_number: { propertyId: property.id, number: issue.unitNumber } } }) : null;
+      if (!unit) summary.leaseComplianceIssues.errors.push(`Unit ${issue.unitNumber} is missing in ${issue.propertyCode} for lease issue ${issue.issueTypeName}`);
+    }
+    if (issue.issueTypeKey) {
+      const prefix = `${issue.propertyCode}|`;
+      const incoming = backup.data.leaseComplianceIssueTypes.find(type => leaseComplianceIssueTypePortableKey(type) === issue.issueTypeKey);
+      if (!issue.issueTypeKey.startsWith(prefix) || (incoming && incoming.propertyCode !== issue.propertyCode)) {
+        summary.leaseComplianceIssues.errors.push(`Lease issue type must belong to ${issue.propertyCode} for issue ${issue.issueTypeName}`);
+      } else if (!leaseComplianceIssueTypeKeys.has(issue.issueTypeKey)) {
+        const property = await prisma.property.findUnique({ where: { code: issue.propertyCode } });
+        const existingIssueType = property ? await prisma.leaseComplianceIssueType.findFirst({ where: { propertyId: property.id, name: issue.issueTypeKey.slice(prefix.length) } }) : null;
+        if (!existingIssueType) summary.leaseComplianceIssues.errors.push(`Lease issue type ${issue.issueTypeKey} is missing for issue ${issue.issueTypeName}`);
+      }
     }
     if (issue.propertyMapName) {
       const mapInBackup = backup.data.propertyMaps.some((map) => map.propertyCode === issue.propertyCode && map.name === issue.propertyMapName);
@@ -4891,10 +4901,13 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
 
     const leaseComplianceIssueMap = new Map<string, string>();
     for (const issue of backup.data.leaseComplianceIssues) {
-      const propertyId = propertyMap.get(issue.propertyCode);
-      const unitId = issue.unitNumber ? unitMap.get(`${issue.propertyCode}|${issue.unitNumber}`) ?? null : null;
-      const issueTypeId = issue.issueTypeKey ? leaseComplianceIssueTypeMap.get(issue.issueTypeKey) ?? null : null;
-      const propertyMapId = issue.propertyMapName ? propertyMapMap.get(`${issue.propertyCode}|${issue.propertyMapName}`) ?? null : null;
+      const propertyId = propertyMap.get(issue.propertyCode) ?? (await tx.property.findUnique({ where: { code: issue.propertyCode }, select: { id: true } }))?.id;
+      const unitId = issue.unitNumber ? unitMap.get(`${issue.propertyCode}|${issue.unitNumber}`) ?? (propertyId ? (await tx.unit.findUnique({ where: { propertyId_number: { propertyId, number: issue.unitNumber } }, select: { id: true } }))?.id : null) ?? null : null;
+      const issueTypeId = issue.issueTypeKey ? leaseComplianceIssueTypeMap.get(issue.issueTypeKey) ?? (propertyId ? (await tx.leaseComplianceIssueType.findFirst({ where: { propertyId, name: issue.issueTypeKey.slice(issue.propertyCode.length + 1) }, select: { id: true } }))?.id : null) ?? null : null;
+      const propertyMapId = issue.propertyMapName ? propertyMapMap.get(`${issue.propertyCode}|${issue.propertyMapName}`) ?? (propertyId ? (await tx.propertyMap.findFirst({ where: { propertyId, name: issue.propertyMapName }, select: { id: true } }))?.id : null) ?? null : null;
+      if (!dryRun && (!propertyId || (issue.unitNumber && !unitId) || (issue.issueTypeKey && !issueTypeId) || (issue.propertyMapName && !propertyMapId))) {
+        throw Object.assign(new Error(`Lease issue references changed or could not be resolved for ${issue.issueTypeName}; no import changes were committed`), { statusCode: 409 });
+      }
       const existing = propertyId ? await tx.leaseComplianceIssue.findFirst({
         where: {
           propertyId,

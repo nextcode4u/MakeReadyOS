@@ -168,6 +168,34 @@ async function resolveLeaseAssignee(propertyId: string, userId?: string | null) 
   return user.fullName;
 }
 
+type LeaseReferences = { unitId?: string | null; issueTypeId?: string | null; propertyMapId?: string | null };
+
+async function validateLeaseReferences(propertyId: string, references: LeaseReferences, previous?: LeaseReferences) {
+  const check = (record: { propertyId: string; isActive: boolean; isArchived?: boolean } | null, unchanged: boolean, label: string) => {
+    if (!record || record.propertyId !== propertyId || (!unchanged && (!record.isActive || record.isArchived))) {
+      throw Object.assign(new Error(`Select an active ${label} belonging to this issue's property, or clear the reference`), { statusCode: 400 });
+    }
+  };
+  if (references.unitId) {
+    const unit = await prisma.unit.findUnique({ where: { id: references.unitId }, select: { propertyId: true, isActive: true } });
+    check(unit, previous?.unitId === references.unitId, "unit");
+  }
+  if (references.issueTypeId) {
+    const issueType = await prisma.leaseComplianceIssueType.findUnique({ where: { id: references.issueTypeId }, select: { propertyId: true, isActive: true } });
+    check(issueType, previous?.issueTypeId === references.issueTypeId, "issue type");
+  }
+  if (references.propertyMapId) {
+    const map = await prisma.propertyMap.findUnique({ where: { id: references.propertyMapId }, select: { propertyId: true, isActive: true, isArchived: true } });
+    check(map, previous?.propertyMapId === references.propertyMapId, "property map");
+  }
+}
+
+function validateLeaseLocation(location: { unitId?: string | null; building?: string | null; area?: string | null }) {
+  if (!location.unitId && !location.area?.trim() && !location.building?.trim()) {
+    throw Object.assign(new Error("Unit, building, or area is required"), { statusCode: 400 });
+  }
+}
+
 function sanitizeFilename(filename: string) {
   return basename(filename).replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 180) || "lease-compliance";
 }
@@ -575,12 +603,11 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
     if (!requireLeaseComplianceAccess(request, reply, "edit")) return;
     const input = leaseComplianceIssueSchema.parse(request.body);
     await assertPropertyAccess(request, input.propertyId);
+    validateLeaseLocation(input);
+    await validateLeaseReferences(input.propertyId, input);
     const assignedUserName = await resolveLeaseAssignee(input.propertyId, input.assignedUserId);
     await ensureDefaultIssueTypes(input.propertyId, request.currentUser!.id);
     await ensureSettings(input.propertyId, request.currentUser!.id);
-    if (!input.unitId && !input.area?.trim() && !input.building?.trim()) {
-      throw Object.assign(new Error("Unit, building, or area is required"), { statusCode: 400 });
-    }
     const issue = await prisma.leaseComplianceIssue.create({
       data: {
         propertyId: input.propertyId,
@@ -650,6 +677,12 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
     const existing = await prisma.leaseComplianceIssue.findUnique({ where: { id } });
     if (!existing) throw Object.assign(new Error("Lease Compliance issue not found"), { statusCode: 404 });
     await assertPropertyAccess(request, existing.propertyId);
+    if (input.propertyId !== undefined && input.propertyId !== existing.propertyId) {
+      throw Object.assign(new Error("An issue's property cannot be changed. Create the issue in the intended property instead."), { statusCode: 400 });
+    }
+    const merged = { ...existing, ...input };
+    if (input.unitId !== undefined || input.building !== undefined || input.area !== undefined) validateLeaseLocation(merged);
+    await validateLeaseReferences(existing.propertyId, merged, existing);
     let assignedUserName = existing.assignedUserName;
     if (input.assignedUserId !== undefined) {
       assignedUserName = await resolveLeaseAssignee(existing.propertyId, input.assignedUserId);
