@@ -24,6 +24,22 @@ test("a ready board section cannot suppress an explicitly pending final inspecti
   assert.deepEqual(ready.riskReasons, []);
 });
 
+test("risk warnings use current dates instead of stale overdue and vacancy-age flags", async () => {
+  const { evaluateItemRisk } = await import("../lib/risk.js");
+  const now = new Date(2026, 8, 8, 12);
+  const item = {
+    completionStatus: "NO", makeReadyStatus: "LITE", vacancyStatus: "VACANT", updatedAt: now,
+    vacatedDate: new Date(2026, 8, 7), moveInDate: new Date(2026, 8, 20), cleaningStatus: "DONE", assignedTech: "Tech",
+    overdue: true, daysVacant: 999,
+  };
+  for (const makeReadyDate of [null, new Date(2026, 8, 8), new Date(2026, 8, 9)]) {
+    const result = evaluateItemRisk({ ...item, makeReadyDate } as any, now);
+    assert.equal(result.riskReasons.some(reason => reason.category === "OVERDUE_MAKE_READY"), false);
+    assert.equal(result.riskReasons.some(reason => reason.category === "PROPERTY_WORKLOAD"), false);
+  }
+  assert.equal(evaluateItemRisk({ ...item, overdue: false, makeReadyDate: new Date(2026, 8, 7) } as any, now).riskReasons.some(reason => reason.category === "OVERDUE_MAKE_READY"), true);
+});
+
 test("risk evaluation rejects item IDs outside its explicitly selected property", async (t) => {
   process.env.DATABASE_URL = "postgresql://unused:unused@127.0.0.1:1/unused";
   process.env.ADMIN_USERNAME = "risk-scope-test";

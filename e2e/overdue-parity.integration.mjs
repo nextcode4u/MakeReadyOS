@@ -43,6 +43,8 @@ try {
   const all = await (await get(`/make-ready-items?${scope}`)).json();
   check("live list flags", names(all.filter(row => row.overdue)), expected);
   check("live vacancy age", [...new Set(all.map(row => row.daysVacant))], [5]);
+  const detail = await (await get(`/make-ready-items/${all[0].id}`)).json();
+  check("detail preserves recorded automation time", detail.lastAutomationAt, null);
   const filtered = await get(`/make-ready-items?${scope}&overdueOnly=true`);
   check("filtered list", names(await filtered.json()), expected);
   check("filtered count", filtered.headers.get("x-total-count"), "3");

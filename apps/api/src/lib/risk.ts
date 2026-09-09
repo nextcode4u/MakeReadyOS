@@ -2,10 +2,8 @@ import type { MakeReadyItem, Prisma, PropertyRiskPolicy } from "@prisma/client";
 import { createNotification } from "./notifications.js";
 import { prisma } from "./prisma.js";
 import { queueWebhookEvent } from "./webhookQueue.js";
-import { isTurnReady } from "./board.js";
+import { calendarDayDifference, computeDerivedFields } from "./board.js";
 import { isFinalWalkStatus } from "./turnStatus.js";
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const riskLevels = ["NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 export type RiskLevel = (typeof riskLevels)[number];
@@ -88,7 +86,7 @@ function startOfDay(date: Date) {
 }
 
 function daysBetween(from: Date, to: Date) {
-  return Math.floor((startOfDay(to).getTime() - startOfDay(from).getTime()) / DAY_MS);
+  return calendarDayDifference(from, to);
 }
 
 function isDone(value: string | null | undefined) {
@@ -116,8 +114,7 @@ export function evaluateItemRisk(item: RiskItem, now = new Date(), policyInput?:
   }
   const policy = normalizeRiskPolicy(policyInput);
   const reasons: RiskReason[] = [];
-  const daysUntilMoveIn = item.moveInDate ? daysBetween(now, item.moveInDate) : null;
-  const daysVacant = item.daysVacant ?? (item.vacatedDate ? Math.max(0, daysBetween(item.vacatedDate, now)) : 0);
+  const { daysUntilMoveIn, daysVacant, overdue } = computeDerivedFields(item, now);
   const incomplete = !isDone(item.completionStatus) || !isDone(item.makeReadyStatus);
 
   const add = (reason: RiskReason) => reasons.push(reason);
@@ -130,7 +127,7 @@ export function evaluateItemRisk(item: RiskItem, now = new Date(), policyInput?:
     add({ category: "MOVE_IN_RISK", level: "MEDIUM", score: 45, message: `Move-in is within ${policy.moveInMediumDays} days and still needs work.` });
   }
 
-  if (!isTurnReady(item) && (item.overdue || (item.makeReadyDate && item.makeReadyDate < startOfDay(now) && incomplete))) {
+  if (overdue) {
     add({ category: "OVERDUE_MAKE_READY", level: "HIGH", score: 70, message: "Make-ready date is overdue and completion is not done." });
   }
 
