@@ -379,7 +379,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
     if (scoped.denied) return reply.code(403).send({ message: "Property access denied" });
     const where = { propertyId: scoped.where, isArchived: false };
     const today = startOfDay();
-    const [issues, vendors, defaultVendor] = await Promise.all([
+    const [issues, vendors, defaultVendor, assignableUsers] = await Promise.all([
       prisma.pestIssue.findMany({
         where,
         include: {
@@ -403,6 +403,15 @@ export async function pestControlRoutes(app: FastifyInstance) {
       prisma.pestVendor.findFirst({
         where: { propertyId: scoped.where, isActive: true, isDefault: true },
       }),
+      propertyId && pestRoleAccess(request.currentUser!.role).edit ? prisma.user.findMany({
+        where: {
+          isActive: true,
+          role: { in: [UserRole.ADMIN, UserRole.MANAGER, UserRole.TECH, UserRole.LEASING] },
+          OR: [{ role: UserRole.ADMIN }, { propertyAccess: { some: { propertyId } } }],
+        },
+        select: { id: true, fullName: true, role: true },
+        orderBy: [{ fullName: "asc" }, { id: "asc" }],
+      }) : [],
     ]);
     const openStatuses = ["Open", "Scheduled", "Needs Follow Up", "Treated"];
     const openRequests = issues.filter((issue) => openStatuses.includes(issue.status));
@@ -422,6 +431,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
         recurringUnits: recurringMap.size,
       },
       recentRequests: issues.slice(0, 10),
+      assignableUsers,
       recentTreatments: issues.filter((issue) => issue.treatmentDate).slice(0, 10),
       upcomingFollowUps: dueFollowUps.concat(overdueFollowUps).sort((a, b) => (a.followUpDate?.getTime() ?? 0) - (b.followUpDate?.getTime() ?? 0)).slice(0, 10),
       vendors,

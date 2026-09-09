@@ -4175,7 +4175,6 @@ function App() {
             <PestControlPanel
               properties={metaQuery.data?.properties ?? []}
               units={metaQuery.data?.units ?? []}
-              users={adminUsersQuery.data?.users?.map((user) => ({ id: user.id, fullName: user.fullName, role: user.role })) ?? []}
               selectedPropertyId={propertyId}
               userRole={currentUser.role}
               language={currentUser.language}
@@ -4186,7 +4185,6 @@ function App() {
             <LeaseCompliancePanel
               properties={metaQuery.data?.properties ?? []}
               units={metaQuery.data?.units ?? []}
-              users={adminUsersQuery.data?.users?.map((user) => ({ id: user.id, fullName: user.fullName, role: user.role })) ?? []}
               selectedPropertyId={propertyId}
               userRole={currentUser.role}
               language={currentUser.language}

@@ -1586,6 +1586,7 @@ export type LeaseComplianceIssue = {
 };
 
 export type LeaseComplianceOverviewResponse = {
+  assignableUsers: StaffOption[];
   permissions: { view: boolean; edit: boolean; notice: boolean; admin: boolean };
   summary: {
     openIssues: number;
@@ -1701,6 +1702,7 @@ export type PestIssue = {
 };
 
 export type PestOverviewResponse = {
+  assignableUsers: StaffOption[];
   summary: {
     openRequests: number;
     scheduled: number;

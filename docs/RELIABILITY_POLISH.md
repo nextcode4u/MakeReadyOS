@@ -137,6 +137,10 @@ Local prevention checkpoint: default initialization rechecks under a shared tran
 
 ## P1: Predictable Field Work
 
+- [ ] Count Lease dashboard totals across all scoped issues, not the overview's latest 40-row sample. Keep recent lists bounded separately; test more than 40 issues, property filtering, resolved dates and overdue boundaries.
+
+- [x] Populate Pest and Lease assignee pickers from property-scoped overview staff, not `adminUsersQuery`. Server-side active/role/property filters match each module's assignment policy; responses contain only ID/name/role and no choices for read-only or unspecified-property requests. Existing overview query caching retains choices on failed refresh. Thirteen route checks pass; real browser saves pass for fresh TECH, LEASING and ADMIN sessions without an Admin users request, excluding other-property staff and verifying minimal response fields (`logs/e2e-20260909-035128.txt`). Local change, not yet deployed.
+
 - [ ] Verify exact-unit matching and independent resolve/persist actions for every compliance issue in Quick Capture and Active Issues.
 - [x] Give lease Quick Capture its own paginated exact-unit lookup, independent of the filtered 200-row Active Issues response. Mobile regression verifies multiple pages with an empty main list and resolving one issue without hiding the other. Resolved/archived issues are excluded from repeat cards; failed lookup shows retry feedback.
 - [x] Extend independent paginated lookup to building/area-only grounds capture. API tests verify property scope and unit exclusion; mobile-sized browser checks find later-page cards with an empty Active Issues list. Pagination and cancellation across other capture modules remain queued.

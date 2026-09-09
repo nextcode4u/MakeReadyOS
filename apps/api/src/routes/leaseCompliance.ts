@@ -404,7 +404,7 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
       await ensureDefaultIssueTypes(propertyId, request.currentUser!.id);
       await ensureSettings(propertyId, request.currentUser!.id);
     }
-    const [issues, settings, issueTypes] = await Promise.all([
+    const [issues, settings, issueTypes, assignableUsers] = await Promise.all([
       prisma.leaseComplianceIssue.findMany({
         where: {
           propertyId: scoped.where,
@@ -421,6 +421,15 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
       }),
       propertyId ? prisma.leaseComplianceSettings.findUnique({ where: { propertyId } }) : null,
       propertyId ? prisma.leaseComplianceIssueType.findMany({ where: { propertyId, isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }) : [],
+      propertyId && leaseComplianceRoleAccess(request.currentUser!.role).edit ? prisma.user.findMany({
+        where: {
+          isActive: true,
+          role: { in: [UserRole.ADMIN, UserRole.MANAGER, UserRole.TECH, UserRole.LEASING, UserRole.CLEANER] },
+          OR: [{ role: UserRole.ADMIN }, { propertyAccess: { some: { propertyId } } }],
+        },
+        select: { id: true, fullName: true, role: true },
+        orderBy: [{ fullName: "asc" }, { id: "asc" }],
+      }) : [],
     ]);
     const currentMonth = startOfMonth();
     const summary = {
@@ -434,6 +443,7 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
     };
     return {
       permissions: leaseComplianceRoleAccess(request.currentUser!.role),
+      assignableUsers,
       summary,
       issueTypes,
       settings,
