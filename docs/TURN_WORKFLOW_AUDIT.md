@@ -22,6 +22,8 @@ Material-draft checkpoint: three production-image browser regressions passed in 
 
 ## Blocking Follow-Up
 
+Inspection-history follow-up: readiness now requires the detailed report whenever an inspection draft or final-walk assignment history exists, not only while the current phase says FINAL WALK. Changing the phase to LITE no longer waives the checks. Final-walk status normalization is shared across assignment synchronization, report access, readiness and risk. Ten focused tests passed. Three production-image browser regressions passed in `logs/e2e-20260908-213449.txt`, including status-change bypass rejection, completion after all checks are recorded, required-work/archival guards and the full technician/inspector handoff flow. The first new browser fixture incorrectly sent the read-only `updatedAt` field; the strict API rejected it and the fixture was corrected. These are mutable report checks, not signed immutable issuance. Local, not deployed.
+
 Local filter follow-up: Move-in risk now retains repair-complete turns awaiting FINAL WALK and excludes genuinely ready turns with historical date conflicts. Three focused structured-filter tests, the web production build and lint passed. Vacancy/occupancy inventory metrics are deliberately not changed by this workflow filter fix.
 
 Risk checkpoint: full `test.sh` passed in `logs/test-20260908-205638.txt`, including API/web builds, lint, dependency audits, the pending-inspection risk regression and isolated API lifecycle/property/role checks. Subsequent search-dialog changes were separately built and browser-tested. Server-side move-in filter parity is a further follow-up, not covered by that checkpoint.

@@ -1,6 +1,7 @@
 import { type Prisma, UserRole } from "@prisma/client";
 import { prisma } from "./prisma.js";
 import { createNotification } from "./notifications.js";
+import { isFinalWalkStatus } from "./turnStatus.js";
 
 export const finalWalkCategory = "FINAL_WALK_INSPECTION";
 export const pendingWalkStatuses = ["PLANNED", "IN_PROGRESS"];
@@ -24,7 +25,7 @@ export async function syncFinalWalks(propertyId: string, itemId?: string) {
     const staff = await inspectorStaff(db, propertyId);
     let assigned = 0;
     for (const item of items) {
-      const ready = item.makeReadyStatus === "FINAL WALK";
+      const ready = isFinalWalkStatus(item.makeReadyStatus);
       const closed = item.isArchived || item.makeReadyStatus === "DONE";
       const blocks = await db.workAssignmentBlock.findMany({ where: { itemId: item.id, category: finalWalkCategory, status: { in: pendingWalkStatuses } }, orderBy: { createdAt: "asc" } });
       if (closed || !ready) {

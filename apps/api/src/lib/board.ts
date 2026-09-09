@@ -1,5 +1,6 @@
 import type { MakeReadyItem, Prisma } from "@prisma/client";
 import { applyBusinessDayOffset, type DateOffsetField, type OperatingCalendarPolicy } from "./operatingCalendar.js";
+import { isFinalWalkStatus } from "./turnStatus.js";
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -152,7 +153,7 @@ function diffInDays(from: Date, to: Date): number {
 export function isTurnReady(item: Pick<Partial<MakeReadyItem>, "vacancyStatus" | "completionStatus" | "makeReadyStatus">) {
   const normalize = (value: string | null | undefined) => String(value ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
   // Repair completion is an inspection handoff, not final readiness.
-  if (normalize(item.makeReadyStatus) === "FINAL_WALK") return false;
+  if (isFinalWalkStatus(item.makeReadyStatus)) return false;
   return ["VACANT_READY", "VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY"].includes(normalize(item.vacancyStatus))
     || ["DONE", "YES", "COMPLETE", "COMPLETED"].includes(normalize(item.completionStatus));
 }

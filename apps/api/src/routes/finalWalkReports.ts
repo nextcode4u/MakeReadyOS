@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, reportDraftSchema, reportSections, reportSettingsSchema, resolveReportMailbox, savedReportDraftSchema, savedReportSettingsSchema } from "../lib/finalWalkReport.js";
 import { finalWalkCategory } from "../lib/finalWalks.js";
+import { isFinalWalkStatus } from "../lib/turnStatus.js";
 
 async function inspectorAccess(request: FastifyRequest, db: typeof prisma | import("@prisma/client").Prisma.TransactionClient, propertyId: string, itemId?: string, editing = false) {
   const user = request.currentUser;
@@ -13,7 +14,7 @@ async function inspectorAccess(request: FastifyRequest, db: typeof prisma | impo
   if (!itemId || !["MANAGER", "LEASING", "TECH"].includes(user.role)) throw Object.assign(new Error("Only the assigned inspector can access this report"), { statusCode: 403 });
   const item = await db.makeReadyItem.findFirst({ where: { id: itemId, propertyId, isArchived: false } });
   const block = item && await db.workAssignmentBlock.findFirst({ where: { itemId, category: finalWalkCategory, status: { in: ["PLANNED", "IN_PROGRESS", "DONE"] } }, orderBy: { createdAt: "desc" } });
-  if (!item || !block || block.assignedUserId !== user.id || item.assignedTech?.trim().toLowerCase() === user.fullName.trim().toLowerCase() || (editing ? item.makeReadyStatus !== "FINAL WALK" || block.status === "DONE" : !["FINAL WALK", "DONE"].includes(item.makeReadyStatus ?? ""))) {
+  if (!item || !block || block.assignedUserId !== user.id || item.assignedTech?.trim().toLowerCase() === user.fullName.trim().toLowerCase() || (editing ? !isFinalWalkStatus(item.makeReadyStatus) || block.status === "DONE" : !isFinalWalkStatus(item.makeReadyStatus) && item.makeReadyStatus !== "DONE")) {
     throw Object.assign(new Error("Only the assigned independent inspector can access this report; completed walks are read-only"), { statusCode: 403 });
   }
 }
@@ -51,7 +52,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     const reviewer = item ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory }, orderBy: { createdAt: "desc" }, select: { assignedUser: { select: { fullName: true } } } }) : null;
     return {
       canEditSettings: request.currentUser!.role === "ADMIN",
-      canEditDraft: request.currentUser!.role === "ADMIN" || item?.makeReadyStatus === "FINAL WALK",
+      canEditDraft: request.currentUser!.role === "ADMIN" || isFinalWalkStatus(item?.makeReadyStatus),
       property: { id: property.id, name: property.name, code: property.code },
       settings: settings.success ? settings.data : { version: 0, value: defaultReportSettings },
       draft: draft.success ? { ...draft.data, value: resolveReportMailbox(draft.data.value, mailbox) } : { version: 0, value: resolveReportMailbox(emptyReportDraft(), mailbox), updatedAt: null },

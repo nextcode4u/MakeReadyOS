@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { turnMaterialsSchema } from "./turnMaterials.js";
 import { reportChecks, savedReportDraftSchema } from "./finalWalkReport.js";
+import { isFinalWalkStatus } from "./turnStatus.js";
 
 export function readinessBlockers(input: { isArchived: boolean; propertyActive: boolean; assignedTech: string | null; reviewerName: string; materials: unknown; tasks: Array<{ title: string; required: boolean; completed: boolean }>; inspectionRequired?: boolean; inspection?: unknown }) {
   const blockers: string[] = [];
@@ -25,6 +26,7 @@ export function readinessBlockers(input: { isArchived: boolean; propertyActive: 
 }
 
 export async function getTurnReadiness(db: Prisma.TransactionClient, id: string, reviewerName: string) {
-  const item = await db.makeReadyItem.findUniqueOrThrow({ where: { id }, include: { finalWalkReportDraft: true, property: { select: { isActive: true } }, checklistInstances: { include: { items: { select: { title: true, required: true, completed: true } } } } } });
-  return readinessBlockers({ ...item, propertyActive: item.property.isActive, reviewerName, tasks: item.checklistInstances.flatMap(checklist => checklist.items), inspectionRequired: item.makeReadyStatus === "FINAL WALK", inspection: item.finalWalkReportDraft?.payload });
+  const item = await db.makeReadyItem.findUniqueOrThrow({ where: { id }, include: { finalWalkReportDraft: true, workAssignmentBlocks: { where: { category: "FINAL_WALK_INSPECTION" }, select: { id: true }, take: 1 }, property: { select: { isActive: true } }, checklistInstances: { include: { items: { select: { title: true, required: true, completed: true } } } } } });
+  const inspectionRequired = isFinalWalkStatus(item.makeReadyStatus) || Boolean(item.finalWalkReportDraft) || item.workAssignmentBlocks.length > 0;
+  return readinessBlockers({ ...item, propertyActive: item.property.isActive, reviewerName, tasks: item.checklistInstances.flatMap(checklist => checklist.items), inspectionRequired, inspection: item.finalWalkReportDraft?.payload });
 }
