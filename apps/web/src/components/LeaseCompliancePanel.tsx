@@ -22,7 +22,6 @@ import {
   markLeaseComplianceNotice,
   markLeaseComplianceStillPersists,
   resolveLeaseComplianceIssue,
-  updateLeaseComplianceIssue,
   updateLeaseComplianceIssueType,
   updateLeaseComplianceSettings,
   uploadLeaseComplianceIssuePhoto,
@@ -48,6 +47,7 @@ import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
 import { StatusState } from "./StatusState";
 import { UnitSearchSelect } from "./UnitSearchSelect";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
+import { LeaseIssueEditor } from "./LeaseIssueEditor";
 
 type Tab = "dashboard" | "active" | "grounds" | "needs-notice" | "violation" | "resolved" | "archive" | "reports" | "settings";
 
@@ -176,7 +176,7 @@ function IssueCard({
   units,
   users,
   language,
-  onSave,
+  onRefresh,
   onNote,
   onPersist,
   onNotice,
@@ -192,7 +192,7 @@ function IssueCard({
   units: Unit[];
   users: Array<{ id: string; fullName: string; role: UserRole }>;
   language: UserLanguage;
-  onSave: (id: string, input: Partial<Parameters<typeof createLeaseComplianceIssue>[0]>) => void;
+  onRefresh: () => Promise<void>;
   onNote: (id: string, body: string) => void;
   onPersist: (id: string, notes?: string) => void;
   onNotice: (id: string, action: LeaseComplianceNoticeAction["action"]) => void;
@@ -207,15 +207,7 @@ function IssueCard({
   const [persistNotes, setPersistNotes] = useState("");
   const [expanded, setExpanded] = useState(false);
   const label = issue.unit?.number ?? issue.area ?? issue.building ?? t(language, "lease.area");
-  const assignableUserOptions = useMemo<SearchSelectOption[]>(() => users.map((user) => ({
-    value: user.id,
-    label: `${user.fullName} / ${user.role}`,
-    keywords: [user.fullName, user.role],
-  })), [users]);
-  const selectedUnit = useMemo(
-    () => units.find((entry) => entry.id === issue.unitId) ?? null,
-    [issue.unitId, units],
-  );
+  const editorUserId = getVerifiedSession().userId;
   const activeNoticeActions = noticeActions.filter((entry) => {
     if (issue.noticeStage === "Violation Needed") return false;
     if (entry.value === "RESIDENT_NOTIFIED") return issue.noticeStage === "None";
@@ -231,7 +223,7 @@ function IssueCard({
 
   return (
     <article className={`pool-card lease-issue-card ${issue.managerReviewRequired ? "pm-task-card" : ""}`} data-testid={`lease-issue-${issue.id}`}>
-      <button type="button" className="compact-issue-summary lease-issue-summary" onClick={() => setExpanded((current) => !current)}>
+      <button type="button" className="compact-issue-summary lease-issue-summary" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
         <div className="compact-issue-summary-main">
           <strong>{label} / {issue.issueTypeName}{issue.additionalIssueType ? ` + ${issue.additionalIssueType}` : ""}</strong>
           <span className="pool-reading-stack compact-issue-meta">
@@ -243,38 +235,6 @@ function IssueCard({
             {issue.assignedUserName ? <span>{issue.assignedUserName}</span> : null}
           </span>
           {issue.description ? <p className="lease-issue-description">{issue.description}</p> : null}
-          {compactNoticeActions.length ? (
-            <div className="lease-issue-actions lease-issue-actions-inline">
-              {compactNoticeActions.map((entry) => (
-                <button
-                  key={entry.value}
-                  className="button button-secondary button-xs"
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onNotice(issue.id, entry.value);
-                  }}
-                >
-                  {noticeActionLabel(entry.value, language)}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          {canResolve ? (
-            <div className="lease-issue-actions lease-issue-actions-inline">
-              <button
-                className="button button-secondary button-xs"
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onResolve(issue.id, resolutionNotes.trim() || (language === "es" ? "Resuelto desde la lista de incidencias." : "Resolved from issue list."));
-                  setResolutionNotes("");
-                }}
-              >
-                {t(language, "lease.markResolved")}
-              </button>
-            </div>
-          ) : null}
         </div>
         <div className="compact-issue-summary-side">
           {issue.photos[0] ? (
@@ -285,6 +245,13 @@ function IssueCard({
           <span className={`status-pill ${issue.status === "Violation Needed" ? "risk-critical" : issue.noticeStage !== "None" ? "risk-high" : ""}`}>{issue.status}</span>
         </div>
       </button>
+      {compactNoticeActions.length || canResolve ? <div className="lease-issue-actions lease-issue-actions-inline">
+        {compactNoticeActions.map(entry => <button key={entry.value} className="button button-secondary button-xs" type="button" onClick={() => onNotice(issue.id, entry.value)}>{noticeActionLabel(entry.value, language)}</button>)}
+        {canResolve ? <button className="button button-secondary button-xs" type="button" onClick={() => {
+          onResolve(issue.id, resolutionNotes.trim() || (language === "es" ? "Resuelto desde la lista de incidencias." : "Resolved from issue list."));
+          setResolutionNotes("");
+        }}>{t(language, "lease.markResolved")}</button> : null}
+      </div> : null}
       {expanded ? (
         <>
           {(issue.recurringConcern || issue.managerReviewRequired) ? (
@@ -368,65 +335,8 @@ function IssueCard({
             </div>
 
             <div className="issue-detail-side">
-              {canEdit ? (
-                <div className="lease-issue-edit-grid">
-                  <label>{t(language, "lease.unit")}
-                    <UnitSearchSelect
-                      units={units}
-                      value={issue.unitId ?? ""}
-                      onChange={(unitId) => {
-                        const nextUnit = units.find((entry) => entry.id === unitId) ?? null;
-                        onSave(issue.id, {
-                          unitId: unitId || null,
-                          building: unitId ? (nextUnit?.building ?? issue.building) : issue.building,
-                        });
-                      }}
-                      language={language}
-                      placeholder={t(language, "lease.searchUnit")}
-                      emptyLabel={t(language, "lease.areaExteriorOnly")}
-                    />
-                  </label>
-                  <label>{t(language, "lease.building")}
-                    <input
-                      value={issue.building ?? selectedUnit?.building ?? ""}
-                      onChange={(event) => onSave(issue.id, { building: event.target.value || null })}
-                      placeholder={t(language, "lease.buildingPlaceholder")}
-                    />
-                  </label>
-                  <label>{t(language, "lease.area")}
-                    <input
-                      value={issue.area ?? ""}
-                      onChange={(event) => onSave(issue.id, { area: event.target.value || null })}
-                      placeholder={t(language, "lease.areaPlaceholder")}
-                    />
-                  </label>
-                  <label>{t(language, "admin.status")}
-                    <select value={issue.status} onChange={(event) => onSave(issue.id, { status: event.target.value as LeaseComplianceStatus })}>
-                      {statuses.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-                    </select>
-                  </label>
-                  <label>{t(language, "lease.priority")}
-                    <select value={issue.priority} onChange={(event) => onSave(issue.id, { priority: event.target.value as LeaseCompliancePriority })}>
-                      {priorities.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-                    </select>
-                  </label>
-                  <label>{t(language, "lease.assignedUser")}
-                    <SearchSelect
-                      options={assignableUserOptions}
-                      value={issue.assignedUserId ?? ""}
-                      onChange={(assignedUserId) => onSave(issue.id, { assignedUserId: assignedUserId || null })}
-                      placeholder={t(language, "pm.searchUser")}
-                      emptyLabel={t(language, "lease.unassigned")}
-                      noMatchesLabel={t(language, "common.noMatchingUsers")}
-                      clearLabel={t(language, "pm.clearAssignedUser")}
-                    />
-                  </label>
-                  <label>{t(language, "lease.noticeStage")}
-                    <select value={issue.noticeStage} onChange={(event) => onSave(issue.id, { noticeStage: event.target.value as LeaseComplianceNoticeStage })}>
-                      {noticeStages.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-                    </select>
-                  </label>
-                </div>
+              {canEdit && editorUserId ? (
+                <LeaseIssueEditor key={`${editorUserId}:${issue.id}`} issue={issue} userId={editorUserId} units={units} users={users} language={language} onRefresh={onRefresh} />
               ) : null}
 
               <IssueMediaStrip
@@ -695,7 +605,6 @@ export function LeaseCompliancePanel({ properties, units, userRole, language, se
   };
 
   const createIssueMutation = useMutation({ mutationFn: ({ input, ownerUserId }: { input: Parameters<typeof createLeaseComplianceIssue>[0]; ownerUserId: string }) => createLeaseComplianceIssue(input, { expectedUserId: ownerUserId }), onSuccess: invalidate });
-  const updateIssueMutation = useMutation({ mutationFn: ({ id, input }: { id: string; input: Partial<Parameters<typeof createLeaseComplianceIssue>[0]> }) => updateLeaseComplianceIssue(id, input), onSuccess: invalidate });
   const addNoteMutation = useMutation({ mutationFn: ({ id, body }: { id: string; body: string }) => addLeaseComplianceIssueNote(id, body), onSuccess: invalidate });
   const persistMutation = useMutation({ mutationFn: ({ id, notes }: { id: string; notes?: string }) => markLeaseComplianceStillPersists(id, notes), onSuccess: invalidate });
   const noticeMutation = useMutation({ mutationFn: ({ id, action }: { id: string; action: LeaseComplianceNoticeAction["action"] }) => markLeaseComplianceNotice(id, { action }), onSuccess: invalidate });
@@ -1461,7 +1370,7 @@ export function LeaseCompliancePanel({ properties, units, userRole, language, se
                     units={propertyUnits}
                     users={assignableUsers}
                     language={language}
-                    onSave={(id, input) => updateIssueMutation.mutate({ id, input })}
+                    onRefresh={invalidate}
                     onNote={(id, body) => addNoteMutation.mutate({ id, body })}
                     onPersist={(id, notes) => persistMutation.mutate({ id, notes })}
                     onNotice={(id, action) => noticeMutation.mutate({ id, action })}
