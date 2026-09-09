@@ -26,6 +26,7 @@ export async function turnMaterialRoutes(app: FastifyInstance) {
     const item = await context(request, reply, true); if (!item) return;
     const input = z.object({ rows: turnMaterialsSchema, version: z.number().int().nonnegative() }).strict().parse(request.body);
     return prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${item.propertyId}), 824018)::text`;
       const result = await tx.makeReadyItem.updateMany({ where: { id: item.id, materialsVersion: input.version, isArchived: false, property: { isActive: true } }, data: { materials: input.rows, materialsVersion: { increment: 1 } } });
       if (result.count !== 1) throw Object.assign(new Error("Parts list changed in another session. Cancel this edit, reload the list and try again."), { statusCode: 409 });
       await tx.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: item.propertyId, entityType: "MAKE_READY_ITEM", entityId: item.id, action: "TURN_MATERIALS_UPDATED", message: `Updated internal parts/materials list (${input.rows.length} rows).`, metadata: { version: input.version + 1 } } });

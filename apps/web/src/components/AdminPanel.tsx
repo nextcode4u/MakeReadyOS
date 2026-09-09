@@ -280,6 +280,9 @@ export function AdminPanel({
                 {t(language, "admin.username")}
                 <input
                   data-testid="admin-create-username"
+                  name="new-user-username"
+                  autoComplete="section-create-user username"
+                  spellCheck={false}
                   value={useEmailAsUsername ? createState.email : createState.username}
                   readOnly={useEmailAsUsername}
                   autoCapitalize="none"
@@ -322,6 +325,8 @@ export function AdminPanel({
                 {t(language, "auth.password")}
                 <input
                   data-testid="admin-create-password"
+                  name="new-user-password"
+                  autoComplete="section-create-user new-password"
                   type="password"
                   value={createState.sendInviteEmail ? "" : createState.password}
                   disabled={createState.sendInviteEmail}
@@ -669,6 +674,9 @@ export function AdminPanel({
               <div className="admin-inline-form">
                 <input
                   data-testid="admin-reset-password-input"
+                  name="reset-user-password"
+                  autoComplete="section-reset-user new-password"
+                  aria-label={t(language, "admin.resetPassword")}
                   type="password"
                   value={editState.password}
                   onChange={(event) => setEditState((current) => ({ ...current, password: event.target.value }))}

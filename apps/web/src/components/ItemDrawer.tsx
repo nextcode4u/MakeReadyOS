@@ -847,7 +847,7 @@ export function ItemDrawer({
           )}
         </section>
 
-        <TurnMaterialsPanel key={`materials-${item.id}`} itemId={item.id} title={displayUnitNumber(item.property.code, item.unitNumber)} canEdit={["ADMIN", "MANAGER", "TECH", "CLEANER"].includes(currentUser.role)} />
+        <TurnMaterialsPanel key={`materials-${currentUser.id}-${item.id}`} userId={currentUser.id} itemId={item.id} title={displayUnitNumber(item.property.code, item.unitNumber)} canEdit={["ADMIN", "MANAGER", "TECH", "CLEANER"].includes(currentUser.role)} />
         <section className="drawer-section completion-section" data-testid="drawer-completion-section">
           <h3>{t(language, "drawer.completionFinalWalk")}</h3>
           <FinalWalkControls key={item.id} itemId={item.id} propertyId={item.propertyId} propertyName={item.property.name} currentUser={currentUser} onMarkReady={onMarkReady} />
