@@ -324,7 +324,7 @@ export function PropertyMapsPanel({
   const [localPropertyId, setLocalPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const [showDeleteMapConfirm, setShowDeleteMapConfirm] = useState(false);
   const [deleteArchivedTarget, setDeleteArchivedTarget] = useState<DeleteArchivedTarget | null>(null);
-  const propertyId = selectedPropertyId || localPropertyId;
+  const propertyId = selectedPropertyId || localPropertyId || properties[0]?.id || "";
   const property = properties.find((entry) => entry.id === propertyId);
   const propertyMaps = maps.filter((map) => map.propertyId === propertyId);
   const defaultMap = propertyMaps.find((map) => map.isDefault && !map.isArchived) ?? propertyMaps.find((map) => map.isActive && !map.isArchived) ?? propertyMaps.find((map) => !map.isArchived) ?? propertyMaps[0];
@@ -1240,7 +1240,7 @@ export function PropertyMapsPanel({
               }
             }}>
               <input disabled={mapCreating} data-testid="property-maps-create-name" value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder={isSpanish ? "Nombre del nuevo mapa" : "New map name"} />
-              <button data-testid="property-maps-create-submit" className="button button-primary" disabled={!draftName.trim() || mapCreating}>{isSpanish ? "Crear mapa" : "Create Map"}</button>
+              <button data-testid="property-maps-create-submit" className="button button-primary" disabled={!propertyId || !draftName.trim() || mapCreating}>{isSpanish ? "Crear mapa" : "Create Map"}</button>
               {mapCreateError ? <p role="alert">{mapCreateError}</p> : null}
             </form>
             {selectedMap ? (

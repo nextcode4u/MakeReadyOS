@@ -1177,6 +1177,41 @@ test("command search traps keyboard focus and closes from results without losing
   await page.keyboard.press("Escape");
 });
 
+for (const module of ["pm", "maps"] as const) {
+  test(`${module} selects a usable property after delayed metadata`, async ({ page }) => {
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let expectedPropertyId = "";
+    await page.route("**/api/meta", async route => {
+      const response = await route.fetch();
+      expectedPropertyId = (await response.json()).properties[0].id;
+      await held;
+      return route.fulfill({ response });
+    });
+    await login(page, adminEmail, adminPassword);
+    try {
+      await page.getByTestId(module === "pm" ? "module-rail-pm" : "tab-maps").click();
+      if (module === "pm") await expect(page.getByRole("heading", { name: "No properties available" })).toBeVisible();
+      else await expect(page.getByTestId("property-maps-panel")).toBeVisible();
+    } finally { release(); }
+    await expect.poll(() => expectedPropertyId).not.toBe("");
+    if (module === "pm") {
+      await expect(page.getByTestId("preventive-maintenance-panel")).toBeVisible();
+      await expect(page.getByLabel("PM property")).toHaveValue(expectedPropertyId);
+    } else {
+      await expect(page.getByTestId("property-maps-property-select")).toHaveValue(expectedPropertyId);
+      const name = uniqueTag("Delayed metadata map");
+      await page.getByTestId("property-maps-create-name").fill(name);
+      const saved = page.waitForResponse(response => response.url().endsWith("/api/property-maps") && response.request().method() === "POST");
+      await page.getByTestId("property-maps-create-submit").click();
+      const response = await saved;
+      expect(response.request().postDataJSON().propertyId).toBe(expectedPropertyId);
+      expect(response.status(), await response.text()).toBe(201);
+      await expect(page.getByTestId("property-maps-map-select").locator("option:checked")).toContainText(name);
+    }
+  });
+}
+
 test("lease capture selects a real property after delayed metadata", async ({ page }) => {
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });

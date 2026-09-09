@@ -273,6 +273,10 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   const range = calendarRange(calendarMode, calendarAnchor);
 
   useEffect(() => {
+    if (!propertyId && properties[0]?.id) setPropertyId(properties[0].id);
+  }, [properties, propertyId]);
+
+  useEffect(() => {
     if (tab === "tasks" || tab === "history") {
       setLastFilterTab(tab);
     }
