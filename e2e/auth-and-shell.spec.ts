@@ -36,6 +36,7 @@ test("move-in risk agrees across full lists, windowed pages and CSV exports", as
     { unitNumber: "RISK-UNSET", completionStatus: null, moveInDate: date(5), included: true },
     { unitNumber: "RISK-READY", completionStatus: "YES", makeReadyStatus: "DONE", moveInDate: date(5), makeReadyDate: date(7), included: false },
     { unitNumber: "RISK-VACANCY-READY", vacancyStatus: "VACANT LEASED READY", moveInDate: date(5), included: false },
+    { unitNumber: "RISK-LEGACY", vacancyStatus: "VACANT_READY", moveInDate: date(5), included: false },
     { unitNumber: "RISK-CONFLICT", moveInDate: date(30), makeReadyDate: date(32), included: true },
     { unitNumber: "RISK-LATER", moveInDate: date(30), makeReadyDate: date(20), included: false },
   ];

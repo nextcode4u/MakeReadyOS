@@ -237,7 +237,7 @@ async function makeReadyReportScopeLabel(propertyId: string | undefined) {
 }
 
 function moveInRiskWhere(): Prisma.MakeReadyItemWhereInput {
-  const readyVacancies = ["VACANT LEASED READY", "VACANT_LEASED_READY", "VACANT-LEASED-READY", "VACANT NOT LEASED READY", "VACANT_NOT_LEASED_READY", "VACANT-NOT-LEASED-READY"];
+  const readyVacancies = ["VACANT READY", "VACANT_READY", "VACANT-READY", "VACANT LEASED READY", "VACANT_LEASED_READY", "VACANT-LEASED-READY", "VACANT NOT LEASED READY", "VACANT_NOT_LEASED_READY", "VACANT-NOT-LEASED-READY"];
   return {
     AND: [
       { OR: [
