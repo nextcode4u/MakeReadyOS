@@ -74,6 +74,8 @@ Project category/map links must resolve within the project property (shared glob
 
 `PATCH /api/pm/templates/:id` rejects a different `propertyId` with 409. Templates and generated tasks cannot be transferred through an ordinary edit. Same-property edits retain normal role and property authorization.
 
+Changing `assignedRole` also validates any retained assignee. If that user is not active, property-eligible and of the new role, the request returns 400 before updating the template; supply an eligible replacement or explicit `assignedUserId: null`. Unrelated edits do not clear historical assignments.
+
 ### Pest References
 
 Pest create/edit requests validate unit and vendor property ownership and assignee access. Newly selected references must be active; new assignees must have a Pest editing role (admin, manager, tech or leasing). Explicit linked make-ready items must belong to the selected unit/property and cannot be newly selected when archived. Unchanged valid historical inactive links remain editable. A changed issue `propertyId` is rejected with 409 rather than ignored. These rules do not automatically repair historical links or guarantee native-import consistency.

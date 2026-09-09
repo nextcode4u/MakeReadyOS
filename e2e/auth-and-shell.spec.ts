@@ -123,7 +123,7 @@ test("PM template edits keep generated tasks in their original property", async 
   expect(originalTasks.length).toBeGreaterThan(0);
   const username = `pm-manager-${Date.now()}`;
   const password = "Test-Only-PM!123";
-  await post("/admin/users", { username, password, fullName: "PM Scoped Manager", role: "MANAGER", propertyIds: [a.id] });
+  const { user: manager } = await post("/admin/users", { username, password, fullName: "PM Scoped Manager", role: "MANAGER", propertyIds: [a.id] });
   const client = await playwright.request.newContext({ baseURL: new URL(page.url()).origin });
   try {
     const loginResponse = await client.post("/api/auth/login", { data: { identifier: username, password } });
@@ -136,6 +136,15 @@ test("PM template edits keep generated tasks in their original property", async 
     const saved = await client.patch(`/api/pm/templates/${template.id}`, { headers: scopedHeaders, data: { propertyId: a.id, description: "Allowed edit" } });
     expect(saved.status(), await saved.text()).toBe(200);
     expect((await saved.json()).template.propertyId).toBe(a.id);
+    const assigned = await client.patch(`/api/pm/templates/${template.id}`, { headers: scopedHeaders, data: { assignedRole: "MANAGER", assignedUserId: manager.id } });
+    expect(assigned.status(), await assigned.text()).toBe(200);
+    const wrongRole = await client.patch(`/api/pm/templates/${template.id}`, { headers: scopedHeaders, data: { assignedRole: "TECH" } });
+    expect(wrongRole.status(), await wrongRole.text()).toBe(400);
+    const stillAssigned = await (await page.request.get(`/api/pm/tasks?propertyId=${a.id}`)).json();
+    expect(stillAssigned.tasks.filter((task: any) => task.templateId === template.id).every((task: any) => task.assignedRole === "MANAGER" && task.assignedUserId === manager.id)).toBe(true);
+    const cleared = await client.patch(`/api/pm/templates/${template.id}`, { headers: scopedHeaders, data: { assignedRole: "TECH", assignedUserId: null } });
+    expect(cleared.status(), await cleared.text()).toBe(200);
+    expect((await cleared.json()).template).toMatchObject({ assignedRole: "TECH", assignedUserId: null });
     const after = await (await page.request.get(`/api/pm/tasks?propertyId=${a.id}`)).json();
     expect(after.tasks.filter((task: any) => task.templateId === template.id).map((task: any) => ({ id: task.id, propertyId: task.propertyId }))).toEqual(originalTasks.map((task: any) => ({ id: task.id, propertyId: a.id })));
     const other = await (await page.request.get(`/api/pm/tasks?propertyId=${b.id}`)).json();

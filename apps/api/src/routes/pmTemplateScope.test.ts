@@ -17,8 +17,12 @@ test("PM template edits cannot transfer generated work between properties", asyn
   let actor: any;
   let token: any;
   let writes = 0;
-  stub(prisma.preventiveMaintenanceTemplate, "findUnique", async () => ({ id: "template", propertyId: "allowed", name: "Fixture", assignedRole: "TECH", assignedUserId: null }));
-  stub(prisma.preventiveMaintenanceTemplate, "update", async () => { writes++; throw new Error("TEST_STOP_BEFORE_WRITE"); });
+  let assignedUserId: string | null = null;
+  let staffActive = true;
+  let writeData: any;
+  stub(prisma.preventiveMaintenanceTemplate, "findUnique", async () => ({ id: "template", propertyId: "allowed", name: "Fixture", assignedRole: "TECH", assignedUserId }));
+  stub(prisma.user, "findUnique", async ({ where }) => ({ id: where.id, fullName: "Assigned staff", role: where.id === "manager" ? "MANAGER" : "TECH", isActive: staffActive, propertyAccess: [{ propertyId: "allowed" }] }));
+  stub(prisma.preventiveMaintenanceTemplate, "update", async ({ data }) => { writeData = data; writes++; throw new Error("TEST_STOP_BEFORE_WRITE"); });
   const app = Fastify();
   app.decorateRequest("currentUser", null);
   app.addHook("onRequest", async request => { request.currentUser = actor; request.apiToken = token; });
@@ -46,5 +50,29 @@ test("PM template edits cannot transfer generated work between properties", asyn
     actor = { id: "admin", role: "ADMIN", propertyAccess: [] }; token = { propertyIds: ["outside"] }; writes = 0;
     const response = await send({ name: "Edit" });
     assert.equal(response.statusCode, 403, response.body); assert.equal(writes, 0);
+  });
+  actor = { id: "manager", role: "MANAGER", propertyAccess: [{ propertyId: "allowed" }] }; token = undefined; assignedUserId = "staff";
+  await t.test("role-only changes cannot retain an incompatible assignee", async () => {
+    writes = 0;
+    const response = await send({ assignedRole: "MANAGER" });
+    assert.equal(response.statusCode, 400, response.body); assert.equal(writes, 0);
+  });
+  await t.test("role changes may explicitly clear the assignee", async () => {
+    writes = 0;
+    const response = await send({ assignedRole: "MANAGER", assignedUserId: null });
+    assert.match(response.body, /TEST_STOP_BEFORE_WRITE/); assert.equal(writes, 1);
+    assert.equal(writeData.assignedUserId, null); assert.equal(writeData.assignedUserName, null);
+  });
+  await t.test("role changes may select a compatible replacement", async () => {
+    writes = 0;
+    const response = await send({ assignedRole: "MANAGER", assignedUserId: "manager" });
+    assert.match(response.body, /TEST_STOP_BEFORE_WRITE/); assert.equal(writes, 1);
+    assert.equal(writeData.assignedUserId, "manager");
+  });
+  await t.test("ordinary edits do not erase inactive assignment history", async () => {
+    writes = 0; staffActive = false;
+    const response = await send({ description: "History" });
+    assert.match(response.body, /TEST_STOP_BEFORE_WRITE/); assert.equal(writes, 1);
+    assert.equal(writeData.assignedUserId, undefined);
   });
 });
