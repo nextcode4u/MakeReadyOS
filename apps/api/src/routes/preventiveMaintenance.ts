@@ -554,6 +554,9 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
     const existing = await prisma.preventiveMaintenanceTemplate.findUnique({ where: { id } });
     if (!existing) throw Object.assign(new Error("PM template not found"), { statusCode: 404 });
     await assertPropertyAccess(request, existing.propertyId);
+    if (input.propertyId !== undefined && input.propertyId !== existing.propertyId) {
+      throw Object.assign(new Error("PM template property cannot be changed by editing. Create a template in the correct property instead."), { statusCode: 409 });
+    }
     const nextAssignedRole = input.assignedRole ?? existing.assignedRole;
     const assignedUser = "assignedUserId" in input
       ? await findAssignablePmUser({

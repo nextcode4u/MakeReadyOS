@@ -55,6 +55,41 @@ test("concurrent project category initialization and edits preserve unique scope
   expect(summary.projectCategories.errors).toEqual([]);
 });
 
+test("PM template edits keep generated tasks in their original property", async ({ page, playwright }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property: a } = await post("/operations/properties", { code: `PMS${Date.now()}A`, name: "PM original property" });
+  const { property: b } = await post("/operations/properties", { code: `PMS${Date.now()}B`, name: "PM other property" });
+  const { template } = await post("/pm/templates", { propertyId: a.id, name: "PM scope fixture", category: "General", frequency: "Weekly", assignedRole: "TECH" });
+  const before = await (await page.request.get(`/api/pm/tasks?propertyId=${a.id}`)).json();
+  const originalTasks = before.tasks.filter((task: any) => task.templateId === template.id);
+  expect(originalTasks.length).toBeGreaterThan(0);
+  const username = `pm-manager-${Date.now()}`;
+  const password = "Test-Only-PM!123";
+  await post("/admin/users", { username, password, fullName: "PM Scoped Manager", role: "MANAGER", propertyIds: [a.id] });
+  const client = await playwright.request.newContext({ baseURL: new URL(page.url()).origin });
+  try {
+    const loginResponse = await client.post("/api/auth/login", { data: { identifier: username, password } });
+    expect(loginResponse.status()).toBe(200);
+    const scopedHeaders = { "x-csrf-token": (await loginResponse.json()).csrfToken };
+    for (const [request, requestHeaders] of [[client, scopedHeaders], [page.request, headers]] as const) {
+      const denied = await request.patch(`/api/pm/templates/${template.id}`, { headers: requestHeaders, data: { propertyId: b.id } });
+      expect(denied.status(), await denied.text()).toBe(409);
+    }
+    const saved = await client.patch(`/api/pm/templates/${template.id}`, { headers: scopedHeaders, data: { propertyId: a.id, description: "Allowed edit" } });
+    expect(saved.status(), await saved.text()).toBe(200);
+    expect((await saved.json()).template.propertyId).toBe(a.id);
+    const after = await (await page.request.get(`/api/pm/tasks?propertyId=${a.id}`)).json();
+    expect(after.tasks.filter((task: any) => task.templateId === template.id).map((task: any) => ({ id: task.id, propertyId: task.propertyId }))).toEqual(originalTasks.map((task: any) => ({ id: task.id, propertyId: a.id })));
+    const other = await (await page.request.get(`/api/pm/tasks?propertyId=${b.id}`)).json();
+    expect(other.tasks.some((task: any) => task.templateId === template.id)).toBe(false);
+  } finally { await client.dispose(); }
+});
+
 test("project managers cannot mutate another property and viewers cannot receive assignments", async ({ page, playwright }) => {
   await login(page, adminEmail, adminPassword);
   const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
