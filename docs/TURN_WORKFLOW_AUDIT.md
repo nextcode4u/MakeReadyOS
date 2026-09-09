@@ -8,6 +8,8 @@ MakeReadyOS can support day-to-day scheduling, repair tracking, photos, parts an
 
 ## Deployment Checkpoint
 
+GitHub CI for `0ec90ff` completed successfully (run `34297076113`). Subsequent commits remain local. The later saved-duration migration has only been applied to disposable test databases; production is still on the release above.
+
 Post-release work is local: direct and bulk transitions into Ready now check pending work and require the Final walk / Mark ready action when inspection history exists. Bulk repair completion creates the inspection handoff. FINAL WALK no longer loses overdue/move-in warnings merely because repairs are marked complete. Checklist/material writes share the inspection property lock. Checklist note-only edits preserve original completion time/actor and no longer emit a false completion webhook. Automation/import transitions and post-finalization correction rules are still open; these partial guards do not establish immutable inspection issuance.
 
 Verification: nine focused board/checklist/transition unit checks pass. The expanded direct/bulk readiness and checklist attribution browser regression passed in `logs/e2e-20260908-200757.txt`. Both tests passed again in `logs/e2e-20260908-201206.txt`, including the full technician-to-leasing walkthrough, bulk-completion inspector assignment, rejection of direct inspection bypass, all 45 report answers, one-page PDF, and repeated completion preserving DONE rather than reopening inspection. An intermediate run exposed an ambiguous test selector after adding a second inspection; the selector now targets the correct unit card. Full-suite verification follows.

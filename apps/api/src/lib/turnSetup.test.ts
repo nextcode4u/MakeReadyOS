@@ -60,7 +60,36 @@ test("turn setup rejects non-managers and inaccessible properties before writes"
       assert.equal(response.statusCode, 403, response.body);
     }
   }
+  for (const userRole of ["TECH", "LEASING", "CLEANER", "VIEWER", "MANAGER"]) {
+    role = userRole;
+    const response = await app.inject({ method: "GET", url: "/automations/turn-setup/outside" });
+    assert.equal(response.statusCode, 403, response.body);
+  }
   assert.equal(reads, 0);
+});
+
+test("saved scheduling reads preserve paused plans and explicitly identify legacy durations", async t => {
+  const { prisma } = await import("./prisma.js");
+  const { turnSetupRoutes } = await import("../routes/turnSetup.js");
+  const { default: Fastify } = await import("fastify");
+  const originalProperty = prisma.property.findFirst;
+  const originalRules = prisma.automationRule.findMany;
+  let days: number[] = [2, 3, 2, 1, 1];
+  prisma.property.findFirst = (async () => ({ id: "p", operatingCalendar: { turnStageDays: days } })) as any;
+  prisma.automationRule.findMany = (async () => Array.from({ length: 5 }, () => ({ enabled: false, isArchived: false }))) as any;
+  t.after(() => { prisma.property.findFirst = originalProperty; prisma.automationRule.findMany = originalRules; });
+  const app = Fastify();
+  app.decorateRequest("currentUser", null);
+  app.addHook("onRequest", async request => { request.currentUser = { id: "test", role: "MANAGER", propertyAccess: [{ propertyId: "p" }] } as any; });
+  await app.register(turnSetupRoutes);
+  t.after(() => app.close());
+  const saved = await app.inject({ method: "GET", url: "/automations/turn-setup/p" });
+  assert.equal(saved.statusCode, 200);
+  assert.equal(saved.headers["cache-control"], "no-store");
+  assert.deepEqual(saved.json(), { propertyId: "p", days, configured: 0, hasRules: true });
+  days = [];
+  const legacy = await app.inject({ method: "GET", url: "/automations/turn-setup/p" });
+  assert.deepEqual(legacy.json(), { propertyId: "p", days: null, configured: 0, hasRules: true });
 });
 
 test("guided scheduler checks enabled guided rules every five minutes and stops cleanly", async (t) => {
@@ -90,13 +119,14 @@ test("guided scheduler checks enabled guided rules every five minutes and stops 
 test("baseline scheduling creates five enabled stages once and preserves paused/customized packs", async () => {
   const { ensureDefaultTurnScheduling } = await import("./defaultTurnScheduling.js");
   const rules: any[] = [];
+  let storedDays: number[] = [1, 1, 1, 1, 1];
   let fieldWrites = 0;
   const tx = {
     $queryRaw: async () => [],
     automationRule: { findFirst: async () => rules[0] ?? null, create: async ({ data }: any) => { rules.push(data); return data; } },
     customField: { upsert: async ({ create }: any) => { fieldWrites++; return { ...create, id: create.fieldKey, isArchived: false, deletedAt: null }; } },
     scheduleTrack: { upsert: async ({ update }: any) => { assert.deepEqual(update, {}); } },
-    operatingCalendar: { upsert: async ({ update }: any) => { assert.deepEqual(update, { noWeekendScheduling: true }); } },
+    operatingCalendar: { findUnique: async () => ({ turnStageDays: storedDays }), upsert: async ({ update }: any) => { assert.deepEqual(update, { noWeekendScheduling: true, turnStageDays: storedDays }); } },
   };
   assert.equal(await ensureDefaultTurnScheduling(tx as any, "fresh"), true);
   assert.equal(rules.length, 5);
@@ -111,4 +141,8 @@ test("baseline scheduling creates five enabled stages once and preserves paused/
   assert.equal(rules.length, 5);
   assert.equal(fieldWrites, 3);
   assert.equal(rules[0].actions[0].offsetDays, 7);
+  rules.length = 0;
+  storedDays = [2, 3, 2, 1, 1];
+  assert.equal(await ensureDefaultTurnScheduling(tx as any, "restored-policy"), true);
+  assert.deepEqual(rules.map(rule => rule.actions[0].offsetDays), [1, 5, 7, 8, 9]);
 });

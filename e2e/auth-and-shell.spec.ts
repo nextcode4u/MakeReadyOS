@@ -1996,6 +1996,31 @@ test("guided weekday scheduling populates all five calendar tracks without dupli
   const paused = await post("/automations/turn-setup/preview", { propertyId: property.id });
   expect(paused.configured).toBe(0);
   expect(paused.changes).toBe(0);
+  const customDays = [2, 3, 2, 1, 1];
+  await post("/automations/turn-setup/enable", { propertyId: property.id, days: customDays });
+  await post("/automations/turn-setup/pause", { propertyId: property.id });
+  const persistedPlan = await (await page.request.get(`${origin}/api/automations/turn-setup/${property.id}`)).json();
+  expect(persistedPlan.days).toEqual(customDays);
+  expect(persistedPlan.configured).toBe(0);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.reload();
+  await page.getByTestId("tab-automations").click();
+  await page.getByTestId("turn-setup-property").selectOption(property.id);
+  await expect(scheduleGuide.getByLabel("Make Ready (Start) days", { exact: true })).toHaveValue("2");
+  await expect(scheduleGuide.getByLabel("Painting days", { exact: true })).toHaveValue("3");
+  await expect(scheduleGuide.getByTestId("turn-saved-plan")).toContainText("0 guided rules enabled");
+  const backup = await (await page.request.get(`${origin}/api/admin/export`)).json();
+  const calendar = backup.data.operatingCalendars.find((entry: any) => entry.propertyCode === property.code);
+  expect(calendar.turnStageDays).toEqual(customDays);
+  const restoreCode = `PLAN${Date.now()}`;
+  const legacyCode = `${restoreCode}L`;
+  const legacyCalendar = { ...calendar, propertyCode: legacyCode };
+  delete legacyCalendar.turnStageDays;
+  const portable = { ...backup, data: { properties: [{ code: restoreCode, name: "Schedule restore", isActive: true }, { code: legacyCode, name: "Legacy schedule restore", isActive: true }], operatingCalendars: [{ ...calendar, propertyCode: restoreCode }, legacyCalendar], units: [], makeReadyItems: [], customFields: [], customFieldOptions: [], customFieldValues: [], savedViews: [], automationRules: [], checklistTemplates: [], notes: [] } };
+  await post("/admin/import", { dryRun: false, backup: portable });
+  const restored = await (await page.request.get(`${origin}/api/admin/export`)).json();
+  expect(restored.data.operatingCalendars.find((entry: any) => entry.propertyCode === restoreCode).turnStageDays).toEqual(customDays);
+  expect(restored.data.operatingCalendars.find((entry: any) => entry.propertyCode === legacyCode).turnStageDays).toEqual([]);
 });
 
 test("partial mobile pool logs never default unchecked safety to pass", async ({ page }) => {

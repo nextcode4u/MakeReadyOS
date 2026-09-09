@@ -21,13 +21,12 @@ function InspectorEditor({ propertyId, settings, onDraftChange }: { propertyId: 
     } catch (error) { setError(error instanceof Error ? error.message : "Could not save inspectors"); }
     finally { setBusy(false); }
   }
-  return <div><p><strong>{settings.enabled ? "Enabled" : "Not enabled"}</strong>. Choose a primary inspector, then backups in handoff order. The repair tech assignment is not changed.</p>
+  return <div><p><strong>{settings.enabled ? "Enabled" : "Not enabled"}</strong>. Choose a primary inspector, then backups. The repair technician cannot approve their own work.</p>
     <fieldset disabled={busy}><legend>Final walk inspector order</legend>
       <ol>{inspectors.map((id, index) => <li key={id} className="final-walk-person"><span>{settings.staff.find(user => user.id === id)?.fullName ?? "Unavailable user"}{index === 0 ? " (primary)" : " (backup)"}</span><button type="button" className="button button-secondary" disabled={index === 0} aria-label={`Move inspector ${index + 1} up`} onClick={() => { const next = [...inspectors]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; setInspectors(next); }}>Move up</button><button type="button" className="button button-secondary" aria-label={`Remove inspector ${index + 1}`} onClick={() => setInspectors(inspectors.filter(entry => entry !== id))}>Remove</button></li>)}</ol>
       <label>Add inspector<select value="" onChange={event => { if (event.target.value) setInspectors([...inspectors, event.target.value]); }}><option value="">Choose staff with property access</option>{settings.staff.filter(user => !inspectors.includes(user.id)).map(user => <option key={user.id} value={user.id}>{user.fullName} / {user.role}</option>)}</select></label>
-      <p>Final walks are assigned, shown in My Work, and notified only when the turn enters Final Walk. Future scheduled dates do not create inspection assignments.</p>
-      <p>Changes apply to new inspections only. Existing inspections keep their assigned order.</p>
-      <details><summary>How backups work</summary><p>Put the manager last if they should be the final backup. Handoffs skip inactive staff and people who lost property access. Pausing stops new assignments; existing inspections stay assigned.</p></details>
+      <p>Saving assigns eligible Final Walk turns now. Existing inspections keep their assigned order; repair assignments stay unchanged.</p>
+      <details><summary>How timing and backups work</summary><p>Inspectors receive an in-app notification and a My Work assignment only when a turn enters Final Walk, not from a future scheduled date.</p><p>Put the manager last if they should be the final backup. Handoffs skip inactive staff, people without property access, and the repair technician. Pausing stops new assignments; existing inspections stay assigned.</p></details>
       <button type="button" className="button button-primary" disabled={!inspectors.length || inspectors.some(id => !settings.staff.some(user => user.id === id))} onClick={() => void save(true)}>Save and assign final walks</button>
       {settings.enabled ? <button type="button" className="button button-secondary" onClick={() => void save(false)}>Pause new assignments</button> : null}
     </fieldset>{error ? <p role="alert">{error}</p> : null}{message ? <p role="status">{message}</p> : null}</div>;
@@ -42,7 +41,7 @@ export function FinalWalkGuide({ properties }: { properties: Property[] }) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [draft.dirty, draft.busy]);
   const query = useQuery({ queryKey: ["final-walk-settings", propertyId], queryFn: () => getFinalWalkSettings(propertyId), enabled: Boolean(propertyId) });
-  return <section className="turn-setup span-full" data-testid="final-walk-guide"><h2>Who does the final walk?</h2><p>Give final inspections their own owner and a clear backup, with assignments in My Work and in-app notifications when the unit is ready.</p><label>Final walks for<select value={propertyId} disabled={draft.busy} onChange={event => {
+  return <section className="turn-setup span-full" data-testid="final-walk-guide"><h2>Who does the final walk?</h2><p>Choose an independent inspector and backups per property. They see work only when the turn is ready for inspection.</p><label>Final walks for<select value={propertyId} disabled={draft.busy} onChange={event => {
     if (draft.dirty && !window.confirm("Discard the unsaved inspector order and switch properties?")) return;
     setDraft({ dirty: false, busy: false });
     setPropertyId(event.target.value);

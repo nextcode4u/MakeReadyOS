@@ -92,6 +92,7 @@ const operatingCalendarSchema = z.object({
   scopeDay: z.number().int().nullable(),
   workStartDay: z.number().int().nullable(),
   autoPopulateEnabled: z.boolean(),
+  turnStageDays: z.array(z.number().int().min(1).max(10)).refine(days => days.length === 0 || days.length === 5).optional().default([]),
   notes: z.string().nullable(),
 });
 
@@ -1691,6 +1692,7 @@ async function buildExport(): Promise<NativeBackup> {
         scopeDay: calendar.scopeDay,
         workStartDay: calendar.workStartDay,
         autoPopulateEnabled: calendar.autoPopulateEnabled,
+        turnStageDays: calendar.turnStageDays,
         notes: calendar.notes,
       })),
       riskPolicies: riskPolicies.map((policy) => ({

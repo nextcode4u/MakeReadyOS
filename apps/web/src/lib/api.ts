@@ -3677,6 +3677,9 @@ export type TurnSetupPreview = {
 export function previewTurnSetup(input: TurnSetupInput) {
   return request<TurnSetupPreview>("/automations/turn-setup/preview", { method: "POST", body: JSON.stringify(input) });
 }
+export function getTurnSetup(propertyId: string) {
+  return request<{ propertyId: string; days: number[] | null; configured: number; hasRules: boolean }>(`/automations/turn-setup/${encodeURIComponent(propertyId)}`);
+}
 export function enableTurnSetup(input: TurnSetupInput) {
   return request<{ rules: Array<{ id: string; name: string }> }>("/automations/turn-setup/enable", { method: "POST", body: JSON.stringify(input) });
 }

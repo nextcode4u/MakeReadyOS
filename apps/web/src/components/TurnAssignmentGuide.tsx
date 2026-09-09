@@ -31,7 +31,6 @@ function AssignmentEditor({ property, settings, onDraftChange }: { property: Pro
   return <div data-testid="turn-assignment-editor">
     <p><strong>{settings.enabled ? "On" : "Off"} for {property.code} / {property.name}.</strong> {settings.eligible} unassigned, incomplete vacant turns are eligible now.</p>
     <p>Set each person's share. Total must be 100%. Existing manual assignments stay unchanged.</p>
-    <p className="muted">Turn off any older auto-assignment rules for this property so they do not assign turns before this split runs.</p>
     {settings.warning ? <p role="alert">{settings.warning}</p> : null}
     <fieldset disabled={busy}><legend>Who handles this property's turns?</legend>
       <div className="turn-setup-stages">{shares.map((share, index) => <div key={share.userId}>
@@ -40,7 +39,8 @@ function AssignmentEditor({ property, settings, onDraftChange }: { property: Pro
       </div>)}</div>
       <label>Add person<select value="" onChange={event => { if (event.target.value) setShares([...shares, { userId: event.target.value, percent: Math.max(1, 100 - total) }]); }}><option value="">Choose eligible staff</option>{settings.staff.filter(user => !shares.some(share => share.userId === user.id)).map(user => <option key={user.id} value={user.id}>{user.fullName}</option>)}</select></label>
       <p><strong>Total: {total}%</strong>{total !== 100 ? " (must be 100%)" : ""}</p>
-      <details><summary>Which turns are assigned and how the split works</summary><p>Only vacant, not-ready turns with a recorded Vacated date on or before today are assigned. Ready, completed, archived, unknown-status and notice-to-vacate units are skipped.</p><p>Percentages balance new automatic assignments over time, not daily workload. Manual assignments do not count toward the split. Changing percentages starts a new balancing cycle; saving the same split or restarting the server keeps your place.</p></details>
+      <p className="muted">Other assignment rules can take turns before this split. Review those rules if you already use assignment automations.</p>
+      <details><summary>Which turns are assigned and how the split works</summary><p>Only vacant, not-ready turns with a recorded Vacated date on or before today are assigned. Ready, completed, archived, unknown-status and notice-to-vacate units are skipped.</p><p>Percentages balance new automatic assignments over time, not daily workload. Manual assignments do not count toward the split. Changing percentages starts a new balancing cycle; saving the same split or restarting the server keeps your place.</p><p>For example, one person can receive 100% at a smaller property and 25% at another, with the site's technician receiving the other 75%. Only staff with property access are listed.</p></details>
       <button className="button button-primary" disabled={!valid || busy} onClick={() => void save(true)}>{busy ? "Working..." : "Enable split and assign eligible turns"}</button>
       {settings.enabled ? <button className="button button-secondary" onClick={() => void save(false)}>Pause automatic assignment</button> : null}
     </fieldset>
@@ -62,7 +62,7 @@ export function TurnAssignmentGuide({ properties }: { properties: Property[] }) 
   const property = properties.find(property => property.id === propertyId);
   return <section className="turn-setup span-full" data-testid="turn-assignment-guide">
     <h2>Automatically split turns between your team</h2>
-    <p>Configure each property separately. Example: VAB sends 100% to you; TA sends 25% to you and 75% to its tech. Staff must have access to the selected property.</p>
+    <p>Choose a property, add its staff, and set shares totaling 100%. Enabling assigns eligible turns now; existing manual assignments stay unchanged.</p>
     <label>Assign turns for<select value={propertyId} disabled={draft.busy} onChange={event => {
       if (draft.dirty && !window.confirm("Discard the unsaved assignment shares and switch properties?")) return;
       setDraft({ dirty: false, busy: false });

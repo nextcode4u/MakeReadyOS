@@ -1,0 +1,2 @@
+ALTER TABLE "OperatingCalendar"
+ADD COLUMN "turnStageDays" INTEGER[] NOT NULL DEFAULT ARRAY[]::INTEGER[];
