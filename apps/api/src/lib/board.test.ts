@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { computeDerivedFields } from "./board.js";
+import { computeDerivedFields, withLiveTurnFields } from "./board.js";
 
 const now = new Date(2026, 8, 8, 12);
 const dates = { makeReadyDate: new Date(2026, 8, 1), moveInDate: new Date(2026, 8, 9), vacatedDate: new Date(2026, 7, 1) };
+
+test("live read fields refresh stale flags without inventing an automation or edit timestamp", () => {
+  const stamp = new Date(2026, 7, 1);
+  const stored = { ...dates, overdue: false, daysVacant: 999, updatedAt: stamp, lastAutomationAt: stamp };
+  const live = withLiveTurnFields(stored, now);
+  assert.equal(live.overdue, true);
+  assert.equal(live.daysVacant, 38);
+  assert.equal(live.updatedAt, stamp);
+  assert.equal(live.lastAutomationAt, stamp);
+  assert.equal(stored.overdue, false);
+  assert.equal(stored.daysVacant, 999);
+});
 
 test("ready vacancy statuses clear overdue and unfinished move-in warnings", () => {
   for (const vacancyStatus of ["VACANT_READY", "VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY", " vacant leased ready ", "vacant-not-leased-ready"]) {

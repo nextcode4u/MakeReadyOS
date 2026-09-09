@@ -21,7 +21,7 @@ test("scheduled writes recheck paused rules and changed or archived items under 
     automationRule: { findUnique: async () => liveRule },
     makeReadyItem: {
       findUnique: async () => liveItem,
-      update: async ({ data }: any) => { assert.equal(locked, true); writes++; return { ...liveItem, ...data }; },
+      update: async ({ data }: any) => { assert.equal(locked, true); assert.equal(data.overdue, false); assert.equal(data.daysVacant, 0); assert.ok(data.lastAutomationAt instanceof Date); writes++; return { ...liveItem, ...data }; },
     },
   };
   const stub = (target: any, key: string, value: any) => {

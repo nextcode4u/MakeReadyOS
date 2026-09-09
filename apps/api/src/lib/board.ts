@@ -184,6 +184,11 @@ export function computeDerivedFields(item: Partial<MakeReadyItem>, now = new Dat
   };
 }
 
+export function withLiveTurnFields<T extends Partial<MakeReadyItem>>(item: T, now = new Date()) {
+  const derived = computeDerivedFields(item, now);
+  return { ...item, daysVacant: derived.daysVacant, daysUntilMoveIn: derived.daysUntilMoveIn, overdue: derived.overdue, moveInSoon: derived.moveInSoon };
+}
+
 type CustomFieldValueMap = Record<string, unknown>;
 
 function valueForCondition(item: Partial<MakeReadyItem>, condition: RuleCondition, customValues: CustomFieldValueMap): unknown {

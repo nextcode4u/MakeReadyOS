@@ -357,6 +357,9 @@ mkdir -p "$LOG_DIR"
     echo "Checking concurrent NTV lifecycle transitions in the isolated database"
     docker compose exec -T -e MROS_INTEGRATION_TEST=1 api node --input-type=module < "$ROOT_DIR/e2e/ntv-lifecycle.integration.mjs"
 
+    echo "Checking live overdue parity in the isolated database"
+    docker compose exec -T -e MROS_INTEGRATION_TEST=1 api node --input-type=module < "$ROOT_DIR/e2e/overdue-parity.integration.mjs"
+
     echo "Checking trusted-origin CORS edit methods"
     TEST_API_URL="http://localhost:${API_PORT:-4000}" TEST_ORIGIN="${APP_URL:-http://localhost:8080}" node --input-type=module -e '
       const url = `${process.env.TEST_API_URL}/api/operations/columns/vacatedDate`;

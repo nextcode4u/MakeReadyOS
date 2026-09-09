@@ -245,7 +245,8 @@ export async function executeScheduledAutomationRules(options: {
               let changes = 0;
               for (const field of ["makeReadyDate", "flooringDate"] as const) {
                 if (!current[field] && applied.next[field]) {
-                  await tx.makeReadyItem.update({ where: { id: current.id }, data: { [field]: applied.next[field] } });
+                  current[field] = applied.next[field];
+                  await tx.makeReadyItem.update({ where: { id: current.id }, data: { [field]: current[field], ...computeDerivedFields(current) } });
                   changes += 1;
                 }
               }
@@ -272,7 +273,7 @@ export async function executeScheduledAutomationRules(options: {
                 const actor = options.actorUserId ? await tx.user.findUnique({ where: { id: options.actorUserId }, select: { fullName: true } }) : null;
                 await guardReadyMutation(tx, current, normalizedPatch, actor?.fullName ?? "Scheduled automation");
                 if (requestsInspection(current, normalizedPatch)) normalizedPatch.makeReadyStatus = "FINAL WALK";
-                return tx.makeReadyItem.update({ where: { id: item.id }, data: normalizedPatch });
+                return tx.makeReadyItem.update({ where: { id: item.id }, data: { ...normalizedPatch, ...computeDerivedFields({ ...current, ...normalizedPatch } as typeof current) } });
               });
               if (!updated) {
                 warnings.push(`${item.unitNumber}: item or rule changed after simulation; skipped this item.`);
