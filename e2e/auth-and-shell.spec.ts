@@ -1282,6 +1282,85 @@ for (const module of ["pm", "maps", "projects"] as const) {
   });
 }
 
+test("wiki initializes delayed property metadata and saves to the displayed property", async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let expectedPropertyId = "";
+  await page.route("**/api/meta", async route => {
+    const response = await route.fetch();
+    expectedPropertyId = (await response.json()).properties[0].id;
+    await held;
+    await route.fulfill({ response });
+  });
+  await login(page, adminEmail, adminPassword);
+  try {
+    await page.getByTestId("module-rail-property-wiki").click();
+    await expect(page.getByRole("heading", { name: "No properties available" })).toBeVisible();
+  } finally { release(); }
+  const wiki = page.getByTestId("property-wiki-panel");
+  await expect(wiki).toBeVisible();
+  await expect(wiki.getByRole("combobox", { name: "Property Wiki property", exact: true })).toHaveValue(expectedPropertyId);
+  await wiki.getByRole("button", { name: "Utilities", exact: true }).click();
+  const title = uniqueTag("Delayed wiki utility");
+  await wiki.getByLabel("Title", { exact: true }).fill(title);
+  const saved = page.waitForResponse(response => response.url().includes("/api/property-wiki/entries") && response.request().method() === "POST");
+  await wiki.getByRole("button", { name: "Create Record", exact: true }).click();
+  const response = await saved;
+  expect(response.status(), await response.text()).toBe(201);
+  expect(response.request().postDataJSON().propertyId).toBe(expectedPropertyId);
+  await expect(wiki.locator(".property-wiki-record").filter({ hasText: title })).toBeVisible();
+});
+
+test("board setup waits for properties and retains a failed floor plan for retry", async ({ page }) => {
+  const browserErrors: string[] = [];
+  page.on("pageerror", error => browserErrors.push(error.message));
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let expectedPropertyId = "";
+  await page.route("**/api/operations/properties?*", async route => {
+    const response = await route.fetch();
+    expectedPropertyId = (await response.json()).properties[0].id;
+    await held;
+    await route.fulfill({ response });
+  });
+  await login(page, adminEmail, adminPassword);
+  try {
+    await page.getByTestId("tab-operations").click();
+    await expect(page.getByTestId("board-configuration-panel")).toHaveCount(0);
+    await expect.poll(() => expectedPropertyId).not.toBe("");
+  } finally { release(); }
+  const plans = page.getByTestId("floor-plan-management");
+  await expect(page.getByTestId("floor-plan-property")).toHaveValue(expectedPropertyId);
+  await expect(page.getByTestId("board-section-property")).toHaveValue(expectedPropertyId);
+  const code = uniqueTag("RETRY");
+  await page.getByTestId("floor-plan-create-code").fill(code);
+  await page.getByTestId("floor-plan-create-name").fill("Two bedroom garden");
+  await page.getByTestId("floor-plan-create-beds").fill("2");
+  await page.route("**/api/operations/floor-plans", route => route.request().method() === "POST" ? route.fulfill({ status: 503, json: { message: "Floor plan save unavailable" } }) : route.continue());
+  await page.getByTestId("floor-plan-create-submit").click();
+  await expect(plans.getByRole("alert")).toContainText("Floor plan save unavailable");
+  await expect(page.getByTestId("floor-plan-create-code")).toHaveValue(code);
+  await expect(page.getByTestId("floor-plan-create-name")).toHaveValue("Two bedroom garden");
+  await expect(page.getByTestId("floor-plan-create-beds")).toHaveValue("2");
+  expect(browserErrors).toEqual([]);
+  await page.unroute("**/api/operations/floor-plans");
+  let releaseSave!: () => void;
+  const saveHeld = new Promise<void>(resolve => { releaseSave = resolve; });
+  await page.route("**/api/operations/floor-plans", async route => { await saveHeld; await route.continue(); });
+  const saved = page.waitForResponse(response => response.url().includes("/api/operations/floor-plans") && response.request().method() === "POST");
+  await page.getByTestId("floor-plan-create-submit").click();
+  try {
+    await expect(page.getByTestId("floor-plan-property")).toBeDisabled();
+    await expect(page.getByTestId("floor-plan-create-code")).toBeDisabled();
+    await expect(page.getByTestId("floor-plan-create-submit")).toBeDisabled();
+  } finally { releaseSave(); }
+  const response = await saved;
+  expect(response.status(), await response.text()).toBe(201);
+  expect(response.request().postDataJSON().propertyId).toBe(expectedPropertyId);
+  await expect(page.getByTestId("floor-plan-create-code")).toHaveValue("");
+  await expect(plans.getByRole("alert")).toHaveCount(0);
+});
+
 test("lease capture selects a real property after delayed metadata", async ({ page }) => {
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });

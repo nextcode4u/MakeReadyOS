@@ -90,6 +90,7 @@ export function BoardConfigurationPanel({
 
   const [propertyId, setPropertyId] = useState(properties[0]?.id ?? "");
   const [newPlan, setNewPlan] = useState({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
+  const [newPlanError, setNewPlanError] = useState("");
   const [selectedPlanId, setSelectedPlanId] = useState("");
   const [planDraft, setPlanDraft] = useState({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" });
   const propertyPlans = floorPlans.filter((plan) => plan.propertyId === propertyId);
@@ -510,12 +511,14 @@ export function BoardConfigurationPanel({
           <span className="subtitle">{isSpanish ? "Configurados por propiedad" : "Configured per property"}</span>
         </div>
         <label className="config-field">{isSpanish ? "Propiedad" : "Property"}
-          <select data-testid="floor-plan-property" value={propertyId} onChange={(event) => { setPropertyId(event.target.value); setSelectedPlanId(""); }}>
+          <select data-testid="floor-plan-property" value={propertyId} disabled={loading} onChange={(event) => { setPropertyId(event.target.value); setSelectedPlanId(""); setNewPlanError(""); }}>
             {properties.filter((property) => property.isActive).map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
           </select>
         </label>
         <form className="floor-plan-form" onSubmit={(event) => {
           event.preventDefault();
+          if (loading || !propertyId) return;
+          setNewPlanError("");
           void onCreateFloorPlan({
             propertyId,
             code: newPlan.code,
@@ -524,15 +527,17 @@ export function BoardConfigurationPanel({
             bathrooms: numberOrNull(newPlan.bathrooms),
             squareFeet: numberOrNull(newPlan.squareFeet),
             description: newPlan.description || null,
-          }).then(() => setNewPlan({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" }));
+          }).then(() => setNewPlan({ code: "", name: "", bedrooms: "", bathrooms: "", squareFeet: "", description: "" }))
+            .catch(error => setNewPlanError(error instanceof Error ? error.message : (isSpanish ? "No se pudo guardar el plano." : "The floor plan could not be saved.")));
         }}>
-          <input data-testid="floor-plan-create-code" placeholder={isSpanish ? "Código (B1, C2)" : "Code (B1, C2)"} value={newPlan.code} onChange={(event) => setNewPlan((current) => ({ ...current, code: event.target.value }))} required />
-          <input data-testid="floor-plan-create-name" placeholder={isSpanish ? "Nombre amigable (Arlington)" : "Friendly name (Arlington)"} value={newPlan.name} onChange={(event) => setNewPlan((current) => ({ ...current, name: event.target.value }))} />
-          <input data-testid="floor-plan-create-beds" type="number" min="0" placeholder={isSpanish ? "Recámaras" : "Beds"} value={newPlan.bedrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bedrooms: event.target.value }))} />
-          <input data-testid="floor-plan-create-baths" type="number" step="0.5" min="0" placeholder={isSpanish ? "Baños" : "Baths"} value={newPlan.bathrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bathrooms: event.target.value }))} />
-          <input data-testid="floor-plan-create-sqft" type="number" min="1" placeholder={isSpanish ? "Pies²" : "Sq ft"} value={newPlan.squareFeet} onChange={(event) => setNewPlan((current) => ({ ...current, squareFeet: event.target.value }))} />
-          <input data-testid="floor-plan-create-description" className="span-full" placeholder={isSpanish ? "Descripción (opcional)" : "Description (optional)"} value={newPlan.description} onChange={(event) => setNewPlan((current) => ({ ...current, description: event.target.value }))} />
+          <input disabled={loading} data-testid="floor-plan-create-code" placeholder={isSpanish ? "Código (B1, C2)" : "Code (B1, C2)"} value={newPlan.code} onChange={(event) => setNewPlan((current) => ({ ...current, code: event.target.value }))} required />
+          <input disabled={loading} data-testid="floor-plan-create-name" placeholder={isSpanish ? "Nombre amigable (Arlington)" : "Friendly name (Arlington)"} value={newPlan.name} onChange={(event) => setNewPlan((current) => ({ ...current, name: event.target.value }))} />
+          <input disabled={loading} data-testid="floor-plan-create-beds" type="number" min="0" placeholder={isSpanish ? "Recámaras" : "Beds"} value={newPlan.bedrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bedrooms: event.target.value }))} />
+          <input disabled={loading} data-testid="floor-plan-create-baths" type="number" step="0.5" min="0" placeholder={isSpanish ? "Baños" : "Baths"} value={newPlan.bathrooms} onChange={(event) => setNewPlan((current) => ({ ...current, bathrooms: event.target.value }))} />
+          <input disabled={loading} data-testid="floor-plan-create-sqft" type="number" min="1" placeholder={isSpanish ? "Pies²" : "Sq ft"} value={newPlan.squareFeet} onChange={(event) => setNewPlan((current) => ({ ...current, squareFeet: event.target.value }))} />
+          <input disabled={loading} data-testid="floor-plan-create-description" className="span-full" placeholder={isSpanish ? "Descripción (opcional)" : "Description (optional)"} value={newPlan.description} onChange={(event) => setNewPlan((current) => ({ ...current, description: event.target.value }))} />
           <button data-testid="floor-plan-create-submit" className="button button-primary span-full" disabled={loading || !propertyId}>{isSpanish ? "Agregar plano" : "Add Floor Plan"}</button>
+          {newPlanError ? <p className="inline-error span-full" role="alert">{newPlanError}</p> : null}
         </form>
         <div className="record-list">
           {propertyPlans.length === 0 ? <StatusState title={isSpanish ? "No hay planos configurados" : "No configured floor plans"} description={isSpanish ? "El texto heredado sigue siendo válido hasta que se asigne una unidad." : "Legacy text remains valid until a unit is mapped."} tone="subtle" /> : (
