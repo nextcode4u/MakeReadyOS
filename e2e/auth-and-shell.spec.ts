@@ -140,6 +140,68 @@ test("project references reject foreign links and clears remove stale report det
   expect(exported.data.projectRecords.find((entry: any) => entry.propertyCode === a.property.code)).toMatchObject({ categoryName: null, propertyMapName: null, pinX: null, pinY: null });
 });
 
+test("native project child records cannot claim a different property than their parent", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property: a } = await post("/operations/properties", { code: `PC${Date.now()}A`, name: "Parent ownership A" });
+  const { property: b } = await post("/operations/properties", { code: `PC${Date.now()}B`, name: "Parent ownership B" });
+  const { record } = await post("/projects/records", { propertyId: a.id, recordType: "Project", title: "Ownership source", status: "Planning" });
+  await post(`/projects/records/${record.id}/comments`, { body: "Original comment" });
+  await post(`/projects/records/${record.id}/tasks`, { title: "Original task" });
+  const upload = await page.request.post(`/api/projects/records/${record.id}/attachments`, { headers, multipart: { file: {
+    name: "ownership.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVn8AAAAASUVORK5CYII=", "base64"),
+  } } });
+  expect(upload.status(), await upload.text()).toBe(201);
+  const entries: any[] = [];
+  for (const property of [a, b]) {
+    const { entry } = await post("/property-wiki/entries", { propertyId: property.id, section: "SOP_LIBRARY", title: `Ownership wiki ${property.code}` });
+    entries.push(entry);
+  }
+  await post(`/projects/records/${record.id}/wiki-references`, { targetType: "ENTRY", targetId: entries[0].id });
+  const exported = await (await page.request.get("/api/admin/export")).json();
+  const source = exported.data.projectRecords.find((entry: any) => entry.propertyCode === a.code);
+  const freshKey = `ownership-${Date.now()}`;
+  const base = { ...exported, data: {
+    ...Object.fromEntries(Object.keys(exported.data).map(key => [key, []])),
+    properties: exported.data.properties.filter((entry: any) => [a.code, b.code].includes(entry.code)),
+    propertyWikiEntries: exported.data.propertyWikiEntries.filter((entry: any) => [a.code, b.code].includes(entry.propertyCode)),
+    projectRecords: [{ ...source, portableKey: freshKey, title: "Must not be imported", createdAt: new Date(Date.now() + 1000).toISOString() }],
+  } };
+  for (const section of ["projectComments", "projectTasks", "projectAttachments", "projectWikiReferences"]) {
+    const child = exported.data[section].find((entry: any) => entry.recordKey === source.portableKey);
+    expect(child, section).toBeTruthy();
+    const backup = structuredClone(base);
+    backup.data[section] = [{ ...child, recordKey: freshKey, propertyCode: b.code }];
+    const result = await post("/admin/import", { backup, dryRun: false });
+    expect(result.applied, section).toBe(false);
+    expect(result.summary[section].errors.join(" ")).toContain("same property");
+    expect(result.summary.projectRecords.created).toBe(0);
+  }
+  const wrongTarget = structuredClone(base);
+  const reference = exported.data.projectWikiReferences.find((entry: any) => entry.recordKey === source.portableKey);
+  wrongTarget.data.projectWikiReferences = [{ ...reference, recordKey: freshKey, targetKey: base.data.propertyWikiEntries.find((entry: any) => entry.propertyCode === b.code).portableKey }];
+  const result = await post("/admin/import", { backup: wrongTarget, dryRun: false });
+  expect(result.applied).toBe(false);
+  expect(result.summary.projectWikiReferences.errors.join(" ")).toContain("same property");
+  const after = await (await page.request.get("/api/admin/export")).json();
+  expect(after.data.projectRecords.filter((entry: any) => entry.propertyCode === a.code).map((entry: any) => entry.title)).toEqual(["Ownership source"]);
+  const valid = structuredClone(base);
+  valid.data.projectRecords[0].title = "Confirmed scoped import";
+  for (const section of ["projectComments", "projectTasks", "projectAttachments", "projectWikiReferences"]) {
+    valid.data[section] = exported.data[section].filter((entry: any) => entry.recordKey === source.portableKey).map((entry: any) => ({ ...entry, recordKey: freshKey }));
+  }
+  const accepted = await post("/admin/import", { backup: valid, dryRun: false });
+  expect(accepted.applied).toBe(true);
+  expect(accepted.summary.projectRecords.created).toBe(1);
+  expect(accepted.summary.projectComments.created).toBe(1);
+  expect(accepted.summary.projectTasks.created).toBe(1);
+  expect(accepted.summary.projectWikiReferences.created).toBe(1);
+});
+
 test("lease references stay property-scoped for technicians, leasing and native restores", async ({ page, playwright }) => {
   await login(page, adminEmail, adminPassword);
   const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };

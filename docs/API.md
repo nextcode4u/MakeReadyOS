@@ -74,6 +74,8 @@ Project category/map links must resolve within the project property (shared glob
 
 `POST /api/admin/import` returns `dryRun`, `applied`, `mode`, and `summary`. `applied: false` means preview or rejection before the write transaction; no merge records were changed. `applied: true` means the merge and its audit entry committed together. The summary can still contain conflicts for matching settings retained during a merge, so conflicts alone do not imply rollback. A workspace refresh failure after a confirmed response does not undo the import. If the response is lost, review current data before retrying; this endpoint does not yet provide an idempotency key or durable client-visible request receipt.
 
+Project comments, tasks, attachments and wiki references in a native import must use the same property as their incoming parent project. Imported project wiki targets must also match that property. A mismatch is a preflight rejection (`applied: false`), not a partial merge. Existing-directory partial restores and legacy category identity remain separate compatibility limitations.
+
 ### Endpoint List
 
 - `GET /api/meta`
