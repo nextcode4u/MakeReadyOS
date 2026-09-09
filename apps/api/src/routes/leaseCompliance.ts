@@ -61,7 +61,9 @@ export const leaseComplianceIssueSchema = z.object({
   assignedUserId: z.string().trim().min(1).nullable().optional(),
 });
 
-export const leaseComplianceIssuePatchSchema = leaseComplianceIssueSchema.partial();
+export const leaseComplianceIssuePatchSchema = leaseComplianceIssueSchema.partial().extend({
+  expectedUpdatedAt: z.string().datetime().optional(),
+});
 
 export const leaseComplianceIssueQuerySchema = z.object({
   propertyId: z.string().optional(),
@@ -693,43 +695,35 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
   app.patch("/lease-compliance/issues/:id", async (request, reply) => {
     if (!requireLeaseComplianceAccess(request, reply, "edit")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = leaseComplianceIssuePatchSchema.parse(request.body);
+    const { expectedUpdatedAt, ...input } = leaseComplianceIssuePatchSchema.parse(request.body);
     const existing = await prisma.leaseComplianceIssue.findUnique({ where: { id } });
     if (!existing) throw Object.assign(new Error("Lease Compliance issue not found"), { statusCode: 404 });
     await assertPropertyAccess(request, existing.propertyId);
+    const conflict = () => Object.assign(new Error("This issue changed while you were editing. Reload the current issue and review your changes before retrying."), { statusCode: 409 });
+    if (expectedUpdatedAt !== undefined && new Date(expectedUpdatedAt).getTime() !== existing.updatedAt.getTime()) throw conflict();
     if (input.propertyId !== undefined && input.propertyId !== existing.propertyId) {
       throw Object.assign(new Error("An issue's property cannot be changed. Create the issue in the intended property instead."), { statusCode: 400 });
     }
     const merged = { ...existing, ...input };
     if (input.unitId !== undefined || input.building !== undefined || input.area !== undefined) validateLeaseLocation(merged);
     await validateLeaseReferences(existing.propertyId, merged, existing);
-    let assignedUserName = existing.assignedUserName;
+    let assignedUserName: string | null | undefined;
     if (input.assignedUserId !== undefined) {
       assignedUserName = await resolveLeaseAssignee(existing.propertyId, input.assignedUserId);
     }
-    await prisma.leaseComplianceIssue.update({
-      where: { id },
+    const updated = await prisma.leaseComplianceIssue.update({
+      where: { id, updatedAt: existing.updatedAt },
       data: {
-        unitId: input.unitId === undefined ? existing.unitId : input.unitId,
-        issueTypeId: input.issueTypeId === undefined ? existing.issueTypeId : input.issueTypeId,
-        propertyMapId: input.propertyMapId === undefined ? existing.propertyMapId : input.propertyMapId,
-        building: input.building === undefined ? existing.building : input.building,
-        area: input.area === undefined ? existing.area : input.area,
-        issueTypeName: input.issueTypeName ?? existing.issueTypeName,
-        additionalIssueType: input.additionalIssueType === undefined ? existing.additionalIssueType : input.additionalIssueType,
-        status: input.status ?? existing.status,
-        noticeStage: input.noticeStage ?? existing.noticeStage,
-        priority: input.priority ?? existing.priority,
-        source: input.source ?? existing.source,
-        description: input.description === undefined ? existing.description : input.description,
-        locationNotes: input.locationNotes === undefined ? existing.locationNotes : input.locationNotes,
-        tags: input.tags ?? existing.tags,
-        assignedUserId: input.assignedUserId === undefined ? existing.assignedUserId : input.assignedUserId,
+        ...input,
+        propertyId: undefined,
         assignedUserName,
         updatedById: request.currentUser!.id,
       },
+    }).catch(error => {
+      if (error && typeof error === "object" && "code" in error && error.code === "P2025") throw conflict();
+      throw error;
     });
-    await applyRecurringFlags(id, input.unitId === undefined ? existing.unitId : input.unitId);
+    await applyRecurringFlags(id, updated.unitId);
     await writeAuditLog({
       request,
       actorUserId: request.currentUser!.id,

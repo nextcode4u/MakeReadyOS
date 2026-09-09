@@ -2847,7 +2847,7 @@ export function createLeaseComplianceIssue(input: {
   return request<{ issue: LeaseComplianceIssue }>("/lease-compliance/issues", { ...account, method: "POST", body: JSON.stringify(input) });
 }
 
-export function updateLeaseComplianceIssue(id: string, input: Partial<Parameters<typeof createLeaseComplianceIssue>[0]>) {
+export function updateLeaseComplianceIssue(id: string, input: Partial<Parameters<typeof createLeaseComplianceIssue>[0]> & { expectedUpdatedAt?: string }) {
   return request<{ issue: LeaseComplianceIssue }>(`/lease-compliance/issues/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 

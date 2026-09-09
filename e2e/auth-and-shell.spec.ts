@@ -55,6 +55,34 @@ test("concurrent project category initialization and edits preserve unique scope
   expect(summary.projectCategories.errors).toEqual([]);
 });
 
+test("Lease edits reject stale drafts and concurrent location clears without losing unrelated fields", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const meta = await (await page.request.get("/api/meta")).json();
+  const created = await page.request.post("/api/lease-compliance/issues", { headers, data: { propertyId: meta.properties[0].id, area: "Courtyard", building: "Building A", issueTypeName: "Concurrent edits", description: "Original" } });
+  expect(created.status(), await created.text()).toBe(201);
+  const { issue } = await created.json();
+  const patch = (data: object) => page.request.patch(`/api/lease-compliance/issues/${issue.id}`, { headers, data });
+  const priority = await patch({ priority: "High", expectedUpdatedAt: issue.updatedAt });
+  expect(priority.status(), await priority.text()).toBe(200);
+  const current = (await priority.json()).issue;
+  const stale = await patch({ description: "Stale draft", expectedUpdatedAt: issue.updatedAt });
+  expect(stale.status(), await stale.text()).toBe(409);
+  const retry = await patch({ description: "Reviewed draft", expectedUpdatedAt: current.updatedAt });
+  expect(retry.status(), await retry.text()).toBe(200);
+  const revised = (await retry.json()).issue;
+  expect(revised).toMatchObject({ description: "Reviewed draft", priority: "High", building: "Building A", area: "Courtyard" });
+  const edits = await Promise.all([
+    patch({ building: null, expectedUpdatedAt: revised.updatedAt }),
+    patch({ area: null, expectedUpdatedAt: revised.updatedAt }),
+  ]);
+  expect(edits.map(result => result.status()).sort()).toEqual([200, 409]);
+  const saved = (await edits.find(result => result.status() === 200)!.json()).issue;
+  expect(Boolean(saved.building || saved.area)).toBe(true);
+  const emptyLocation = await patch({ building: null, area: null, expectedUpdatedAt: saved.updatedAt });
+  expect(emptyLocation.status(), await emptyLocation.text()).toBe(400);
+});
+
 test("Lease overview totals and queues include issues older than its recent activity", async ({ page }) => {
   test.setTimeout(120_000);
   await login(page, adminEmail, adminPassword);
@@ -85,6 +113,7 @@ test("Lease overview totals and queues include issues older than its recent acti
   expect(overview.needsNotice.map((issue: any) => issue.id)).toEqual([notice.id]);
   expect(overview.violationNeeded.map((issue: any) => issue.id)).toEqual([violation.id]);
   expect(overview.recentResolved).toHaveLength(6);
+  await page.reload();
   await page.getByTestId("module-rail-lease-compliance").click();
   const panel = page.getByTestId("lease-compliance-panel");
   await panel.getByRole("combobox", { name: "Lease Compliance property", exact: true }).selectOption(property.id);
