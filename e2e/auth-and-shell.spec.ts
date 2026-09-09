@@ -1482,10 +1482,33 @@ test("property turn splits assign 25/75 and 100 percent independently with safe 
   await guide.getByLabel(`Share for ${tech.fullName}`).fill("74");
   await expect(guide.getByRole("button", { name: "Enable split and assign eligible turns" })).toBeDisabled();
   await guide.getByLabel(`Share for ${tech.fullName}`).fill("75");
+  await expect(guide.getByRole("status")).toContainText("Unsaved assignment shares");
+  page.once("dialog", dialog => dialog.dismiss());
+  await guide.getByLabel("Assign turns for").selectOption(vab.id);
+  await expect(guide.getByLabel("Assign turns for")).toHaveValue(ta.id);
+  await expect(guide.getByLabel(`Share for ${manager.fullName}`)).toHaveValue("25");
+  await expect(guide.getByLabel(`Share for ${tech.fullName}`)).toHaveValue("75");
+  await page.route(`**/api${endpoint(ta.id)}`, route => route.request().method() === "PUT"
+    ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Assignment save unavailable" }) })
+    : route.continue());
+  await guide.getByRole("button", { name: "Enable split and assign eligible turns" }).click();
+  await expect(guide.getByRole("alert")).toContainText("Assignment save unavailable");
+  await expect(guide.getByLabel(`Share for ${manager.fullName}`)).toHaveValue("25");
+  await expect(guide.getByRole("status")).toContainText("Unsaved assignment shares");
+  await page.unroute(`**/api${endpoint(ta.id)}`);
+  let releaseSave!: () => void;
+  const heldSave = new Promise<void>(resolve => { releaseSave = resolve; });
+  await page.route(`**/api${endpoint(ta.id)}`, async route => {
+    if (route.request().method() === "PUT") await heldSave;
+    await route.continue();
+  });
   await page.setViewportSize({ width: 412, height: 900 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   await guide.getByRole("button", { name: "Enable split and assign eligible turns" }).click();
+  try { await expect(guide.getByLabel("Assign turns for")).toBeDisabled(); }
+  finally { releaseSave(); }
   await expect(guide.getByRole("status")).toContainText("2 turn(s) assigned");
+  await page.unroute(`**/api${endpoint(ta.id)}`);
   const counts = async () => {
     const items = await Promise.all(taItems.map(item => get(`/make-ready-items/${item.id}`)));
     return [items.filter(item => item.assignedTech === manager.fullName).length, items.filter(item => item.assignedTech === tech.fullName).length];
