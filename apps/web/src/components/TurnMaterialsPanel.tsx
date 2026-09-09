@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getTurnMaterials, saveTurnMaterials, type TurnMaterial } from "../lib/api";
-import { encodeMaterialDraft, materialDraftKey, parseMaterialDraft, type MaterialEdit } from "../lib/materialDraft";
+import { createMaterialId, encodeMaterialDraft, materialDraftKey, parseMaterialDraft, type MaterialEdit } from "../lib/materialDraft";
 import { Modal } from "./Modal";
 
 const statuses = { NEEDED: "Needed", ORDERED: "Ordered", ON_HAND: "On hand", USED: "Used", CANCELLED: "Cancelled" };
@@ -35,7 +35,7 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
   }, [dirty]);
   const open = (row?: TurnMaterial) => {
     if (!query.data) return;
-    setEdit({ row: row ?? { id: crypto.randomUUID(), name: "", quantity: 1, unit: "each", status: "NEEDED", notes: "" }, snapshot: query.data });
+    setEdit({ row: row ?? { id: createMaterialId(), name: "", quantity: 1, unit: "each", status: "NEEDED", notes: "" }, snapshot: query.data });
     setDirty(false); setError("");
   };
   const close = () => {
