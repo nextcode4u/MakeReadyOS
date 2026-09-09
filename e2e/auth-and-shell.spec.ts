@@ -1489,6 +1489,128 @@ test("calendar preset failures stay local and preserve a separate custom draft",
   expect(errors).toEqual([]);
 });
 
+for (const scenario of [
+  { name: "section rename", panel: "board-section-management", input: "board-section-edit-label", save: "board-section-save", path: "board-sections/*" },
+  { name: "column label", panel: "column-label-management", input: "column-config-label", save: "column-config-save", path: "columns/*" },
+  { name: "label edit", panel: "option-management", input: "option-edit-value", save: "option-save", path: "options/*", pick: ".option-pick" },
+  { name: "floor plan edit", panel: "floor-plan-management", input: "floor-plan-edit-name", save: "floor-plan-save", path: "floor-plans/*", pick: ".record-row" },
+  { name: "calendar track edit", panel: "schedule-track-management", input: "schedule-track-edit-name", save: "schedule-track-save", path: "schedule-tracks/*", pick: ".option-pick" },
+]) {
+  test(`configuration ${scenario.name} retains a failed edit and locks its retry`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await login(page, adminEmail, adminPassword);
+    await page.getByTestId("tab-operations").click();
+    const panel = page.getByTestId(scenario.panel);
+    if (scenario.pick) await panel.locator(scenario.pick).first().click();
+    const draft = uniqueTag("Retained configuration");
+    await page.getByTestId(scenario.input).fill(draft);
+    const pattern = `**/api/operations/${scenario.path}`;
+    await page.route(pattern, route => route.request().method() === "PATCH"
+      ? route.fulfill({ status: 503, json: { message: "Configuration save unavailable" } }) : route.continue());
+    await page.getByTestId(scenario.save).click();
+    await expect(panel.getByRole("alert")).toContainText("Configuration save unavailable");
+    await expect(page.getByTestId(scenario.input)).toHaveValue(draft);
+    expect(errors).toEqual([]);
+    await page.unroute(pattern);
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    await page.route(pattern, async route => {
+      if (route.request().method() !== "PATCH") return route.continue();
+      await held;
+      await route.fulfill({ status: 503, json: { message: "Configuration still unavailable" } });
+    });
+    await page.getByTestId(scenario.save).click();
+    try {
+      await expect(page.getByTestId(scenario.input)).toBeDisabled();
+      await expect(page.getByTestId(scenario.save)).toBeDisabled();
+      await expect(page.getByTestId("board-section-property")).toBeDisabled();
+    } finally { release(); }
+    await expect(panel.getByRole("alert")).toContainText("Configuration still unavailable");
+    await expect(page.getByTestId(scenario.input)).toHaveValue(draft);
+    await expect(page.getByTestId(scenario.save)).toBeEnabled();
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const scenario of [
+  { name: "option reorder", panel: "option-management", pick: ".option-pick", button: "Move down", path: "options/reorder", method: "PUT" },
+  { name: "track reorder", panel: "schedule-track-management", pick: ".option-pick", button: "Move track down", path: "schedule-tracks/reorder", method: "PUT" },
+  { name: "floor plan archive", panel: "floor-plan-management", pick: ".record-row", testId: "floor-plan-archive", path: "floor-plans/*/archive", method: "POST" },
+  { name: "track archive", panel: "schedule-track-management", pick: ".option-pick", testId: "schedule-track-archive", path: "schedule-tracks/*/archive", method: "POST" },
+]) {
+  test(`configuration ${scenario.name} catches failure without changing the visible records`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await login(page, adminEmail, adminPassword);
+    await page.getByTestId("tab-operations").click();
+    const panel = page.getByTestId(scenario.panel);
+    await panel.locator(scenario.pick).first().click();
+    const before = await panel.locator(scenario.pick).allTextContents();
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    await page.route(`**/api/operations/${scenario.path}`, async route => {
+      if (route.request().method() !== scenario.method) return route.continue();
+      await held;
+      await route.fulfill({ status: 503, json: { message: "Configuration action unavailable" } });
+    });
+    const action = scenario.testId ? page.getByTestId(scenario.testId) : panel.getByRole("button", { name: scenario.button!, exact: true }).first();
+    await action.click();
+    try {
+      await expect(action).toBeDisabled();
+      await expect(panel.locator(scenario.pick).first()).toBeDisabled();
+    } finally { release(); }
+    await expect(panel.getByRole("alert")).toContainText("Configuration action unavailable");
+    await expect(action).toBeEnabled();
+    expect(await panel.locator(scenario.pick).allTextContents()).toEqual(before);
+    expect(errors).toEqual([]);
+  });
+}
+
+test("floor plan archive and restore call the intended actions and fit mobile setup", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-operations").click();
+  const code = uniqueTag("Archive plan");
+  const plans = page.getByTestId("floor-plan-management");
+  await page.getByTestId("floor-plan-create-code").fill(code);
+  await page.getByTestId("floor-plan-create-submit").click();
+  const row = plans.locator(".record-row").filter({ hasText: code });
+  await expect(row).toBeVisible();
+  await row.click();
+  for (const action of ["archive", "restore"] as const) {
+    const responsePromise = page.waitForResponse(response => response.url().includes("/api/operations/floor-plans/") && response.url().endsWith(`/${action}`) && response.request().method() === "POST");
+    await page.getByTestId(`floor-plan-${action}`).click();
+    const response = await responsePromise;
+    expect(response.status(), await response.text()).toBe(200);
+    expect((await response.json()).floorPlan.isActive).toBe(action === "restore");
+    await expect(page.getByTestId(`floor-plan-${action === "archive" ? "restore" : "archive"}`)).toBeVisible();
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await plans.scrollIntoViewIfNeeded();
+  const bounds = await page.getByTestId("board-configuration-panel").boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+  const containment = await row.evaluate(element => {
+    const outer = element.getBoundingClientRect();
+    const title = element.querySelector("strong")!.getBoundingClientRect();
+    return { rowTop: outer.top, rowBottom: outer.bottom, titleTop: title.top, titleBottom: title.bottom };
+  });
+  expect(containment.titleTop).toBeGreaterThanOrEqual(containment.rowTop);
+  expect(containment.titleBottom).toBeLessThanOrEqual(containment.rowBottom);
+  const headerGap = await plans.locator(".section-header").first().evaluate(element => {
+    const heading = element.querySelector("strong")!.getBoundingClientRect();
+    const count = element.querySelector("span")!.getBoundingClientRect();
+    return count.left - heading.right;
+  });
+  expect(headerGap).toBeGreaterThanOrEqual(5);
+  const dismiss = page.getByRole("button", { name: "Dismiss notification", exact: true });
+  while (await dismiss.count()) await dismiss.first().click();
+  await page.screenshot({ path: testInfo.outputPath("floor-plan-mobile.png") });
+  expect(errors).toEqual([]);
+});
+
 test("offline queue preserves account ownership across logout, reload and another-tab cookie changes", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { BoardColumnDefinition, BoardSection, CustomField, FloorPlan, LabelDefinition, Property, ScheduleTrack, UserLanguage } from "../lib/api";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { LabelPill } from "./LabelPill";
@@ -82,6 +82,9 @@ export function BoardConfigurationPanel({
   const [newOption, setNewOption] = useState({ value: "", color: "#46d39c", textColor: "#06291c" });
   const [newOptionError, setNewOptionError] = useState("");
   const [newOptionPending, setNewOptionPending] = useState(false);
+  const actionLock = useRef(false);
+  const [actionPending, setActionPending] = useState(false);
+  const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const [selectedOptionId, setSelectedOptionId] = useState("");
   const [optionDraft, setOptionDraft] = useState({ value: "", color: "#46d39c", textColor: "#06291c" });
   const [pendingOptionArchive, setPendingOptionArchive] = useState<LabelDefinition | null>(null);
@@ -264,13 +267,27 @@ export function BoardConfigurationPanel({
   }, [selectedTrack]);
 
   const numberOrNull = (value: string) => value === "" ? null : Number(value);
+  const runConfigAction = async (section: string, action: () => Promise<void>) => {
+    if (loading || actionLock.current) return;
+    actionLock.current = true;
+    setActionPending(true);
+    setActionErrors(current => ({ ...current, [section]: "" }));
+    try {
+      await action();
+    } catch (error) {
+      setActionErrors(current => ({ ...current, [section]: error instanceof Error ? error.message : (isSpanish ? "No se pudo guardar. Intente de nuevo." : "Could not save. Please retry.") }));
+    } finally {
+      actionLock.current = false;
+      setActionPending(false);
+    }
+  };
   const moveOption = async (id: string, offset: -1 | 1) => {
     const index = fieldOptions.findIndex((option) => option.id === id);
     const swap = index + offset;
     if (index < 0 || swap < 0 || swap >= fieldOptions.length) return;
     const ids = fieldOptions.map((option) => option.id);
     [ids[index], ids[swap]] = [ids[swap], ids[index]];
-    await onReorderOptions(ids);
+    await runConfigAction("options", () => onReorderOptions(ids));
   };
   const moveTrack = async (id: string, offset: -1 | 1) => {
     const index = scheduleTracks.findIndex((track) => track.id === id);
@@ -278,7 +295,7 @@ export function BoardConfigurationPanel({
     if (index < 0 || swap < 0 || swap >= scheduleTracks.length) return;
     const ids = scheduleTracks.map((track) => track.id);
     [ids[index], ids[swap]] = [ids[swap], ids[index]];
-    await onReorderScheduleTracks(ids);
+    await runConfigAction("tracks", () => onReorderScheduleTracks(ids));
   };
   const createScheduleTrack = async (input: Omit<ScheduleTrack, "id" | "sortOrder">, clearDraft = false) => {
     if (loading || newTrackPending) return;
@@ -411,7 +428,7 @@ export function BoardConfigurationPanel({
     : scheduleColorSources;
 
   return (
-    <section className="operations-grid config-grid" data-testid="board-configuration-panel">
+    <fieldset className="operations-grid config-grid" data-testid="board-configuration-panel" aria-label={isSpanish ? "Configuración del tablero" : "Board configuration"} disabled={loading || actionPending || newOptionPending || newTrackPending}>
       <article className="operations-card" data-testid="board-section-management">
         <div className="admin-section-head">
           <h3>{isSpanish ? "Secciones / tablas del tablero" : "Board Sections / Tables"}</h3>
@@ -450,12 +467,13 @@ export function BoardConfigurationPanel({
               data-testid="board-section-save"
               className="button button-primary span-full"
               disabled={!sectionLabelDraft.trim() || sectionLabelDraft.trim() === selectedSection.displayName}
-              onClick={() => void onUpdateBoardSection(selectedSection.id, sectionLabelDraft.trim())}
+              onClick={() => void runConfigAction("sections", () => onUpdateBoardSection(selectedSection.id, sectionLabelDraft.trim()))}
             >
               {isSpanish ? "Guardar nombre de sección" : "Save Section Name"}
             </button>
           </div>
         ) : null}
+        {actionErrors.sections ? <p role="alert" className="error-text">{actionErrors.sections}</p> : null}
       </article>
 
       <article className="operations-card" data-testid="option-management">
@@ -520,13 +538,14 @@ export function BoardConfigurationPanel({
                 : (isSpanish ? "Archivar conserva el valor en registros existentes y lo retira de nuevas selecciones." : "Archive keeps the value on existing records and removes it from new selections.")}
             </p>
             <div className="admin-actions span-full">
-              <button data-testid="option-save" className="button button-primary" onClick={() => void onUpdateOption(selectedOption.id, optionDraft)}>{isSpanish ? "Guardar" : "Save"}</button>
+              <button data-testid="option-save" className="button button-primary" onClick={() => void runConfigAction("options", () => onUpdateOption(selectedOption.id, optionDraft))}>{isSpanish ? "Guardar" : "Save"}</button>
               <button data-testid={selectedOption.isArchived ? "option-restore" : "option-archive"} className="button button-secondary" onClick={() => setPendingOptionArchive(selectedOption)}>
                 {selectedOption.isArchived ? (isSpanish ? "Restaurar" : "Restore") : (isSpanish ? "Archivar" : "Archive")}
               </button>
             </div>
           </div>
         ) : null}
+        {actionErrors.options ? <p role="alert" className="error-text">{actionErrors.options}</p> : null}
       </article>
 
       <article className="operations-card" data-testid="floor-plan-management">
@@ -602,15 +621,17 @@ export function BoardConfigurationPanel({
             <label>{isSpanish ? "Pies²" : "Sq ft"}<input type="number" value={planDraft.squareFeet} onChange={(event) => setPlanDraft((current) => ({ ...current, squareFeet: event.target.value }))} /></label>
             <label className="span-full">{isSpanish ? "Descripción" : "Description"}<input data-testid="floor-plan-edit-description" value={planDraft.description} onChange={(event) => setPlanDraft((current) => ({ ...current, description: event.target.value }))} /></label>
             <div className="admin-actions span-full">
-              <button data-testid="floor-plan-save" className="button button-primary" onClick={() => void onUpdateFloorPlan(selectedPlan.id, { code: planDraft.code.trim(), name: planDraft.name.trim() || planDraft.code.trim(), bedrooms: numberOrNull(planDraft.bedrooms), bathrooms: numberOrNull(planDraft.bathrooms), squareFeet: numberOrNull(planDraft.squareFeet), description: planDraft.description || null })}>{isSpanish ? "Guardar" : "Save"}</button>
-              <button data-testid={selectedPlan.isActive ? "floor-plan-archive" : "floor-plan-restore"} className="button button-secondary" onClick={() => void onArchiveFloorPlan(selectedPlan.id, selectedPlan.isActive)}>{selectedPlan.isActive ? (isSpanish ? "Archivar" : "Archive") : (isSpanish ? "Restaurar" : "Restore")}</button>
+              <button data-testid="floor-plan-save" className="button button-primary" onClick={() => void runConfigAction("plans", () => onUpdateFloorPlan(selectedPlan.id, { code: planDraft.code.trim(), name: planDraft.name.trim() || planDraft.code.trim(), bedrooms: numberOrNull(planDraft.bedrooms), bathrooms: numberOrNull(planDraft.bathrooms), squareFeet: numberOrNull(planDraft.squareFeet), description: planDraft.description || null }))}>{isSpanish ? "Guardar" : "Save"}</button>
+              <button data-testid={selectedPlan.isActive ? "floor-plan-archive" : "floor-plan-restore"} className="button button-secondary" onClick={() => void runConfigAction("plans", () => onArchiveFloorPlan(selectedPlan.id, !selectedPlan.isActive))}>{selectedPlan.isActive ? (isSpanish ? "Archivar" : "Archive") : (isSpanish ? "Restaurar" : "Restore")}</button>
             </div>
           </div>
         ) : null}
+        {actionErrors.plans ? <p role="alert" className="error-text">{actionErrors.plans}</p> : null}
       </article>
 
       <ConfirmDialog
         open={Boolean(pendingOptionArchive)}
+        busy={loading || actionPending}
         language={isSpanish ? "es" : "en"}
         title={pendingOptionArchive?.isArchived ? (isSpanish ? "Restaurar opcion" : "Restore option") : (isSpanish ? "Archivar opcion" : "Archive option")}
         description={pendingOptionArchive?.isArchived
@@ -639,7 +660,8 @@ export function BoardConfigurationPanel({
         <label className="config-field">{isSpanish ? "Nombre visible" : "Display name"}
           <input data-testid="column-config-label" value={columnLabel} onChange={(event) => setColumnLabel(event.target.value)} />
         </label>
-        <button data-testid="column-config-save" className="button button-primary" disabled={!columnLabel.trim()} onClick={() => void onUpdateColumn(selectedColumnKey, columnLabel.trim())}>{isSpanish ? "Guardar nombre visible" : "Save Display Name"}</button>
+        <button data-testid="column-config-save" className="button button-primary" disabled={!columnLabel.trim()} onClick={() => void runConfigAction("columns", () => onUpdateColumn(selectedColumnKey, columnLabel.trim()))}>{isSpanish ? "Guardar nombre visible" : "Save Display Name"}</button>
+        {actionErrors.columns ? <p role="alert" className="error-text">{actionErrors.columns}</p> : null}
         <p className="helper-copy">{isSpanish ? "Las vistas guardadas, importaciones y automatizaciones siguen vinculándose por la clave interna sin cambios." : "Saved views, imports, and automations continue to bind by the unchanged internal field key."}</p>
       </article>
 
@@ -798,11 +820,12 @@ export function BoardConfigurationPanel({
                 </div>
               ) : null}
             </div>
-            <button data-testid="schedule-track-save" className="button button-primary span-full" onClick={() => void onUpdateScheduleTrack(selectedTrack.id, { ...trackDraft, colorSourceField: trackDraft.colorBasis === "FIELD" ? trackDraft.colorSourceField : null, fixedColor: trackDraft.colorBasis === "FIXED" ? trackDraft.fixedColor : null })}>{isSpanish ? "Guardar carril" : "Save Track"}</button>
-            <button data-testid={selectedTrack.isArchived ? "schedule-track-restore" : "schedule-track-archive"} className="button button-secondary span-full" onClick={() => void onArchiveScheduleTrack(selectedTrack.id, selectedTrack.isArchived)}>{selectedTrack.isArchived ? (isSpanish ? "Restaurar carril" : "Restore Track") : (isSpanish ? "Archivar carril" : "Archive Track")}</button>
+            <button data-testid="schedule-track-save" className="button button-primary span-full" onClick={() => void runConfigAction("tracks", () => onUpdateScheduleTrack(selectedTrack.id, { ...trackDraft, colorSourceField: trackDraft.colorBasis === "FIELD" ? trackDraft.colorSourceField : null, fixedColor: trackDraft.colorBasis === "FIXED" ? trackDraft.fixedColor : null }))}>{isSpanish ? "Guardar carril" : "Save Track"}</button>
+            <button data-testid={selectedTrack.isArchived ? "schedule-track-restore" : "schedule-track-archive"} className="button button-secondary span-full" onClick={() => void runConfigAction("tracks", () => onArchiveScheduleTrack(selectedTrack.id, selectedTrack.isArchived))}>{selectedTrack.isArchived ? (isSpanish ? "Restaurar carril" : "Restore Track") : (isSpanish ? "Archivar carril" : "Archive Track")}</button>
           </div>
         ) : null}
+        {actionErrors.tracks ? <p role="alert" className="error-text">{actionErrors.tracks}</p> : null}
       </article>
-    </section>
+    </fieldset>
   );
 }

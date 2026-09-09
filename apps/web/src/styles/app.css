@@ -5071,7 +5071,36 @@ textarea {
 }
 
 .config-grid {
+  border: 0;
+  margin: 0;
+  min-inline-size: 0;
   padding: 0 var(--panel-pad) var(--panel-pad);
+}
+
+.config-grid .section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.config-grid .record-list {
+  grid-auto-rows: max-content;
+  align-content: start;
+}
+
+.config-grid .record-row {
+  align-items: flex-start;
+}
+
+.config-grid .record-row > span:first-child {
+  display: block;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.config-grid .record-row > .status-chip {
+  flex: 0 0 auto;
 }
 
 .config-field {
