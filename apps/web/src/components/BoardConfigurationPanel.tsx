@@ -80,6 +80,8 @@ export function BoardConfigurationPanel({
   const selectedSection = propertySections.find((section) => section.id === selectedSectionId) ?? null;
   const [fieldKey, setFieldKey] = useState<string>("vacancyStatus");
   const [newOption, setNewOption] = useState({ value: "", color: "#46d39c", textColor: "#06291c" });
+  const [newOptionError, setNewOptionError] = useState("");
+  const [newOptionPending, setNewOptionPending] = useState(false);
   const [selectedOptionId, setSelectedOptionId] = useState("");
   const [optionDraft, setOptionDraft] = useState({ value: "", color: "#46d39c", textColor: "#06291c" });
   const [pendingOptionArchive, setPendingOptionArchive] = useState<LabelDefinition | null>(null);
@@ -447,18 +449,25 @@ export function BoardConfigurationPanel({
           <span className="subtitle">{isSpanish ? "Colores de estado y opciones" : "Status colors and choices"}</span>
         </div>
         <label className="config-field">{isSpanish ? "Conjunto de opciones" : "Option set"}
-          <select data-testid="option-set-select" value={fieldKey} onChange={(event) => { setFieldKey(event.target.value); setSelectedOptionId(""); }}>
+          <select data-testid="option-set-select" value={fieldKey} disabled={loading || newOptionPending} onChange={(event) => { setFieldKey(event.target.value); setSelectedOptionId(""); setNewOptionError(""); }}>
             {optionSets.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
         </label>
         <form className="option-create" onSubmit={(event) => {
           event.preventDefault();
-          void onCreateOption({ fieldKey, ...newOption }).then(() => setNewOption((current) => ({ ...current, value: "" })));
+          if (loading || newOptionPending) return;
+          setNewOptionError("");
+          setNewOptionPending(true);
+          void onCreateOption({ fieldKey, ...newOption })
+            .then(() => setNewOption((current) => ({ ...current, value: "" })))
+            .catch((error: unknown) => setNewOptionError(error instanceof Error ? error.message : (isSpanish ? "No se pudo guardar la etiqueta. Intente de nuevo." : "Could not save the label. Try again.")))
+            .finally(() => setNewOptionPending(false));
         }}>
-          <input data-testid="option-create-value" value={newOption.value} placeholder={isSpanish ? "Nueva etiqueta" : "New label"} onChange={(event) => setNewOption((current) => ({ ...current, value: event.target.value }))} required />
-          <input data-testid="option-create-color" type="color" value={newOption.color} onChange={(event) => setNewOption((current) => ({ ...current, color: event.target.value }))} aria-label={isSpanish ? "Color de fondo de la opción" : "Option background color"} />
-          <button data-testid="option-create-submit" className="button button-primary" disabled={loading}>{isSpanish ? "Agregar" : "Add"}</button>
+          <input data-testid="option-create-value" value={newOption.value} disabled={loading || newOptionPending} placeholder={isSpanish ? "Nueva etiqueta" : "New label"} onChange={(event) => setNewOption((current) => ({ ...current, value: event.target.value }))} required />
+          <input data-testid="option-create-color" type="color" value={newOption.color} disabled={loading || newOptionPending} onChange={(event) => setNewOption((current) => ({ ...current, color: event.target.value }))} aria-label={isSpanish ? "Color de fondo de la opción" : "Option background color"} />
+          <button data-testid="option-create-submit" className="button button-primary" disabled={loading || newOptionPending}>{isSpanish ? "Agregar" : "Add"}</button>
         </form>
+        {newOptionError ? <p role="alert" className="error-text">{newOptionError}</p> : null}
         <div className="option-summary" data-testid="board-option-summary">
           <span className="status-chip active">{isSpanish ? `${activeOptionCount} activas` : `${activeOptionCount} active`}</span>
           <span className="status-chip inactive">{isSpanish ? `${archivedOptionCount} archivadas` : `${archivedOptionCount} archived`}</span>

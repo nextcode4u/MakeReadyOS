@@ -1361,6 +1361,47 @@ test("board setup waits for properties and retains a failed floor plan for retry
   await expect(plans.getByRole("alert")).toHaveCount(0);
 });
 
+test("board label creation retains failed drafts and locks a pending retry", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-operations").click();
+  const labels = page.getByTestId("option-management");
+  const value = uniqueTag("Retry label");
+  await page.getByTestId("option-set-select").selectOption("paintStatus");
+  await page.getByTestId("option-create-value").fill(value);
+  await page.getByTestId("option-create-color").fill("#123456");
+  await page.route("**/api/operations/options", route => route.request().method() === "POST"
+    ? route.fulfill({ status: 503, json: { message: "Label save unavailable" } }) : route.continue());
+  await page.getByTestId("option-create-submit").click();
+  await expect(labels.getByRole("alert")).toContainText("Label save unavailable");
+  await expect(page.getByTestId("option-create-value")).toHaveValue(value);
+  await expect(page.getByTestId("option-create-color")).toHaveValue("#123456");
+  await expect(page.getByTestId("option-set-select")).toHaveValue("paintStatus");
+  expect(errors).toEqual([]);
+  await page.unroute("**/api/operations/options");
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/operations/options", async route => {
+    if (route.request().method() === "POST") await held;
+    await route.continue();
+  });
+  const saved = page.waitForResponse(response => response.url().endsWith("/api/operations/options") && response.request().method() === "POST");
+  await page.getByTestId("option-create-submit").click();
+  try {
+    for (const id of ["option-set-select", "option-create-value", "option-create-color", "option-create-submit"]) {
+      await expect(page.getByTestId(id)).toBeDisabled();
+    }
+  } finally { release(); }
+  const response = await saved;
+  expect(response.status(), await response.text()).toBe(201);
+  expect(response.request().postDataJSON()).toMatchObject({ fieldKey: "paintStatus", value, color: "#123456" });
+  await expect(page.getByTestId("option-create-value")).toHaveValue("");
+  await expect(labels.getByRole("alert")).toHaveCount(0);
+  await expect(labels.getByRole("button", { name: value, exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("lease capture selects a real property after delayed metadata", async ({ page }) => {
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
