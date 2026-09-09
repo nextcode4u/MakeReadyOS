@@ -642,14 +642,52 @@ async function processItem(itemId: string, options: {
     automationPatch.pestTreated = null;
   }
 
-  const updated = await prisma.makeReadyItem.update({
-    where: { id: itemId },
-    data: {
-      ...computeDerivedFields(next),
-      ...normalizeItemPatch(automationPatch),
-      priority: typeof next.priority === "number" ? next.priority : item.priority,
-    },
+  const outcome = await prisma.$transaction(async db => {
+    await lockTurnProperty(db, item.propertyId);
+    const current = await db.makeReadyItem.findUniqueOrThrow({ where: { id: itemId }, include: { property: { select: { isActive: true } } } });
+    const currentRules = await db.automationRule.findMany({
+      where: { id: { in: rules.map(rule => rule.id) } },
+      select: { id: true, enabled: true, isArchived: true, updatedAt: true },
+    });
+    const staleRules = rules.some(rule => !currentRules.some(fresh => fresh.id === rule.id && fresh.enabled && !fresh.isArchived && fresh.updatedAt.getTime() === rule.updatedAt.getTime()));
+    if (current.isArchived || !current.property.isActive || current.updatedAt.getTime() !== item.updatedAt.getTime() || staleRules) {
+      return { updated: current, blocked: "Automation skipped: item or rule changed after evaluation, or is no longer active.", skipHistory: true };
+    }
+    const patch = normalizeItemPatch(automationPatch);
+    try {
+      await guardReadyMutation(db, current, patch, options.request?.currentUser?.fullName ?? "Automation");
+    } catch (error) {
+      if ((error as { statusCode?: number })?.statusCode !== 409) throw error;
+      return { updated: current, blocked: error instanceof Error ? error.message : "Readiness checks blocked this automation.", skipHistory: false };
+    }
+    const inspection = requestsInspection(current, patch);
+    if (inspection) patch.makeReadyStatus = "FINAL WALK";
+    const updated = await db.makeReadyItem.update({
+      where: { id: itemId },
+      data: {
+        ...computeDerivedFields({ ...next, ...(inspection ? { makeReadyStatus: "FINAL WALK" } : {}) }),
+        ...patch,
+        priority: typeof next.priority === "number" ? next.priority : item.priority,
+      },
+    });
+    return { updated, blocked: null, skipHistory: false };
   });
+  const { updated, blocked } = outcome;
+  if (blocked) {
+    if (outcome.skipHistory) {
+      options.request?.log.warn({ itemId, ruleIds: rules.map(rule => rule.id) }, blocked);
+      return updated;
+    }
+    // The initiating edit has already saved; reject the automation, not that edit.
+    if (logs.length) await prisma.automationRun.createMany({ data: logs.map(log => ({
+      ruleId: log.ruleId, itemId, success: false, message: blocked,
+      context: { unitNumber: updated.unitNumber, triggerTypes: options.triggerTypes, skippedActionSummaries: actionSummaries.get(log.ruleId) ?? [] },
+    })) });
+    return updated;
+  }
+  if (updated.completionStatus !== item.completionStatus || updated.makeReadyStatus !== item.makeReadyStatus) {
+    await syncFinalWalks(updated.propertyId, updated.id);
+  }
 
   if (updated.assignedTech && updated.assignedTech !== item.assignedTech) {
     await notifyAssignedStaff({

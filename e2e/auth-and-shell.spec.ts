@@ -67,6 +67,59 @@ test("move-in risk agrees across full lists, windowed pages and CSV exports", as
   }
 });
 
+test("immediate automations cannot bypass readiness or undo a successful initiating edit", async ({ page }) => {
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const { csrfToken } = await (await session).json();
+  const headers = { "x-csrf-token": csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `EVENT${Date.now()}`, name: "Immediate guard test" });
+  const meta = await (await page.request.get("/api/meta")).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  for (const mode of ["blocked", "handoff"]) {
+    const { unit } = await post("/operations/units", { propertyId: property.id, number: `EVENT-${mode}` });
+    const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" });
+    const root = `/api/make-ready-items/${item.id}`;
+    if (mode === "blocked") expect((await page.request.put(`${root}/materials`, { headers, data: { version: 0, rows: [{ id: "00000000-0000-4000-8000-000000000008", name: "Replacement latch", quantity: 1, unit: "each", status: "NEEDED", notes: "" }] } })).ok()).toBeTruthy();
+    const { rule } = await post("/automations", {
+      name: `Immediate ${mode}`, propertyId: property.id, enabled: true, triggerType: "ITEM_UPDATED",
+      conditions: { all: [{ field: "unitNumber", operator: "equals", value: unit.number }] },
+      actions: [{ type: "setField", field: mode === "blocked" ? "makeReadyStatus" : "completionStatus", value: mode === "blocked" ? "DONE" : "YES" }],
+    });
+    const edited = await page.request.patch(root, { headers, data: { notes: "User note must remain saved" } });
+    expect(edited.status(), await edited.text()).toBe(200);
+    const current = await (await page.request.get(root)).json();
+    expect(current.notes).toBe("User note must remain saved");
+    const { runs } = await (await page.request.get(`/api/automations/runs?ruleId=${rule.id}&itemId=${item.id}`)).json();
+    expect(runs).toHaveLength(1);
+    if (mode === "blocked") {
+      expect(current.makeReadyStatus).not.toBe("DONE");
+      expect(current.completionStatus).toBe("NO");
+      expect(runs[0].success).toBe(false);
+      expect(runs[0].message).toContain("Pending parts");
+    } else {
+      expect(current.completionStatus).toBe("YES");
+      expect(current.makeReadyStatus).toBe("FINAL WALK");
+      expect(runs[0].success).toBe(true);
+      expect((await page.request.post(`${root}/mark-ready`, { headers })).status()).toBe(409);
+      const { rule: bypass } = await post("/automations", {
+        name: "Do not skip the inspector", propertyId: property.id, enabled: true, triggerType: "ITEM_UPDATED",
+        conditions: { all: [{ field: "unitNumber", operator: "equals", value: unit.number }] },
+        actions: [{ type: "setField", field: "makeReadyStatus", value: "DONE" }],
+      });
+      const editDuringInspection = await page.request.patch(root, { headers, data: { notes: "Still waiting for the inspector" } });
+      expect(editDuringInspection.status(), await editDuringInspection.text()).toBe(200);
+      expect(await editDuringInspection.json()).toMatchObject({ makeReadyStatus: "FINAL WALK", notes: "Still waiting for the inspector" });
+      const history = await (await page.request.get(`/api/automations/runs?ruleId=${bypass.id}&itemId=${item.id}`)).json();
+      expect(history.runs[0]).toMatchObject({ success: false });
+      expect(history.runs[0].message).toContain("Final walk / Mark ready");
+    }
+  }
+});
+
 test("mark ready rejects incomplete work, self-review and archived turns", async ({ page }) => {
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
   await login(page, adminEmail, adminPassword);
@@ -1450,7 +1503,8 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
   await expect(guide.getByLabel("Final walks for")).toHaveValue(property.id);
   await expect(guide.getByRole("listitem")).toHaveCount(2);
   await guide.getByRole("button", { name: "Save and assign final walks" }).click();
-  await expect(guide.getByRole("status")).toContainText("0 final walks assigned");
+  await expect(guide.getByRole("status").filter({ hasText: "Inspector order saved." })).toContainText("0 final walks assigned");
+  await expect(guide.getByText("Unsaved inspector order. Save before leaving this setup.", { exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 412, height: 915 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   await guide.screenshot({ path: testInfo.outputPath("final-walk-setup-mobile.png") });
