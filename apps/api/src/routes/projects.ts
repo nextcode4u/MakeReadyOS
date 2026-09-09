@@ -21,6 +21,7 @@ import { queueWebhookEvent } from "../lib/webhookQueue.js";
 const projectRecordTypes = ["Recommendation", "Project"] as const;
 const projectExecutionTypes = ["In-House", "Vendor", "Hybrid", "Undecided"] as const;
 const projectPriorities = ["Low", "Normal", "High", "Critical"] as const;
+const projectAssigneeRoles: UserRole[] = [UserRole.ADMIN, UserRole.MANAGER, UserRole.TECH, UserRole.LEASING, UserRole.CLEANER];
 const projectTaskStatuses = ["Open", "In Progress", "Completed", "Skipped"] as const;
 const projectAttachmentTypes = ["GENERAL", "BEFORE", "PROGRESS", "AFTER", "BID", "LOCATION"] as const;
 const projectRecommendationStatuses = ["Open", "Needs Bid", "Got Bid", "Approved", "Denied", "Converted To Project", "Archived"] as const;
@@ -258,7 +259,7 @@ async function listAssignableUsers(propertyId: string) {
         { role: UserRole.ADMIN },
         { propertyAccess: { some: { propertyId } } },
       ],
-      role: { in: [UserRole.ADMIN, UserRole.MANAGER, UserRole.TECH, UserRole.LEASING, UserRole.CLEANER] },
+      role: { in: projectAssigneeRoles },
     },
     select: { id: true, fullName: true, role: true },
     orderBy: [{ fullName: "asc" }],
@@ -268,7 +269,7 @@ async function listAssignableUsers(propertyId: string) {
 async function resolveAssignableUser(propertyId: string, assignedUserId?: string | null) {
   if (!assignedUserId) return null;
   const user = await prisma.user.findUnique({ where: { id: assignedUserId }, include: { propertyAccess: true } });
-  if (!user || !user.isActive) throw Object.assign(new Error("Select an active project assignee"), { statusCode: 400 });
+  if (!user || !user.isActive || !projectAssigneeRoles.includes(user.role)) throw Object.assign(new Error("Select an active staff member eligible for project assignment"), { statusCode: 400 });
   if (user.role !== UserRole.ADMIN && !user.propertyAccess.some((access) => access.propertyId === propertyId)) {
     throw Object.assign(new Error("Selected user does not have access to this property"), { statusCode: 400 });
   }
@@ -294,9 +295,9 @@ async function canEditProjectRecord(request: FastifyRequest, record: {
   executionType: string;
 }) {
   const user = request.currentUser!;
+  await assertPropertyAccess(request, record.propertyId);
   if (user.role === UserRole.ADMIN || user.role === UserRole.MANAGER) return true;
   if (user.role !== UserRole.TECH) return false;
-  await assertPropertyAccess(request, record.propertyId);
   return record.assignedUserId === user.id || record.assignedRole === "TECH" || record.executionType === "In-House" || record.executionType === "Hybrid";
 }
 
@@ -948,6 +949,9 @@ export async function projectRoutes(app: FastifyInstance) {
     const existing = await prisma.projectRecord.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ message: "Project record not found" });
     if (!(await canEditProjectRecord(request, existing))) return reply.code(403).send({ message: "Projects edit access denied" });
+    if (input.propertyId !== undefined && input.propertyId !== existing.propertyId) {
+      return reply.code(409).send({ message: "Project property cannot be changed by editing. Create a record in the correct property instead." });
+    }
     const assignedUser = "assignedUserId" in input ? await resolveAssignableUser(existing.propertyId, input.assignedUserId ?? null) : null;
     const category = input.categoryId ? await prisma.projectCategory.findUnique({ where: { id: input.categoryId } }) : undefined;
     const nextStatus = input.status ?? existing.status;
