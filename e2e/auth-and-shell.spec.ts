@@ -1114,6 +1114,36 @@ test("command search traps keyboard focus and closes from results without losing
   await page.keyboard.press("Escape");
 });
 
+test("pool setup requires explicit property selection after delayed metadata", async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let expectedPropertyId = "";
+  await page.route("**/api/meta", async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    expectedPropertyId = body.properties[0].id;
+    await held;
+    return route.fulfill({ response });
+  });
+  await login(page, adminEmail, adminPassword);
+  try {
+    await page.getByTestId("module-rail-pool").click();
+    await page.getByTestId("pool-tab-setup").click();
+    await expect(page.getByTestId("pool-facility-form")).toBeVisible();
+  } finally { release(); }
+  await expect.poll(() => expectedPropertyId).not.toBe("");
+  await expect(page.getByLabel("Pool log property").locator(`option[value="${expectedPropertyId}"]`)).toHaveCount(1);
+  await expect(page.getByTestId("pool-facility-submit")).toBeDisabled();
+  await page.getByLabel("Pool log property").selectOption(expectedPropertyId);
+  await page.getByTestId("pool-facility-name").fill(uniqueTag("Late property pool"));
+  const saved = page.waitForResponse(response => response.url().endsWith("/api/pool/facilities") && response.request().method() === "POST");
+  await page.getByTestId("pool-facility-submit").click();
+  const response = await saved;
+  expect(response.request().postDataJSON().propertyId).toBe(expectedPropertyId);
+  expect(response.status(), await response.text()).toBe(201);
+  await expect(page.getByTestId("pool-facility-name")).toHaveValue("");
+});
+
 test("pool setup save failures stay in the form and preserve entries for retry", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
   const uncaught: string[] = [];
