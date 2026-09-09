@@ -84,6 +84,15 @@ test("mark ready rejects incomplete work, self-review and archived turns", async
   const root = `/api/make-ready-items/${item.id}`;
   const material = { id: "00000000-0000-4000-8000-000000000005", name: "Required replacement filter", quantity: 1, unit: "each", status: "NEEDED", notes: "" };
   expect((await page.request.put(`${root}/materials`, { headers, data: { version: 0, rows: [material] } })).ok()).toBeTruthy();
+  const { rule: blockedRule } = await post("/automations", {
+    name: "Do not bypass pending parts", propertyId: property.id, enabled: true, triggerType: "SCHEDULED_CHECK",
+    conditions: { all: [{ field: "unitNumber", operator: "equals", value: unit.number }] },
+    actions: [{ type: "setField", field: "makeReadyStatus", value: "DONE" }],
+  });
+  const { execution: blockedRun } = await post(`/automations/${blockedRule.id}/run`, {});
+  expect(blockedRun.actionCount).toBe(0);
+  expect(blockedRun.results.flatMap((result: any) => result.errors).join(";")).toContain("Pending parts");
+  expect((await (await page.request.get(root)).json()).makeReadyStatus).not.toBe("DONE");
   const { template } = await post("/checklist-templates", { propertyId: property.id, name: "Required repair and optional work", items: [{ title: "Verify repair", required: true }, { title: "Optional work", required: false }] });
   const { instance } = await post(`/make-ready-items/${item.id}/checklists`, { templateId: template.id });
   const readySection = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "READY");
@@ -128,6 +137,17 @@ test("mark ready rejects incomplete work, self-review and archived turns", async
   expect((await page.request.post(`${root}/archive`, { headers })).ok()).toBeTruthy();
   expect((await attempt()).status()).toBe(409);
   expect((await (await page.request.get(root)).json()).isArchived).toBe(true);
+  const { rule: completionRule } = await post("/automations", {
+    name: "Repair completion hands off to inspection", propertyId: property.id, enabled: true, triggerType: "SCHEDULED_CHECK",
+    conditions: { all: [{ field: "unitNumber", operator: "equals", value: secondUnit.number }] },
+    actions: [{ type: "setField", field: "completionStatus", value: "YES" }],
+  });
+  const { execution: completionRun } = await post(`/automations/${completionRule.id}/run`, {});
+  expect(completionRun.results.flatMap((result: any) => result.errors)).toEqual([]);
+  const handedOff = await (await page.request.get(`/api/make-ready-items/${second.id}`)).json();
+  expect(handedOff.completionStatus).toBe("YES");
+  expect(handedOff.makeReadyStatus).toBe("FINAL WALK");
+  expect((await page.request.post(`/api/make-ready-items/${second.id}/mark-ready`, { headers })).status()).toBe(409);
 });
 
 test("changing the inspection status cannot waive an existing report requirement", async ({ page }) => {
@@ -153,6 +173,15 @@ test("changing the inspection status cannot waive an existing report requirement
   const blocked = await page.request.post(`${root}/mark-ready`, { headers });
   expect(blocked.status(), await blocked.text()).toBe(409);
   expect((await blocked.json()).message).toContain("final-walk checks are not recorded");
+  expect((await (await page.request.get(root)).json()).makeReadyStatus).toBe("LITE");
+  const { rule } = await post("/automations", {
+    name: "Do not bypass inspection history", propertyId: property.id, enabled: true, triggerType: "SCHEDULED_CHECK",
+    conditions: { all: [{ field: "unitNumber", operator: "equals", value: unit.number }] },
+    actions: [{ type: "setField", field: "makeReadyStatus", value: "DONE" }],
+  });
+  const { execution: run } = await post(`/automations/${rule.id}/run`, {});
+  expect(run.actionCount).toBe(0);
+  expect(run.results.flatMap((result: any) => result.errors).join(";")).toContain("Final walk / Mark ready");
   expect((await (await page.request.get(root)).json()).makeReadyStatus).toBe("LITE");
   const value = report.draft.value;
   value.inspectionDate = new Date().toISOString().slice(0, 10);

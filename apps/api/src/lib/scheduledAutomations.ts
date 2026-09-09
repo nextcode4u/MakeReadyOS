@@ -7,6 +7,8 @@ import { isSchedulableTurn, turnSetupPrefix } from "./turnSetup.js";
 import { writeAuditLog } from "./audit.js";
 import { prisma } from "./prisma.js";
 import { createNotification, notifyAssignedStaff } from "./notifications.js";
+import { guardReadyMutation, lockTurnProperty, requestsInspection } from "./turnMutationGuard.js";
+import { syncFinalWalks } from "./finalWalks.js";
 
 export type ScheduledRunMode = "SCHEDULED" | "MANUAL";
 const automationRunContextItemLimit = 15;
@@ -249,8 +251,29 @@ export async function executeScheduledAutomationRules(options: {
             continue;
           }
           if (Object.keys(normalizedPatch).length > 0) {
-            await prisma.makeReadyItem.update({ where: { id: item.id }, data: normalizedPatch });
+            try {
+              const updated = await prisma.$transaction(async tx => {
+                await lockTurnProperty(tx, item.propertyId);
+                const currentRule = await tx.automationRule.findUnique({ where: { id: rule.id }, select: { enabled: true, isArchived: true, updatedAt: true } });
+                const current = await tx.makeReadyItem.findUnique({ where: { id: item.id }, include: { property: { select: { isActive: true } } } });
+                if (!currentRule?.enabled || currentRule.isArchived || currentRule.updatedAt.getTime() !== rule.updatedAt.getTime()
+                  || !current || current.isArchived || !current.property.isActive || current.updatedAt.getTime() !== item.updatedAt.getTime()) return null;
+                const actor = options.actorUserId ? await tx.user.findUnique({ where: { id: options.actorUserId }, select: { fullName: true } }) : null;
+                await guardReadyMutation(tx, current, normalizedPatch, actor?.fullName ?? "Scheduled automation");
+                if (requestsInspection(current, normalizedPatch)) normalizedPatch.makeReadyStatus = "FINAL WALK";
+                return tx.makeReadyItem.update({ where: { id: item.id }, data: normalizedPatch });
+              });
+              if (!updated) {
+                warnings.push(`${item.unitNumber}: item or rule changed after simulation; skipped this item.`);
+                continue;
+              }
+            } catch (error) {
+              if ((error as { statusCode?: number })?.statusCode !== 409) throw error;
+              errors.push(error instanceof Error ? error.message : `${item.unitNumber}: readiness checks blocked this automation.`);
+              continue;
+            }
             actionCount += Object.keys(normalizedPatch).length;
+            if ("completionStatus" in normalizedPatch || "makeReadyStatus" in normalizedPatch) await syncFinalWalks(item.propertyId, item.id);
             if (typeof normalizedPatch.assignedTech === "string" && normalizedPatch.assignedTech !== item.assignedTech) {
               await notifyAssignedStaff({
                 assignedTech: normalizedPatch.assignedTech,
