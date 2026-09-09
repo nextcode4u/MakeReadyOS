@@ -556,17 +556,25 @@ test("partial native project restores retain existing scoped maps and pins", asy
     expect(detail.comments.map((entry: any) => entry.body)).toEqual(["Retained project note"]);
     await post(`/property-maps/${map.id}/archive`, {});
   }
-  await post("/property-maps", { propertyId: a.id, name: map.name });
-  for (const includeMap of [true, false]) {
-    const backup = { ...exported, data: {
-      ...Object.fromEntries(Object.keys(exported.data).map(section => [section, []])),
-      projectRecords: [{ ...source, title: "Ambiguous map must not import" }],
-      propertyMaps: includeMap ? exported.data.propertyMaps.filter((entry: any) => entry.propertyCode === a.code) : [],
-    } };
-    const rejected = await post("/admin/import", { backup, dryRun: false });
-    expect(rejected.applied).toBe(false);
-    expect(rejected.summary.projectRecords.errors.join(" ")).toContain("ambiguous");
+  const { map: duplicate } = await post("/property-maps", { propertyId: a.id, name: map.name });
+  try {
+    for (const includeMap of [true, false]) {
+      const backup = { ...exported, data: {
+        ...Object.fromEntries(Object.keys(exported.data).map(section => [section, []])),
+        projectRecords: [{ ...source, title: "Ambiguous map must not import" }],
+        propertyMaps: includeMap ? exported.data.propertyMaps.filter((entry: any) => entry.propertyCode === a.code) : [],
+      } };
+      const rejected = await post("/admin/import", { backup, dryRun: false });
+      expect(rejected.applied).toBe(false);
+      expect(rejected.summary.projectRecords.errors.join(" ")).toContain("ambiguous");
+    }
+  } finally {
+    const cleanup = await page.request.patch(`/api/property-maps/${duplicate.id}`, { headers, data: { name: "Duplicate-name test completed" } });
+    expect(cleanup.status(), await cleanup.text()).toBe(200);
   }
+  const roundTrip = await post("/admin/import", { backup: await (await page.request.get("/api/admin/export")).json(), dryRun: true });
+  expect(roundTrip.summary.propertyMaps.errors).toEqual([]);
+  expect(roundTrip.summary.projectRecords.errors).toEqual([]);
 });
 
 test("native project child records cannot claim a different property than their parent", async ({ page }) => {
@@ -1365,6 +1373,16 @@ test("pond habitat keeps ground and water discoveries below the sky on desktop a
   await login(page, adminEmail, adminPassword);
   await page.getByTestId("tab-pond").click();
   await page.getByTestId("frog-settings-toggle").click();
+  // Let loading callbacks finish, then keep inspection work outside the visitor clock.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+  const advanceToVisitors = async (...ids: string[]) => {
+    for (let seconds = 0; seconds < 200; seconds++) {
+      const present = await Promise.all(ids.map(id => page.getByTestId(`pond-wild-${id}`).count()));
+      if (present.every(Boolean)) return;
+      await page.clock.runFor(1000);
+    }
+    throw new Error(`Visitors did not appear within a pond cycle: ${ids.join(", ")}`);
+  };
   const inspectHabitat = async (selector: string, sky = false) => {
     const target = page.locator(selector);
     await expect(target).toBeVisible();
@@ -1391,15 +1409,15 @@ test("pond habitat keeps ground and water discoveries below the sky on desktop a
       if (secret.theme === "pond-15") await inspectHabitat('.pond-garden-stage');
     }
   }
-  await page.clock.runFor(72000);
+  await advanceToVisitors("turtle", "snail");
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await inspectHabitat('[data-testid="pond-wild-turtle"]');
     await inspectHabitat('[data-testid="pond-wild-snail"]');
   }
-  await page.clock.runFor(60000);
+  await advanceToVisitors("duck");
   await inspectHabitat('[data-testid="pond-wild-duck"]');
-  await page.clock.runFor(50000);
+  await advanceToVisitors("axolotl");
   await inspectHabitat('[data-testid="pond-wild-axolotl"]');
 });
 

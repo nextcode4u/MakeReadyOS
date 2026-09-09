@@ -26,6 +26,8 @@ The native backup JSON Schema and a minimal portable example live at:
 - [`docs/schemas/makereadyos-native-backup.schema.json`](schemas/makereadyos-native-backup.schema.json)
 - [`examples/native-backup/minimal-backup.json`](../examples/native-backup/minimal-backup.json)
 
+The published schema describes the envelope and section shapes; some record definitions remain permissive. The server's import preview performs authoritative field and relationship validation. Passing an external JSON Schema check does not establish that references resolve or that every record will merge.
+
 The first supported package format is:
 
 ```json
@@ -39,6 +41,8 @@ The first supported package format is:
   },
   "data": {
     "properties": [],
+    "managementCompanies": [],
+    "propertyBranding": [],
     "floorPlans": [],
     "boardOptions": [],
     "boardColumns": [],
@@ -83,6 +87,13 @@ The first supported package format is:
     "pestIssues": [],
     "pestIssueNotes": [],
     "pestAttachments": [],
+    "leaseComplianceIssueTypes": [],
+    "leaseComplianceSettings": [],
+    "leaseComplianceIssues": [],
+    "leaseComplianceIssueNotes": [],
+    "leaseComplianceIssuePhotos": [],
+    "leaseComplianceNoticeActions": [],
+    "leaseCompliancePersistenceChecks": [],
     "propertyMaps": [],
     "propertyMapPins": [],
     "propertyMapPinAttachments": [],
@@ -102,6 +113,7 @@ Project map links resolve by property code and map name. Partial project restore
 ## Included Data
 
 - Properties and units
+- Management-company branding, each property's selected company/logo, and saved final-walk report settings
 - Property-owned managed floor plans and unit mappings
 - Managed built-in board label/status options, including archived historic choices
 - Built-in display column labels, configured schedule tracks, and property operating calendars for scheduling guardrails such as no-weekend rules, edge-day avoidance, operating hours, vendor lead days, daily load caps, and scope/work-day preferences
@@ -136,7 +148,7 @@ Project map links resolve by property code and map name. Partial project restore
 - External refrigerant system credentials or regulatory account credentials; MakeReadyOS stores operational refrigerant logs only
 - Pool/spa setup and log records are included in native JSON transfer: facilities, chemicals, chemistry targets, daily log entries, safety checks, and chemical additions. Pool attachment metadata is database-backed, but uploaded pool-related photo/PDF file bytes are still upload-volume data, not embedded JSON.
 - Property Wiki operational content is included in native JSON transfer: entry/vendor records, emergency/building metadata, related-entry/vendor links, asset metadata, and workflow references. Per-user favorites/recent views remain intentionally excluded because native transfer does not move users or other personal state. Uploaded Wiki file bytes are still excluded.
-- Projects operational content is not yet included in native JSON transfer. Current recommendation/project data is preserved by PostgreSQL disaster-recovery backups, but portable JSON transfer support still needs to be added for categories, recommendation/project records, comments, lightweight tasks, wiki references, map-pin coordinates, and attachment metadata. Uploaded project file bytes remain excluded either way.
+- Project attachment file bytes are excluded; project records, categories, comments, tasks, wiki references, map coordinates, and attachment metadata are included. See the partial-transfer limitations above.
 - Live records inside property templates, such as make-ready items, comments, attachments, unit history, users, sessions, and tokens
 - Environment files, secrets, and deployment configuration
 - Uploaded attachment/photo/map file bytes; move the local upload volume separately with `backup-uploads.sh`/`restore-uploads.sh` for full continuity
