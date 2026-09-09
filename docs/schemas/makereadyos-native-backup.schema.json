@@ -120,6 +120,7 @@
       "properties": {
         "fieldKey": { "type": "string" },
         "value": { "type": "string" },
+        "displayName": { "type": ["string", "null"], "maxLength": 80, "description": "Optional presentation name; value remains the stable workflow key." },
         "color": { "$ref": "#/$defs/hexColor" },
         "textColor": { "$ref": "#/$defs/hexColor" },
         "sortOrder": { "type": "integer" },
