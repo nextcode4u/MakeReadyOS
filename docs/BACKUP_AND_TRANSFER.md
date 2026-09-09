@@ -97,6 +97,8 @@ The first supported package format is:
 
 References are portable rather than database-ID based. Properties use property codes; floor plans use property code plus stable floor-plan code with plan-name fallback for older backups; managed board options and built-in display columns use stable field keys; schedule tracks use stable built-in keys or portable custom field keys; operating calendars use property codes; custom field values use field keys plus make-ready item portable keys; and custom columns in saved views use field keys during transfer.
 
+Project map links resolve by property code and map name. Partial project restores may use an existing property/map without including those directory rows. Duplicate map names within that property block the project import rather than selecting an arbitrary map; give them distinct names first. Archived maps can remain historical references. Native project category identity and partial wiki-target resolution still have open follow-ups in [RELIABILITY_POLISH.md](RELIABILITY_POLISH.md); do not treat a partial native transfer as a complete disaster-recovery backup.
+
 ## Included Data
 
 - Properties and units

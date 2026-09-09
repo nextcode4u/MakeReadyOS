@@ -2932,11 +2932,10 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
     }
     if (record.propertyMapName) {
       const mapInBackup = backup.data.propertyMaps.some((map) => map.propertyCode === record.propertyCode && map.name === record.propertyMapName);
-      if (!mapInBackup) {
-        const property = await prisma.property.findUnique({ where: { code: record.propertyCode } });
-        const existingMap = property ? await prisma.propertyMap.findFirst({ where: { propertyId: property.id, name: record.propertyMapName } }) : null;
-        if (!existingMap) summary.projectRecords.errors.push(`Property map ${record.propertyMapName} is missing for project record ${record.title}`);
-      }
+      const property = await prisma.property.findUnique({ where: { code: record.propertyCode } });
+      const existingMaps = property ? await prisma.propertyMap.findMany({ where: { propertyId: property.id, name: record.propertyMapName }, select: { id: true }, take: 2 }) : [];
+      if (existingMaps.length > 1) summary.projectRecords.errors.push(`Property map ${record.propertyMapName} is ambiguous for project record ${record.title}; give maps distinct names before importing`);
+      else if (!mapInBackup && !existingMaps.length) summary.projectRecords.errors.push(`Property map ${record.propertyMapName} is missing for project record ${record.title}`);
     }
   }
   for (const comment of backup.data.projectComments) {
@@ -4475,13 +4474,23 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
 
     const projectRecordMap = new Map<string, string>();
     for (const record of backup.data.projectRecords) {
-      const propertyId = propertyMap.get(record.propertyCode);
+      const propertyId = propertyMap.get(record.propertyCode)
+        ?? (await tx.property.findUnique({ where: { code: record.propertyCode }, select: { id: true } }))?.id;
+      // A partial restore may omit its existing property directory; children use this map too.
+      if (propertyId) propertyMap.set(record.propertyCode, propertyId);
       const categoryId = record.categoryName
         ? projectCategoryMap.get(projectCategoryPortableKey({ propertyCode: record.propertyCode, name: record.categoryName }))
           ?? projectCategoryMap.get(projectCategoryPortableKey({ propertyCode: null, name: record.categoryName }))
           ?? null
         : null;
-      const propertyMapId = record.propertyMapName ? propertyMapMap.get(`${record.propertyCode}|${record.propertyMapName}`) ?? null : null;
+      const existingMaps = record.propertyMapName && propertyId
+        ? await tx.propertyMap.findMany({ where: { propertyId, name: record.propertyMapName }, select: { id: true }, take: 2 })
+        : [];
+      if (existingMaps.length > 1) throw Object.assign(new Error(`Project map became ambiguous for ${record.title}; no import changes were committed`), { statusCode: 409 });
+      const propertyMapId = existingMaps[0]?.id ?? null;
+      if (!dryRun && (!propertyId || (record.propertyMapName && !propertyMapId))) {
+        throw Object.assign(new Error(`Project property or map changed or could not be resolved for ${record.title}; no import changes were committed`), { statusCode: 409 });
+      }
       const existing = propertyId ? await tx.projectRecord.findFirst({
         where: {
           propertyId,
