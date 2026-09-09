@@ -1,7 +1,7 @@
 import { CustomFieldType, Prisma } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { requireAdmin } from "../lib/auth.js";
+import { clientIpAddress, requireAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
 import { lockProjectCategories } from "../lib/projectCategoryLock.js";
@@ -2513,7 +2513,7 @@ async function buildExport(): Promise<NativeBackup> {
   };
 }
 
-async function importBackup(backup: NativeBackup, dryRun: boolean) {
+async function importBackup(backup: NativeBackup, dryRun: boolean, request: FastifyRequest) {
   const summary = emptySummary();
   const propertyCodes = new Set(backup.data.properties.map((property) => property.code));
   const sectionPropertyCodes = new Set(backup.data.boardSections.map((section) => section.propertyCode));
@@ -3037,7 +3037,7 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
       summary.preventiveMaintenanceWikiReferences.errors.push(`PM task ${reference.recordKey} is missing for wiki reference`);
     }
   }
-  if (Object.values(summary).some((bucket) => bucket.errors.length > 0)) return summary;
+  if (Object.values(summary).some((bucket) => bucket.errors.length > 0)) return { summary, applied: false };
 
   const run = async (tx: Prisma.TransactionClient | typeof prisma) => {
     const companyMap = new Map<string, string>();
@@ -5148,8 +5148,18 @@ async function importBackup(backup: NativeBackup, dryRun: boolean) {
   };
 
   if (dryRun) await run(prisma);
-  else await prisma.$transaction(async (tx) => run(tx));
-  return summary;
+  else await prisma.$transaction(async tx => {
+    await run(tx);
+    await tx.auditLog.create({ data: {
+      actorUserId: request.currentUser!.id,
+      entityType: "BACKUP",
+      action: "BACKUP_IMPORTED",
+      message: "Imported MakeReadyOS native backup in merge mode",
+      metadata: { summary },
+      ipAddress: clientIpAddress(request),
+    } });
+  });
+  return { summary, applied: !dryRun };
 }
 
 export async function backupTransferRoutes(app: FastifyInstance) {
@@ -5170,7 +5180,6 @@ export async function backupTransferRoutes(app: FastifyInstance) {
 
   app.post("/admin/import", async (request, reply) => {
     if (!(await ensureAdmin(request, reply))) return;
-    const actor = request.currentUser!;
     let requestPayload: z.infer<typeof importSchema>;
     let backup: NativeBackup;
     try {
@@ -5180,17 +5189,7 @@ export async function backupTransferRoutes(app: FastifyInstance) {
       reply.code(400);
       return { message: error instanceof Error ? `Invalid MakeReadyOS backup: ${error.message}` : "Invalid MakeReadyOS backup" };
     }
-    const summary = await importBackup(backup, requestPayload.dryRun);
-    if (!requestPayload.dryRun && !Object.values(summary).some((bucket) => bucket.errors.length > 0)) {
-      await writeAuditLog({
-        request,
-        actorUserId: actor.id,
-        entityType: "BACKUP",
-        action: "BACKUP_IMPORTED",
-        message: "Imported MakeReadyOS native backup in merge mode",
-        metadata: { summary },
-      });
-    }
-    return { dryRun: requestPayload.dryRun, mode: requestPayload.mode, summary };
+    const result = await importBackup(backup, requestPayload.dryRun, request);
+    return { dryRun: requestPayload.dryRun, mode: requestPayload.mode, ...result };
   });
 }

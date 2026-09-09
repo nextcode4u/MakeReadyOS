@@ -64,6 +64,10 @@ Creating, editing, reordering, archiving and restoring shared status definitions
 
 Native exports and property templates preserve `displayName`. Native merge import retains existing shared definitions and reports conflicting presentation settings instead of overwriting them; old backups without display names remain supported. Merge import is not an exact overwrite restore.
 
+### Native Import Outcomes
+
+`POST /api/admin/import` returns `dryRun`, `applied`, `mode`, and `summary`. `applied: false` means preview or rejection before the write transaction; no merge records were changed. `applied: true` means the merge and its audit entry committed together. The summary can still contain conflicts for matching settings retained during a merge, so conflicts alone do not imply rollback. A workspace refresh failure after a confirmed response does not undo the import. If the response is lost, review current data before retrying; this endpoint does not yet provide an idempotency key or durable client-visible request receipt.
+
 ### Endpoint List
 
 - `GET /api/meta`

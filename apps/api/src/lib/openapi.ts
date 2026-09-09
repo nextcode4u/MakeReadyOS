@@ -1156,9 +1156,10 @@ const generatedResponseSchemas = {
   BackupExportResponse: ref("NativeBackup"),
   BackupImportResponse: {
     type: "object",
-    required: ["dryRun", "mode", "summary"],
+    required: ["dryRun", "mode", "summary", "applied"],
     properties: {
       dryRun: { type: "boolean" },
+      applied: { type: "boolean", description: "True only after a merge transaction and its audit entry commit; false for preview or preflight rejection. Inspect summary for retained/conflicting records." },
       mode: { type: "string", enum: ["merge"] },
       summary: { type: "object", additionalProperties: true },
     },
