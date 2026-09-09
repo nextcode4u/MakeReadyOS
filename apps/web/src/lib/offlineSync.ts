@@ -24,6 +24,7 @@ import {
   type PreventiveMaintenanceTaskAttachment,
   type ProjectAttachmentType,
 } from "./api";
+import { getVerifiedSession, isCurrentSession, type VerifiedSession } from "./verifiedSession";
 
 const databaseName = "makereadyos-offline-sync";
 const databaseVersion = 1;
@@ -157,6 +158,7 @@ type OfflineSyncJobPayload =
     };
 
 export type OfflineSyncJob = {
+  ownerUserId?: string;
   id: string;
   serverRecordId?: string;
   deliveryComplete?: boolean;
@@ -186,13 +188,15 @@ export type OfflineSyncJobSummary = {
 };
 
 export type OfflineQueueState = {
+  ownerUserId: string | null;
   pendingCount: number;
   syncing: boolean;
 };
 
 let syncing = false;
+let syncingSession: VerifiedSession | null = null;
 let syncPromise: Promise<{ processed: number; synced: number; remaining: number }> | null = null;
-const jobDeliveries = new Map<string, Promise<boolean>>();
+const jobDeliveries = new Map<string, { session: VerifiedSession; promise: Promise<boolean> }>();
 const retryDelaysMs = [0, 5000, 15000, 30000, 60000];
 
 function queueUnavailable() {
@@ -205,7 +209,9 @@ function emitQueueState(state: OfflineQueueState) {
 }
 
 async function announceQueueState() {
-  emitQueueState({ pendingCount: await getOfflineSyncPendingCount(), syncing });
+  const session = getVerifiedSession();
+  const pendingCount = await getOfflineSyncPendingCount();
+  if (isCurrentSession(session)) emitQueueState({ ownerUserId: session.userId, pendingCount, syncing: syncing && syncingSession === session });
 }
 
 function openDatabase() {
@@ -402,10 +408,14 @@ function summarize(job: OfflineSyncJob): OfflineSyncJobSummary {
   };
 }
 
-function buildJob(payload: OfflineSyncJobPayload): OfflineSyncJob {
+function buildJob(ownerUserId: string, payload: OfflineSyncJobPayload): OfflineSyncJob {
   const now = new Date().toISOString();
+  if (typeof crypto === "undefined" || typeof crypto.getRandomValues !== "function") throw new Error("This browser cannot safely create offline work IDs.");
+  const id = typeof crypto.randomUUID === "function" ? crypto.randomUUID()
+    : `offline-${Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("")}`;
   return {
-    id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `offline-${Date.now()}`,
+    ownerUserId,
+    id,
     createdAt: now,
     updatedAt: now,
     attemptCount: 0,
@@ -453,6 +463,7 @@ async function checkpointJob(job: OfflineSyncJob) {
 
 async function uploadQueuedFiles<T extends QueuedBlob>(job: OfflineSyncJob, payload: { files: T[] }, upload: (file: T) => Promise<unknown>) {
   while (payload.files.length) {
+    if (getVerifiedSession().userId !== job.ownerUserId) throw new ApiError(409, "Sign in with the account that saved this work before retrying.");
     await upload(payload.files[0]);
     payload.files = payload.files.slice(1);
     await checkpointJob(job);
@@ -460,123 +471,147 @@ async function uploadQueuedFiles<T extends QueuedBlob>(job: OfflineSyncJob, payl
 }
 
 async function syncJob(job: OfflineSyncJob) {
+  if (!job.ownerUserId || getVerifiedSession().userId !== job.ownerUserId) {
+    throw new ApiError(409, "Sign in with the account that saved this work before retrying.");
+  }
+  const account = { expectedUserId: job.ownerUserId };
   switch (job.payload.kind) {
     case "makeReadyPatch":
-      await patchMakeReadyItem(job.payload.itemId, job.payload.data);
+      await patchMakeReadyItem(job.payload.itemId, job.payload.data, account);
       return;
     case "makeReadyUpload": {
       const payload = job.payload;
-      await uploadQueuedFiles(job, payload, file => uploadItemAttachment(payload.itemId, restoreFile(file), payload.inspectionStage));
+      await uploadQueuedFiles(job, payload, file => uploadItemAttachment(payload.itemId, restoreFile(file), payload.inspectionStage, account));
       return;
     }
     case "makeReadyCommentCreate":
-      await createItemComment(job.payload.itemId, job.payload.body);
+      await createItemComment(job.payload.itemId, job.payload.body, account);
       return;
     case "makeReadyCommentUpdate":
-      await updateItemComment(job.payload.itemId, job.payload.commentId, job.payload.body);
+      await updateItemComment(job.payload.itemId, job.payload.commentId, job.payload.body, account);
       return;
     case "makeReadyCommentDelete":
-      await deleteItemComment(job.payload.itemId, job.payload.commentId);
+      await deleteItemComment(job.payload.itemId, job.payload.commentId, account);
       return;
     case "makeReadyChecklistAttach":
-      await attachChecklist(job.payload.itemId, job.payload.templateId);
+      await attachChecklist(job.payload.itemId, job.payload.templateId, account);
       return;
     case "makeReadyChecklistUpdate":
-      await updateChecklistItem(job.payload.checklistItemId, job.payload.input);
+      await updateChecklistItem(job.payload.checklistItemId, job.payload.input, account);
       return;
     case "projectCreate": {
       if (!job.serverRecordId) {
-        const { record } = await createProjectRecord(job.payload.input);
+        const { record } = await createProjectRecord(job.payload.input, account);
         job.serverRecordId = record.id;
         await checkpointJob(job);
       }
-      await uploadQueuedFiles(job, job.payload, file => uploadProjectAttachment(job.serverRecordId!, restoreFile(file), file.attachmentType, file.caption ?? undefined));
+      await uploadQueuedFiles(job, job.payload, file => uploadProjectAttachment(job.serverRecordId!, restoreFile(file), file.attachmentType, file.caption ?? undefined, account));
       return;
     }
     case "projectUpload": {
       const payload = job.payload;
-      await uploadQueuedFiles(job, payload, file => uploadProjectAttachment(payload.recordId, restoreFile(file), file.attachmentType, file.caption ?? undefined));
+      await uploadQueuedFiles(job, payload, file => uploadProjectAttachment(payload.recordId, restoreFile(file), file.attachmentType, file.caption ?? undefined, account));
       return;
     }
     case "leaseCreate": {
       if (!job.serverRecordId) {
-        const { issue } = await createLeaseComplianceIssue(job.payload.input);
+        const { issue } = await createLeaseComplianceIssue(job.payload.input, account);
         job.serverRecordId = issue.id;
         await checkpointJob(job);
       }
-      await uploadQueuedFiles(job, job.payload, file => uploadLeaseComplianceIssuePhoto(job.serverRecordId!, restoreFile(file), { photoCategory: file.photoCategory ?? undefined, caption: file.caption ?? undefined }));
+      await uploadQueuedFiles(job, job.payload, file => uploadLeaseComplianceIssuePhoto(job.serverRecordId!, restoreFile(file), { photoCategory: file.photoCategory ?? undefined, caption: file.caption ?? undefined }, account));
       return;
     }
     case "leaseUpload": {
       const payload = job.payload;
-      await uploadQueuedFiles(job, payload, file => uploadLeaseComplianceIssuePhoto(payload.issueId, restoreFile(file), { photoCategory: file.photoCategory ?? undefined, caption: file.caption ?? undefined }));
+      await uploadQueuedFiles(job, payload, file => uploadLeaseComplianceIssuePhoto(payload.issueId, restoreFile(file), { photoCategory: file.photoCategory ?? undefined, caption: file.caption ?? undefined }, account));
       return;
     }
     case "pestCreate": {
       if (!job.serverRecordId) {
-        const { issue } = await createPestIssue(job.payload.input);
+        const { issue } = await createPestIssue(job.payload.input, account);
         job.serverRecordId = issue.id;
         await checkpointJob(job);
       }
-      await uploadQueuedFiles(job, job.payload, file => uploadPestIssueAttachment(job.serverRecordId!, restoreFile(file), { photoType: file.photoType ?? undefined, caption: file.caption ?? undefined }));
+      await uploadQueuedFiles(job, job.payload, file => uploadPestIssueAttachment(job.serverRecordId!, restoreFile(file), { photoType: file.photoType ?? undefined, caption: file.caption ?? undefined }, account));
       return;
     }
     case "pestUpload": {
       const payload = job.payload;
-      await uploadQueuedFiles(job, payload, file => uploadPestIssueAttachment(payload.issueId, restoreFile(file), { photoType: file.photoType ?? undefined, caption: file.caption ?? undefined }));
+      await uploadQueuedFiles(job, payload, file => uploadPestIssueAttachment(payload.issueId, restoreFile(file), { photoType: file.photoType ?? undefined, caption: file.caption ?? undefined }, account));
       return;
     }
     case "poolCreate":
-      await createPoolLogEntry(job.payload.input);
+      await createPoolLogEntry(job.payload.input, account);
       return;
     case "poolUpload": {
       const payload = job.payload;
-      await uploadQueuedFiles(job, payload, file => uploadPoolLogAttachment(payload.entryId, restoreFile(file)));
+      await uploadQueuedFiles(job, payload, file => uploadPoolLogAttachment(payload.entryId, restoreFile(file), account));
       return;
     }
     case "pmComplete":
-      await completePreventiveMaintenanceTask(job.payload.taskId, job.payload.input);
+      await completePreventiveMaintenanceTask(job.payload.taskId, job.payload.input, account);
       return;
     case "pmSkip":
-      await skipPreventiveMaintenanceTask(job.payload.taskId, job.payload.input);
+      await skipPreventiveMaintenanceTask(job.payload.taskId, job.payload.input, account);
       return;
     case "pmUpload": {
       const payload = job.payload;
-      await uploadQueuedFiles(job, payload, file => uploadPreventiveMaintenanceAttachment(payload.taskId, restoreFile(file)));
+      await uploadQueuedFiles(job, payload, file => uploadPreventiveMaintenanceAttachment(payload.taskId, restoreFile(file), account));
       return;
     }
   }
 }
 
-async function enqueue(payload: OfflineSyncJobPayload) {
-  const job = buildJob(payload);
+async function enqueue(ownerUserId: string, payload: OfflineSyncJobPayload) {
+  if (typeof ownerUserId !== "string" || !ownerUserId.trim()) throw new Error("The account that started this work is required.");
+  // Keep the initiating owner even if the session changed during a failed upload.
+  const job = buildJob(ownerUserId, payload);
   await withStore("readwrite", (store) => writeJob(store, job));
   await announceQueueState();
   return summarize(job);
 }
 
 export async function listOfflineSyncJobs() {
-  const jobs = await withStore("readonly", (store) => readAll(store));
+  const jobs = await getOfflineSyncJobs();
   return jobs.map(summarize);
 }
 
 export async function getOfflineSyncJobs() {
-  return withStore("readonly", (store) => readAll(store));
+  const session = getVerifiedSession();
+  if (!session.userId) return [];
+  const jobs = await withStore("readonly", (store) => readAll(store));
+  return isCurrentSession(session) ? jobs.filter(job => job.ownerUserId === session.userId) : [];
+}
+
+export async function hasUnattributedOfflineWork() {
+  const session = getVerifiedSession();
+  if (!session.userId) return false;
+  const jobs = await withStore("readonly", (store) => readAll(store));
+  return isCurrentSession(session) && jobs.some(job => typeof job.ownerUserId !== "string" || !job.ownerUserId.trim());
 }
 
 export async function getOfflineSyncJob(id: string) {
-  const jobs = await withStore("readonly", (store) => readAll(store));
+  const jobs = await getOfflineSyncJobs();
   return jobs.find((job) => job.id === id) ?? null;
 }
 
 export async function getOfflineSyncPendingCount() {
-  const jobs = await withStore("readonly", (store) => readAll(store));
+  const jobs = await getOfflineSyncJobs();
   return jobs.length;
 }
 
 export async function removeOfflineSyncJob(id: string) {
-  await withStore("readwrite", (store) => deleteJob(store, id));
+  const session = getVerifiedSession();
+  if (!session.userId || jobDeliveries.has(id)) return false;
+  const removed = await withStore("readwrite", async store => {
+    const jobs = await readAll(store);
+    if (!isCurrentSession(session) || !jobs.some(job => job.id === id && job.ownerUserId === session.userId) || jobDeliveries.has(id)) return false;
+    await deleteJob(store, id);
+    return true;
+  });
   await announceQueueState();
+  return removed;
 }
 
 export function getOfflineSyncEventName() {
@@ -584,12 +619,14 @@ export function getOfflineSyncEventName() {
 }
 
 function deliverQueuedJob(id: string) {
+  const session = getVerifiedSession();
+  if (!session.userId) return Promise.resolve(false);
   const pending = jobDeliveries.get(id);
-  if (pending) return pending;
+  if (pending) return pending.session === session ? pending.promise : Promise.resolve(false);
   const delivery = Promise.resolve().then(async () => {
     // Re-read after acquiring the lock; another attempt may have removed the job.
     const job = await getOfflineSyncJob(id);
-    if (!job) return false;
+    if (!job || !isCurrentSession(session)) return false;
     try {
       if (!job.deliveryComplete) {
         await syncJob(job);
@@ -597,19 +634,22 @@ function deliverQueuedJob(id: string) {
         await checkpointJob(job);
       }
       await withStore("readwrite", (store) => deleteJob(store, id));
-      return true;
+      return isCurrentSession(session);
     } catch (error) {
       await updateFailedJob(job, error);
       throw error;
     }
   }).finally(() => { jobDeliveries.delete(id); });
-  jobDeliveries.set(id, delivery);
+  jobDeliveries.set(id, { session, promise: delivery });
   return delivery;
 }
 
-export async function syncOfflineJobs() {
+export async function syncOfflineJobs(): Promise<{ processed: number; synced: number; remaining: number }> {
+  const session = getVerifiedSession();
+  if (!session.userId) return { processed: 0, synced: 0, remaining: 0 };
   if (syncPromise) {
-    return syncPromise;
+    await syncPromise;
+    return isCurrentSession(session) ? syncOfflineJobs() : { processed: 0, synced: 0, remaining: 0 };
   }
   syncPromise = Promise.resolve().then(async () => {
     try {
@@ -617,12 +657,14 @@ export async function syncOfflineJobs() {
         return { processed: 0, synced: 0, remaining: await getOfflineSyncPendingCount() };
       }
       syncing = true;
+      syncingSession = session;
       await announceQueueState();
       let processed = 0;
       let syncedCount = 0;
       const jobs = await getOfflineSyncJobs();
       const now = Date.now();
       for (const job of jobs) {
+        if (!isCurrentSession(session)) break;
         if (!shouldAttemptAutomaticSync(job, now)) {
           continue;
         }
@@ -637,9 +679,10 @@ export async function syncOfflineJobs() {
           }
         }
       }
-      return { processed, synced: syncedCount, remaining: await getOfflineSyncPendingCount() };
+      return { processed: isCurrentSession(session) ? processed : 0, synced: isCurrentSession(session) ? syncedCount : 0, remaining: await getOfflineSyncPendingCount() };
     } finally {
       syncing = false;
+      syncingSession = null;
     }
   }).finally(async () => {
     // Release the shared lock even if offline checks or IndexedDB access fail.
@@ -663,12 +706,12 @@ export async function retryOfflineSyncJob(id: string) {
   }
 }
 
-export async function enqueueMakeReadyPatch(itemId: string, data: Record<string, unknown>) {
-  return enqueue({ kind: "makeReadyPatch", itemId, data });
+export async function enqueueMakeReadyPatch(ownerUserId: string, itemId: string, data: Record<string, unknown>) {
+  return enqueue(ownerUserId, { kind: "makeReadyPatch", itemId, data });
 }
 
-export async function enqueueMakeReadyAttachmentUpload(itemId: string, files: File[], inspectionStage?: "INITIAL_WALK") {
-  return enqueue({
+export async function enqueueMakeReadyAttachmentUpload(ownerUserId: string, itemId: string, files: File[], inspectionStage?: "INITIAL_WALK") {
+  return enqueue(ownerUserId, {
     kind: "makeReadyUpload",
     inspectionStage,
     itemId,
@@ -676,33 +719,33 @@ export async function enqueueMakeReadyAttachmentUpload(itemId: string, files: Fi
   });
 }
 
-export async function enqueueMakeReadyCommentCreate(itemId: string, body: string) {
-  return enqueue({ kind: "makeReadyCommentCreate", itemId, body });
+export async function enqueueMakeReadyCommentCreate(ownerUserId: string, itemId: string, body: string) {
+  return enqueue(ownerUserId, { kind: "makeReadyCommentCreate", itemId, body });
 }
 
-export async function enqueueMakeReadyCommentUpdate(itemId: string, commentId: string, body: string) {
-  return enqueue({ kind: "makeReadyCommentUpdate", itemId, commentId, body });
+export async function enqueueMakeReadyCommentUpdate(ownerUserId: string, itemId: string, commentId: string, body: string) {
+  return enqueue(ownerUserId, { kind: "makeReadyCommentUpdate", itemId, commentId, body });
 }
 
-export async function enqueueMakeReadyCommentDelete(itemId: string, commentId: string) {
-  return enqueue({ kind: "makeReadyCommentDelete", itemId, commentId });
+export async function enqueueMakeReadyCommentDelete(ownerUserId: string, itemId: string, commentId: string) {
+  return enqueue(ownerUserId, { kind: "makeReadyCommentDelete", itemId, commentId });
 }
 
-export async function enqueueMakeReadyChecklistAttach(itemId: string, templateId: string) {
-  return enqueue({ kind: "makeReadyChecklistAttach", itemId, templateId });
+export async function enqueueMakeReadyChecklistAttach(ownerUserId: string, itemId: string, templateId: string) {
+  return enqueue(ownerUserId, { kind: "makeReadyChecklistAttach", itemId, templateId });
 }
 
-export async function enqueueMakeReadyChecklistUpdate(itemId: string, checklistItemId: string, input: Parameters<typeof updateChecklistItem>[1]) {
-  return enqueue({ kind: "makeReadyChecklistUpdate", itemId, checklistItemId, input });
+export async function enqueueMakeReadyChecklistUpdate(ownerUserId: string, itemId: string, checklistItemId: string, input: Parameters<typeof updateChecklistItem>[1]) {
+  return enqueue(ownerUserId, { kind: "makeReadyChecklistUpdate", itemId, checklistItemId, input });
 }
 
-export async function enqueueProjectCreate(input: {
+export async function enqueueProjectCreate(ownerUserId: string, input: {
   recordInput: Parameters<typeof createProjectRecord>[0];
   files: File[];
   attachmentType?: ProjectAttachmentType;
   caption?: string | null;
 }) {
-  return enqueue({
+  return enqueue(ownerUserId, {
     kind: "projectCreate",
     input: input.recordInput,
     files: input.files.map((file) => ({
@@ -713,13 +756,13 @@ export async function enqueueProjectCreate(input: {
   });
 }
 
-export async function enqueueProjectAttachmentUpload(input: {
+export async function enqueueProjectAttachmentUpload(ownerUserId: string, input: {
   propertyId: string;
   recordId: string;
   recordTitle: string;
   files: Array<{ file: File; attachmentType?: ProjectAttachmentType; caption?: string | null }>;
 }) {
-  return enqueue({
+  return enqueue(ownerUserId, {
     kind: "projectUpload",
     propertyId: input.propertyId,
     recordId: input.recordId,
@@ -732,8 +775,8 @@ export async function enqueueProjectAttachmentUpload(input: {
   });
 }
 
-export async function enqueueLeaseCreate(input: Parameters<typeof createLeaseComplianceIssue>[0], files: Array<{ file: File; photoCategory?: LeaseCompliancePhotoCategory; caption?: string | null }> = []) {
-  return enqueue({
+export async function enqueueLeaseCreate(ownerUserId: string, input: Parameters<typeof createLeaseComplianceIssue>[0], files: Array<{ file: File; photoCategory?: LeaseCompliancePhotoCategory; caption?: string | null }> = []) {
+  return enqueue(ownerUserId, {
     kind: "leaseCreate",
     input,
     files: files.map((entry) => ({
@@ -744,8 +787,8 @@ export async function enqueueLeaseCreate(input: Parameters<typeof createLeaseCom
   });
 }
 
-export async function enqueueLeaseUpload(issueId: string, propertyId: string | undefined, files: Array<{ file: File; photoCategory?: LeaseCompliancePhotoCategory; caption?: string | null }> = []) {
-  return enqueue({
+export async function enqueueLeaseUpload(ownerUserId: string, issueId: string, propertyId: string | undefined, files: Array<{ file: File; photoCategory?: LeaseCompliancePhotoCategory; caption?: string | null }> = []) {
+  return enqueue(ownerUserId, {
     kind: "leaseUpload",
     issueId,
     propertyId,
@@ -757,8 +800,8 @@ export async function enqueueLeaseUpload(issueId: string, propertyId: string | u
   });
 }
 
-export async function enqueuePestCreate(input: Parameters<typeof createPestIssue>[0], files: Array<{ file: File; photoType?: PestPhotoType; caption?: string | null }> = []) {
-  return enqueue({
+export async function enqueuePestCreate(ownerUserId: string, input: Parameters<typeof createPestIssue>[0], files: Array<{ file: File; photoType?: PestPhotoType; caption?: string | null }> = []) {
+  return enqueue(ownerUserId, {
     kind: "pestCreate",
     input,
     files: files.map((entry) => ({
@@ -769,8 +812,8 @@ export async function enqueuePestCreate(input: Parameters<typeof createPestIssue
   });
 }
 
-export async function enqueuePestUpload(issueId: string, propertyId: string | undefined, files: Array<{ file: File; photoType?: PestPhotoType; caption?: string | null }> = []) {
-  return enqueue({
+export async function enqueuePestUpload(ownerUserId: string, issueId: string, propertyId: string | undefined, files: Array<{ file: File; photoType?: PestPhotoType; caption?: string | null }> = []) {
+  return enqueue(ownerUserId, {
     kind: "pestUpload",
     issueId,
     propertyId,
@@ -782,12 +825,12 @@ export async function enqueuePestUpload(issueId: string, propertyId: string | un
   });
 }
 
-export async function enqueuePoolCreate(input: Parameters<typeof createPoolLogEntry>[0]) {
-  return enqueue({ kind: "poolCreate", input });
+export async function enqueuePoolCreate(ownerUserId: string, input: Parameters<typeof createPoolLogEntry>[0]) {
+  return enqueue(ownerUserId, { kind: "poolCreate", input });
 }
 
-export async function enqueuePoolUpload(entryId: string, propertyId: string | undefined, files: File[]) {
-  return enqueue({
+export async function enqueuePoolUpload(ownerUserId: string, entryId: string, propertyId: string | undefined, files: File[]) {
+  return enqueue(ownerUserId, {
     kind: "poolUpload",
     entryId,
     propertyId,
@@ -795,16 +838,16 @@ export async function enqueuePoolUpload(entryId: string, propertyId: string | un
   });
 }
 
-export async function enqueuePmComplete(taskId: string, input: Parameters<typeof completePreventiveMaintenanceTask>[1]) {
-  return enqueue({ kind: "pmComplete", taskId, input });
+export async function enqueuePmComplete(ownerUserId: string, taskId: string, input: Parameters<typeof completePreventiveMaintenanceTask>[1]) {
+  return enqueue(ownerUserId, { kind: "pmComplete", taskId, input });
 }
 
-export async function enqueuePmSkip(taskId: string, input: Parameters<typeof skipPreventiveMaintenanceTask>[1]) {
-  return enqueue({ kind: "pmSkip", taskId, input });
+export async function enqueuePmSkip(ownerUserId: string, taskId: string, input: Parameters<typeof skipPreventiveMaintenanceTask>[1]) {
+  return enqueue(ownerUserId, { kind: "pmSkip", taskId, input });
 }
 
-export async function enqueuePmUpload(taskId: string, propertyId: string | undefined, files: File[]) {
-  return enqueue({
+export async function enqueuePmUpload(ownerUserId: string, taskId: string, propertyId: string | undefined, files: File[]) {
+  return enqueue(ownerUserId, {
     kind: "pmUpload",
     taskId,
     propertyId,

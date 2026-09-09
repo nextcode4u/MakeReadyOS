@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { getVerifiedSession, isCurrentSession, requireVerifiedUserId } from "../lib/verifiedSession";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addPestIssueNote,
@@ -554,7 +555,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
     await queryClient.invalidateQueries({ queryKey: ["my-work"] });
   };
 
-  const createIssueMutation = useMutation({ mutationFn: (input: Parameters<typeof createPestIssue>[0]) => createPestIssue(input), onSuccess: invalidate });
+  const createIssueMutation = useMutation({ mutationFn: ({ input, ownerUserId }: { input: Parameters<typeof createPestIssue>[0]; ownerUserId: string }) => createPestIssue(input, { expectedUserId: ownerUserId }), onSuccess: invalidate });
   const updateIssueMutation = useMutation({ mutationFn: ({ id, input }: { id: string; input: Partial<Parameters<typeof createPestIssue>[0]> }) => updatePestIssue(id, input), onSuccess: invalidate });
   const addNoteMutation = useMutation({ mutationFn: ({ id, body }: { id: string; body: string }) => addPestIssueNote(id, body), onSuccess: invalidate });
   const closeIssueMutation = useMutation({
@@ -568,12 +569,12 @@ export function PestControlPanel({ properties, units, users, userRole, language,
   const vendorUpdateMutation = useMutation({ mutationFn: ({ id, input }: { id: string; input: Partial<Parameters<typeof createPestVendor>[0]> }) => updatePestVendor(id, input), onSuccess: invalidate });
   const vendorDeleteMutation = useMutation({ mutationFn: deletePestVendor, onSuccess: invalidate });
   const uploadMutation = useMutation({
-    mutationFn: async ({ issueId, file }: { issueId: string; file: File }) => {
+    mutationFn: async ({ issueId, file, ownerUserId = requireVerifiedUserId() }: { issueId: string; file: File; ownerUserId?: string }) => {
       try {
-        return await uploadPestIssueAttachment(issueId, file);
+        return await uploadPestIssueAttachment(issueId, file, undefined, { expectedUserId: ownerUserId });
       } catch (error) {
         if (isApiError(error) && error.status === 0) {
-          await enqueuePestUpload(issueId, propertyId || undefined, [{ file }]);
+          await enqueuePestUpload(ownerUserId, issueId, propertyId || undefined, [{ file }]);
           return { attachment: null };
         }
         throw error;
@@ -619,7 +620,9 @@ export function PestControlPanel({ properties, units, users, userRole, language,
   const latestMatchingQuickAddIssue = matchingQuickAddIssues[0] ?? null;
 
   const refreshQueuedPestJobs = async () => {
+    const session = getVerifiedSession();
     const jobs = await listOfflineSyncJobs();
+    if (!isCurrentSession(session)) return;
     setQueuedPestJobs(jobs.filter((job) => job.module === "pest" && (job.kind === "pestCreate" || job.kind === "pestUpload")));
   };
 
@@ -709,14 +712,15 @@ export function PestControlPanel({ properties, units, users, userRole, language,
     };
     let issueId = quickCreatedIssueId;
     try {
+      const ownerUserId = requireVerifiedUserId();
       if (!issueId) {
         try {
-          const created = await createIssueMutation.mutateAsync(quickIssueInput);
+          const created = await createIssueMutation.mutateAsync({ input: quickIssueInput, ownerUserId });
           issueId = created.issue.id;
           setQuickCreatedIssueId(issueId);
         } catch (error) {
           if (!(isApiError(error) && error.status === 0)) throw error;
-          await enqueuePestCreate(quickIssueInput, quickAddPhotos.map((file) => ({ file })));
+          await enqueuePestCreate(ownerUserId, quickIssueInput, quickAddPhotos.map((file) => ({ file })));
           setLastQueuedPestSummary({
             title: selectedQuickAddUnit?.number ?? (quickAddDraft.area.trim() || quickAddDraft.pestType),
             fileCount: quickAddPhotos.length,
@@ -726,7 +730,7 @@ export function PestControlPanel({ properties, units, users, userRole, language,
       }
       if (issueId) {
         for (const file of quickAddPhotos) {
-          await uploadMutation.mutateAsync({ issueId, file });
+          await uploadMutation.mutateAsync({ issueId, file, ownerUserId });
           setQuickAddPhotos(current => current.filter(entry => entry !== file));
         }
       }

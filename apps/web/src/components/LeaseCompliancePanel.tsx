@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { getVerifiedSession, isCurrentSession, requireVerifiedUserId } from "../lib/verifiedSession";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { leaseIssueMatchesLocation } from "../lib/leaseIssueMatching";
 import {
@@ -694,7 +695,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
     await queryClient.invalidateQueries({ queryKey: ["my-work"] });
   };
 
-  const createIssueMutation = useMutation({ mutationFn: (input: Parameters<typeof createLeaseComplianceIssue>[0]) => createLeaseComplianceIssue(input), onSuccess: invalidate });
+  const createIssueMutation = useMutation({ mutationFn: ({ input, ownerUserId }: { input: Parameters<typeof createLeaseComplianceIssue>[0]; ownerUserId: string }) => createLeaseComplianceIssue(input, { expectedUserId: ownerUserId }), onSuccess: invalidate });
   const updateIssueMutation = useMutation({ mutationFn: ({ id, input }: { id: string; input: Partial<Parameters<typeof createLeaseComplianceIssue>[0]> }) => updateLeaseComplianceIssue(id, input), onSuccess: invalidate });
   const addNoteMutation = useMutation({ mutationFn: ({ id, body }: { id: string; body: string }) => addLeaseComplianceIssueNote(id, body), onSuccess: invalidate });
   const persistMutation = useMutation({ mutationFn: ({ id, notes }: { id: string; notes?: string }) => markLeaseComplianceStillPersists(id, notes), onSuccess: invalidate });
@@ -704,11 +705,12 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
   const dismissRecurringMutation = useMutation({ mutationFn: ({ id, notes }: { id: string; notes: string }) => dismissLeaseComplianceRecurringFlag(id, notes), onSuccess: invalidate });
   const uploadMutation = useMutation({
     mutationFn: async ({ issueId, file }: { issueId: string; file: File }) => {
+      const ownerUserId = requireVerifiedUserId();
       try {
-        return await uploadLeaseComplianceIssuePhoto(issueId, file);
+        return await uploadLeaseComplianceIssuePhoto(issueId, file, undefined, { expectedUserId: ownerUserId });
       } catch (error) {
         if (isApiError(error) && error.status === 0) {
-          await enqueueLeaseUpload(issueId, propertyId || undefined, [{ file }]);
+          await enqueueLeaseUpload(ownerUserId, issueId, propertyId || undefined, [{ file }]);
           return { photo: null };
         }
         throw error;
@@ -764,7 +766,9 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
     && (quickAddPhotos.length || quickAddDraft.description.trim()));
 
   const refreshQueuedLeaseJobs = async () => {
+    const session = getVerifiedSession();
     const jobs = await listOfflineSyncJobs();
+    if (!isCurrentSession(session)) return;
     setQueuedLeaseJobs(jobs.filter((job) => job.module === "lease-compliance" && (job.kind === "leaseCreate" || job.kind === "leaseUpload")));
   };
 
@@ -830,14 +834,15 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
     }));
   }
 
-  async function queueLeaseEvidence(issueId: string, files: File[]) {
+  async function queueLeaseEvidence(ownerUserId: string, issueId: string, files: File[]) {
     if (!files.length) return;
-    await enqueueLeaseUpload(issueId, propertyId || undefined, files.map((file) => ({ file })));
+    await enqueueLeaseUpload(ownerUserId, issueId, propertyId || undefined, files.map((file) => ({ file })));
     await refreshQueuedLeaseJobs();
     void syncQueuedLeaseJobs();
   }
 
   async function markIssueStillApplies(issue: LeaseComplianceIssue) {
+    const ownerUserId = requireVerifiedUserId();
     const persistSummary = [
       quickAddDraft.description.trim(),
       quickAddDraft.locationNotes.trim(),
@@ -847,7 +852,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
       await addNoteMutation.mutateAsync({ id: issue.id, body: quickAddDraft.description.trim() });
     }
     const queuedPhotoCount = quickAddPhotos.length;
-    await queueLeaseEvidence(issue.id, quickAddPhotos);
+    await queueLeaseEvidence(ownerUserId, issue.id, quickAddPhotos);
     setLastCreatedIssue({
       id: issue.id,
       label: issue.unit?.number ?? issue.area ?? issue.building ?? "Area",
@@ -881,6 +886,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
 
   async function createQuickIssue(mode: "create" | "keep-walking" = "create") {
     if (!canSubmitQuickIssue || createIssueMutation.isPending) return;
+    const ownerUserId = requireVerifiedUserId();
     const quickIssueInput = {
       propertyId,
       unitId: quickAddUnitId || null,
@@ -897,12 +903,12 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
     };
     let created;
     try {
-      created = await createIssueMutation.mutateAsync(quickIssueInput);
+      created = await createIssueMutation.mutateAsync({ input: quickIssueInput, ownerUserId });
     } catch (error) {
       if (!(isApiError(error) && error.status === 0)) {
         throw error;
       }
-      await enqueueLeaseCreate(quickIssueInput, quickAddPhotos.map((file) => ({ file })));
+      await enqueueLeaseCreate(ownerUserId, quickIssueInput, quickAddPhotos.map((file) => ({ file })));
       setLastQueuedLeaseSummary({
         title: quickAddDraft.issueTypeName || quickAddDraft.area || quickAddDraft.building || "Lease issue",
         fileCount: quickAddPhotos.length,
@@ -945,7 +951,7 @@ export function LeaseCompliancePanel({ properties, units, users, userRole, langu
       }).then(() => queryClient.invalidateQueries({ queryKey: ["property-map-pins"] })).catch(() => undefined);
     }
     const queuedPhotoCount = quickAddPhotos.length;
-    await queueLeaseEvidence(created.issue.id, quickAddPhotos);
+    await queueLeaseEvidence(ownerUserId, created.issue.id, quickAddPhotos);
     setLastCreatedIssue({
       id: created.issue.id,
       label: created.issue.unit?.number ?? created.issue.area ?? created.issue.building ?? "Area",

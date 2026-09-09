@@ -36,7 +36,7 @@ API token requests do not use CSRF headers. Cookie-session requests still requir
 
 Protected `/api` routes optionally accept `X-MROS-Expected-User` containing the creating user's exact ID. The server compares it with the authenticated cookie-session user before the route handler. A different account or API-token authentication returns `409` with code `SESSION_ACCOUNT_CHANGED`; an empty or malformed value returns `400`. Missing authentication still returns `401`, and matching writes still require CSRF and normal role/property permissions. This header restricts an existing session; it is not a credential or impersonation feature. Auth endpoints do not use this constraint.
 
-This is server-side groundwork for account-bound offline delivery. The general offline queue is not yet owner-scoped; callers must actually send the constraint for it to protect a request.
+The browser's offline queue sends this constraint for each queued write and retains the initiating user's ID on new jobs. Queue reads and replay require a verified current account. Legacy jobs without an owner remain on the device, held from replay and automatic deletion; they are not assigned to whichever user signs in next. Browser profile deletion can still remove local work. This is account isolation in the application, not encryption of browser storage or a guarantee of exactly-once delivery after an unconfirmed network response.
 
 ## Scopes
 

@@ -197,22 +197,22 @@ export async function getQueuedProjectCaptures() {
   return jobs.filter(isProjectJob).map(mapSharedJob);
 }
 
-export async function enqueueProjectCapture(input: {
+export async function enqueueProjectCapture(ownerUserId: string, input: {
   recordInput: ProjectRecordInput;
   files: File[];
   attachmentType?: ProjectAttachmentType;
   caption?: string | null;
 }) {
-  return enqueueProjectCreate(input);
+  return enqueueProjectCreate(ownerUserId, input);
 }
 
-export async function enqueueProjectAttachmentUpload(input: {
+export async function enqueueProjectAttachmentUpload(ownerUserId: string, input: {
   propertyId: string;
   recordId: string;
   recordTitle: string;
   files: Array<{ file: File; attachmentType?: ProjectAttachmentType; caption?: string | null }>;
 }) {
-  return enqueueSharedProjectAttachmentUpload(input);
+  return enqueueSharedProjectAttachmentUpload(ownerUserId, input);
 }
 
 export async function removeQueuedProjectCapture(id: string) {

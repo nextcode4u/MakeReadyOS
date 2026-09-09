@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { requireVerifiedUserId } from "../lib/verifiedSession";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   completePreventiveMaintenanceTask,
@@ -364,11 +365,12 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
 
   const completeMutation = useMutation({
     mutationFn: async ({ id, outcome, notes }: { id: string; outcome: "PASS" | "FAIL" | "COMPLETE"; notes: string }) => {
+      const ownerUserId = requireVerifiedUserId();
       try {
-        return await completePreventiveMaintenanceTask(id, { outcome, notes: notes || null });
+        return await completePreventiveMaintenanceTask(id, { outcome, notes: notes || null }, { expectedUserId: ownerUserId });
       } catch (error) {
         if (isApiError(error) && error.status === 0) {
-          await enqueuePmComplete(id, { outcome, notes: notes || null });
+          await enqueuePmComplete(ownerUserId, id, { outcome, notes: notes || null });
           return { task: null };
         }
         throw error;
@@ -379,11 +381,12 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
 
   const skipMutation = useMutation({
     mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
+      const ownerUserId = requireVerifiedUserId();
       try {
-        return await skipPreventiveMaintenanceTask(id, { notes: notes || null });
+        return await skipPreventiveMaintenanceTask(id, { notes: notes || null }, { expectedUserId: ownerUserId });
       } catch (error) {
         if (isApiError(error) && error.status === 0) {
-          await enqueuePmSkip(id, { notes: notes || null });
+          await enqueuePmSkip(ownerUserId, id, { notes: notes || null });
           return { task: null };
         }
         throw error;
@@ -394,11 +397,12 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
 
   const uploadMutation = useMutation({
     mutationFn: async ({ taskId, file }: { taskId: string; file: File }) => {
+      const ownerUserId = requireVerifiedUserId();
       try {
-        return await uploadPreventiveMaintenanceAttachment(taskId, file);
+        return await uploadPreventiveMaintenanceAttachment(taskId, file, { expectedUserId: ownerUserId });
       } catch (error) {
         if (isApiError(error) && error.status === 0) {
-          await enqueuePmUpload(taskId, propertyId || undefined, [file]);
+          await enqueuePmUpload(ownerUserId, taskId, propertyId || undefined, [file]);
           return { attachment: null };
         }
         throw error;

@@ -1,4 +1,5 @@
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
+import { getVerifiedSession, isCurrentSession } from "../lib/verifiedSession";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BoardColumnDefinition, BoardSection, ChargePriceSheetImportSummary, ChargePriceSheetItem, ChargeReport, ChargeReportGroup, CurrentUser, CustomField, FloorPlan, ItemCollaboration, LabelDefinition, MakeReadyItem, StaffOption, UnitHistoryResponse, Vendor, VendorAssignment, WorkAssignmentBlock } from "../lib/api";
 import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, chargeReportCsvUrl, chargeReportPrintableHtmlUrl, chargeReportPrintableReportUrl, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getPestIssues, getUnitHistory, importChargePriceSheetItems, isApiError, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
@@ -354,7 +355,9 @@ export function ItemDrawer({
     await queryClient.invalidateQueries({ queryKey: ["my-work"] });
   };
   const refreshPendingSyncCount = async () => {
+    const session = getVerifiedSession();
     const jobs = await getOfflineSyncJobs();
+    if (!isCurrentSession(session)) return;
     const count = jobs.filter((job) => {
       const payload = job.payload;
       if ("itemId" in payload && payload.itemId === item.id) {
@@ -470,33 +473,38 @@ export function ItemDrawer({
     void operation("attachments-upload", async () => {
       for (const file of selected) {
         try {
-          await uploadItemAttachment(item.id, file, inspectionStage);
+          await uploadItemAttachment(item.id, file, inspectionStage, { expectedUserId: currentUser.id });
         } catch (error) {
           if (!(isApiError(error) && error.status === 0)) {
             throw error;
           }
-          await enqueueMakeReadyAttachmentUpload(item.id, [file], inspectionStage);
+          await enqueueMakeReadyAttachmentUpload(currentUser.id, item.id, [file], inspectionStage);
         }
       }
     });
   };
   const operation = async (key: string, action: () => Promise<unknown>) => {
+    const session = getVerifiedSession();
     setSaving(key);
     setError("");
     try {
       await action();
+      if (!isCurrentSession(session)) return;
       await refreshCollaboration();
       await queryClient.invalidateQueries({ queryKey: ["charge-report", item.id] });
     } catch (nextError) {
+      if (!isCurrentSession(session)) return;
       setError(nextError instanceof Error ? nextError.message : t(language, "drawer.operationFailed"));
       await refreshCollaboration();
     } finally {
-      setSaving(null);
-      await refreshPendingSyncCount();
+      if (isCurrentSession(session)) {
+        setSaving(null);
+        await refreshPendingSyncCount();
+      }
     }
   };
   const toggleChecklistItem = (id: string, completed: boolean) => {
-    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current ? {
+    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current && getVerifiedSession().userId === currentUser.id ? {
       ...current,
       checklistInstances: current.checklistInstances.map((instance) => ({
         ...instance,
@@ -505,12 +513,12 @@ export function ItemDrawer({
     } : current);
     void operation(id, async () => {
       try {
-        await updateChecklistItem(id, { completed });
+        await updateChecklistItem(id, { completed }, { expectedUserId: currentUser.id });
       } catch (nextError) {
         if (!(isApiError(nextError) && nextError.status === 0)) {
           throw nextError;
         }
-        await enqueueMakeReadyChecklistUpdate(item.id, id, { completed });
+        await enqueueMakeReadyChecklistUpdate(currentUser.id, item.id, id, { completed });
       }
     });
   };
@@ -1042,20 +1050,20 @@ export function ItemDrawer({
               if (!commentText.trim()) return;
               void operation("comment", async () => {
                 try {
-                  if (editingCommentId) await updateItemComment(item.id, editingCommentId, commentText);
-                  else await createItemComment(item.id, commentText);
+                  if (editingCommentId) await updateItemComment(item.id, editingCommentId, commentText, { expectedUserId: currentUser.id });
+                  else await createItemComment(item.id, commentText, { expectedUserId: currentUser.id });
                 } catch (nextError) {
                   if (!(isApiError(nextError) && nextError.status === 0)) {
                     throw nextError;
                   }
                   if (editingCommentId) {
-                    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current ? {
+                    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current && getVerifiedSession().userId === currentUser.id ? {
                       ...current,
                       comments: current.comments.map((comment) => comment.id === editingCommentId ? { ...comment, body: commentText, editedAt: new Date().toISOString() } : comment),
                     } : current);
-                    await enqueueMakeReadyCommentUpdate(item.id, editingCommentId, commentText);
+                    await enqueueMakeReadyCommentUpdate(currentUser.id, item.id, editingCommentId, commentText);
                   } else {
-                    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current ? {
+                    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current && getVerifiedSession().userId === currentUser.id ? {
                       ...current,
                       comments: [
                         {
@@ -1070,7 +1078,7 @@ export function ItemDrawer({
                         ...current.comments,
                       ],
                     } : current);
-                    await enqueueMakeReadyCommentCreate(item.id, commentText);
+                    await enqueueMakeReadyCommentCreate(currentUser.id, item.id, commentText);
                   }
                 }
                 setCommentText("");
@@ -1114,17 +1122,17 @@ export function ItemDrawer({
                     <div className="comment-actions">
                       <button type="button" className="button button-ghost" onClick={() => { setEditingCommentId(comment.id); setCommentText(comment.body); }}>{t(language, "drawer.edit")}</button>
                       <button type="button" className="button button-ghost danger" onClick={() => void operation(`comment-delete-${comment.id}`, async () => {
-                        queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current ? {
+                        queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current && getVerifiedSession().userId === currentUser.id ? {
                           ...current,
                           comments: current.comments.filter((entry) => entry.id !== comment.id),
                         } : current);
                         try {
-                          await deleteItemComment(item.id, comment.id);
+                          await deleteItemComment(item.id, comment.id, { expectedUserId: currentUser.id });
                         } catch (nextError) {
                           if (!(isApiError(nextError) && nextError.status === 0)) {
                             throw nextError;
                           }
-                          await enqueueMakeReadyCommentDelete(item.id, comment.id);
+                          await enqueueMakeReadyCommentDelete(currentUser.id, item.id, comment.id);
                         }
                       })}>{t(language, "drawer.remove")}</button>
                     </div>
@@ -1227,13 +1235,13 @@ export function ItemDrawer({
               <button className="button button-secondary" data-testid="checklist-attach" type="button" disabled={!templateId} onClick={() => void operation("attach-checklist", async () => {
                 const selectedTemplate = collaborationQuery.data?.templates.find((template) => template.id === templateId) ?? null;
                 try {
-                  await attachChecklist(item.id, templateId);
+                  await attachChecklist(item.id, templateId, { expectedUserId: currentUser.id });
                 } catch (nextError) {
                   if (!(isApiError(nextError) && nextError.status === 0)) {
                     throw nextError;
                   }
                   if (selectedTemplate) {
-                    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current ? {
+                    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current && getVerifiedSession().userId === currentUser.id ? {
                       ...current,
                       checklistInstances: [
                         ...current.checklistInstances,
@@ -1253,7 +1261,7 @@ export function ItemDrawer({
                       ],
                     } : current);
                   }
-                  await enqueueMakeReadyChecklistAttach(item.id, templateId);
+                  await enqueueMakeReadyChecklistAttach(currentUser.id, item.id, templateId);
                 }
                 setTemplateId("");
               })}>{t(language, "drawer.attach")}</button>

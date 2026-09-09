@@ -8,7 +8,7 @@ function load(file, extras = {}) {
   const exports = {};
   const source = readFileSync(file, "utf8").replaceAll("import.meta.env.VITE_API_BASE_URL", '"/api"');
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText,
-    { exports, require: () => ({}), Error, FormData, AbortController, setTimeout, clearTimeout, ...extras });
+    { exports, require: name => name === "./verifiedSession" ? load("apps/web/src/lib/verifiedSession.ts") : {}, Error, FormData, Headers, AbortController, setTimeout, clearTimeout, ...extras });
   return exports;
 }
 

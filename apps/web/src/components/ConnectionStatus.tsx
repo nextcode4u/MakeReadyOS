@@ -11,17 +11,21 @@ type Props = {
   blockedCount: number;
   conflictCount: number;
   syncing: boolean;
+  unattributedWork?: boolean;
+  queueError?: string;
   language: UserLanguage;
   onRetry: () => void;
   onReviewQueue: () => void;
 };
 
-export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCount, retryingCount, blockedCount, conflictCount, syncing, language, onRetry, onReviewQueue }: Props) {
-  if (online && !degraded && pendingSyncCount === 0) {
+export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCount, retryingCount, blockedCount, conflictCount, syncing, unattributedWork, queueError, language, onRetry, onReviewQueue }: Props) {
+  if (online && !degraded && pendingSyncCount === 0 && !unattributedWork && !queueError) {
     return null;
   }
 
-  const title = blockedCount > 0 && online
+  const title = queueError ? (language === "es" ? "No se pudo leer el trabajo sin conexion" : "Offline work needs attention")
+    : unattributedWork && !pendingSyncCount ? (language === "es" ? "Trabajo antiguo sin cuenta identificada" : "Older offline work is being held")
+    : blockedCount > 0 && online
     ? conflictCount > 0
       ? t(language, "connection.syncConflicts")
       : t(language, "connection.syncBlocked")
@@ -30,7 +34,9 @@ export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCou
     : pendingSyncCount > 0 && online
     ? syncing ? t(language, "connection.syncingOfflineChanges") : t(language, "connection.offlineChangesPending")
     : online ? t(language, "connection.connectionUnstable") : t(language, "connection.offline");
-  const description = blockedCount > 0
+  const description = queueError || (unattributedWork && !pendingSyncCount
+    ? (language === "es" ? "Se conserva en este dispositivo. No se enviara sin verificar su cuenta original." : "It remains on this device and will not be sent without a verified original owner.")
+    : blockedCount > 0
     ? conflictCount > 0
       ? t(language, "connection.syncConflictsDescription").replace("{count}", String(blockedCount))
       : t(language, "connection.syncBlockedDescription").replace("{count}", String(blockedCount))
@@ -42,7 +48,7 @@ export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCou
       : t(language, "connection.pendingPlural").replace("{count}", String(pendingSyncCount))
     : online
       ? t(language, "connection.apiUnreachable")
-      : t(language, "connection.cachedWork");
+      : t(language, "connection.cachedWork"));
 
   return (
     <aside className={online ? "connection-banner degraded" : "connection-banner offline"} data-testid="connection-banner" role="status" aria-live="polite">
@@ -51,10 +57,10 @@ export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCou
         <span>{description}</span>
         {lastIssueAt ? <small>{t(language, "connection.lastIssue")} {formatTime(lastIssueAt, undefined, language)}</small> : null}
       </div>
-      <button type="button" className="button button-secondary" data-testid="connection-retry" onClick={onRetry}>
+      {pendingSyncCount > 0 || degraded || !online || queueError ? <button type="button" className="button button-secondary" data-testid="connection-retry" onClick={onRetry}>
         {syncing ? t(language, "connection.syncingNow") : t(language, "connection.retryNow")}
-      </button>
-      {blockedCount > 0 ? (
+      </button> : null}
+      {blockedCount > 0 || unattributedWork || queueError ? (
         <button type="button" className="button button-secondary" data-testid="connection-review-queue" onClick={onReviewQueue}>
           {t(language, "connection.reviewQueue")}
         </button>

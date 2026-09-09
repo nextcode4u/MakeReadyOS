@@ -1402,6 +1402,104 @@ test("board label creation retains failed drafts and locks a pending retry", asy
   expect(errors).toEqual([]);
 });
 
+test("offline queue preserves account ownership across logout, reload and another-tab cookie changes", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await login(page, adminEmail, adminPassword);
+  const admin = (await (await page.request.get("/api/auth/me")).json()).user;
+  const meta = await (await page.request.get("/api/meta")).json();
+  const tech = meta.workStaff.find((person: any) => person.role === "TECH");
+  expect(tech).toBeTruthy();
+  const property = meta.properties.find((entry: any) => entry.code === "TA");
+  const item = (await (await page.request.get(`/api/make-ready-items?propertyId=${property.id}`)).json())[0];
+  const readJobs = () => page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const opening = indexedDB.open("makereadyos-offline-sync", 1);
+      opening.onsuccess = () => resolve(opening.result);
+      opening.onerror = () => reject(opening.error);
+    });
+    try {
+      return await new Promise<any[]>((resolve, reject) => {
+        const reading = db.transaction("jobs").objectStore("jobs").getAll();
+        reading.onsuccess = () => resolve(reading.result);
+        reading.onerror = () => reject(reading.error);
+      });
+    } finally { db.close(); }
+  });
+  const stamp = new Date().toISOString();
+  const jobs = [
+    { id: "owned-admin", ownerUserId: admin.id, body: "Private admin offline note", lastErrorStatus: 503, lastError: "Admin-only queue failure" },
+    { id: "owned-tech", ownerUserId: tech.id, body: "Private tech offline note", lastErrorStatus: null, lastError: null },
+    { id: "unattributed", body: "Unattributed legacy note", lastErrorStatus: null, lastError: null },
+  ].map(({ body, ...job }) => ({ ...job, createdAt: stamp, updatedAt: stamp, attemptCount: 0, lastAttemptAt: null,
+    payload: { kind: "makeReadyCommentCreate", itemId: item.id, body } }));
+  await page.evaluate(async jobsToStore => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const opening = indexedDB.open("makereadyos-offline-sync", 1);
+      opening.onupgradeneeded = () => { if (!opening.result.objectStoreNames.contains("jobs")) opening.result.createObjectStore("jobs", { keyPath: "id" }); };
+      opening.onsuccess = () => resolve(opening.result);
+      opening.onerror = () => reject(opening.error);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("jobs", "readwrite");
+        jobsToStore.forEach(job => tx.objectStore("jobs").put(job));
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally { db.close(); }
+  }, jobs);
+  const signOut = async () => {
+    await page.getByTestId("account-menu").click();
+    await page.getByTestId("logout-button").click();
+    await expect(page.getByTestId("login-submit")).toBeVisible();
+  };
+  await signOut();
+  expect((await readJobs()).length).toBe(3);
+  const techDelivery = page.waitForResponse(response => response.url().endsWith(`/make-ready-items/${item.id}/comments`) && response.request().method() === "POST");
+  await login(page, techEmail, techPassword);
+  const delivered = await techDelivery;
+  expect(delivered.ok(), await delivered.text()).toBeTruthy();
+  expect(delivered.request().headers()["x-mros-expected-user"]).toBe(tech.id);
+  await expect.poll(async () => (await readJobs()).map(job => job.id).sort()).toEqual(["owned-admin", "unattributed"]);
+  await page.reload();
+  await page.getByTestId("connection-review-queue").click();
+  const review = page.getByTestId("offline-queue-review-modal");
+  await expect(review).toContainText("no verified owner");
+  await expect(review).not.toContainText("Admin-only queue failure");
+  await expect(review).not.toContainText("Private admin offline note");
+  await expect(review).not.toContainText("Unattributed legacy note");
+  await page.keyboard.press("Escape");
+  await signOut();
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("connection-review-queue").click();
+  await expect(review).toContainText("Admin-only queue failure");
+
+  // The cookie changes without this tab receiving a new auth/me response.
+  const switched = await page.request.post("/api/auth/login", { data: { identifier: techEmail, password: techPassword } });
+  expect(switched.ok()).toBeTruthy();
+  const otherSession = await switched.json();
+  const blocked = page.waitForResponse(response => response.url().endsWith(`/make-ready-items/${item.id}/comments`) && response.request().method() === "POST");
+  await review.getByRole("button", { name: "Retry This Change", exact: true }).click();
+  expect((await blocked).status()).toBe(409);
+  await expect.poll(async () => (await readJobs()).find(job => job.id === "owned-admin")?.lastErrorStatus).toBe(409);
+  expect((await readJobs()).find(job => job.id === "owned-admin").ownerUserId).toBe(admin.id);
+  await page.request.post("/api/auth/logout", { headers: { "x-csrf-token": otherSession.csrfToken } });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("connection-review-queue").click();
+  await review.getByRole("button", { name: "Retry This Change", exact: true }).click();
+  await expect.poll(async () => (await readJobs()).map(job => job.id)).toEqual(["unattributed"]);
+  const collaboration = await (await page.request.get(`/api/make-ready-items/${item.id}/collaboration?commentLimit=100`)).json();
+  const adminNotes = collaboration.comments.filter((comment: any) => comment.body === "Private admin offline note");
+  const techNotes = collaboration.comments.filter((comment: any) => comment.body === "Private tech offline note");
+  expect(adminNotes).toHaveLength(1);
+  expect(adminNotes[0].authorUserId).toBe(admin.id);
+  expect(techNotes).toHaveLength(1);
+  expect(techNotes[0].authorUserId).toBe(tech.id);
+  expect(collaboration.comments.some((comment: any) => comment.body === "Unattributed legacy note")).toBe(false);
+  expect(errors).toEqual([]);
+});
+
 test("lease capture selects a real property after delayed metadata", async ({ page }) => {
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });

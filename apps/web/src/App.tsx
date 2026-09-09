@@ -1,4 +1,5 @@
 import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { getVerifiedSession, isCurrentSession, requireVerifiedUserId, verifiedSessionEventName } from "./lib/verifiedSession";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isReadyLikeOccupancy } from "./lib/availabilityStatus";
 import { ActiveFilterBar } from "./components/ActiveFilterBar";
@@ -20,7 +21,7 @@ import {
   getOfflineSyncEventName,
   getOfflineSyncJob,
   listOfflineSyncJobs,
-  getOfflineSyncPendingCount,
+  hasUnattributedOfflineWork,
   removeOfflineSyncJob,
   retryOfflineSyncJob,
   type OfflineSyncJob,
@@ -697,6 +698,10 @@ function App() {
   const connectionIssueVersion = useRef(0);
   const [lastConnectionIssueAt, setLastConnectionIssueAt] = useState<string | null>(null);
   const [offlineQueuePendingCount, setOfflineQueuePendingCount] = useState(0);
+  const [unattributedOfflineWork, setUnattributedOfflineWork] = useState(false);
+  const [offlineQueueError, setOfflineQueueError] = useState("");
+  const offlineReviewVersion = useRef(0);
+  const previousVerifiedOwner = useRef<string | null>(null);
   const [offlineQueueSyncing, setOfflineQueueSyncing] = useState(false);
   const [offlineQueueJobs, setOfflineQueueJobs] = useState<OfflineSyncJobSummary[]>([]);
   const [offlineQueueBlockedJobs, setOfflineQueueBlockedJobs] = useState<OfflineSyncJobSummary[]>([]);
@@ -788,16 +793,33 @@ function App() {
   };
 
   const refreshOfflineQueueState = async () => {
-    const [pendingCount, jobs] = await Promise.all([getOfflineSyncPendingCount(), listOfflineSyncJobs()]);
-    setOfflineQueuePendingCount(pendingCount);
-    setOfflineQueueJobs(jobs);
-    setOfflineQueueBlockedJobs(jobs.filter((job) => Boolean(job.lastErrorStatus) && job.lastErrorStatus !== 0));
+    const session = getVerifiedSession();
+    try {
+      const [jobs, unattributed] = await Promise.all([listOfflineSyncJobs(), hasUnattributedOfflineWork()]);
+      if (!isCurrentSession(session)) return;
+      setOfflineQueuePendingCount(jobs.length);
+      setOfflineQueueJobs(jobs);
+      setUnattributedOfflineWork(unattributed);
+      setOfflineQueueBlockedJobs(jobs.filter((job) => Boolean(job.lastErrorStatus) && job.lastErrorStatus !== 0));
+      setOfflineQueueError("");
+    } catch (error) {
+      if (isCurrentSession(session)) setOfflineQueueError(error instanceof Error ? error.message : "Could not read offline work.");
+    }
   };
 
   const syncQueuedOfflineChanges = async () => {
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
-    const result = await syncOfflineJobs();
+    const session = getVerifiedSession();
+    if (!session.userId) return;
+    let result;
+    try { result = await syncOfflineJobs(); }
+    catch (error) {
+      if (isCurrentSession(session)) setOfflineQueueError(error instanceof Error ? error.message : "Could not sync offline work.");
+      return;
+    }
+    if (!isCurrentSession(session)) return;
     await refreshOfflineQueueState();
+    if (!isCurrentSession(session)) return;
     if (result.synced > 0) {
       pushToast(
         t(meQuery.data?.user.language ?? "en", "connection.syncedTitle"),
@@ -809,7 +831,15 @@ function App() {
   };
 
   const discardOfflineQueueJob = async (job: OfflineSyncJobSummary) => {
-    await removeOfflineSyncJob(job.id);
+    const session = getVerifiedSession();
+    let removed;
+    try { removed = await removeOfflineSyncJob(job.id); }
+    catch (error) {
+      if (isCurrentSession(session)) setOfflineQueueError(error instanceof Error ? error.message : "Could not remove offline work.");
+      return;
+    }
+    if (!isCurrentSession(session)) return;
+    if (!removed) { setOfflineQueueError("This work is no longer available to remove, or is currently syncing."); return; }
     await refreshOfflineQueueState();
     if (selectedOfflineQueueJob?.id === job.id) {
       setSelectedOfflineQueueJob(null);
@@ -827,6 +857,9 @@ function App() {
   };
 
   const reviewOfflineQueueJob = async (job: OfflineSyncJobSummary) => {
+    const session = getVerifiedSession();
+    const version = ++offlineReviewVersion.current;
+    const active = () => isCurrentSession(session) && version === offlineReviewVersion.current;
     setOfflineQueueJobLoading(true);
     setSelectedOfflineQueueServerItem(null);
     setSelectedOfflineQueueServerLeaseIssue(null);
@@ -839,18 +872,23 @@ function App() {
     setSelectedOfflineQueueServerError("");
     try {
       const detail = await getOfflineSyncJob(job.id);
+      if (!active()) return;
       setSelectedOfflineQueueJob(detail);
       if (detail?.payload.kind === "makeReadyPatch") {
         try {
-          setSelectedOfflineQueueServerItem(await getMakeReadyItem(detail.payload.itemId));
+          const item = await getMakeReadyItem(detail.payload.itemId);
+          if (!active()) return;
+          setSelectedOfflineQueueServerItem(item);
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.makeReadyRecord"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.makeReadyRecord"));
         }
       } else if (detail?.payload.kind === "makeReadyUpload") {
         try {
-          setSelectedOfflineQueueServerCollaboration(await getItemCollaboration(detail.payload.itemId, { attachmentLimit: 100 }));
+          const collaboration = await getItemCollaboration(detail.payload.itemId, { attachmentLimit: 100 });
+          if (!active()) return;
+          setSelectedOfflineQueueServerCollaboration(collaboration);
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.makeReadyAttachments"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.makeReadyAttachments"));
         }
       } else if (detail?.payload.kind === "projectCreate") {
         try {
@@ -863,9 +901,10 @@ function App() {
             includeArchived: true,
             limit: 25,
           });
+          if (!active()) return;
           setSelectedOfflineQueueServerProjectRecord(pickLikelyProjectRecordMatch(response.records, detail.payload.input));
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.projectRecord"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.projectRecord"));
         }
       } else if (detail?.payload.kind === "leaseCreate") {
         try {
@@ -878,9 +917,10 @@ function App() {
               .join(" ") || undefined,
             limit: 25,
           });
+          if (!active()) return;
           setSelectedOfflineQueueServerLeaseIssue(pickLikelyLeaseIssueMatch(response.issues, detail.payload.input));
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.leaseIssue"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.leaseIssue"));
         }
       } else if (detail?.payload.kind === "leaseUpload") {
         const payload = detail.payload;
@@ -890,9 +930,10 @@ function App() {
             includeArchived: true,
             limit: payload.propertyId ? 200 : 400,
           });
+          if (!active()) return;
           setSelectedOfflineQueueServerLeaseIssue(response.issues.find((issue) => issue.id === payload.issueId) ?? null);
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.leaseIssue"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.leaseIssue"));
         }
       } else if (detail?.payload.kind === "pestCreate") {
         try {
@@ -906,9 +947,10 @@ function App() {
               .join(" ") || undefined,
             limit: 25,
           });
+          if (!active()) return;
           setSelectedOfflineQueueServerPestIssue(pickLikelyPestIssueMatch(response.issues, detail.payload.input));
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pestIssue"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pestIssue"));
         }
       } else if (detail?.payload.kind === "poolCreate") {
         try {
@@ -919,9 +961,10 @@ function App() {
             to: detail.payload.input.logDate,
             limit: 25,
           });
+          if (!active()) return;
           setSelectedOfflineQueueServerPoolEntry(pickLikelyPoolEntryMatch(response.entries, detail.payload.input));
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.poolEntry"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.poolEntry"));
         }
       } else if (detail?.payload.kind === "pestUpload") {
         const payload = detail.payload;
@@ -931,9 +974,10 @@ function App() {
             includeArchived: true,
             limit: payload.propertyId ? 200 : 400,
           });
+          if (!active()) return;
           setSelectedOfflineQueueServerPestIssue(response.issues.find((issue) => issue.id === payload.issueId) ?? null);
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pestIssue"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pestIssue"));
         }
       } else if (detail?.payload.kind === "pmComplete" || detail?.payload.kind === "pmSkip") {
         try {
@@ -941,12 +985,13 @@ function App() {
             getPreventiveMaintenanceTasks({ limit: 200 }),
             getPreventiveMaintenanceHistory({ limit: 200 }),
           ]);
+          if (!active()) return;
           setSelectedOfflineQueueServerPmTask(
             findPmTaskById(activeResponse.tasks, detail.payload.taskId)
             ?? findPmTaskById(historyResponse.tasks, detail.payload.taskId),
           );
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pmTask"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pmTask"));
         }
       } else if (detail?.payload.kind === "pmUpload") {
         try {
@@ -954,27 +999,30 @@ function App() {
             getPreventiveMaintenanceTasks({ propertyId: detail.payload.propertyId, limit: detail.payload.propertyId ? 200 : 400 }),
             getPreventiveMaintenanceHistory({ propertyId: detail.payload.propertyId, limit: detail.payload.propertyId ? 200 : 400 }),
           ]);
+          if (!active()) return;
           setSelectedOfflineQueueServerPmTask(
             findPmTaskById(activeResponse.tasks, detail.payload.taskId)
             ?? findPmTaskById(historyResponse.tasks, detail.payload.taskId),
           );
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pmTask"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.pmTask"));
         }
       } else if (detail?.payload.kind === "projectUpload") {
         try {
           const response = await getProjectRecord(detail.payload.recordId);
+          if (!active()) return;
           setSelectedOfflineQueueServerProjectRecord(response.record);
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.projectRecord"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.projectRecord"));
         }
       } else if (detail?.payload.kind === "poolUpload") {
         const payload = detail.payload;
         try {
           const response = await getPoolEntries({ propertyId: payload.propertyId, limit: payload.propertyId ? 200 : 400 });
+          if (!active()) return;
           setSelectedOfflineQueueServerPoolEntry(response.entries.find((entry) => entry.id === payload.entryId) ?? null);
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.poolEntry"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.poolEntry"));
         }
       } else if (
         detail?.payload.kind === "makeReadyCommentCreate"
@@ -985,32 +1033,42 @@ function App() {
       ) {
         try {
           setSelectedOfflineQueueResolvedItemId(detail.payload.itemId!);
-          setSelectedOfflineQueueServerCollaboration(await getItemCollaboration(detail.payload.itemId!, { commentLimit: 100, checklistLimit: 100 }));
+          const collaboration = await getItemCollaboration(detail.payload.itemId!, { commentLimit: 100, checklistLimit: 100 });
+          if (!active()) return;
+          setSelectedOfflineQueueServerCollaboration(collaboration);
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.collaboration"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.collaboration"));
         }
       } else if (detail?.payload.kind === "makeReadyChecklistUpdate") {
         try {
           const resolvedItemId = await findChecklistParentItemId(detail.payload.checklistItemId, boardItems);
+          if (!active()) return;
           if (!resolvedItemId) {
             setSelectedOfflineQueueServerError(t(meQuery.data?.user.language ?? "en", "offlineQueue.legacyChecklistHelp"));
           } else {
             setSelectedOfflineQueueResolvedItemId(resolvedItemId);
-            setSelectedOfflineQueueServerCollaboration(await getItemCollaboration(resolvedItemId, { commentLimit: 100, checklistLimit: 100 }));
+            const collaboration = await getItemCollaboration(resolvedItemId, { commentLimit: 100, checklistLimit: 100 });
+            if (!active()) return;
+            setSelectedOfflineQueueServerCollaboration(collaboration);
           }
         } catch (error) {
-          setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.collaboration"));
+          if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : t(meQuery.data?.user.language ?? "en", "offlineQueue.liveLoad.collaboration"));
         }
       }
+    } catch (error) {
+      if (active()) setSelectedOfflineQueueServerError(error instanceof Error ? error.message : "Could not read offline work.");
     } finally {
-      setOfflineQueueJobLoading(false);
+      if (active()) setOfflineQueueJobLoading(false);
     }
   };
 
   const retrySingleOfflineQueueJob = async (job: OfflineSyncJobSummary) => {
+    const session = getVerifiedSession();
     try {
       const result = await retryOfflineSyncJob(job.id);
+      if (!isCurrentSession(session)) return;
       await refreshOfflineQueueState();
+      if (!isCurrentSession(session)) return;
       if (result.synced) {
         if (selectedOfflineQueueJob?.id === job.id) {
           setSelectedOfflineQueueJob(null);
@@ -1030,15 +1088,24 @@ function App() {
       }
       pushToast("Retry skipped", "Reconnect before retrying this queued change.", "info");
     } catch (error) {
+      if (!isCurrentSession(session)) return;
       await reviewOfflineQueueJob(job);
+      if (!isCurrentSession(session)) return;
       pushToast("Retry failed", error instanceof Error ? error.message : "Retry failed", "error");
     }
   };
 
   const reapplyQueuedMakeReadyPatch = async (job: OfflineSyncJob) => {
     if (job.payload.kind !== "makeReadyPatch") return;
-    await patchMakeReadyItem(job.payload.itemId, job.payload.data);
-    await removeOfflineSyncJob(job.id);
+    const session = getVerifiedSession();
+    if (!session.userId || job.ownerUserId !== session.userId) return;
+    let result;
+    try { result = await retryOfflineSyncJob(job.id); }
+    catch (error) {
+      if (isCurrentSession(session)) setOfflineQueueError(error instanceof Error ? error.message : "Could not reapply offline work.");
+      return;
+    }
+    if (!isCurrentSession(session) || !result.synced) return;
     setSelectedOfflineQueueJob(null);
     setSelectedOfflineQueueServerItem(null);
     setSelectedOfflineQueueServerPoolEntry(null);
@@ -1761,18 +1828,20 @@ function App() {
 
   const patchMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Record<string, unknown> }) => {
+      const ownerUserId = requireVerifiedUserId();
       try {
-        await patchMakeReadyItem(id, data);
-        return { queued: false };
+        await patchMakeReadyItem(id, data, { expectedUserId: ownerUserId });
+        return { queued: false, ownerUserId };
       } catch (error) {
         if (isApiError(error) && error.status === 0) {
-          await enqueueMakeReadyPatch(id, data);
-          return { queued: true };
+          await enqueueMakeReadyPatch(ownerUserId, id, data);
+          return { queued: true, ownerUserId };
         }
         throw error;
       }
     },
     onSuccess: (result, variables) => {
+      if (getVerifiedSession().userId !== result.ownerUserId) return;
       const field = Object.keys(variables.data)[0] ?? "item";
       if (result.queued) {
         applyQueuedMakeReadyPatch(variables.id, variables.data);
@@ -3088,14 +3157,48 @@ function App() {
   useEffect(() => {
     const queueEventName = getOfflineSyncEventName();
     const handleQueueState = (event: Event) => {
-      const detail = event instanceof CustomEvent ? event.detail as { pendingCount?: number; syncing?: boolean } : {};
+      const detail = event instanceof CustomEvent ? event.detail as { ownerUserId?: string | null; pendingCount?: number; syncing?: boolean } : {};
+      if (detail.ownerUserId !== getVerifiedSession().userId) return;
       setOfflineQueuePendingCount(detail.pendingCount ?? 0);
       setOfflineQueueSyncing(Boolean(detail.syncing));
       void refreshOfflineQueueState();
     };
+    const handleAccountChange = () => {
+      const nextOwner = getVerifiedSession().userId;
+      if (previousVerifiedOwner.current && previousVerifiedOwner.current !== nextOwner) {
+        setSelectedItemId(null);
+        setActiveView("table");
+      }
+      previousVerifiedOwner.current = nextOwner;
+      offlineReviewVersion.current++;
+      setOfflineQueuePendingCount(0);
+      setOfflineQueueJobs([]);
+      setOfflineQueueBlockedJobs([]);
+      setUnattributedOfflineWork(false);
+      setOfflineQueueError("");
+      setOfflineQueueSyncing(false);
+      setOfflineQueueReviewOpen(false);
+      setOfflineQueueJobLoading(false);
+      setSelectedOfflineQueueJob(null);
+      setSelectedOfflineQueueServerItem(null);
+      setSelectedOfflineQueueServerLeaseIssue(null);
+      setSelectedOfflineQueueServerPestIssue(null);
+      setSelectedOfflineQueueServerPmTask(null);
+      setSelectedOfflineQueueServerPoolEntry(null);
+      setSelectedOfflineQueueServerProjectRecord(null);
+      setSelectedOfflineQueueServerCollaboration(null);
+      setSelectedOfflineQueueResolvedItemId(null);
+      setSelectedOfflineQueueServerError("");
+      void refreshOfflineQueueState();
+      void syncQueuedOfflineChanges();
+    };
     void refreshOfflineQueueState();
     window.addEventListener(queueEventName, handleQueueState as EventListener);
-    return () => window.removeEventListener(queueEventName, handleQueueState as EventListener);
+    window.addEventListener(verifiedSessionEventName, handleAccountChange);
+    return () => {
+      window.removeEventListener(queueEventName, handleQueueState as EventListener);
+      window.removeEventListener(verifiedSessionEventName, handleAccountChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -3755,6 +3858,8 @@ function App() {
 
         <section className="primary-panel">
           <ConnectionStatus
+            unattributedWork={unattributedOfflineWork}
+            queueError={offlineQueueError}
             online={isOnline}
             degraded={apiDegraded}
             lastIssueAt={lastConnectionIssueAt}
@@ -4836,7 +4941,9 @@ function App() {
           </>
         )}
       >
-        {!offlineQueueBlockedJobs.length && !offlineQueueRetryingJobs.length ? (
+        {offlineQueueError ? <p role="alert" className="error-text">{offlineQueueError}</p> : null}
+        {unattributedOfflineWork ? <p role="status">{currentUser.language === "es" ? "Hay trabajo antiguo sin una cuenta identificada. Se conserva en este dispositivo y no se enviara ni eliminara automaticamente." : "Older offline work has no verified owner. It is being kept on this device and will not be sent or deleted automatically."}</p> : null}
+        {!offlineQueueBlockedJobs.length && !offlineQueueRetryingJobs.length && !offlineQueueError && !unattributedOfflineWork ? (
           <p className="admin-message success">{t(currentUser.language, "offlineQueue.empty")}</p>
         ) : (
           <div className="offline-queue-review-list">

@@ -2,18 +2,25 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
+import { webcrypto } from "node:crypto";
 import ts from "../apps/api/node_modules/typescript/lib/typescript.js";
 
 function queue(options = {}) {
   const exports = {};
   let online = false;
   let checks = 0;
+  let session = { userId: "owner-a" };
+  const identity = {
+    getVerifiedSession: () => session,
+    isCurrentSession: snapshot => snapshot === session,
+  };
   const context = {
     exports,
-    require: () => ({ ApiError: class ApiError extends Error {}, ...options.api }),
+    require: name => name === "./verifiedSession" ? identity : ({ ApiError: class ApiError extends Error { constructor(status, message) { super(message); this.status = status; } }, ...options.api }),
     Error,
     File,
     structuredClone,
+    crypto: webcrypto,
     navigator: { get onLine() { checks++; return online; } },
   };
   const source = ts.transpileModule(readFileSync("apps/web/src/lib/offlineSync.ts", "utf8"), {
@@ -21,6 +28,7 @@ function queue(options = {}) {
   }).outputText;
   vm.runInNewContext(source, context);
   if (options.jobs) {
+    for (const job of options.jobs) if (!("ownerUserId" in job)) job.ownerUserId = "owner-a";
     context.testJobs = options.jobs;
     context.testDeliver = options.deliver;
     // Test delivery orchestration separately from IndexedDB transaction mechanics.
@@ -30,6 +38,7 @@ function queue(options = {}) {
       writeJob = async (_store, job) => {
         const index = testJobs.findIndex(entry => entry.id === job.id);
         if (index >= 0) testJobs[index] = structuredClone(job);
+        else testJobs.push(structuredClone(job));
       };
       deleteJob = async (_store, id) => {
         const index = testJobs.findIndex(entry => entry.id === id);
@@ -38,7 +47,7 @@ function queue(options = {}) {
       if (testDeliver) syncJob = testDeliver;
     `, context);
   }
-  return { exports, context, connect: () => { online = true; }, checks: () => checks };
+  return { exports, context, connect: () => { online = true; }, checks: () => checks, switchUser: userId => { session = { userId }; } };
 }
 
 test("offline sync releases its lock before the next online attempt", async () => {
@@ -96,6 +105,107 @@ test("queue storage failures do not permanently lock automatic sync", async () =
   const result = await fixture.exports.syncOfflineJobs();
   assert.equal(result.remaining, 0);
   assert.equal(fixture.checks(), 2);
+});
+
+function ownedJob(id, ownerUserId) {
+  return { id, ownerUserId, createdAt: "2026-09-06", attemptCount: 0, lastError: null, lastAttemptAt: null,
+    payload: { kind: "makeReadyPatch", itemId: `turn-${id}`, data: { notes: `Private ${id}` } } };
+}
+
+test("queue listing, detail, retry and removal are account-scoped while legacy work is held", async () => {
+  const jobs = [ownedJob("a", "owner-a"), ownedJob("b", "owner-b"), ownedJob("legacy", undefined)];
+  const sent = [];
+  const fixture = queue({ jobs, deliver: async job => { sent.push(job.id); } });
+  fixture.connect();
+  assert.equal(await fixture.exports.getOfflineSyncPendingCount(), 1);
+  assert.deepEqual(Array.from(await fixture.exports.listOfflineSyncJobs(), job => job.id), ["a"]);
+  assert.equal(await fixture.exports.getOfflineSyncJob("b"), null);
+  assert.equal(await fixture.exports.hasUnattributedOfflineWork(), true);
+  assert.equal((await fixture.exports.retryOfflineSyncJob("b")).synced, false);
+  assert.equal(await fixture.exports.removeOfflineSyncJob("b"), false);
+  assert.equal(await fixture.exports.removeOfflineSyncJob("legacy"), false);
+  fixture.switchUser(null);
+  await fixture.exports.syncOfflineJobs();
+  assert.equal(await fixture.exports.getOfflineSyncPendingCount(), 0);
+  assert.deepEqual(sent, []);
+  fixture.switchUser("owner-b");
+  await fixture.exports.syncOfflineJobs();
+  assert.deepEqual(sent, ["b"]);
+  fixture.switchUser("owner-a");
+  await fixture.exports.syncOfflineJobs();
+  assert.deepEqual(sent, ["b", "a"]);
+  assert.deepEqual(jobs.map(job => job.id), ["legacy"]);
+});
+
+test("changing account during an IndexedDB read prevents stale detail, removal and delivery", async () => {
+  for (const operation of ["getOfflineSyncJob", "removeOfflineSyncJob", "retryOfflineSyncJob"]) {
+    const jobs = [ownedJob("a", "owner-a")];
+    let writes = 0;
+    const fixture = queue({ jobs, deliver: async () => { writes++; } });
+    fixture.connect();
+    let release;
+    fixture.context.held = new Promise(resolve => { release = resolve; });
+    vm.runInNewContext("readAll = async () => { await held; return testJobs.map(job => structuredClone(job)); };", fixture.context);
+    const pending = fixture.exports[operation]("a");
+    await new Promise(resolve => setImmediate(resolve));
+    fixture.switchUser("owner-b");
+    release();
+    const result = await pending;
+    if (operation === "getOfflineSyncJob") assert.equal(result, null);
+    if (operation === "removeOfflineSyncJob") assert.equal(result, false);
+    if (operation === "retryOfflineSyncJob") assert.equal(result.synced, false);
+    assert.equal(writes, 0);
+    assert.equal(jobs.length, 1);
+  }
+});
+
+test("late failed capture is stored for its initiating account rather than the new login", async () => {
+  const jobs = [];
+  const fixture = queue({ jobs });
+  fixture.switchUser("owner-b");
+  await fixture.exports.enqueueMakeReadyPatch("owner-a", "turn", { notes: "Original draft" });
+  assert.equal(jobs[0].ownerUserId, "owner-a");
+  assert.equal(await fixture.exports.getOfflineSyncPendingCount(), 0);
+  fixture.switchUser("owner-a");
+  assert.equal(await fixture.exports.getOfflineSyncPendingCount(), 1);
+});
+
+test("offline IDs do not overwrite rapid captures when randomUUID is unavailable", async () => {
+  const jobs = [];
+  const fixture = queue({ jobs });
+  fixture.context.crypto = { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) };
+  fixture.context.Date = class extends Date { static now() { return 1; } };
+  for (let index = 0; index < 20; index++) await fixture.exports.enqueueMakeReadyPatch("owner-a", `turn-${index}`, { notes: "Draft" });
+  assert.equal(jobs.length, 20);
+  assert.equal(new Set(jobs.map(job => job.id)).size, 20);
+});
+
+test("account switch between photos checkpoints the original owner and resumes without duplicates", async () => {
+  let creates = 0;
+  const uploads = [];
+  const files = ["first.jpg", "second.jpg"].map(name => ({ name, mimeType: "image/jpeg", lastModified: 1, blob: new Blob([name]) }));
+  const jobs = [{ ...ownedJob("a", "owner-a"), payload: { kind: "leaseCreate", input: {}, files } }];
+  const fixture = queue({ jobs, api: {
+    createLeaseComplianceIssue: async (_input, account) => { assert.equal(account.expectedUserId, "owner-a"); creates++; return { issue: { id: "confirmed" } }; },
+    uploadLeaseComplianceIssuePhoto: async (_id, file, _options, account) => {
+      assert.equal(account.expectedUserId, "owner-a");
+      uploads.push(file.name);
+      if (file.name === "first.jpg") fixture.switchUser("owner-b");
+    },
+  } });
+  fixture.connect();
+  await assert.rejects(fixture.exports.retryOfflineSyncJob("a"), error => error.status === 409);
+  assert.equal(jobs[0].ownerUserId, "owner-a");
+  assert.equal(jobs[0].serverRecordId, "confirmed");
+  assert.deepEqual(jobs[0].payload.files.map(file => file.name), ["second.jpg"]);
+  assert.equal(await fixture.exports.getOfflineSyncJob("a"), null);
+  await fixture.exports.syncOfflineJobs();
+  assert.deepEqual(uploads, ["first.jpg"]);
+  fixture.switchUser("owner-a");
+  await fixture.exports.retryOfflineSyncJob("a");
+  assert.equal(creates, 1);
+  assert.deepEqual(uploads, ["first.jpg", "second.jpg"]);
+  assert.equal(jobs.length, 0);
 });
 
 for (const [kind, create, upload, responseKey] of [
