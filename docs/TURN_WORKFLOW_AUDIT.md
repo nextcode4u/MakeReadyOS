@@ -22,6 +22,8 @@ Material-draft checkpoint: three production-image browser regressions passed in 
 
 ## Blocking Follow-Up
 
+Local filter follow-up: Move-in risk now retains repair-complete turns awaiting FINAL WALK and excludes genuinely ready turns with historical date conflicts. Three focused structured-filter tests, the web production build and lint passed. Vacancy/occupancy inventory metrics are deliberately not changed by this workflow filter fix.
+
 - [ ] P1: Enforce inspection readiness across all mutation paths. The Mark ready action now checks required generic checklist completion and pending materials. In FINAL WALK it also requires a saved, dated report with all 45 checks recorded and no Needs attention findings. Direct status edits, bulk updates, imports and automations still need one consistent gate with explicit legacy/override treatment. Checklist/material writes also need shared transaction coordination with finalization. A scheduled or completed work block is not evidence that individual checks passed.
 - [ ] P1: Persist independent technician/reviewer sign-offs by user ID with immutable report revisions. Initial inspector assignment, handoff and Mark ready now exclude the current repair assignee by trimmed, case-insensitive name. This is conservative, not a durable identity/signature guarantee: duplicate names and renamed/reassigned technicians need explicit handling. The report editor saves mutable drafts, not issued reports.
 - [ ] P1: Connect technical checks and final-walk findings to the resident report. Generic checklist booleans and report draft answers are separate; neither should silently turn into a signed pass. Failed checks need assigned correction tasks and explicit rechecks.
@@ -30,6 +32,7 @@ Material-draft checkpoint: three production-image browser regressions passed in 
 - [ ] P2: Finish durable offline parts drafts and field validation of photo uploads. Local follow-up adds account/turn-scoped browser drafts and explicit resume/discard, including recovery after reload; server saves still require connectivity and keep their original optimistic version. They are not automatically queued or synchronized. Browser storage availability/clearing and permission changes still matter.
 - [ ] P1: Audit and bind the existing general offline queue to the creating account before expanding automatic replay. Queue payloads currently lack a creating-user field; confirm session-switch behavior with browser tests and block cross-account replay without deleting another user's pending work. Material drafts deliberately use separate account-scoped storage and no automatic replay.
 - [ ] P1: Define and enforce explicit reopening/correction rules after readiness. New required checklist work or pending parts must not silently invalidate a completed inspection. Shared locks now serialize writes but do not, by themselves, prevent a later edit after finalization.
+- [ ] P2: Reconcile risk summaries when a legacy/imported turn is in a READY board section but still explicitly awaiting FINAL WALK. The risk evaluator currently suppresses all reasons for READY sections; section membership must not override an active inspection handoff. Keep inventory occupancy facts distinct from inspection readiness.
 
 ## Technician And Leasing Role Pass
 

@@ -246,9 +246,14 @@ export function itemMatchesStructuredFilters(
   }
 
   if (filters.moveInRiskOnly) {
-    const imminentIncomplete = dateWithinNextDays(item.moveInDate, 7, now) && item.completionStatus !== "YES";
+    const normalize = (value: string | null | undefined) => String(value ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+    // Match API readiness: repair completion does not clear a pending final walk.
+    const ready = normalize(item.makeReadyStatus) !== "FINAL_WALK"
+      && (["VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY"].includes(normalize(item.vacancyStatus))
+        || ["DONE", "YES", "COMPLETE", "COMPLETED"].includes(normalize(item.completionStatus)));
+    const imminentIncomplete = dateWithinNextDays(item.moveInDate, 7, now) && !ready;
     const conflict = Boolean(item.moveInDate && item.makeReadyDate && new Date(item.moveInDate) < new Date(item.makeReadyDate));
-    if (!imminentIncomplete && !conflict) return false;
+    if (ready || (!imminentIncomplete && !conflict)) return false;
   }
   if (filters.riskLevel && item.riskLevel !== filters.riskLevel) return false;
   if (filters.riskCategory && !item.riskReasons?.some((reason) => reason.category === filters.riskCategory)) return false;
