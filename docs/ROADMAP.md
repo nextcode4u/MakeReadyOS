@@ -2,6 +2,8 @@
 
 MakeReadyOS is currently a feature-rich self-hosted operations platform. The next phase should favor stabilization, polish, performance, and deployment maturity before adding more large modules.
 
+Current implementation status and test evidence live in [End-user UX audit](END_USER_UX_AUDIT.md) and [Turn workflow audit](TURN_WORKFLOW_AUDIT.md). The broad ideas below are not an unchecked task inventory; several now exist. Prioritize the audits' remaining readiness/sign-off, offline-account ownership, saved scheduling policy and error-recovery work before expanding modules.
+
 ## Near-Term Polish
 
 - Refine dense table keyboard editing, column menus, and add-item flows.
