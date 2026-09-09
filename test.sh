@@ -51,6 +51,7 @@ mkdir -p "$LOG_DIR"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/dailyReport.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/riskScope.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/scheduledAutomations.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/ntvPreWalk.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/audit.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/adminUsername.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/dashboardDates.test.ts"
@@ -352,6 +353,9 @@ mkdir -p "$LOG_DIR"
     curl -fsS "http://localhost:${API_PORT:-4000}/health"
     echo
     echo
+
+    echo "Checking concurrent NTV lifecycle transitions in the isolated database"
+    docker compose exec -T -e MROS_INTEGRATION_TEST=1 api node --input-type=module < "$ROOT_DIR/e2e/ntv-lifecycle.integration.mjs"
 
     echo "Checking trusted-origin CORS edit methods"
     TEST_API_URL="http://localhost:${API_PORT:-4000}" TEST_ORIGIN="${APP_URL:-http://localhost:8080}" node --input-type=module -e '
