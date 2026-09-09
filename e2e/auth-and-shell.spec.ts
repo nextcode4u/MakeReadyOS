@@ -99,6 +99,47 @@ test("project managers cannot mutate another property and viewers cannot receive
   } finally { await client.dispose(); }
 });
 
+test("project references reject foreign links and clears remove stale report details", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const fixtures: any[] = [];
+  for (const suffix of ["A", "B"]) {
+    const { property } = await post("/operations/properties", { code: `PR${Date.now()}${suffix}`, name: `Project references ${suffix}` });
+    const { category } = await post("/projects/categories", { propertyId: property.id, name: `Reference category ${suffix}` });
+    const { map } = await post("/property-maps", { propertyId: property.id, name: `Reference map ${suffix}` });
+    const { entry } = await post("/property-wiki/entries", { propertyId: property.id, section: "SOP_LIBRARY", title: `Reference entry ${suffix}` });
+    fixtures.push({ property, category, map, entry });
+  }
+  const [a, b] = fixtures;
+  const base = { propertyId: a.property.id, recordType: "Project", title: "Reference project", status: "Planning", categoryId: a.category.id, propertyMapId: a.map.id, pinX: 20, pinY: 30 };
+  const { record } = await post("/projects/records", base);
+  const patch = (data: unknown) => page.request.patch(`/api/projects/records/${record.id}`, { headers, data });
+  for (const invalid of [{ categoryId: b.category.id }, { propertyMapId: b.map.id }]) {
+    expect((await page.request.post("/api/projects/records", { headers, data: { ...base, ...invalid } })).status()).toBe(400);
+    expect((await patch(invalid)).status()).toBe(400);
+  }
+  expect((await page.request.post(`/api/projects/records/${record.id}/wiki-references`, { headers, data: { targetType: "ENTRY", targetId: b.entry.id } })).status()).toBe(400);
+  await post(`/projects/records/${record.id}/wiki-references`, { targetType: "ENTRY", targetId: a.entry.id });
+  expect((await page.request.patch(`/api/projects/categories/${a.category.id}`, { headers, data: { isActive: false } })).status()).toBe(200);
+  await post(`/property-maps/${a.map.id}/archive`, {});
+  const historical = await patch({ title: "Historical links retained" });
+  expect(historical.status(), await historical.text()).toBe(200);
+  expect((await historical.json()).record).toMatchObject({ categoryId: a.category.id, propertyMapId: a.map.id });
+  expect((await page.request.post("/api/projects/records", { headers, data: base })).status()).toBe(400);
+  const cleared = await patch({ categoryId: null, propertyMapId: null });
+  expect(cleared.status(), await cleared.text()).toBe(200);
+  expect((await cleared.json()).record).toMatchObject({ categoryId: null, categoryName: null, propertyMapId: null, pinX: null, pinY: null });
+  const report = await page.request.get(`/api/projects/records/${record.id}/report.html`);
+  expect(report.status()).toBe(200);
+  expect(await report.text()).not.toContain(a.category.name);
+  const exported = await (await page.request.get("/api/admin/export")).json();
+  expect(exported.data.projectRecords.find((entry: any) => entry.propertyCode === a.property.code)).toMatchObject({ categoryName: null, propertyMapName: null, pinX: null, pinY: null });
+});
+
 test("lease references stay property-scoped for technicians, leasing and native restores", async ({ page, playwright }) => {
   await login(page, adminEmail, adminPassword);
   const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
