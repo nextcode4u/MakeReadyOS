@@ -17,6 +17,7 @@ test("operational overview staff is minimal, eligible and scoped before querying
   };
   for (const delegate of [prisma.pestIssue, prisma.pestVendor, prisma.leaseComplianceIssue, prisma.leaseComplianceIssueType]) stub(delegate, "findMany", async () => []);
   stub(prisma.pestVendor, "findFirst", async () => null);
+  stub(prisma.leaseComplianceIssue, "count", async () => 0);
   stub(prisma.leaseComplianceIssueType, "count", async () => 1);
   stub(prisma.leaseComplianceSettings, "upsert", async () => ({}));
   stub(prisma.leaseComplianceSettings, "findUnique", async () => ({}));
