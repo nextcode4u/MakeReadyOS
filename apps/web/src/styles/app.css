@@ -12727,6 +12727,12 @@ textarea {
   font-size: 0.82rem;
 }
 
+.pool-row > [role="alert"] {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+
 .pool-row.warning {
   border-color: rgba(251, 191, 36, 0.45);
 }

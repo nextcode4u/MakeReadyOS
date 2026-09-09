@@ -4268,6 +4268,8 @@ test.describe("MakeReadyOS browser flows", () => {
   });
 
   test("admin can create a pool log, open report tools, and upload a pool photo", async ({ page }) => {
+    const browserErrors: string[] = [];
+    page.on("pageerror", error => browserErrors.push(error.message));
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("module-rail-pool").click();
     await expect(page.getByTestId("pool-log-panel")).toBeVisible();
@@ -4289,11 +4291,28 @@ test.describe("MakeReadyOS browser flows", () => {
     expect(await facilityForm!.evaluate(form => form.isConnected)).toBe(false);
     const chemicalName = uniqueTag("QA Cal-Hypo");
     await page.getByTestId("pool-chemical-name").fill(chemicalName);
+    await page.route("**/api/pool/chemicals", route => route.request().method() === "POST"
+      ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Chemical save unavailable" }) }) : route.continue());
+    await page.getByTestId("pool-chemical-submit").click();
+    await expect(page.getByTestId("pool-chemical-form").getByRole("alert")).toContainText("Chemical save unavailable");
+    await expect(page.getByTestId("pool-chemical-name")).toHaveValue(chemicalName);
+    await page.unroute("**/api/pool/chemicals");
     const chemicalResponse = page.waitForResponse((response) =>
       response.url().includes("/api/pool/chemicals") && response.request().method() === "POST",
     );
     await page.getByTestId("pool-chemical-submit").click();
     await expect((await chemicalResponse).status()).toBe(201);
+    const chemicalRow = page.locator(".pool-row").filter({ hasText: chemicalName });
+    await page.route("**/api/pool/chemicals/*", route => route.request().method() === "PATCH"
+      ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Chemical archive unavailable" }) }) : route.continue());
+    await chemicalRow.getByRole("button", { name: "Archive", exact: true }).click();
+    await expect(chemicalRow.getByRole("alert")).toContainText("Chemical archive unavailable");
+    await expect(chemicalRow.getByRole("button", { name: "Archive", exact: true })).toBeEnabled();
+    await page.unroute("**/api/pool/chemicals/*");
+    await chemicalRow.getByRole("button", { name: "Archive", exact: true }).click();
+    await expect(chemicalRow.getByRole("button", { name: "Restore", exact: true })).toBeVisible();
+    await chemicalRow.getByRole("button", { name: "Restore", exact: true }).click();
+    await expect(chemicalRow.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
 
     await page.getByTestId("pool-tab-daily").click();
     await page.getByTestId("pool-reading-ph").fill("8.1");
@@ -4301,6 +4320,14 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("pool-safety-0").selectOption("FAIL");
     await page.locator('select[name="chemicalId"]').selectOption({ label: chemicalName });
     await page.getByTestId("pool-chemical-ounces").fill("70");
+    await page.route("**/api/pool/entries", route => route.request().method() === "POST"
+      ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Daily log save unavailable" }) }) : route.continue());
+    await page.getByTestId("pool-daily-submit").click();
+    await expect(page.getByTestId("pool-daily-form").getByRole("alert")).toContainText("Daily log save unavailable");
+    await expect(page.getByTestId("pool-reading-ph")).toHaveValue("8.1");
+    await expect(page.getByTestId("pool-safety-0")).toHaveValue("FAIL");
+    await expect(page.getByTestId("pool-chemical-ounces")).toHaveValue("70");
+    await page.unroute("**/api/pool/entries");
     const entryResponse = page.waitForResponse((response) =>
       response.url().includes("/api/pool/entries") && response.request().method() === "POST",
     );
@@ -4310,16 +4337,28 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("pool-tab-history").click();
     await expect(page.getByTestId("pool-history-row").first()).toBeVisible();
     await expect(page.getByTestId("pool-history-row").first()).toContainText("4 lb 6 oz");
+    const photoFile = { name: "pool-check-photo.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG2kAAAAASUVORK5CYII=", "base64") };
+    await page.route("**/api/pool/entries/*/attachments", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Photo upload unavailable" }) }));
+    await page.getByTestId("pool-attachment-upload").first().setInputFiles(photoFile);
+    await expect(page.getByTestId("pool-log-panel").getByRole("alert")).toContainText("pool-check-photo.png: Photo upload unavailable");
+    await page.unroute("**/api/pool/entries/*/attachments");
     const uploadResponse = page.waitForResponse((response) =>
       response.url().match(/\/api\/pool\/entries\/[^/]+\/attachments$/) !== null && response.request().method() === "POST",
     );
-    await page.getByTestId("pool-attachment-upload").first().setInputFiles({
-      name: "pool-check-photo.png",
-      mimeType: "image/png",
-      buffer: Buffer.from("MakeReadyOS pool photo smoke"),
-    });
+    await page.getByTestId("pool-attachment-upload").first().setInputFiles(photoFile);
     await expect((await uploadResponse).status()).toBe(201);
     await expect(page.getByTestId("pool-history-row").first()).toContainText("pool-check-photo.png");
+    await page.getByTestId("pool-tab-chemicals").click();
+    await chemicalRow.getByRole("button", { name: "Archive", exact: true }).click();
+    await expect(chemicalRow.getByRole("button", { name: "Delete Permanently", exact: true })).toBeVisible();
+    page.once("dialog", dialog => dialog.accept());
+    await chemicalRow.getByRole("button", { name: "Delete Permanently", exact: true }).click();
+    await expect(chemicalRow.getByRole("alert")).toContainText("already referenced by log history");
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    await chemicalRow.getByRole("button", { name: "Restore", exact: true }).click();
+    await expect(chemicalRow.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
+    expect(browserErrors).toEqual([]);
   });
 
   test("admin can launch pest control from board cells and drawer actions with make-ready context", async ({ page }) => {

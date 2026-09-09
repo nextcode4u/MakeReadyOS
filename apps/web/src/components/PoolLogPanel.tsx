@@ -359,6 +359,9 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
   const [tab, setTab] = useState<PoolTab>("overview");
   const [formError, setFormError] = useState("");
   const [uploadError, setUploadError] = useState("");
+  const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
+  const clearActionError = (id: string) => setActionErrors(current => ({ ...current, [id]: "" }));
+  const showActionError = (id: string, error: unknown) => setActionErrors(current => ({ ...current, [id]: error instanceof Error ? error.message : "Action failed. Please retry." }));
   const reportFormError = (error: unknown) => setFormError(error instanceof Error ? error.message : (isSpanish ? "No se pudo guardar. Inténtalo de nuevo." : "Could not save. Please try again."));
   const [propertyId, setPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const canManage = userRole === "ADMIN" || userRole === "MANAGER";
@@ -430,10 +433,14 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
   });
   const facilityUpdateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updatePoolFacility>[1] }) => updatePoolFacility(id, data),
+    onMutate: ({ id }) => clearActionError(id),
+    onError: (error, { id }) => showActionError(id, error),
     onSuccess: invalidate,
   });
   const facilityDeleteMutation = useMutation({
     mutationFn: deletePoolFacility,
+    onMutate: clearActionError,
+    onError: (error, id) => showActionError(id, error),
     onSuccess: invalidate,
   });
   const chemicalCreateMutation = useMutation({
@@ -442,10 +449,14 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
   });
   const chemicalUpdateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updatePoolChemical>[1] }) => updatePoolChemical(id, data),
+    onMutate: ({ id }) => clearActionError(id),
+    onError: (error, { id }) => showActionError(id, error),
     onSuccess: invalidate,
   });
   const chemicalDeleteMutation = useMutation({
     mutationFn: deletePoolChemical,
+    onMutate: clearActionError,
+    onError: (error, id) => showActionError(id, error),
     onSuccess: invalidate,
   });
   const entryCreateMutation = useMutation({
@@ -905,7 +916,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                   <strong>{facility.name}</strong>
                   <span>{poolTypeLabel(facility.type, language)} / {facility.capacityGallons ? `${facility.capacityGallons.toLocaleString()} gal` : (isSpanish ? "capacidad faltante" : "capacity missing")}</span>
                 </div>
-                {canManage ? <button type="button" onClick={() => facilityUpdateMutation.mutate({ id: facility.id, data: { isActive: false } })}>{isSpanish ? "Archivar" : "Archive"}</button> : null}
+                {canManage ? <button type="button" disabled={facilityUpdateMutation.isPending || facilityDeleteMutation.isPending} onClick={() => facilityUpdateMutation.mutate({ id: facility.id, data: { isActive: false } })}>{isSpanish ? "Archivar" : "Archive"}</button> : null}
+                {actionErrors[facility.id] ? <p role="alert">{actionErrors[facility.id]}</p> : null}
               </div>
             ))}
             {!activeFacilities.length ? <p className="muted">{isSpanish ? "No hay piscinas/spas activos configurados." : "No active pools/spas configured."}</p> : null}
@@ -921,11 +933,11 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                     </div>
                     {canManage ? (
                       <div className="pool-entry-actions">
-                        <button type="button" onClick={() => facilityUpdateMutation.mutate({ id: facility.id, data: { isActive: true } })}>{isSpanish ? "Restaurar" : "Restore"}</button>
+                        <button type="button" disabled={facilityUpdateMutation.isPending || facilityDeleteMutation.isPending} onClick={() => facilityUpdateMutation.mutate({ id: facility.id, data: { isActive: true } })}>{isSpanish ? "Restaurar" : "Restore"}</button>
                         <button
                           type="button"
                           className="button button-danger"
-                          disabled={facilityDeleteMutation.isPending}
+                          disabled={facilityDeleteMutation.isPending || facilityUpdateMutation.isPending}
                           onClick={() => {
                             const confirmed = window.confirm(
                               isSpanish
@@ -940,6 +952,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                         </button>
                       </div>
                     ) : null}
+                    {actionErrors[facility.id] ? <p role="alert">{actionErrors[facility.id]}</p> : null}
                   </div>
                 ))}
               </div>
@@ -982,7 +995,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                   <strong>{chemical.name}</strong>
                   <span>{chemical.category.replace(/_/g, " ")} / {chemical.concentrationPercent ? `${chemical.concentrationPercent}%` : (isSpanish ? "concentración faltante" : "concentration missing")} / {poolChemicalUnitLabel(chemical.unit, language)} / {(chemical.allowedUnits?.length ? chemical.allowedUnits : [chemical.unit]).map((unit) => poolChemicalUnitLabel(unit, language)).join(", ")}</span>
                 </div>
-                {canManage ? <button type="button" onClick={() => chemicalUpdateMutation.mutate({ id: chemical.id, data: { isActive: false } })}>{isSpanish ? "Archivar" : "Archive"}</button> : null}
+                {canManage ? <button type="button" disabled={chemicalUpdateMutation.isPending || chemicalDeleteMutation.isPending} onClick={() => chemicalUpdateMutation.mutate({ id: chemical.id, data: { isActive: false } })}>{isSpanish ? "Archivar" : "Archive"}</button> : null}
+                {actionErrors[chemical.id] ? <p role="alert">{actionErrors[chemical.id]}</p> : null}
               </div>
             ))}
             {!activeChemicals.length ? <p className="muted">{isSpanish ? "No hay químicos activos configurados." : "No active chemicals configured."}</p> : null}
@@ -998,11 +1012,11 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                     </div>
                     {canManage ? (
                       <div className="pool-entry-actions">
-                        <button type="button" onClick={() => chemicalUpdateMutation.mutate({ id: chemical.id, data: { isActive: true } })}>{isSpanish ? "Restaurar" : "Restore"}</button>
+                        <button type="button" disabled={chemicalUpdateMutation.isPending || chemicalDeleteMutation.isPending} onClick={() => chemicalUpdateMutation.mutate({ id: chemical.id, data: { isActive: true } })}>{isSpanish ? "Restaurar" : "Restore"}</button>
                         <button
                           type="button"
                           className="button button-danger"
-                          disabled={chemicalDeleteMutation.isPending}
+                          disabled={chemicalDeleteMutation.isPending || chemicalUpdateMutation.isPending}
                           onClick={() => {
                             const confirmed = window.confirm(
                               isSpanish
@@ -1017,6 +1031,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                         </button>
                       </div>
                     ) : null}
+                    {actionErrors[chemical.id] ? <p role="alert">{actionErrors[chemical.id]}</p> : null}
                   </div>
                 ))}
               </div>
