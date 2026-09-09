@@ -1,6 +1,29 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+test("a ready board section cannot suppress an explicitly pending final inspection", async () => {
+  process.env.DATABASE_URL = "postgresql://unused:unused@127.0.0.1:1/unused";
+  process.env.ADMIN_USERNAME = "risk-scope-test";
+  process.env.ADMIN_PASSWORD = "Test-Only-Password!123";
+  process.env.SESSION_COOKIE_SECRET = "test-only-session-secret-12345678901234567890";
+  process.env.APP_URL = "http://localhost:8080";
+  const { evaluateItemRisk } = await import("../lib/risk.js");
+  const now = new Date(2026, 8, 8, 12);
+  const item = {
+    boardSectionType: "READY", completionStatus: "YES", vacancyStatus: "VACANT LEASED READY",
+    updatedAt: now, vacatedDate: new Date(2026, 8, 1), makeReadyDate: new Date(2026, 8, 7),
+    moveInDate: new Date(2026, 8, 10), cleaningStatus: "DONE", assignedTech: "Tech",
+  };
+  for (const makeReadyStatus of ["FINAL WALK", "FINAL_WALK", "final-walk"]) {
+    const result = evaluateItemRisk({ ...item, makeReadyStatus } as any, now);
+    assert.ok(result.riskReasons.some(reason => reason.category === "OVERDUE_MAKE_READY"));
+    assert.ok(result.riskReasons.some(reason => reason.category === "MOVE_IN_RISK"));
+  }
+  const ready = evaluateItemRisk({ ...item, makeReadyStatus: "DONE" } as any, now);
+  assert.equal(ready.riskLevel, "NONE");
+  assert.deepEqual(ready.riskReasons, []);
+});
+
 test("risk evaluation rejects item IDs outside its explicitly selected property", async (t) => {
   process.env.DATABASE_URL = "postgresql://unused:unused@127.0.0.1:1/unused";
   process.env.ADMIN_USERNAME = "risk-scope-test";
