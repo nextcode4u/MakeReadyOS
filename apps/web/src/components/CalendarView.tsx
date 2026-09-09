@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { LabelDefinition, ScheduleTrack, UserLanguage } from "../lib/api";
 import { formatDateInput, todayInputValue } from "../lib/dateTime";
 import { LabelPill } from "./LabelPill";
+import { statusDisplayName } from "../lib/statusDisplayName";
 import { StatusState } from "./StatusState";
 
 export type CalendarEvent = {
@@ -158,7 +159,7 @@ function CalendarPanel({ track, events, labelsByField, month, onMonthChange, ind
         <span data-testid={`calendar-color-source-${index}`}>{colorDescription(track, isSpanish)}</span>
         <div className="calendar-legend-items">
           {legendEntries.length ? legendEntries.map((entry) => (
-            <span key={`${entry.value}-${entry.color}`}><i className="legend-swatch" style={{ backgroundColor: entry.color }} />{entry.value}</span>
+            <span key={`${entry.value}-${entry.color}`}><i className="legend-swatch" style={{ backgroundColor: entry.color }} />{statusDisplayName(entry)}</span>
           )) : <span>{isSpanish ? "Los eventos mostraran los colores configurados de estado y riesgo cuando existan elementos programados." : "Events will show configured status and risk colors when scheduled items exist."}</span>}
         </div>
         {guidance ? (

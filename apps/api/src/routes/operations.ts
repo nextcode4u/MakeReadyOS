@@ -211,12 +211,13 @@ export const operatingCalendarSchema = z.object({
 export const boardOptionInputSchema = z.object({
   fieldKey: z.string(),
   value: z.string().trim().min(1).max(80),
+  displayName: z.string().trim().min(1).max(80).nullable().optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   textColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#f4f6fa"),
 });
 
 export const boardOptionPatchSchema = boardOptionInputSchema.omit({ fieldKey: true }).partial().refine((value) => Object.keys(value).length > 0, {
-  message: "Provide an option value or color to update",
+  message: "Provide a display name or color to update",
 });
 
 export const reorderOptionsSchema = z.object({ ids: z.array(z.string()).min(1) });
@@ -509,6 +510,21 @@ async function ensureManagerOrAdmin(request: FastifyRequest, reply: FastifyReply
     return false;
   }
   return true;
+}
+
+function ensureSharedOptionsAdmin(request: FastifyRequest, reply: FastifyReply) {
+  if (request.currentUser?.role === "ADMIN") return true;
+  reply.code(403).send({ message: "Only admins can change shared status definitions. These choices apply to every property." });
+  return false;
+}
+
+async function ensureOptionDisplayNameAvailable(db: Prisma.TransactionClient, fieldKey: string, value: string, displayName?: string | null, exceptId?: string) {
+  const normalize = (name: string) => name.replace(/_/g, " ").trim().toLowerCase();
+  const name = normalize(displayName ?? value);
+  const options = await db.labelDefinition.findMany({ where: { fieldKey } });
+  if (options.some(option => option.id !== exceptId && normalize(option.displayName ?? option.value) === name)) {
+    throw Object.assign(new Error("That display name already belongs to another status in this set, including archived choices."), { statusCode: 409 });
+  }
 }
 
 function canAccessProperty(request: FastifyRequest, propertyId: string) {
@@ -1697,19 +1713,20 @@ export async function operationsRoutes(app: FastifyInstance) {
   });
 
   app.post("/operations/options", async (request, reply) => {
-    if (!(await ensureManagerOrAdmin(request, reply))) return;
+    if (!ensureSharedOptionsAdmin(request, reply)) return;
     const payload = boardOptionInputSchema.parse(request.body);
     if (!managedOptionFields.has(payload.fieldKey)) {
       reply.code(400);
       return { message: "Unsupported built-in option set" };
     }
-    const duplicate = await prisma.labelDefinition.findUnique({ where: { fieldKey_value: { fieldKey: payload.fieldKey, value: payload.value } } });
-    if (duplicate) {
-      reply.code(409);
-      return { message: "That option already exists in the selected set" };
-    }
-    const sortOrder = await prisma.labelDefinition.count({ where: { fieldKey: payload.fieldKey } });
-    const option = await prisma.labelDefinition.create({ data: { ...payload, sortOrder } });
+    const option = await prisma.$transaction(async db => {
+      await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`board-options:${payload.fieldKey}`}), 824021)::text`;
+      const duplicate = await db.labelDefinition.findUnique({ where: { fieldKey_value: { fieldKey: payload.fieldKey, value: payload.value } } });
+      if (duplicate) throw Object.assign(new Error("That option already exists in the selected set"), { statusCode: 409 });
+      await ensureOptionDisplayNameAvailable(db, payload.fieldKey, payload.value, payload.displayName);
+      const sortOrder = await db.labelDefinition.count({ where: { fieldKey: payload.fieldKey } });
+      return db.labelDefinition.create({ data: { ...payload, sortOrder } });
+    });
     await writeAuditLog({
       request,
       actorUserId: request.currentUser!.id,
@@ -1723,7 +1740,7 @@ export async function operationsRoutes(app: FastifyInstance) {
   });
 
   app.patch("/operations/options/:id", async (request, reply) => {
-    if (!(await ensureManagerOrAdmin(request, reply))) return;
+    if (!ensureSharedOptionsAdmin(request, reply)) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const payload = boardOptionPatchSchema.parse(request.body);
     const existing = await prisma.labelDefinition.findUnique({ where: { id } });
@@ -1731,16 +1748,14 @@ export async function operationsRoutes(app: FastifyInstance) {
       reply.code(404);
       return { message: "Board option not found" };
     }
-    const dataField = existing.fieldKey as keyof Prisma.MakeReadyItemUpdateManyMutationInput;
+    if (payload.value !== undefined && payload.value !== existing.value) {
+      return reply.code(409).send({ message: "Workflow status keys cannot be renamed. Change displayName instead; existing turns keep their original status." });
+    }
+    const { value: _value, ...presentation } = payload;
     const option = await prisma.$transaction(async (tx) => {
-      const updated = await tx.labelDefinition.update({ where: { id }, data: payload });
-      if (payload.value && payload.value !== existing.value && builtInColumnKeys.has(existing.fieldKey)) {
-        await tx.makeReadyItem.updateMany({
-          where: { [existing.fieldKey]: existing.value },
-          data: { [dataField]: payload.value },
-        });
-      }
-      return updated;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`board-options:${existing.fieldKey}`}), 824021)::text`;
+      if (presentation.displayName !== undefined) await ensureOptionDisplayNameAvailable(tx, existing.fieldKey, existing.value, presentation.displayName, id);
+      return tx.labelDefinition.update({ where: { id }, data: presentation });
     });
     await writeAuditLog({
       request,
@@ -1748,14 +1763,14 @@ export async function operationsRoutes(app: FastifyInstance) {
       entityType: "BOARD_OPTION",
       entityId: option.id,
       action: "BOARD_OPTION_UPDATED",
-      message: `Updated ${option.fieldKey} option ${option.value}`,
-      metadata: { previousValue: existing.value },
+      message: `Updated display settings for ${option.fieldKey} status ${option.value}; workflow values unchanged`,
+      metadata: { value: existing.value, previousDisplayName: existing.displayName, displayName: option.displayName },
     });
     return { option };
   });
 
   app.put("/operations/options/reorder", async (request, reply) => {
-    if (!(await ensureManagerOrAdmin(request, reply))) return;
+    if (!ensureSharedOptionsAdmin(request, reply)) return;
     const payload = reorderOptionsSchema.parse(request.body);
     const options = await prisma.labelDefinition.findMany({ where: { id: { in: payload.ids } } });
     if (options.length !== payload.ids.length || new Set(options.map((option) => option.fieldKey)).size !== 1) {
@@ -1775,7 +1790,7 @@ export async function operationsRoutes(app: FastifyInstance) {
   });
 
   app.post("/operations/options/:id/archive", async (request, reply) => {
-    if (!(await ensureManagerOrAdmin(request, reply))) return;
+    if (!ensureSharedOptionsAdmin(request, reply)) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const existing = await prisma.labelDefinition.findUnique({ where: { id } });
     if (!existing || !managedOptionFields.has(existing.fieldKey)) {
@@ -1795,7 +1810,7 @@ export async function operationsRoutes(app: FastifyInstance) {
   });
 
   app.post("/operations/options/:id/restore", async (request, reply) => {
-    if (!(await ensureManagerOrAdmin(request, reply))) return;
+    if (!ensureSharedOptionsAdmin(request, reply)) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const option = await prisma.labelDefinition.update({ where: { id }, data: { isArchived: false } });
     await writeAuditLog({

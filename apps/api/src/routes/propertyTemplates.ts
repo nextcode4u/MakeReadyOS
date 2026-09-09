@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { booleanFlag } from "../lib/booleanFlag.js";
 import { allowedPropertyIds, requireManagerOrAdmin } from "../lib/auth.js";
+import { assertSharedOptionImportsAllowed } from "../lib/sharedOptionImports.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -65,7 +66,7 @@ type TemplateManifest = {
   include: IncludeConfig;
   data: {
     boardSections: Array<{ key: string; sectionType: string; displayName: string; sortOrder: number; isActive: boolean }>;
-    optionSets: Array<{ fieldKey: string; value: string; color: string; textColor: string; sortOrder: number; isArchived: boolean }>;
+    optionSets: Array<{ fieldKey: string; value: string; displayName?: string | null; color: string; textColor: string; sortOrder: number; isArchived: boolean }>;
     customFields: Array<{ fieldKey: string; module: string; label: string; fieldType: CustomFieldType; description: string | null; sortOrder: number; isArchived: boolean; options: Array<{ label: string; color: string; sortOrder: number; isArchived: boolean }> }>;
     floorPlans: Array<{ code?: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null; description: string | null; isActive: boolean }>;
     scheduleTracks: Array<{ sourceField: string; displayName: string; colorBasis: string; colorSourceField: string | null; fixedColor: string | null; groupingMode: string; visibilityFilter: unknown; overdueEnabled: boolean; moveInSoonEnabled: boolean; isEnabled: boolean; isArchived: boolean; sortOrder: number }>;
@@ -194,7 +195,7 @@ async function buildManifest(propertyId: string, include: IncludeConfig): Promis
     include,
     data: {
       boardSections: boardSections.map((section) => ({ key: section.key, sectionType: section.sectionType, displayName: section.displayName, sortOrder: section.sortOrder, isActive: section.isActive })),
-      optionSets: optionSets.map((option) => ({ fieldKey: option.fieldKey, value: option.value, color: option.color, textColor: option.textColor, sortOrder: option.sortOrder, isArchived: option.isArchived })),
+      optionSets: optionSets.map((option) => ({ fieldKey: option.fieldKey, value: option.value, displayName: option.displayName, color: option.color, textColor: option.textColor, sortOrder: option.sortOrder, isArchived: option.isArchived })),
       customFields: customFields.map((field) => ({
         fieldKey: field.fieldKey,
         module: field.module,
@@ -241,6 +242,7 @@ async function applyTemplateManifest(options: {
 }) {
   const summary = emptySummary();
   const user = options.request.currentUser!;
+  await assertSharedOptionImportsAllowed(user.role, options.manifest.data.optionSets);
 
   return prisma.$transaction(async (tx) => {
     let property = options.targetPropertyId

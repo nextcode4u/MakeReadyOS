@@ -7,6 +7,7 @@ import { openLeaseWorkspace } from "../lib/leaseNavigation";
 import { openPestWorkspace } from "../lib/pestNavigation";
 import { openProjectRecord } from "../lib/projectNavigation";
 import { LabelPill } from "./LabelPill";
+import { statusDisplayName } from "../lib/statusDisplayName";
 import { StatusState } from "./StatusState";
 
 type Props = {
@@ -137,7 +138,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                         aria-label={`${t(language, "myWork.quickStatus")} ${item.unitNumber}`}
                       >
                         <option value="">{t(language, "myWork.unset")}</option>
-                        {makeReadyOptions.map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}
+                        {makeReadyOptions.map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}
                       </select>
                     </label>
                   ) : (

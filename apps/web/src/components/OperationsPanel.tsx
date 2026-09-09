@@ -10,6 +10,7 @@ import { HistoryCoverageNotice } from "./HistoryCoverageNotice";
 import { UnitSearchSelect } from "./UnitSearchSelect";
 import { PropertyBrandingPanel } from "./PropertyBrandingPanel";
 import { MailboxDirectoryPanel } from "./MailboxDirectoryPanel";
+import { statusDisplayName } from "../lib/statusDisplayName";
 
 function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
   return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
@@ -2172,9 +2173,9 @@ export function OperationsPanel({
               />
             </label>
             <label>{isSpanish ? "Sección" : "Section"}<select data-testid="item-create-group" value={newItem.boardGroup} onChange={(event) => setNewItem((current) => ({ ...current, boardGroup: event.target.value }))}>{sectionsForNewItem.map((section) => <option key={section.id} value={section.key}>{section.displayName}</option>)}</select></label>
-            <label>{isSpanish ? "Vacancia" : "Vacancy"}<select data-testid="item-create-vacancy" value={newItem.vacancyStatus} onChange={(event) => setNewItem((current) => ({ ...current, vacancyStatus: event.target.value }))}>{labelOptions("vacancyStatus").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
-            <label>{isSpanish ? "Estado de make-ready" : "Make-ready status"}<select data-testid="item-create-status" value={newItem.makeReadyStatus} onChange={(event) => setNewItem((current) => ({ ...current, makeReadyStatus: event.target.value }))}><option value="">{isSpanish ? "Sin definir" : "Unset"}</option>{labelOptions("makeReadyStatus").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
-            <label>{isSpanish ? "Alcance" : "Scope"}<select data-testid="item-create-scope" value={newItem.scopeLevel} onChange={(event) => setNewItem((current) => ({ ...current, scopeLevel: event.target.value }))}><option value="">{isSpanish ? "Sin definir" : "Unset"}</option>{labelOptions("scopeLevel").map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>
+            <label>{isSpanish ? "Vacancia" : "Vacancy"}<select data-testid="item-create-vacancy" value={newItem.vacancyStatus} onChange={(event) => setNewItem((current) => ({ ...current, vacancyStatus: event.target.value }))}>{labelOptions("vacancyStatus").map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}</select></label>
+            <label>{isSpanish ? "Estado de make-ready" : "Make-ready status"}<select data-testid="item-create-status" value={newItem.makeReadyStatus} onChange={(event) => setNewItem((current) => ({ ...current, makeReadyStatus: event.target.value }))}><option value="">{isSpanish ? "Sin definir" : "Unset"}</option>{labelOptions("makeReadyStatus").map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}</select></label>
+            <label>{isSpanish ? "Alcance" : "Scope"}<select data-testid="item-create-scope" value={newItem.scopeLevel} onChange={(event) => setNewItem((current) => ({ ...current, scopeLevel: event.target.value }))}><option value="">{isSpanish ? "Sin definir" : "Unset"}</option>{labelOptions("scopeLevel").map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}</select></label>
             <label>{isSpanish ? "Técnico asignado" : "Assigned tech"}
               <SearchSelect
                 options={staffOptions}

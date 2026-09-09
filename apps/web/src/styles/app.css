@@ -5111,6 +5111,11 @@ textarea {
   font-weight: 600;
 }
 
+.shared-options-fields {
+  min-inline-size: 0;
+  margin: 0;
+}
+
 .option-create,
 .floor-plan-form {
   display: grid;

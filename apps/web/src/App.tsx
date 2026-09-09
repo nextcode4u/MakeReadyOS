@@ -187,6 +187,7 @@ import {
   type PropertyMap,
 } from "./lib/api";
 import { configuredScheduleTracks, kanbanGroupOptions, labelMap, normalizeVisibleColumns, tableColumnPresets, visibleColumnOptions } from "./lib/board";
+import { statusDisplayName } from "./lib/statusDisplayName";
 import { clockModeStorageKey, formatTime, type ClockMode } from "./lib/dateTime";
 import { t, tWithVars } from "./lib/i18n";
 import { customFieldFilterChipLabel, customOperatorsByType, defaultCustomFilterFor, defaultStructuredFilters, itemMatchesStructuredFilters, normalizeCustomFieldFilters, type CustomFieldFilter, type StructuredFilters } from "./lib/structuredFilters";
@@ -4055,6 +4056,7 @@ function App() {
                 onUpdateRiskPolicy={async (propertyId, input) => { await riskPolicyUpdateMutation.mutateAsync({ propertyId, data: input }); }}
               />
               <BoardConfigurationPanel
+                canManageSharedOptions={currentUser.role === "ADMIN"}
                 language={currentUser.language}
                 properties={operationsPropertiesQuery.data?.properties ?? []}
                 boardSections={metaQuery.data?.boardSections ?? []}
@@ -4537,7 +4539,7 @@ function App() {
                     <option value="__vacant__">Vacant not leased</option>
                     <option value="__vacant_leased__">Vacant leased</option>
                     <option value="__ntv__">NTV / Notice to Vacate</option>
-                    {Object.values(labelsByField.vacancyStatus ?? {}).filter((label) => !label.isArchived).map((label) => <option key={label.id} value={label.value}>{label.value}</option>)}
+                    {Object.values(labelsByField.vacancyStatus ?? {}).filter((label) => !label.isArchived).map((label) => <option key={label.id} value={label.value}>{statusDisplayName(label)}</option>)}
                   </select>
                 </label>
                 <label>Assigned
@@ -4550,7 +4552,7 @@ function App() {
                 <label>Make Ready
                   <select data-testid="filter-make-ready-status" value={structuredFilters.makeReadyStatus} onChange={(event) => setStructuredFilters((current) => ({ ...current, makeReadyStatus: event.target.value }))}>
                     <option value="">All make-ready statuses</option>
-                    {Object.values(labelsByField.makeReadyStatus ?? {}).filter((label) => !label.isArchived).map((label) => <option key={label.id} value={label.value}>{label.value}</option>)}
+                    {Object.values(labelsByField.makeReadyStatus ?? {}).filter((label) => !label.isArchived).map((label) => <option key={label.id} value={label.value}>{statusDisplayName(label)}</option>)}
                   </select>
                 </label>
                 <label>Move-In Window
@@ -4677,6 +4679,7 @@ function App() {
               </section>
             </details>
             <BoardTable
+              canManageSharedOptions={currentUser.role === "ADMIN"}
               items={sortedItems}
               labelsByField={labelsByField}
               customFields={metaQuery.data?.customFields ?? []}

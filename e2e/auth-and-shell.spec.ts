@@ -1645,6 +1645,94 @@ test("calendar track reorder skips archived rows and preserves their position", 
   }
 });
 
+test("shared status display names preserve readiness, backups and manager property workflows", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await login(page, adminEmail, adminPassword);
+  const session = await (await page.request.get("/api/auth/me")).json();
+  const headers = { "x-csrf-token": session.csrfToken };
+  const meta = await (await page.request.get("/api/meta")).json();
+  const ta = meta.properties.find((property: { code: string }) => property.code === "TA");
+  const canonical = "VACANT LEASED READY";
+  const definition = meta.labels.find((label: { fieldKey: string; value: string }) => label.fieldKey === "vacancyStatus" && label.value === canonical);
+  expect(definition).toBeTruthy();
+  const snapshot = async () => {
+    const response = await page.request.get("/api/make-ready-items?limit=200");
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return (await response.json()).map((item: any) => ({ id: item.id, vacancyStatus: item.vacancyStatus, completionStatus: item.completionStatus, makeReadyStatus: item.makeReadyStatus, overdue: item.overdue, updatedAt: item.updatedAt })).sort((a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id));
+  };
+  const before = await snapshot();
+  const alias = uniqueTag("Resident ready");
+  try {
+    await page.getByTestId("tab-operations").click();
+    await page.getByTestId("option-set-select").selectOption("vacancyStatus");
+    await page.getByTestId("option-row-vacant-leased-ready").click();
+    await page.getByTestId("option-edit-value").fill(alias);
+    const saved = page.waitForResponse(response => response.url().endsWith(`/api/operations/options/${definition.id}`) && response.request().method() === "PATCH");
+    await page.getByTestId("option-save").click();
+    const response = await saved;
+    expect(response.status(), await response.text()).toBe(200);
+    expect((await response.json()).option).toMatchObject({ value: canonical, displayName: alias });
+    expect(await snapshot()).toEqual(before);
+    await page.getByTestId("tab-table").click();
+    await expect(page.getByTestId("board-table-view").locator(`.pill[title="${canonical}"]`).first()).toHaveText(alias);
+    await openTableFilters(page);
+    await page.getByTestId("filter-vacancy-status").selectOption({ label: alias });
+    await expect(page.getByTestId("filter-vacancy-status")).toHaveValue(canonical);
+    const exportResponse = await page.request.get("/api/admin/export");
+    expect(exportResponse.status()).toBe(200);
+    const backup = await exportResponse.json();
+    const backedUp = backup.data.boardOptions.find((option: { fieldKey: string; value: string }) => option.fieldKey === "vacancyStatus" && option.value === canonical);
+    expect(backedUp.displayName).toBe(alias);
+    backedUp.displayName = "Different imported display name";
+    const preview = await page.request.post("/api/admin/import", { headers, data: { backup, dryRun: true, mode: "merge" } });
+    expect(preview.status(), await preview.text()).toBe(200);
+    const importSummary = (await preview.json()).summary;
+    expect(importSummary.boardOptions.conflicts, JSON.stringify(importSummary)).toBeGreaterThan(0);
+    expect(importSummary.automationRules.conflicts).toBe(0);
+    expect(importSummary.automationRules.errors).toEqual([]);
+    expect(backup.data.automationRules.length).toBeGreaterThan(0);
+    backup.data.automationRules.push({ ...backup.data.automationRules[0] });
+    const duplicatePreview = await page.request.post("/api/admin/import", { headers, data: { backup, dryRun: true, mode: "merge" } });
+    expect(duplicatePreview.status()).toBe(200);
+    expect((await duplicatePreview.json()).summary.automationRules.conflicts).toBe(1);
+    const username = `labelmanager${Date.now()}`;
+    const password = "Test-Only-Manager!123";
+    const created = await page.request.post("/api/admin/users", { headers, data: { username, fullName: "Scoped label manager", role: "MANAGER", propertyIds: [ta.id], password } });
+    expect(created.status(), await created.text()).toBe(201);
+    await page.getByTestId("account-menu").click();
+    await page.getByTestId("logout-button").click();
+    await login(page, username, password);
+    const managerSession = await (await page.request.get("/api/auth/me")).json();
+    const denied = await page.request.patch(`/api/operations/options/${definition.id}`, { headers: { "x-csrf-token": managerSession.csrfToken }, data: { displayName: "Unauthorized rename" } });
+    expect(denied.status()).toBe(403);
+    const managerHeaders = { "x-csrf-token": managerSession.csrfToken };
+    const pack = { format: "makereadyos.libraryPack", version: 1, packKey: `status-access-${Date.now()}`, name: "Status access regression", items: { optionSets: [{ key: "existing-vacancy", fieldKey: "vacancyStatus", options: [{ value: canonical, color: "#123456" }] }] } };
+    const reuse = await page.request.post("/api/operational-library/install", { headers: managerHeaders, data: { pack } });
+    expect(reuse.status(), await reuse.text()).toBe(200);
+    expect((await reuse.json()).summary.optionSets.skipped).toBe(1);
+    pack.items.optionSets[0].options[0].value = `Forbidden ${Date.now()}`;
+    const refusedImport = await page.request.post("/api/operational-library/install", { headers: managerHeaders, data: { pack } });
+    expect(refusedImport.status(), await refusedImport.text()).toBe(403);
+    const afterImport = await (await page.request.get("/api/meta")).json();
+    expect(afterImport.labels.find((label: { id: string }) => label.id === definition.id)).toMatchObject({ value: canonical, displayName: alias, color: definition.color });
+    expect(afterImport.labels.some((label: { value: string }) => label.value === pack.items.optionSets[0].options[0].value)).toBe(false);
+    await openTableFilters(page);
+    await expect(page.getByTestId("filter-vacancy-status")).toBeEnabled();
+    await page.getByTestId("filter-vacancy-status").selectOption({ label: alias });
+    await expect(page.getByTestId("filter-vacancy-status")).toHaveValue(canonical);
+    await page.getByTestId("tab-operations").click();
+    await expect(page.getByTestId("option-create-submit")).toBeDisabled();
+    await expect(page.getByTestId("option-management")).toContainText("Only admins can edit");
+    expect(errors).toEqual([]);
+  } finally {
+    const restoredSession = await page.request.post("/api/auth/login", { data: { identifier: adminEmail, password: adminPassword } });
+    expect(restoredSession.status(), await restoredSession.text()).toBe(200);
+    const restoredHeaders = { "x-csrf-token": (await restoredSession.json()).csrfToken };
+    expect((await page.request.patch(`/api/operations/options/${definition.id}`, { headers: restoredHeaders, data: { displayName: definition.displayName ?? null } })).status()).toBe(200);
+  }
+});
+
 test("offline queue preserves account ownership across logout, reload and another-tab cookie changes", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
@@ -4735,7 +4823,17 @@ test.describe("MakeReadyOS browser flows", () => {
       response.url().match(/\/api\/operations\/options\/[^/]+$/) !== null && response.request().method() === "PATCH",
     );
     await page.getByTestId("table-option-save-existing").click();
-    await expect((await updateResponse).status()).toBe(200);
+    const renamedResponse = await updateResponse;
+    expect(renamedResponse.status(), await renamedResponse.text()).toBe(200);
+    expect((await renamedResponse.json()).option).toMatchObject({ value: label, displayName: renamed });
+    await expect(page.getByTestId("table-option-modal")).toHaveCount(0);
+    await page.getByTestId("builtin-cell-paintStatus-ta-284").click();
+    const savedChoice = page.waitForResponse(response => response.url().includes("/api/make-ready-items/") && response.request().method() === "PATCH");
+    await page.getByTestId("builtin-input-paintStatus-ta-284").selectOption({ label: renamed });
+    const choiceResponse = await savedChoice;
+    expect(choiceResponse.status(), await choiceResponse.text()).toBe(200);
+    expect(choiceResponse.request().postDataJSON().paintStatus).toBe(label);
+    await expect(page.getByTestId("builtin-cell-paintStatus-ta-284")).toContainText(renamed);
   });
 
   test("dashboard cards and charts apply clearable structured filters across views", async ({ page }) => {

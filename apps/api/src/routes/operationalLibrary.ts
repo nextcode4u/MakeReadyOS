@@ -2,6 +2,7 @@ import { CustomFieldType, Prisma, UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { allowedPropertyIds, canManageOperationalLibrary, requireManagerOrAdmin } from "../lib/auth.js";
+import { assertSharedOptionImportsAllowed } from "../lib/sharedOptionImports.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { automationRuleInputSchema, validateRuleReferences } from "../lib/automationDefinition.js";
 import { bundledOperationalLibraryPacks } from "../lib/operationalLibrary.js";
@@ -51,6 +52,7 @@ export const operationalLibraryPackSchema = z.object({
       fieldKey: z.string().trim().min(1).max(120),
       options: z.array(z.object({
         value: z.string().trim().min(1).max(80),
+        displayName: z.string().trim().min(1).max(80).nullable().optional(),
         color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
         textColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
         sortOrder: z.number().int().min(0).optional(),
@@ -265,6 +267,7 @@ export async function operationalLibraryRoutes(app: FastifyInstance) {
 
     const summary = emptySummary();
     const items = pack.items ?? {};
+    await assertSharedOptionImportsAllowed(user.role, (items.optionSets ?? []).flatMap(set => set.options.map(option => ({ fieldKey: set.fieldKey, value: option.value }))));
     const installedPack = await prisma.operationalLibraryPack.upsert({
       where: { packKey: pack.packKey },
       create: {
@@ -324,7 +327,7 @@ export async function operationalLibraryRoutes(app: FastifyInstance) {
           continue;
         }
         const created = await prisma.labelDefinition.create({
-          data: { fieldKey: optionSet.fieldKey, value: option.value, color: option.color, textColor: option.textColor ?? "#0b1020", sortOrder: option.sortOrder ?? index },
+          data: { fieldKey: optionSet.fieldKey, value: option.value, displayName: option.displayName, color: option.color, textColor: option.textColor ?? "#0b1020", sortOrder: option.sortOrder ?? index },
         });
         await prisma.operationalLibraryPackItem.create({ data: { packId: installedPack.id, itemType: "OPTION", itemKey: `${optionSet.key}:${option.value}`, targetId: created.id } }).catch(() => undefined);
         summary.optionSets.created += 1;

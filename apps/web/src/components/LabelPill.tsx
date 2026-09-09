@@ -1,5 +1,6 @@
 import clsx from "clsx";
 import type { LabelDefinition } from "../lib/api";
+import { statusDisplayName } from "../lib/statusDisplayName";
 
 type Props = {
   value: string | null | undefined;
@@ -11,7 +12,7 @@ export function LabelPill({ value, label, muted }: Props) {
   if (!value) {
     return <span className="pill pill-empty">-</span>;
   }
-  const displayValue = value.replace(/_/g, " ");
+  const displayValue = label?.value === value ? statusDisplayName(label) : value.replace(/_/g, " ");
 
   return (
     <span

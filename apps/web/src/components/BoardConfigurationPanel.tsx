@@ -21,6 +21,7 @@ const optionSets = [
 ] as const;
 
 type Props = {
+  canManageSharedOptions: boolean;
   language: UserLanguage;
   properties: Property[];
   boardSections: BoardSection[];
@@ -31,7 +32,7 @@ type Props = {
   customFields: CustomField[];
   loading: boolean;
   onCreateOption: (input: { fieldKey: string; value: string; color: string; textColor: string }) => Promise<void>;
-  onUpdateOption: (id: string, input: Partial<Pick<LabelDefinition, "value" | "color" | "textColor">>) => Promise<void>;
+  onUpdateOption: (id: string, input: Partial<Pick<LabelDefinition, "value" | "displayName" | "color" | "textColor">>) => Promise<void>;
   onArchiveOption: (id: string, restore: boolean) => Promise<void>;
   onReorderOptions: (ids: string[]) => Promise<void>;
   onUpdateBoardSection: (id: string, displayName: string) => Promise<void>;
@@ -46,6 +47,7 @@ type Props = {
 };
 
 export function BoardConfigurationPanel({
+  canManageSharedOptions,
   language,
   properties,
   boardSections,
@@ -231,7 +233,7 @@ export function BoardConfigurationPanel({
 
   useEffect(() => {
     if (!selectedOption) return;
-    setOptionDraft({ value: selectedOption.value, color: selectedOption.color, textColor: selectedOption.textColor });
+    setOptionDraft({ value: selectedOption.displayName ?? selectedOption.value, color: selectedOption.color, textColor: selectedOption.textColor });
   }, [selectedOption]);
 
   useEffect(() => {
@@ -478,7 +480,7 @@ export function BoardConfigurationPanel({
         {actionErrors.sections ? <p role="alert" className="error-text">{actionErrors.sections}</p> : null}
       </article>
 
-      <article className="operations-card" data-testid="option-management">
+      <fieldset className="operations-card shared-options-fields" data-testid="option-management" aria-label={isSpanish ? "Estados compartidos" : "Shared statuses"} disabled={!canManageSharedOptions}>
         <div className="admin-section-head">
           <h3>{isSpanish ? "Etiquetas del tablero" : "Board Labels"}</h3>
           <span className="subtitle">{isSpanish ? "Colores de estado y opciones" : "Status colors and choices"}</span>
@@ -540,15 +542,17 @@ export function BoardConfigurationPanel({
                 : (isSpanish ? "Archivar conserva el valor en registros existentes y lo retira de nuevas selecciones." : "Archive keeps the value on existing records and removes it from new selections.")}
             </p>
             <div className="admin-actions span-full">
-              <button data-testid="option-save" className="button button-primary" onClick={() => void runConfigAction("options", () => onUpdateOption(selectedOption.id, optionDraft))}>{isSpanish ? "Guardar" : "Save"}</button>
+              <button data-testid="option-save" className="button button-primary" onClick={() => void runConfigAction("options", () => onUpdateOption(selectedOption.id, { ...optionDraft, value: selectedOption.value, displayName: optionDraft.value }))}>{isSpanish ? "Guardar" : "Save"}</button>
               <button data-testid={selectedOption.isArchived ? "option-restore" : "option-archive"} className="button button-secondary" onClick={() => setPendingOptionArchive(selectedOption)}>
                 {selectedOption.isArchived ? (isSpanish ? "Restaurar" : "Restore") : (isSpanish ? "Archivar" : "Archive")}
               </button>
             </div>
           </div>
         ) : null}
+        {selectedOption ? <p className="helper-copy">{isSpanish ? "Clave de flujo fija" : "Fixed workflow key"}: <code>{selectedOption.value}</code>. {isSpanish ? "Cambiar la etiqueta no cambia el estado de las unidades." : "Renaming the display label does not change any turn's status."}</p> : null}
+        <p className="helper-copy">{isSpanish ? "Estas definiciones se comparten entre todas las propiedades. Solo los administradores pueden modificarlas." : "These definitions are shared across all properties. Only admins can edit them."}</p>
         {actionErrors.options ? <p role="alert" className="error-text">{actionErrors.options}</p> : null}
-      </article>
+      </fieldset>
 
       <article className="operations-card" data-testid="floor-plan-management">
         <div className="admin-section-head">
