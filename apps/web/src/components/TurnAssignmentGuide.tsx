@@ -1,13 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getTurnAssignment, runTurnAssignment, saveTurnAssignment, type Property, type TurnAssignmentSettings, type TurnAssignmentShare } from "../lib/api";
 
-function AssignmentEditor({ property, settings }: { property: Property; settings: TurnAssignmentSettings }) {
+function AssignmentEditor({ property, settings, onDraftChange }: { property: Property; settings: TurnAssignmentSettings; onDraftChange: (state: { dirty: boolean; busy: boolean }) => void }) {
   const queryClient = useQueryClient();
   const [shares, setShares] = useState<TurnAssignmentShare[]>(settings.shares);
+  const [savedShares, setSavedShares] = useState(settings.shares);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const dirty = JSON.stringify(shares) !== JSON.stringify(savedShares);
+  useEffect(() => { onDraftChange({ dirty, busy }); }, [dirty, busy, onDraftChange]);
   const total = shares.reduce((sum, share) => sum + (Number(share.percent) || 0), 0);
   const valid = shares.length > 0 && total === 100 && shares.every(share => Number.isInteger(share.percent) && share.percent > 0 && settings.staff.some(user => user.id === share.userId));
   async function save(enabled: boolean) {
@@ -16,6 +19,7 @@ function AssignmentEditor({ property, settings }: { property: Property; settings
     try {
       await saveTurnAssignment(property.id, enabled ? shares : settings.shares, enabled);
       saved = true;
+      if (enabled) setSavedShares(shares);
       if (enabled) {
         const result = await runTurnAssignment(property.id);
         setMessage(`Automatic assignment is on for ${property.code}. ${result.assigned} turn(s) assigned. New eligible turns are checked every 5 minutes.`);
@@ -47,14 +51,26 @@ function AssignmentEditor({ property, settings }: { property: Property; settings
 
 export function TurnAssignmentGuide({ properties }: { properties: Property[] }) {
   const [propertyId, setPropertyId] = useState(properties.length === 1 ? properties[0].id : "");
+  const [draft, setDraft] = useState({ dirty: false, busy: false });
+  useEffect(() => {
+    if (!draft.dirty && !draft.busy) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [draft.dirty, draft.busy]);
   const query = useQuery({ queryKey: ["turn-assignment", propertyId], queryFn: () => getTurnAssignment(propertyId), enabled: Boolean(propertyId) });
   const property = properties.find(property => property.id === propertyId);
   return <section className="turn-setup span-full" data-testid="turn-assignment-guide">
     <h2>Automatically split turns between your team</h2>
     <p>Configure each property separately. Example: VAB sends 100% to you; TA sends 25% to you and 75% to its tech. Staff must have access to the selected property.</p>
-    <label>Assign turns for<select value={propertyId} onChange={event => setPropertyId(event.target.value)}><option value="">Choose a property</option>{properties.map(property => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}</select></label>
+    <label>Assign turns for<select value={propertyId} disabled={draft.busy} onChange={event => {
+      if (draft.dirty && !window.confirm("Discard the unsaved assignment shares and switch properties?")) return;
+      setDraft({ dirty: false, busy: false });
+      setPropertyId(event.target.value);
+    }}><option value="">Choose a property</option>{properties.map(property => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}</select></label>
+    {draft.dirty ? <p role="status">Unsaved assignment shares. Save before leaving this setup.</p> : null}
     {query.isLoading ? <p>Loading assignment settings...</p> : null}
-    {query.error ? <p role="alert">{query.error instanceof Error ? query.error.message : "Could not load settings"}</p> : null}
-    {property && query.data ? <AssignmentEditor key={propertyId} property={property} settings={query.data} /> : null}
+    {query.error ? <p role="alert">{query.error instanceof Error ? query.error.message : "Could not load settings"} <button type="button" onClick={() => void query.refetch()}>Retry</button></p> : null}
+    {property && query.data ? <AssignmentEditor key={propertyId} property={property} settings={query.data} onDraftChange={setDraft} /> : null}
   </section>;
 }

@@ -21,6 +21,8 @@ Preserve the existing visual language; prioritize orientation, safe saves, and f
 - [ ] UX-08: Audit keyboard focus, accessible names, touch targets, error recovery, and interrupted saves across create/edit dialogs. Record concrete failures before changing shared components.
 - [ ] UX-09: Audit property/record switching with an unsaved draft, especially configuration guides and quick capture. Do not discard work silently or apply a late success callback to a different record.
 
+2026-09-08 UX-09 follow-up: percentage turn-assignment settings now warn before discarding unsaved shares on property switch, prevent switching while save/run is pending, warn on browser unload, preserve failed-save inputs, and offer a load-error retry. Browser regression `logs/e2e-20260908-202238.txt` passed for cancelled property switch, preserved 25/75 shares, injected 503/retry, held-request switching lock, 100% second-property split and assignment counts. Lint and production-image build passed. This does not yet cover every in-app tab/navigation path or other quick-capture dialogs; UX-09 stays open. Local, not deployed.
+
 ## Verification
 
 UX-21 deployed as `ec6676c`. Database/upload backups `makereadyos-db-20260907-234918.dump` and `makereadyos-uploads-20260907-234919.tgz` validated; previous images retained as `rollback-personal-forecast`. All services healthy. Live administrator My Work showed 8 tentative upcoming turns separately from 1 confirmed assignment; mobile expected dates, unit opening and browser-error checks passed with no record changes. Screenshot reviewed. The first smoke attempt raced login; rerun waited for successful authentication and passed. GitHub CI remained running at deployment.
