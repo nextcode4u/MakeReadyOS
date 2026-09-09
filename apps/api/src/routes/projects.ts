@@ -288,6 +288,36 @@ function techScopedProjectWhere(request: FastifyRequest) {
   };
 }
 
+type ProjectReferences = { categoryId?: string | null; propertyMapId?: string | null };
+
+async function validateProjectReferences(propertyId: string, input: ProjectReferences, previous?: ProjectReferences) {
+  const categoryId = input.categoryId === undefined ? previous?.categoryId : input.categoryId;
+  const mapId = input.propertyMapId === undefined ? previous?.propertyMapId : input.propertyMapId;
+  const category = categoryId ? await prisma.projectCategory.findUnique({
+    where: { id: categoryId }, select: { id: true, propertyId: true, name: true, isActive: true },
+  }) : null;
+  if (categoryId && (!category || (category.propertyId !== null && category.propertyId !== propertyId) || (categoryId !== previous?.categoryId && !category.isActive))) {
+    throw Object.assign(new Error("Select an active category from this property or the shared categories"), { statusCode: 400 });
+  }
+  if (mapId) {
+    const map = await prisma.propertyMap.findUnique({ where: { id: mapId }, select: { id: true, propertyId: true, isActive: true, isArchived: true } });
+    if (!map || map.propertyId !== propertyId || (mapId !== previous?.propertyMapId && (!map.isActive || map.isArchived))) {
+      throw Object.assign(new Error("Select an active map belonging to this property"), { statusCode: 400 });
+    }
+  }
+  return category;
+}
+
+async function validateProjectWikiTarget(propertyId: string, targetType: "ENTRY" | "VENDOR" | "ASSET", targetId: string) {
+  const query = { where: { id: targetId }, select: { propertyId: true, isActive: true } } as const;
+  const target = targetType === "ENTRY" ? await prisma.propertyWikiEntry.findUnique(query)
+    : targetType === "VENDOR" ? await prisma.propertyWikiVendor.findUnique(query)
+      : await prisma.propertyWikiAsset.findUnique(query);
+  if (!target || target.propertyId !== propertyId || !target.isActive) {
+    throw Object.assign(new Error("Select an active wiki record belonging to this property"), { statusCode: 400 });
+  }
+}
+
 async function canEditProjectRecord(request: FastifyRequest, record: {
   propertyId: string;
   assignedUserId: string | null;
@@ -804,14 +834,16 @@ export async function projectRoutes(app: FastifyInstance) {
     if (!requireProjectsAccess(request, reply, "edit")) return;
     const input = projectRecordSchema.parse(request.body);
     await assertPropertyAccess(request, input.propertyId);
+    const category = await validateProjectReferences(input.propertyId, input);
     const assignedUser = await resolveAssignableUser(input.propertyId, input.assignedUserId ?? null);
-    const category = input.categoryId ? await prisma.projectCategory.findUnique({ where: { id: input.categoryId } }) : null;
     const record = await prisma.projectRecord.create({
       data: {
         ...input,
         assignedUserId: assignedUser?.id ?? null,
         assignedUserName: assignedUser?.fullName ?? null,
         categoryName: category?.name ?? null,
+        pinX: input.propertyMapId ? input.pinX : null,
+        pinY: input.propertyMapId ? input.pinY : null,
         createdById: request.currentUser!.id,
         updatedById: request.currentUser!.id,
       },
@@ -953,7 +985,8 @@ export async function projectRoutes(app: FastifyInstance) {
       return reply.code(409).send({ message: "Project property cannot be changed by editing. Create a record in the correct property instead." });
     }
     const assignedUser = "assignedUserId" in input ? await resolveAssignableUser(existing.propertyId, input.assignedUserId ?? null) : null;
-    const category = input.categoryId ? await prisma.projectCategory.findUnique({ where: { id: input.categoryId } }) : undefined;
+    const category = await validateProjectReferences(existing.propertyId, input, existing);
+    const mapChanged = input.propertyMapId !== undefined && input.propertyMapId !== existing.propertyMapId;
     const nextStatus = input.status ?? existing.status;
     const completedDate = nextStatus === "Completed" ? (input.completedDate ?? existing.completedDate ?? new Date()) : input.completedDate;
     const record = await prisma.projectRecord.update({
@@ -962,7 +995,9 @@ export async function projectRoutes(app: FastifyInstance) {
         ...input,
         assignedUserId: "assignedUserId" in input ? assignedUser?.id ?? null : undefined,
         assignedUserName: "assignedUserId" in input ? assignedUser?.fullName ?? null : undefined,
-        categoryName: input.categoryId ? category?.name ?? null : undefined,
+        categoryName: input.categoryId !== undefined ? category?.name ?? null : undefined,
+        pinX: input.propertyMapId === null ? null : mapChanged ? input.pinX ?? null : input.pinX,
+        pinY: input.propertyMapId === null ? null : mapChanged ? input.pinY ?? null : input.pinY,
         completedDate: completedDate ?? undefined,
         completedById: nextStatus === "Completed" ? request.currentUser!.id : undefined,
         updatedById: request.currentUser!.id,
@@ -1207,6 +1242,7 @@ export async function projectRoutes(app: FastifyInstance) {
     const record = await prisma.projectRecord.findUnique({ where: { id } });
     if (!record) return reply.code(404).send({ message: "Project record not found" });
     if (!(await canEditProjectRecord(request, record))) return reply.code(403).send({ message: "Projects edit access denied" });
+    await validateProjectWikiTarget(record.propertyId, input.targetType, input.targetId);
     const reference = await prisma.projectWikiReference.create({
       data: {
         recordId: id,
