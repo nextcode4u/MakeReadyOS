@@ -67,11 +67,13 @@ async function executeNtvPreWalkLifecycle(options: {
   const propertyConstraint = options.allowedPropertyIds === null || options.allowedPropertyIds === undefined
     ? undefined
     : { in: options.allowedPropertyIds };
+  const cutoff = endOfToday();
   const candidates = await prisma.makeReadyItem.findMany({
     where: {
       propertyId: propertyConstraint,
+      property: { isActive: true },
       isArchived: false,
-      moveOutDate: { lte: endOfToday() },
+      moveOutDate: { lte: cutoff },
       vacancyStatus: { in: ntvPreWalkSourceStatuses },
     },
   });
@@ -88,31 +90,40 @@ async function executeNtvPreWalkLifecycle(options: {
   const alreadyTriggered = new Set(priorTriggers.map((entry) => entry.entityId).filter((id): id is string => Boolean(id)));
 
   let actionCount = 0;
+  const warnings: string[] = [];
+  const errors: string[] = [];
   const eligibleItems = candidates.filter((item) => !alreadyTriggered.has(item.id));
   for (const item of eligibleItems) {
-    const next = { ...item, vacancyStatus: ntvPreWalkTargetStatus };
-    const updated = await prisma.makeReadyItem.update({
-      where: { id: item.id },
-      data: {
-        vacancyStatus: ntvPreWalkTargetStatus,
-        ...computeDerivedFields(next),
-      },
-    });
-    await writeAuditLog({
-      actorUserId: options.actorUserId ?? null,
-      propertyId: updated.propertyId,
-      entityType: "MAKE_READY_ITEM",
-      entityId: updated.id,
-      action: ntvPreWalkAuditAction,
-      message: `${updated.unitNumber} reached NTV / expected vacate date and was moved to ${ntvPreWalkTargetStatus}.`,
-      metadata: {
-        previousVacancyStatus: item.vacancyStatus,
-        vacancyStatus: ntvPreWalkTargetStatus,
-        moveOutDate: item.moveOutDate?.toISOString() ?? null,
-      },
-    });
-    await notifyPreWalkStakeholders(updated);
-    actionCount += 1;
+    try {
+      const updated = await prisma.$transaction(async tx => {
+        await lockTurnProperty(tx, item.propertyId);
+        const current = await tx.makeReadyItem.findUnique({ where: { id: item.id }, include: { property: { select: { isActive: true } } } });
+        if (!current || current.propertyId !== item.propertyId || current.isArchived || !current.property.isActive
+          || current.updatedAt.getTime() !== item.updatedAt.getTime()
+          || !ntvPreWalkSourceStatuses.includes(current.vacancyStatus ?? "")
+          || !current.moveOutDate || current.moveOutDate > cutoff) return null;
+        const prior = await tx.auditLog.findFirst({ where: { action: ntvPreWalkAuditAction, entityType: "MAKE_READY_ITEM", entityId: current.id }, select: { id: true } });
+        if (prior) return null;
+        const next = { ...current, vacancyStatus: ntvPreWalkTargetStatus };
+        const changed = await tx.makeReadyItem.update({ where: { id: current.id }, data: { vacancyStatus: ntvPreWalkTargetStatus, ...computeDerivedFields(next) } });
+        await tx.auditLog.create({ data: {
+          actorUserId: options.actorUserId ?? null,
+          propertyId: current.propertyId,
+          entityType: "MAKE_READY_ITEM",
+          entityId: current.id,
+          action: ntvPreWalkAuditAction,
+          message: `${current.unitNumber} reached NTV / expected vacate date and was moved to ${ntvPreWalkTargetStatus}.`,
+          metadata: { previousVacancyStatus: current.vacancyStatus, vacancyStatus: ntvPreWalkTargetStatus, moveOutDate: current.moveOutDate.toISOString() },
+        } });
+        return changed;
+      });
+      if (!updated) { warnings.push(`Skipped ${item.unitNumber}: pre-walk eligibility changed or the transition was already recorded.`); continue; }
+      actionCount += 1;
+      try { await notifyPreWalkStakeholders(updated); }
+      catch { errors.push(`${item.unitNumber}: pre-walk transition saved, but notification delivery failed. Review the unit before retrying.`); }
+    } catch {
+      errors.push(`${item.unitNumber}: pre-walk transition could not be saved.`);
+    }
   }
 
   return {
@@ -120,8 +131,8 @@ async function executeNtvPreWalkLifecycle(options: {
     checkedCount: candidates.length,
     matchedCount: eligibleItems.length,
     actionCount,
-    warnings: [] as string[],
-    errors: [] as string[],
+    warnings,
+    errors,
   };
 }
 
