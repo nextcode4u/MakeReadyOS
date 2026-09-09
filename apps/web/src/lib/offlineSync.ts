@@ -64,6 +64,7 @@ type OfflineSyncJobPayload =
     }
   | {
       kind: "makeReadyUpload";
+      inspectionStage?: "INITIAL_WALK";
       itemId: string;
       files: QueuedBlob[];
     }
@@ -465,7 +466,7 @@ async function syncJob(job: OfflineSyncJob) {
       return;
     case "makeReadyUpload": {
       const payload = job.payload;
-      await uploadQueuedFiles(job, payload, file => uploadItemAttachment(payload.itemId, restoreFile(file)));
+      await uploadQueuedFiles(job, payload, file => uploadItemAttachment(payload.itemId, restoreFile(file), payload.inspectionStage));
       return;
     }
     case "makeReadyCommentCreate":
@@ -666,9 +667,10 @@ export async function enqueueMakeReadyPatch(itemId: string, data: Record<string,
   return enqueue({ kind: "makeReadyPatch", itemId, data });
 }
 
-export async function enqueueMakeReadyAttachmentUpload(itemId: string, files: File[]) {
+export async function enqueueMakeReadyAttachmentUpload(itemId: string, files: File[], inspectionStage?: "INITIAL_WALK") {
   return enqueue({
     kind: "makeReadyUpload",
+    inspectionStage,
     itemId,
     files: files.map((file) => buildBlob(file)),
   });

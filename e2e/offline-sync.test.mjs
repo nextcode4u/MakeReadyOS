@@ -150,3 +150,23 @@ test("queue deletion failure retries cleanup without repeating a confirmed actio
   assert.equal(calls, 1);
   assert.equal(jobs.length, 0);
 });
+
+test("initial walk uploads keep their stage across an interrupted delivery and reload", async () => {
+  const files = ["inside.png", "outside.png"].map(name => ({ name, mimeType: "image/png", lastModified: 1, blob: new Blob([name]) }));
+  const jobs = [{ id: "initial", createdAt: "2026-09-08", attemptCount: 0, payload: { kind: "makeReadyUpload", itemId: "turn", inspectionStage: "INITIAL_WALK", files } }];
+  const calls = [];
+  let fail = true;
+  const api = { uploadItemAttachment: async (id, file, stage) => {
+    assert.equal(id, "turn"); assert.equal(stage, "INITIAL_WALK");
+    calls.push(file.name);
+    if (fail && file.name === "outside.png") throw new Error("Interrupted upload");
+  } };
+  let fixture = queue({ jobs, api }); fixture.connect();
+  await assert.rejects(fixture.exports.retryOfflineSyncJob("initial"), /Interrupted/);
+  assert.equal(jobs[0].payload.inspectionStage, "INITIAL_WALK");
+  fail = false;
+  fixture = queue({ jobs, api }); fixture.connect();
+  await fixture.exports.retryOfflineSyncJob("initial");
+  assert.deepEqual(calls, ["inside.png", "outside.png", "outside.png"]);
+  assert.equal(jobs.length, 0);
+});

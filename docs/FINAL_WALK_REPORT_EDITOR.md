@@ -4,7 +4,9 @@ Deployed to mr-os.com in application release `b47399a` on 2026-09-07.
 
 ## Where To Open It
 
-Setup > Properties > select a property > Branding > **Edit / Preview Final-Walk Report**. Save property/company logo changes before opening. The screen is admin-session-only; API tokens and other roles cannot use its endpoints.
+Admin: Setup > Properties > select a property > Branding > **Edit / Preview Final-Walk Report**. Save property/company logo changes before opening.
+
+Local follow-up (2026-09-08, not deployed): assigned independent inspectors can open **My Work > Inspect or hand off > Inspection details / report** for their own turn. They can save inspection details while in FINAL WALK, and review/export drafts after completion. Handoff revokes the previous inspector's access. Only admins can edit property wording/style or browse all property turns; API tokens cannot use these endpoints. Resident-only code fields are available to the assigned inspector, not all staff on the property. See [role workflow audit](TURN_WORKFLOW_AUDIT.md).
 
 The editor provides:
 
@@ -20,7 +22,7 @@ The editor provides:
 
 ## Output And Data Boundaries
 
-This is a **draft workspace**, not the independent finalized-inspection milestone. Every page is labeled DRAFT / NOT FINALIZED / NOT FOR RESIDENT ISSUE. Saving does not update work status, complete generic checklists, sign for another user, or mark a unit ready. A Checked result is an admin-entered draft result, not an independently verified signature or a safety certification.
+This is a **draft workspace**, not the independent finalized-inspection milestone. Every page is labeled DRAFT / NOT FINALIZED / NOT FOR RESIDENT ISSUE. Saving does not update work status, complete generic checklists, sign for another user, or mark a unit ready. A Checked result is a user-entered draft result, not an independently verified signature or a safety certification. Locally, the Mark ready action for FINAL WALK now requires all 45 results recorded, an inspection date and no Needs attention findings. This is not yet a gate on every possible ready-status mutation.
 
 The report uses two printed columns on Letter paper, bounded logos and escaped text. PDFs are rendered server-side with external resource requests blocked. If actual content exceeds one printable page, download returns 422 rather than clipping notes or dropping unresolved findings. Browser preview has its own scrollable page area; the server's measured PDF fit check is authoritative. This does not guarantee arbitrary 45 long exception notes can fit a page.
 
@@ -36,7 +38,7 @@ Endpoints:
 
 ## Still Separate
 
-Verified technician/independent reviewer sign-offs, immutable issued revisions, ready-status gates, encrypted/expiring code delivery, inspector-role editing and rework assignment remain in DIGITAL_TURN_WORKFLOW.md. The editor does not claim those are complete. Saved resident codes are sensitive plaintext within admin-only drafts and privileged native/database backups, not a secrets vault. New editor copy is English; Spanish localization remains a follow-up alongside the branding editor.
+Verified technician/independent reviewer sign-offs, immutable issued revisions, consistent ready-status gates across every mutation path, encrypted/expiring code delivery and rework assignment remain in DIGITAL_TURN_WORKFLOW.md. The editor does not claim those are complete. Saved resident codes are sensitive plaintext within access-controlled drafts and privileged native/database backups, not a secrets vault. New editor copy is English; Spanish localization remains a follow-up alongside the branding editor.
 
 ## Verification
 

@@ -1,0 +1,2 @@
+ALTER TABLE "MakeReadyItem" ADD COLUMN "materials" JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE "MakeReadyItem" ADD COLUMN "materialsVersion" INTEGER NOT NULL DEFAULT 0;

@@ -119,9 +119,9 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                   {!isInspection && item.expectedStart ? <span>{language === "es" ? "Inicio previsto" : "Expected start"}: {item.expectedStart.date.slice(0, 10)}{item.expectedStart.projected ? (language === "es" ? " (proyectado)" : " (projected)") : ""}</span> : null}
                   {item.workAssignmentBlocks?.map(block => <span key={block.id}>{tWithVars(language, "myWork.planned", { date: block.plannedDate.slice(0, 10), category: block.category === "FINAL_WALK_INSPECTION" ? "Final walk inspection" : block.category })}</span>)}
                 </div>
-                {tasks.length || activeSession ? <div className="my-work-progress">
+                {(!isInspection && tasks.length) || activeSession ? <div className="my-work-progress">
                   <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${startedLabel(activeSession.startedAt)}` : tWithVars(language, "myWork.checklist", { done: done.toString(), total: tasks.length.toString() })}</span>
-                  {tasks.length ? <progress value={done} max={tasks.length} /> : null}
+                  {!isInspection && tasks.length ? <progress value={done} max={tasks.length} /> : null}
                 </div> : null}
                 <div className="my-work-actions">
                   <button className="button button-primary" type="button" onClick={() => onOpenItem(item.id)}>{isInspection ? (language === "es" ? "Inspeccionar o delegar" : "Inspect or hand off") : t(language, "myWork.openWorkItem")}</button>

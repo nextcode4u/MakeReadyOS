@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BoardColumnDefinition, BoardSection, ChargePriceSheetImportSummary, ChargePriceSheetItem, ChargeReport, ChargeReportGroup, CurrentUser, CustomField, FloorPlan, ItemCollaboration, LabelDefinition, MakeReadyItem, StaffOption, UnitHistoryResponse, Vendor, VendorAssignment, WorkAssignmentBlock } from "../lib/api";
 import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, chargeReportCsvUrl, chargeReportPrintableHtmlUrl, chargeReportPrintableReportUrl, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getPestIssues, getUnitHistory, importChargePriceSheetItems, isApiError, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
 import { enqueueMakeReadyAttachmentUpload, enqueueMakeReadyChecklistAttach, enqueueMakeReadyChecklistUpdate, enqueueMakeReadyCommentCreate, enqueueMakeReadyCommentDelete, enqueueMakeReadyCommentUpdate, getOfflineSyncEventName, getOfflineSyncJobs } from "../lib/offlineSync";
-import { boardGroupLabel, configuredBoardColumns } from "../lib/board";
+import { boardGroupLabel, configuredBoardColumns, displayUnitNumber } from "../lib/board";
 import { formatDateTime } from "../lib/dateTime";
 import { t, tWithVars } from "../lib/i18n";
 import { openPestQuickAdd, openPestWorkspace } from "../lib/pestNavigation";
@@ -14,6 +14,7 @@ import { StatusState } from "./StatusState";
 import { HistoryCoverageNotice } from "./HistoryCoverageNotice";
 import { FinalWalkControls } from "./FinalWalkControls";
 import { TurnReportPanel } from "./TurnReportPanel";
+import { TurnMaterialsPanel } from "./TurnMaterialsPanel";
 
 function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
   return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
@@ -463,18 +464,18 @@ export function ItemDrawer({
     setPinModeAttachmentId(null);
     setPreviewAttachmentId(previewImageAttachments[nextIndex].id);
   };
-  const uploadFiles = (files: FileList | null) => {
+  const uploadFiles = (files: FileList | null, inspectionStage?: "INITIAL_WALK") => {
     const selected = Array.from(files ?? []);
     if (!selected.length) return;
     void operation("attachments-upload", async () => {
       for (const file of selected) {
         try {
-          await uploadItemAttachment(item.id, file);
+          await uploadItemAttachment(item.id, file, inspectionStage);
         } catch (error) {
           if (!(isApiError(error) && error.status === 0)) {
             throw error;
           }
-          await enqueueMakeReadyAttachmentUpload(item.id, [file]);
+          await enqueueMakeReadyAttachmentUpload(item.id, [file], inspectionStage);
         }
       }
     });
@@ -846,9 +847,10 @@ export function ItemDrawer({
           )}
         </section>
 
+        <TurnMaterialsPanel key={`materials-${item.id}`} itemId={item.id} title={displayUnitNumber(item.property.code, item.unitNumber)} canEdit={["ADMIN", "MANAGER", "TECH", "CLEANER"].includes(currentUser.role)} />
         <section className="drawer-section completion-section" data-testid="drawer-completion-section">
           <h3>{t(language, "drawer.completionFinalWalk")}</h3>
-          <FinalWalkControls key={item.id} itemId={item.id} currentUser={currentUser} onMarkReady={onMarkReady} />
+          <FinalWalkControls key={item.id} itemId={item.id} propertyId={item.propertyId} propertyName={item.property.name} currentUser={currentUser} onMarkReady={onMarkReady} />
           {["ADMIN", "MANAGER"].includes(currentUser.role) ? <TurnReportPanel key={`report-${item.id}`} item={item} isAdmin={currentUser.role === "ADMIN"}/> : null}
           <p className="drawer-empty">
             {t(language, "drawer.completionHelp")}
@@ -1144,6 +1146,13 @@ export function ItemDrawer({
               }} />
             </label>
           ) : null}</div>
+          <div data-testid="initial-walk-evidence">
+            <p>Initial walk: the repair technician records inside/outside condition and possible charge evidence before starting repairs. Keep later work photos in their own stages.</p>
+            {["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? <label className="button button-secondary file-action">Initial walk photos<input data-testid="initial-walk-upload" type="file" multiple accept={attachmentAccept} onChange={event => { uploadFiles(event.target.files, "INITIAL_WALK"); event.target.value = ""; }}/></label> : null}
+            <a className="button button-secondary" data-testid="initial-walk-zip" href={attachmentArchiveUrl(item.id, { stage: "INITIAL_WALK" })}>Download initial walk ZIP</a>
+            <a className="button button-secondary" data-testid="complete-evidence-zip" href={attachmentArchiveUrl(item.id)}>Download complete turn ZIP</a>
+            <p className="helper-copy">ZIPs preserve originals and include an evidence index with uploader, notes, charge candidates and UTC upload timestamps, not verified camera capture times. Suitable for manual document upload or shared-drive backup, not automatic charge posting.</p>
+          </div>
           {pendingAttachmentSyncCount ? <p className="drawer-empty" role="status">{t(language, "drawer.pendingAttachmentSync").replace("{count}", String(pendingAttachmentSyncCount))}</p> : null}
           <div className="attachment-workflow-summary">
             <span><strong>{attachments.length}</strong> {t(language, "drawer.files")}</span>

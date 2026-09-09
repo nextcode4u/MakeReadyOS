@@ -20,6 +20,7 @@ import { startTurnScheduler } from "./lib/turnScheduler.js";
 import { propertyBrandingRoutes } from "./routes/propertyBranding.js";
 import { finalWalkReportRoutes } from "./routes/finalWalkReports.js";
 import { mailboxRoutes } from "./routes/mailboxes.js";
+import { turnMaterialRoutes } from "./routes/turnMaterials.js";
 import { backupTransferRoutes } from "./routes/backupTransfer.js";
 import { customFieldRoutes } from "./routes/customFields.js";
 import { collaborationRoutes } from "./routes/collaboration.js";
@@ -146,6 +147,7 @@ app.register(async (api) => {
   await propertyBrandingRoutes(api);
   await finalWalkReportRoutes(api);
   await mailboxRoutes(api);
+  await turnMaterialRoutes(api);
   await adminRoutes(api);
   await analyticsRoutes(api);
   await automationRoutes(api);

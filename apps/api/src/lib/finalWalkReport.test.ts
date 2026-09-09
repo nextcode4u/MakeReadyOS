@@ -31,7 +31,7 @@ test("report HTML escapes content, rejects remote logos and never fabricates sig
   assert.ok(html.includes("Independent sign-off: not recorded"));
 });
 
-test("report endpoints reject every non-admin role and API tokens before database reads", async () => {
+test("report endpoints reject out-of-scope staff and API tokens before database reads", async () => {
   process.env.ADMIN_USERNAME = "report-test";
   process.env.ADMIN_PASSWORD = "Test-Only-Password!123";
   process.env.SESSION_COOKIE_SECRET = "test-only-session-secret-12345678901234567890";

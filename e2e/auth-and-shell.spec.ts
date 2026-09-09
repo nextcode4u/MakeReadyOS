@@ -1,6 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { frogSpriteClips } from "../apps/web/src/lib/frogSprites";
 import { pondSoundNotes } from "../apps/web/src/lib/pondAudio";
 import { gardenWaterings, localPondDate, pondDiscoveryHabitat, pondSecrets, pondSeason, pondWildlife, wildlifeVisible } from "../apps/web/src/lib/pondDiscoveries";
@@ -12,6 +14,109 @@ const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
 const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
+
+test("mark ready rejects incomplete work, self-review and archived turns", async ({ page }) => {
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const { csrfToken, user } = await (await session).json();
+  const headers = { "x-csrf-token": csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `GATE${Date.now()}`, name: "Readiness test" });
+  const { unit } = await post("/operations/units", { propertyId: property.id, number: "GATE-1" });
+  const meta = await (await page.request.get("/api/meta")).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, assignedTech: user.fullName, vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" });
+  const root = `/api/make-ready-items/${item.id}`;
+  const material = { id: "00000000-0000-4000-8000-000000000005", name: "Required replacement filter", quantity: 1, unit: "each", status: "NEEDED", notes: "" };
+  expect((await page.request.put(`${root}/materials`, { headers, data: { version: 0, rows: [material] } })).ok()).toBeTruthy();
+  const { template } = await post("/checklist-templates", { propertyId: property.id, name: "Required repair and optional work", items: [{ title: "Verify repair", required: true }, { title: "Optional work", required: false }] });
+  const { instance } = await post(`/make-ready-items/${item.id}/checklists`, { templateId: template.id });
+  const attempt = () => page.request.post(`${root}/mark-ready`, { headers });
+  expect((await attempt()).status()).toBe(409);
+  await page.reload();
+  await page.getByRole("button", { name: "Open details for GATE-1", exact: true }).click();
+  const blockers = page.getByTestId("turn-readiness-blockers");
+  await expect(blockers).toContainText("Required checklist: Verify repair");
+  await expect(blockers).toContainText("Pending parts");
+  await expect(blockers).toContainText("cannot approve their own");
+  expect((await page.request.patch(`${root}`, { headers, data: { assignedTech: null } })).ok()).toBeTruthy();
+  expect((await attempt()).status()).toBe(409);
+  expect((await page.request.patch(`/api/checklist-items/${instance.items.find((task: any) => task.required).id}`, { headers, data: { completed: true } })).ok()).toBeTruthy();
+  expect((await attempt()).status()).toBe(409);
+  expect((await page.request.put(`${root}/materials`, { headers, data: { version: 1, rows: [{ ...material, status: "ON_HAND" }] } })).ok()).toBeTruthy();
+  await blockers.getByRole("button", { name: "Recheck completion blockers" }).click();
+  await expect(blockers).toHaveCount(0);
+  const ready = await attempt(); expect(ready.ok(), await ready.text()).toBeTruthy();
+  const completed = await (await page.request.get(root)).json();
+  expect(completed.makeReadyStatus).toBe("DONE");
+  expect((await page.request.post(`${root}/archive`, { headers })).ok()).toBeTruthy();
+  expect((await attempt()).status()).toBe(409);
+  expect((await (await page.request.get(root)).json()).isArchived).toBe(true);
+});
+
+test("turn materials survive saves, conflicts and native restore without leaking into resident reports", async ({ page }, testInfo) => {
+  test.setTimeout(90000);
+  const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await session).json()).csrfToken };
+  const items = await (await page.request.get("/api/make-ready-items")).json();
+  const item = items.find((entry: any) => entry.unitNumber === "284") ?? items[0];
+  const root = `/api/make-ready-items/${item.id}/materials`;
+  await page.getByRole("button", { name: `Open details for ${item.unitNumber}`, exact: true }).click();
+  const panel = page.getByTestId("turn-materials");
+  await panel.getByRole("button", { name: "Add part / material" }).click();
+  const modal = page.getByTestId("turn-material-editor");
+  await modal.getByLabel("Part / material", { exact: true }).fill("Internal-only filter purchase");
+  await modal.getByLabel("Quantity", { exact: true }).fill("2");
+  await modal.getByLabel("Notes / supplier / order reference").fill("PRIVATE-SUPPLIER-ORDER");
+  await page.route(`**${root}`, async route => {
+    if (route.request().method() === "PUT") return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Temporary save failure" }) });
+    return route.continue();
+  });
+  await modal.getByRole("button", { name: "Save material", exact: true }).click();
+  await expect(modal.getByRole("alert")).toContainText("Temporary save failure");
+  await expect(modal.getByLabel("Part / material", { exact: true })).toHaveValue("Internal-only filter purchase");
+  await page.unroute(`**${root}`);
+  await modal.getByRole("button", { name: "Save material", exact: true }).click();
+  await expect(modal).toBeHidden();
+  await expect(panel).toContainText("2 each / Needed");
+  const saved = await (await page.request.get(root)).json();
+  expect(saved.rows).toHaveLength(1);
+  await panel.getByRole("button", { name: "Edit Internal-only filter purchase" }).click();
+  await modal.getByRole("combobox", { name: "Status", exact: true }).selectOption("ORDERED");
+  expect((await page.request.put(root, { headers, data: { rows: saved.rows.map((row: any) => ({ ...row, status: "ON_HAND" })), version: saved.version } })).ok()).toBeTruthy();
+  await modal.getByRole("button", { name: "Save material", exact: true }).click();
+  await expect(modal.getByRole("alert")).toContainText("changed in another session");
+  await expect(modal.getByRole("combobox", { name: "Status", exact: true })).toHaveValue("ORDERED");
+  page.once("dialog", dialog => dialog.accept());
+  await modal.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(panel).toContainText("On hand");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await panel.getByRole("button", { name: "Edit Internal-only filter purchase" }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await modal.getByRole("combobox", { name: "Status", exact: true }).selectOption("USED");
+  expect(await modal.locator("label").evaluateAll(labels => labels.every((label, index) => !index || label.getBoundingClientRect().top >= labels[index - 1].getBoundingClientRect().bottom))).toBeTruthy();
+  await modal.screenshot({ path: testInfo.outputPath("turn-materials-mobile.png") });
+  await modal.getByRole("button", { name: "Save material", exact: true }).click();
+  await expect(panel).toContainText("2 each / Used");
+  const report = await (await page.request.get(`/api/final-walk-reports/${item.propertyId}?itemId=${item.id}`)).json();
+  const preview = await page.request.post(`/api/final-walk-reports/${item.propertyId}/preview`, { headers, data: { itemId: item.id, settings: report.settings.value, draft: report.draft.value, format: "html" } });
+  expect(preview.ok()).toBeTruthy();
+  expect(await preview.text()).not.toContain("PRIVATE-SUPPLIER-ORDER");
+  expect(await preview.text()).not.toContain("Internal-only filter purchase");
+  const backup = await (await page.request.get("/api/admin/export")).json();
+  const portableItem = backup.data.makeReadyItems.find((entry: any) => entry.propertyCode === item.property.code && entry.unitNumber === item.unitNumber);
+  expect(portableItem.materials[0].status).toBe("USED");
+  const code = `PARTS${Date.now()}`;
+  const portable = { ...backup, data: { properties: [{ code, name: "Parts restore", isActive: true }], units: [], makeReadyItems: [{ ...portableItem, propertyCode: code }], customFields: [], customFieldOptions: [], customFieldValues: [], savedViews: [], automationRules: [], checklistTemplates: [], notes: [] } };
+  const restored = await page.request.post("/api/admin/import", { headers, data: { dryRun: false, backup: portable } });
+  expect(restored.ok(), await restored.text()).toBeTruthy();
+  const after = await (await page.request.get("/api/admin/export")).json();
+  expect(after.data.makeReadyItems.find((entry: any) => entry.propertyCode === code).materials).toEqual(portableItem.materials);
+});
 
 test("mailbox import lives in Units with a property-specific copyable conversion prompt", async ({ page, context }) => {
   page.setDefaultTimeout(15000);
@@ -1004,6 +1109,7 @@ test("workflow references distinguish loading, failure and empty mobile context"
 });
 
 test("final walks assign only when ready, appear in My Work and hand off safely", async ({ page, browser }, testInfo) => {
+  test.setTimeout(120000);
   const loginResponse = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
   await login(page, adminEmail, adminPassword);
   const response = await loginResponse;
@@ -1022,15 +1128,20 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
     const { user } = await post("/admin/users", { username: `walk${suffix}${stamp}`, fullName: `Walk ${suffix} ${stamp}`, role: "LEASING", propertyIds: [property.id], password });
     users.push(user);
   }
+  const { user: tech } = await post("/admin/users", { username: `walktech${stamp}`, fullName: `Repair Tech ${stamp}`, role: "TECH", propertyIds: [property.id], password });
+  const { user: evidenceManager } = await post("/admin/users", { username: `walkmanager${stamp}`, fullName: `Evidence Manager ${stamp}`, role: "MANAGER", propertyIds: [property.id], password });
   const { unit } = await post("/operations/units", { propertyId: property.id, number: "WALK-1" });
   const meta = await (await page.request.get(`${origin}/api/meta`)).json();
   const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
   const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, unitNumber: "WALK-1", itemName: "WALK-1", completionStatus: "NO", vacancyStatus: "VACANT NOT LEASED NOT READY", makeReadyDate: "2099-01-01" });
+  expect((await page.request.patch(`${origin}/api/make-ready-items/${item.id}`, { headers, data: { assignedTech: tech.fullName } })).ok()).toBeTruthy();
+  const { template } = await post("/checklist-templates", { propertyId: property.id, name: "Tech repair scope", items: [{ title: "Replace and check filter", required: true }] });
+  const { instance } = await post(`/make-ready-items/${item.id}/checklists`, { templateId: template.id });
   await page.reload();
   await page.getByTestId("property-filter").selectOption(property.id);
   await page.getByTestId("tab-calendar").click();
   const emptyStart = page.getByTestId("calendar-empty-0");
-  await expect(emptyStart).toContainText("The default plan fills missing dates every five minutes.");
+  await expect(emptyStart).toContainText("Check NTV / Expected Vacate or Vacated dates");
   await emptyStart.getByRole("button", { name: "Set up turn scheduling" }).click();
   await expect(page.getByTestId("turn-scheduling-guide")).toBeVisible();
   await page.getByTestId("tab-automations").click();
@@ -1049,8 +1160,102 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
   await guide.screenshot({ path: testInfo.outputPath("final-walk-setup-mobile.png") });
   const assignmentUrl = `${origin}/api/make-ready-items/${item.id}/final-walk`;
   expect((await (await page.request.get(assignmentUrl)).json()).block).toBeNull();
-  const complete = await page.request.patch(`${origin}/api/make-ready-items/${item.id}`, { headers, data: { completionStatus: "YES" } });
-  expect(complete.ok(), await complete.text()).toBeTruthy();
+  const techContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  try {
+    const techPage = await techContext.newPage();
+    const signingIn = techPage.waitForResponse(result => result.url().endsWith("/api/auth/login") && result.request().method() === "POST");
+    await techPage.goto("/");
+    await techPage.getByTestId("login-email").fill(tech.username);
+    await techPage.getByTestId("login-password").fill(password);
+    await techPage.getByTestId("login-submit").click();
+    await expect(techPage.getByTestId("property-filter")).toBeVisible();
+    const techHeaders = { "x-csrf-token": (await (await signingIn).json()).csrfToken };
+    await techPage.getByRole("button", { name: /View:/ }).click();
+    await techPage.getByTestId("tab-my-work").click();
+    const card = techPage.getByTestId(`my-work-item-${item.id}`);
+    await expect(card).toBeVisible();
+    await card.getByRole("button", { name: "Open work item", exact: true }).click();
+    await techPage.getByTestId("comment-input").fill("Initial scope: replace filter and verify fit.");
+    await techPage.getByTestId("comment-submit").click();
+    await expect(techPage.getByTestId("comment-list")).toContainText("Initial scope: replace filter");
+    const photo = await techPage.evaluate(() => { const canvas = document.createElement("canvas"); canvas.width = 32; canvas.height = 32; canvas.getContext("2d")!.fillRect(0, 0, 32, 32); return canvas.toDataURL("image/png").split(",")[1]; });
+    await techPage.getByTestId("initial-walk-upload").setInputFiles([
+      { name: "unit-condition.png", mimeType: "image/png", buffer: Buffer.from(photo, "base64") },
+      { name: "unit-condition.png", mimeType: "image/png", buffer: Buffer.from(photo, "base64") },
+    ]);
+    await expect(techPage.getByTestId("drawer-attachments")).toContainText("2 files");
+    await techPage.getByTestId("attachment-gallery-open").click();
+    const photoCard = techPage.getByTestId("attachment-card").first();
+    await photoCard.getByTestId("attachment-editor-toggle").click();
+    await expect(photoCard.getByTestId("attachment-stage-select")).toHaveValue("INITIAL_WALK");
+    await photoCard.getByTestId("attachment-charge-toggle").check();
+    await photoCard.locator('[data-testid^="attachment-charge-note-"]').fill("Broken cabinet hinge observed before repairs; review for charge eligibility.");
+    await photoCard.locator('[data-testid^="attachment-charge-note-"]').blur();
+    await techPage.keyboard.press("Escape");
+    await techPage.getByTestId("item-drawer-close").click();
+    await card.getByRole("button", { name: "Start Work", exact: true }).click();
+    await card.getByRole("button", { name: "Open work item", exact: true }).click();
+    await techPage.getByTestId("attachment-upload").setInputFiles({ name: "repair-after.png", mimeType: "image/png", buffer: Buffer.from(photo, "base64") });
+    await expect(techPage.getByTestId("drawer-attachments")).toContainText("3 files");
+    await techPage.getByTestId("turn-materials").getByRole("button", { name: "Add part / material" }).click();
+    const material = techPage.getByTestId("turn-material-editor");
+    await material.getByLabel("Part / material", { exact: true }).fill("Replacement filter");
+    await material.getByRole("combobox", { name: "Status", exact: true }).selectOption("USED");
+    await material.getByRole("button", { name: "Save material", exact: true }).click();
+    await expect(material).toHaveCount(0);
+    await techPage.getByTestId(`checklist-item-${instance.items[0].id}`).check();
+    await expect(techPage.getByTestId("drawer-checklists")).toContainText("1/");
+    const completeResponse = techPage.waitForResponse(result => result.url().endsWith(`/make-ready-items/${item.id}`) && result.request().method() === "PATCH");
+    await techPage.getByTestId("drawer-field-completionStatus").selectOption("YES");
+    const complete = await completeResponse;
+    expect(complete.ok(), await complete.text()).toBeTruthy();
+    await techPage.getByTestId("item-drawer-close").click();
+    await card.getByRole("button", { name: "End Work", exact: true }).click();
+    await expect(card.getByRole("button", { name: "Start Work", exact: true })).toBeVisible();
+    expect((await techContext.request.get(`${origin}/api/final-walk-reports/${property.id}?itemId=${item.id}`)).status()).toBe(403);
+    expect((await techContext.request.post(`${origin}/api/make-ready-items/${item.id}/mark-ready`, { headers: techHeaders })).status()).toBe(403);
+    await expect.poll(() => techPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  } finally { await techContext.close(); }
+  for (const evidenceUser of [users[0], evidenceManager]) {
+    const evidenceContext = await browser.newContext();
+    try {
+      const evidencePage = await evidenceContext.newPage();
+      await login(evidencePage, evidenceUser.username, password);
+      await evidencePage.getByRole("button", { name: "Open details for WALK-1", exact: true }).click();
+      const downloadZip = async (testId: string, expectedCount: number) => {
+        const downloading = evidencePage.waitForEvent("download");
+        await evidencePage.getByTestId(testId).click();
+        const downloaded = await downloading;
+        const path = testInfo.outputPath(`${evidenceUser.role}-${testId}.zip`);
+        await downloaded.saveAs(path);
+        const manifest = JSON.parse(execFileSync("unzip", ["-p", path, "manifest.json"], { encoding: "utf8" }));
+        expect(manifest.count).toBe(expectedCount);
+        expect(manifest.turnId).toBe(item.id);
+        expect(manifest.property.id).toBe(property.id);
+        expect(new Set(manifest.attachments.map((entry: any) => entry.zipPath)).size).toBe(expectedCount);
+        for (const entry of manifest.attachments) {
+          expect(entry.uploaderName).toBe(tech.fullName);
+          expect(entry.timestampSource).toContain("not verified camera capture time");
+          expect(entry.zipPath).toContain(entry.uploadedAtUtc.replace(/[:.]/g, "-"));
+          expect(entry.storedName).toBeUndefined();
+          const original = execFileSync("unzip", ["-p", path, entry.zipPath]);
+          expect(createHash("sha256").update(original).digest("hex")).toBe(entry.sha256);
+          expect(original.subarray(1, 4).toString()).toBe("PNG");
+        }
+        expect(manifest.attachments.some((entry: any) => entry.chargeCandidate && entry.chargeNote.includes("before repairs"))).toBe(true);
+        return manifest;
+      };
+      const initial = await downloadZip("initial-walk-zip", 2);
+      expect(initial.attachments.every((entry: any) => entry.inspectionStage === "INITIAL_WALK")).toBe(true);
+      await downloadZip("complete-evidence-zip", 3);
+      const csv = await evidenceContext.request.get(`${origin}/api/make-ready-items/${item.id}/charge-report.csv`);
+      expect(csv.ok(), await csv.text()).toBeTruthy();
+      expect(await csv.text()).toContain("Broken cabinet hinge observed before repairs");
+      const printable = await evidenceContext.request.get(`${origin}/api/make-ready-items/${item.id}/charge-report.html`);
+      expect(printable.ok(), await printable.text()).toBeTruthy();
+      expect(await printable.text()).toContain("Broken cabinet hinge observed before repairs");
+    } finally { await evidenceContext.close(); }
+  }
   const assigned = await (await page.request.get(assignmentUrl)).json();
   expect(assigned.block.assignedUserId).toBe(users[0].id);
   await page.getByRole("button", { name: /View:/ }).click();
@@ -1092,6 +1297,7 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
         await controls.getByLabel("Handoff reason").fill("Unavailable for this inspection");
         await controls.getByRole("button", { name: "Hand off to next inspector" }).click();
         await expect(controls).toContainText(`Final walk: ${users[1].fullName}`);
+        expect((await context.request.get(`${origin}/api/final-walk-reports/${property.id}?itemId=${item.id}`)).status()).toBe(403);
         const retry = await context.request.post(`${assignmentUrl}/handoff`, { headers: staffHeaders, data: { blockId: assigned.block.id, expectedAssigneeId: user.id, reason: "Duplicate handoff" } });
         expect(retry.status()).toBe(409);
         const denied = await context.request.post(`${origin}/api/make-ready-items/${item.id}/mark-ready`, { headers: staffHeaders });
@@ -1106,11 +1312,63 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
         await staffPage.getByRole("button", { name: /View:/ }).click();
         await staffPage.getByTestId("tab-my-work").click();
         await staffPage.getByRole("button", { name: "Inspect or hand off", exact: true }).click();
+        await staffPage.getByRole("button", { name: "Inspection details / report", exact: true }).click();
+        const report = staffPage.getByTestId("final-report-editor");
+        await expect(report.getByTestId("final-report-unit")).toBeDisabled();
+        await expect(report.getByTestId("final-report-title")).toHaveCount(0);
+        await report.getByTestId("final-report-date").fill("2026-09-08");
+        await report.locator("summary").filter({ hasText: "General preparation & HVAC" }).click();
+        await report.getByTestId("final-report-result-general-1").selectOption("CHECKED");
+        await report.getByTestId("final-report-save-draft").click();
+        await expect(report.getByRole("status")).toContainText("Inspection draft saved");
+        const root = `${origin}/api/final-walk-reports/${property.id}`;
+        const saved = await (await context.request.get(`${root}?itemId=${item.id}`)).json();
+        expect(saved.items.map((entry: any) => entry.id)).toEqual([item.id]);
+        expect((await context.request.get(root)).status()).toBe(403);
+        expect((await context.request.put(`${root}/settings`, { headers: staffHeaders, data: saved.settings })).status()).toBe(403);
+        await report.getByTestId("final-report-preview").click();
+        const preview = report.frameLocator('iframe[title="Final-walk draft preview"]');
+        await expect(preview.locator(".brand")).toContainText("Final Walk Test");
+        await expect(preview.locator(".draft")).toContainText("NOT FOR RESIDENT ISSUE");
+        const download = staffPage.waitForEvent("download");
+        await report.getByTestId("final-report-pdf").click();
+        const pdf = await download;
+        await pdf.saveAs(testInfo.outputPath("leasing-inspection-draft.pdf"));
+        const bytes = readFileSync(testInfo.outputPath("leasing-inspection-draft.pdf"));
+        expect(bytes.subarray(0, 4).toString()).toBe("%PDF");
+        expect((bytes.toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
+        await expect.poll(() => staffPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+        await report.screenshot({ path: testInfo.outputPath("leasing-inspection-mobile.png") });
+        expect((await context.request.post(`${origin}/api/make-ready-items/${item.id}/mark-ready`, { headers: staffHeaders })).status()).toBe(409);
+        for (const section of saved.sections) {
+          const details = report.locator("summary").filter({ hasText: section.title }).locator("..");
+          if ((await details.getAttribute("open")) === null) await details.locator("summary").first().click();
+          for (const check of saved.checks.filter((entry: any) => entry.section === section.id)) await report.getByTestId(`final-report-result-${check.id}`).selectOption("CHECKED");
+        }
+        await report.getByTestId("final-report-save-draft").click();
+        await expect(report.getByRole("status")).toContainText("Inspection draft saved");
+        await report.getByRole("button", { name: "Close dialog" }).click();
         const finishing = staffPage.waitForResponse(result => result.url().endsWith(`/make-ready-items/${item.id}/mark-ready`));
         await staffPage.getByRole("button", { name: "Final walk passed / mark ready", exact: true }).click();
         const done = await finishing;
         expect(done.ok(), await done.text()).toBeTruthy();
         expect((await (await context.request.get(assignmentUrl)).json()).block).toBeNull();
+        const completedReport = await context.request.get(`${root}?itemId=${item.id}`);
+        expect(completedReport.ok()).toBeTruthy();
+        expect((await completedReport.json()).canEditDraft).toBe(false);
+        expect((await context.request.put(`${root}/items/${item.id}`, { headers: staffHeaders, data: { version: saved.draft.version, value: saved.draft.value } })).status()).toBe(403);
+        expect((await (await context.request.get(assignmentUrl)).json()).reportAvailable).toBe(true);
+        const finalData = await (await context.request.get(`${root}?itemId=${item.id}`)).json();
+        const exportAfter = await context.request.post(`${root}/preview`, { headers: staffHeaders, data: { itemId: item.id, settings: { ...finalData.settings.value, title: "Unauthorized branding override" }, draft: finalData.draft.value, format: "html" } });
+        expect(exportAfter.ok(), await exportAfter.text()).toBeTruthy();
+        const exportedHtml = (await exportAfter.json()).html;
+        expect(exportedHtml).not.toContain("Unauthorized branding override");
+        expect((exportedHtml.match(/class="CHECKED"/g) ?? []).length).toBe(45);
+        const finalPdf = await context.request.post(`${root}/preview`, { headers: staffHeaders, data: { itemId: item.id, settings: finalData.settings.value, draft: finalData.draft.value, format: "pdf" } });
+        expect(finalPdf.ok(), await finalPdf.text()).toBeTruthy();
+        const finalBytes = Buffer.from((await finalPdf.json()).pdfBase64, "base64");
+        expect(finalBytes.subarray(0, 4).toString()).toBe("%PDF");
+        expect((finalBytes.toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
       }
     }
   } finally { for (const context of contexts) await context.close(); }

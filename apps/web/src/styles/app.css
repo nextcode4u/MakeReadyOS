@@ -1153,6 +1153,9 @@
 .my-work-card.overdue { border-left: 3px solid var(--danger); }
 .my-work-card > div:first-child { display: grid; gap: .14rem; }
 .my-work-card > div:first-child span { color: var(--text-muted); font-size: .7rem; }
+.turn-material-fields { display: grid; gap: .75rem; min-width: 0; margin: 0; padding: 0; border: 0; }
+.turn-material-fields label { display: grid; gap: .3rem; min-width: 0; }
+.turn-material-fields input, .turn-material-fields select, .turn-material-fields textarea { box-sizing: border-box; width: 100%; min-width: 0; }
 .my-work-tags { display: flex; gap: .35rem; flex-wrap: wrap; }
 .my-work-tags b,
 .my-work-tags span { padding: .22rem .38rem; border-radius: .3rem; background: var(--panel-soft); font-size: .66rem; }

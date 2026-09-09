@@ -1,8 +1,9 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { unlink } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import { pipeline } from "node:stream/promises";
+import { PassThrough } from "node:stream";
 import { Prisma, UserRole } from "@prisma/client";
 import { stringify } from "csv-stringify/sync";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -1002,6 +1003,8 @@ export async function collaborationRoutes(app: FastifyInstance) {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const item = await getScopedItem(request, reply, id);
     if (!item) return;
+    const { inspectionStage } = z.object({ inspectionStage: z.enum(["GENERAL", "INITIAL_WALK"]).default("GENERAL") }).parse(request.query);
+    if (inspectionStage === "INITIAL_WALK" && !["ADMIN", "MANAGER", "TECH"].includes(request.currentUser!.role)) return reply.code(403).send({ message: "Initial-walk capture is for technicians or managers" });
     const file = await request.file();
     if (!file) return reply.code(400).send({ message: "Select a file to upload" });
     const safeName = sanitizeFilename(file.filename);
@@ -1033,6 +1036,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
         storedName,
         mimeType: file.mimetype || "application/octet-stream",
         sizeBytes: file.file.bytesRead,
+        inspectionStage,
       },
     });
     await writeAuditLog({ request, actorUserId: user.id, propertyId: item.propertyId, entityType: "ITEM_ATTACHMENT", entityId: attachment.id, action: "ITEM_ATTACHMENT_UPLOADED", message: `Uploaded ${safeName} to ${item.unitNumber}` });
@@ -1073,26 +1077,44 @@ export async function collaborationRoutes(app: FastifyInstance) {
     if (!item) return;
     const where = {
       itemId: id,
-      commentId: null,
       ...(query.stage === "ALL" ? {} : query.stage === "CHARGE_CANDIDATES" ? { chargeCandidate: true } : { inspectionStage: query.stage }),
       ...(query.category ? { category: query.category } : {}),
     };
     const attachments = await prisma.itemAttachment.findMany({ where, orderBy: { createdAt: "asc" } });
     if (!attachments.length) return reply.code(404).send({ message: "No attachments match this filter" });
-    const zip = new yazl.ZipFile();
     const usedPaths = new Set<string>();
+    const entries = [];
     for (const attachment of attachments) {
       const stage = attachment.inspectionStage || "GENERAL";
       const category = attachment.category || "Uncategorized";
-      const zipPath = uniqueZipPath(zipSafePath(stage, category, attachment.originalName), usedPaths);
-      zip.addFile(resolveStoredUploadPath(attachment.storedName), zipPath);
+      const uploadedAt = attachment.createdAt.toISOString();
+      const extension = extname(attachment.originalName);
+      const fileName = `${basename(attachment.originalName, extension).slice(0, 130)}${extension.slice(0, 12)}`;
+      const zipPath = uniqueZipPath(zipSafePath(stage, category, `${uploadedAt.replace(/[:.]/g, "-")}_${fileName}`), usedPaths);
+      const hash = createHash("sha256");
+      try {
+        for await (const chunk of createReadStream(resolveStoredUploadPath(attachment.storedName))) hash.update(chunk);
+      } catch {
+        return reply.code(409).send({ message: "Evidence ZIP is incomplete: a stored attachment is unavailable. Restore the missing upload before exporting." });
+      }
+      const { storedName: _storedName, ...metadata } = attachment;
+      entries.push({ ...metadata, zipPath, uploadedAtUtc: uploadedAt, timestampSource: "server upload time; not verified camera capture time", sha256: hash.digest("hex") });
     }
+    const zip = new yazl.ZipFile();
+    const output = new PassThrough();
+    zip.on("error", error => output.destroy(error));
+    zip.outputStream.on("error", error => output.destroy(error));
+    zip.outputStream.pipe(output);
+    for (let index = 0; index < attachments.length; index++) zip.addFile(resolveStoredUploadPath(attachments[index].storedName), entries[index].zipPath, { mtime: attachments[index].createdAt });
+    zip.addBuffer(Buffer.from(JSON.stringify({ property: { id: item.propertyId, code: item.property.code, name: item.property.name }, unitNumber: item.unitNumber, turnId: item.id, exportedAtUtc: new Date().toISOString(), filter: query, count: entries.length, attachments: entries }, null, 2)), "manifest.json");
+    zip.addBuffer(Buffer.from("MakeReadyOS inspection evidence\nOriginal files are unmodified, including any camera metadata they contain.\nFilename timestamps and uploadedAtUtc are SERVER UPLOAD TIME (UTC), not verified camera capture time. Offline uploads may be received later.\nmanifest.json records uploader, stage, notes, charge candidates, annotations and SHA-256 checksums. Markup is metadata, not burned into originals.\nCharge candidates/estimates are for review, not assessed resident charges. This is an evidence archive, not a Yardi/RealPage charge import.\nALL includes every stored attachment on this turn, including comment attachments; filtered ZIPs include only their stated scope.\n"), "README.txt");
     zip.end();
     const scope = query.category || query.stage.toLowerCase().replace(/_/g, "-");
     reply.header("Content-Type", "application/zip");
+    reply.header("Cache-Control", "no-store");
     reply.header("X-Content-Type-Options", "nosniff");
-    reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`${item.unitNumber}-${scope}-attachments.zip`)}"`);
-    return reply.send(zip.outputStream);
+    reply.header("Content-Disposition", `attachment; filename="${sanitizeFilename(`${item.property.code}-${item.unitNumber}-${scope}-attachments.zip`)}"`);
+    return reply.send(output);
   });
 
   app.patch("/attachments/:id", async (request, reply) => {

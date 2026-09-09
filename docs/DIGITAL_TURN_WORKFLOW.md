@@ -65,9 +65,11 @@ Property templates may adapt wording and applicability. Store a versioned snapsh
 
 ## Current Gaps Confirmed In Code
 
+2026-09-08 audit and parts-list implementation: see [Paper-to-Digital Turn Workflow Audit](TURN_WORKFLOW_AUDIT.md). The internal materials list is now implemented locally; signed inspection gates and immutable resident reports remain outstanding.
+
 - The drawer already has inspection-stage attachment tags and generic checklists. These can support the workflow but do not currently constitute a signed, versioned final inspection.
 - Generic checklist answers are completion booleans, not Pass / Needs attention / N/A with review/rework semantics.
-- The current mark-ready endpoint is manager/admin-only and does not validate a final inspection. Its audit/notification wording previously asserted that the final walk passed; wording is corrected to report only that the unit was marked ready. Existing history is not rewritten.
+- The Mark ready endpoint allows managers/admins and the assigned inspector. Local checks now block required unfinished tasks, pending parts, self-review by assigned name and archived turns. In FINAL WALK a dated, complete inspection draft with no Needs attention findings is required. Other status mutation paths and durable signed identity records remain outstanding; marking ready does not issue a signed resident report. Existing history is not rewritten.
 - The calendar pack creates dates, not completed stage records or independent sign-offs. Percentage assignment sets the turn's tech, not its final reviewer.
 - There is no source-backed, finalized resident checklist report in this workflow yet.
 

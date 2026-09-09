@@ -221,6 +221,8 @@ model MakeReadyItem {
   lastRiskEvaluatedAt  DateTime?
   completionStatus     String?
   finalWalkReportDraft  FinalWalkReportDraft?
+  materials            Json @default("[]")
+  materialsVersion     Int @default(0)
   sheetrockStatus      String?
   pestStatus           String?
   pestTreated          String?
