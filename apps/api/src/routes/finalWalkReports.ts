@@ -42,6 +42,42 @@ async function directoryMailbox(item: { propertyId: string; unitId: string | nul
   return unit?.mailboxNumber ?? null;
 }
 export async function finalWalkReportRoutes(app: FastifyInstance) {
+  const residentCodesSchema = reportDraftSchema.pick({ residentDoorCode: true, residentAccessCode: true, includeResidentCodes: true }).strip();
+  async function codeContext(request: FastifyRequest, db: typeof prisma | import("@prisma/client").Prisma.TransactionClient) {
+    const user = request.currentUser;
+    if (!user || request.authType === "apiToken" || !["ADMIN", "MANAGER", "TECH"].includes(user.role)) throw Object.assign(new Error("Maintenance staff access required"), { statusCode: 403 });
+    const { itemId } = z.object({ itemId: z.string().min(1) }).parse(request.params);
+    const item = await db.makeReadyItem.findUnique({ where: { id: itemId }, include: { finalWalkReportDraft: true, property: { select: { isActive: true } } } });
+    if (!item) throw Object.assign(new Error("Turn not found"), { statusCode: 404 });
+    const ids = allowedPropertyIds(user);
+    if (ids !== null && !ids.includes(item.propertyId)) throw Object.assign(new Error("Property access denied"), { statusCode: 403 });
+    return item;
+  }
+  const codesReadOnly = (item: { isArchived: boolean; makeReadyStatus: string | null; property: { isActive: boolean } }, role: string) => item.isArchived || !item.property.isActive || role !== "ADMIN" && (isFinalWalkStatus(item.makeReadyStatus) || item.makeReadyStatus === "DONE");
+  app.get("/make-ready-items/:itemId/resident-codes", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    const item = await codeContext(request, prisma);
+    const parsed = savedReportDraftSchema.safeParse(item.finalWalkReportDraft?.payload);
+    if (item.finalWalkReportDraft && !parsed.success) throw Object.assign(new Error("Saved report could not be read. Ask an admin to review it before editing codes."), { statusCode: 409 });
+    return { version: parsed.success ? parsed.data.version : 0, value: residentCodesSchema.parse(parsed.success ? parsed.data.value : emptyReportDraft()), updatedAt: parsed.success ? parsed.data.updatedAt : null, readOnly: codesReadOnly(item, request.currentUser!.role) };
+  });
+  app.put("/make-ready-items/:itemId/resident-codes", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    const initial = await codeContext(request, prisma);
+    const input = z.object({ version: z.number().int().nonnegative(), value: z.object({ residentDoorCode: reportDraftSchema.shape.residentDoorCode.removeDefault(), residentAccessCode: reportDraftSchema.shape.residentAccessCode.removeDefault(), includeResidentCodes: z.boolean() }).strict() }).strict().parse(request.body);
+    return prisma.$transaction(async db => {
+      await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${initial.propertyId}), 824018)::text`;
+      await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${initial.id}), 824020)::text`;
+      const item = await codeContext(request, db);
+      if (codesReadOnly(item, request.currentUser!.role)) throw Object.assign(new Error("This turn is read-only here. During final walk, the inspector or an admin must update codes through the report editor."), { statusCode: 409 });
+      const current = savedReportDraftSchema.safeParse(item.finalWalkReportDraft?.payload);
+      if (item.finalWalkReportDraft && !current.success || (current.success ? current.data.version : 0) !== input.version) throw Object.assign(new Error("Report or codes changed in another session. Reload saved codes before saving."), { statusCode: 409 });
+      const draft = { version: input.version + 1, updatedAt: new Date().toISOString(), value: { ...(current.success ? current.data.value : emptyReportDraft()), ...input.value } };
+      await db.finalWalkReportDraft.upsert({ where: { itemId: item.id }, create: { itemId: item.id, payload: draft }, update: { payload: draft } });
+      await db.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: item.propertyId, entityType: "MAKE_READY_ITEM", entityId: item.id, action: "RESIDENT_CODES_UPDATED", message: "Updated resident-only door/access codes and report inclusion. Code values are hidden from activity history.", metadata: { version: draft.version, includeResidentCodes: input.value.includeResidentCodes } } });
+      return { version: draft.version, value: input.value, updatedAt: draft.updatedAt, readOnly: false };
+    });
+  });
   app.get("/final-walk-reports/:propertyId", async (request, reply) => {
     const { itemId } = z.object({ itemId: z.string().min(1).optional() }).parse(request.query);
     const property = await context(request, reply, itemId); if (!property) return;

@@ -10,7 +10,7 @@ export function readinessBlockers(input: { isArchived: boolean; propertyActive: 
   for (const task of input.tasks.filter(task => task.required && !task.completed)) blockers.push(`Required checklist: ${task.title}`);
   const materials = turnMaterialsSchema.safeParse(input.materials);
   if (!materials.success) blockers.push("The parts list needs review before marking ready.");
-  else for (const row of materials.data.filter(row => ["NEEDED", "ORDERED"].includes(row.status))) blockers.push(`Pending parts: ${row.name} (${row.quantity} ${row.unit}). Record receipt/use or cancel if no longer needed.`);
+  else for (const row of materials.data.filter(row => row.status === "ORDERED")) blockers.push(`Parts on order: ${row.name} (${row.quantity} ${row.unit}). Record receipt/use or cancel the order if no longer needed.`);
   if (input.inspectionRequired) {
     const inspection = savedReportDraftSchema.safeParse(input.inspection);
     if (!inspection.success) blockers.push("Save the detailed final-walk inspection report before marking ready.");

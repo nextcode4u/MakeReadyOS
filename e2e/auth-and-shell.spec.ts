@@ -866,7 +866,7 @@ test("immediate automations cannot bypass readiness or undo a successful initiat
     const { unit } = await post("/operations/units", { propertyId: property.id, number: `EVENT-${mode}` });
     const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" });
     const root = `/api/make-ready-items/${item.id}`;
-    if (mode === "blocked") expect((await page.request.put(`${root}/materials`, { headers, data: { version: 0, rows: [{ id: "00000000-0000-4000-8000-000000000008", name: "Replacement latch", quantity: 1, unit: "each", status: "NEEDED", notes: "" }] } })).ok()).toBeTruthy();
+    expect((await page.request.put(`${root}/materials`, { headers, data: { version: 0, rows: [{ id: "00000000-0000-4000-8000-000000000008", name: "Replacement latch", quantity: 1, unit: "each", status: mode === "blocked" ? "ORDERED" : "NEEDED", notes: "" }] } })).ok()).toBeTruthy();
     const { rule } = await post("/automations", {
       name: `Immediate ${mode}`, propertyId: property.id, enabled: true, triggerType: "ITEM_UPDATED",
       conditions: { all: [{ field: "unitNumber", operator: "equals", value: unit.number }] },
@@ -882,7 +882,7 @@ test("immediate automations cannot bypass readiness or undo a successful initiat
       expect(current.makeReadyStatus).not.toBe("DONE");
       expect(current.completionStatus).toBe("NO");
       expect(runs[0].success).toBe(false);
-      expect(runs[0].message).toContain("Pending parts");
+      expect(runs[0].message).toContain("Parts on order");
     } else {
       expect(current.completionStatus).toBe("YES");
       expect(current.makeReadyStatus).toBe("FINAL WALK");
@@ -903,6 +903,36 @@ test("immediate automations cannot bypass readiness or undo a successful initiat
   }
 });
 
+test("shop pickup reminders allow direct, bulk and scheduled readiness", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `PICK${Date.now()}`, name: "Shop pickup readiness" });
+  const meta = await (await page.request.get("/api/meta")).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  for (const mode of ["direct", "bulk", "scheduled"]) {
+    const { unit } = await post("/operations/units", { propertyId: property.id, number: `PICK-${mode}` });
+    const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" });
+    const root = `/api/make-ready-items/${item.id}`;
+    expect((await page.request.put(`${root}/materials`, { headers, data: { version: 0, rows: [{ id: "00000000-0000-4000-8000-000000000008", name: "Gather from shop", quantity: 1, unit: "each", status: "NEEDED", notes: "Pickup reminder, not an order" }] } })).ok()).toBeTruthy();
+    if (mode === "direct") {
+      const response = await page.request.patch(root, { headers, data: { makeReadyStatus: "DONE" } });
+      expect(response.ok(), await response.text()).toBeTruthy();
+    } else if (mode === "bulk") {
+      await post("/make-ready-items/batch", { ids: [item.id], action: "SET_FIELD", field: "makeReadyStatus", value: "DONE" });
+    } else {
+      const { rule } = await post("/automations", { name: "Pickup list is not a blocker", propertyId: property.id, enabled: true, triggerType: "SCHEDULED_CHECK", conditions: { all: [{ field: "unitNumber", operator: "equals", value: unit.number }] }, actions: [{ type: "setField", field: "makeReadyStatus", value: "DONE" }] });
+      const { execution } = await post(`/automations/${rule.id}/run`, {});
+      expect(execution.actionCount).toBe(1);
+    }
+    expect((await (await page.request.get(root)).json()).makeReadyStatus).toBe("DONE");
+    expect((await (await page.request.get(`${root}/materials`)).json()).rows[0].status).toBe("NEEDED");
+  }
+});
+
 test("mark ready rejects incomplete work, self-review and archived turns", async ({ page }) => {
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
   await login(page, adminEmail, adminPassword);
@@ -918,7 +948,7 @@ test("mark ready rejects incomplete work, self-review and archived turns", async
   const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
   const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, assignedTech: user.fullName, vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" });
   const root = `/api/make-ready-items/${item.id}`;
-  const material = { id: "00000000-0000-4000-8000-000000000005", name: "Required replacement filter", quantity: 1, unit: "each", status: "NEEDED", notes: "" };
+  const material = { id: "00000000-0000-4000-8000-000000000005", name: "Required replacement filter", quantity: 1, unit: "each", status: "ORDERED", notes: "" };
   expect((await page.request.put(`${root}/materials`, { headers, data: { version: 0, rows: [material] } })).ok()).toBeTruthy();
   const { rule: blockedRule } = await post("/automations", {
     name: "Do not bypass pending parts", propertyId: property.id, enabled: true, triggerType: "SCHEDULED_CHECK",
@@ -927,7 +957,7 @@ test("mark ready rejects incomplete work, self-review and archived turns", async
   });
   const { execution: blockedRun } = await post(`/automations/${blockedRule.id}/run`, {});
   expect(blockedRun.actionCount).toBe(0);
-  expect(blockedRun.results.flatMap((result: any) => result.errors).join(";")).toContain("Pending parts");
+  expect(blockedRun.results.flatMap((result: any) => result.errors).join(";")).toContain("Parts on order");
   expect((await (await page.request.get(root)).json()).makeReadyStatus).not.toBe("DONE");
   const { template } = await post("/checklist-templates", { propertyId: property.id, name: "Required repair and optional work", items: [{ title: "Verify repair", required: true }, { title: "Optional work", required: false }] });
   const { instance } = await post(`/make-ready-items/${item.id}/checklists`, { templateId: template.id });
@@ -950,7 +980,7 @@ test("mark ready rejects incomplete work, self-review and archived turns", async
   await page.getByRole("button", { name: "Open details for GATE-1", exact: true }).click();
   const blockers = page.getByTestId("turn-readiness-blockers");
   await expect(blockers).toContainText("Required checklist: Verify repair");
-  await expect(blockers).toContainText("Pending parts");
+  await expect(blockers).toContainText("Parts on order");
   await expect(blockers).toContainText("cannot approve their own");
   expect((await page.request.patch(`${root}`, { headers, data: { assignedTech: null } })).ok()).toBeTruthy();
   expect((await attempt()).status()).toBe(409);
@@ -964,12 +994,13 @@ test("mark ready rejects incomplete work, self-review and archived turns", async
   expect(noteEdit.completedAt).toBe(originalCompletion.completedAt);
   expect(noteEdit.completedById).toBe(originalCompletion.completedById);
   expect((await attempt()).status()).toBe(409);
-  expect((await page.request.put(`${root}/materials`, { headers, data: { version: 1, rows: [{ ...material, status: "ON_HAND" }] } })).ok()).toBeTruthy();
+  expect((await page.request.put(`${root}/materials`, { headers, data: { version: 1, rows: [{ ...material, status: "NEEDED" }] } })).ok()).toBeTruthy();
   await blockers.getByRole("button", { name: "Recheck completion blockers" }).click();
   await expect(blockers).toHaveCount(0);
   const ready = await attempt(); expect(ready.ok(), await ready.text()).toBeTruthy();
   const completed = await (await page.request.get(root)).json();
   expect(completed.makeReadyStatus).toBe("DONE");
+  expect((await (await page.request.get(`${root}/materials`)).json()).rows[0].status).toBe("NEEDED");
   expect((await page.request.post(`${root}/archive`, { headers })).ok()).toBeTruthy();
   expect((await attempt()).status()).toBe(409);
   expect((await (await page.request.get(root)).json()).isArchived).toBe(true);
@@ -1029,6 +1060,68 @@ test("changing the inspection status cannot waive an existing report requirement
   expect((await ready.json()).makeReadyStatus).toBe("DONE");
 });
 
+test("parts order requests notify scoped managers and admins without duplicate alerts", async ({ page, playwright }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const stamp = Date.now();
+  const { property } = await post("/operations/properties", { code: `ORDER${stamp}`, name: "Parts order requests" });
+  const { property: other } = await post("/operations/properties", { code: `OTHER${stamp}`, name: "Other property" });
+  const { unit } = await post("/operations/units", { propertyId: property.id, number: "ORDER-1" });
+  const meta = await (await page.request.get("/api/meta")).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" });
+  const password = "Test-Only-Order!123";
+  const contexts = [];
+  try {
+    for (const [name, role, propertyId] of [["tech", "TECH", property.id], ["manager", "MANAGER", property.id], ["other", "MANAGER", other.id]]) {
+      const { user } = await post("/admin/users", { username: `${name}order${stamp}`, fullName: `${name} ordering ${stamp}`, role, propertyIds: [propertyId], password });
+      const api = await playwright.request.newContext({ baseURL: new URL(page.url()).origin }); contexts.push(api);
+      const response = await api.post("/api/auth/login", { data: { identifier: user.username, password } });
+      expect(response.ok()).toBeTruthy();
+    }
+    const [tech, manager, outsider] = contexts;
+    const techHeaders = { "x-csrf-token": (await (await tech.get("/api/auth/me")).json()).csrfToken };
+    const root = `/api/make-ready-items/${item.id}/materials`;
+    const requested = { id: "00000000-0000-4000-8000-000000000033", name: "Missing faucet cartridge", quantity: 2, unit: "each", status: "NEED_TO_ORDER", notes: "Not stocked in shop" };
+    const save = async (version: number, row: typeof requested) => tech.put(root, { headers: techHeaders, data: { version, rows: [row] } });
+    expect((await save(0, requested)).ok()).toBeTruthy();
+    const alerts = async (api: typeof page.request) => (await (await api.get("/api/notifications")).json()).notifications.filter((notification: any) => notification.itemId === item.id && notification.title.startsWith("Parts need ordering:"));
+    expect(await alerts(outsider)).toHaveLength(0);
+    expect(await alerts(tech)).toHaveLength(0);
+    const initialAlerts = await alerts(manager);
+    expect(initialAlerts).toHaveLength(1);
+    expect(initialAlerts[0].message).toContain("Missing faucet cartridge (2 each)");
+    expect(initialAlerts[0].title).toContain("ORDER-1");
+    expect(await alerts(page.request)).toHaveLength(1);
+    await page.reload();
+    await page.getByRole("button", { name: "Open details for ORDER-1", exact: true }).click();
+    const panel = page.getByTestId("turn-materials");
+    await expect(panel).toContainText("1 need to order");
+    await panel.getByRole("button", { name: "Edit Missing faucet cartridge", exact: true }).click();
+    const editor = page.getByTestId("turn-material-editor");
+    await expect(editor.getByRole("combobox", { name: "Status", exact: true })).toHaveValue("NEED_TO_ORDER");
+    await editor.getByLabel("Notes / supplier / order reference").fill("Manager reviewed request");
+    await editor.getByRole("button", { name: "Save material", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    expect(await alerts(manager)).toEqual(initialAlerts);
+    expect((await save(1, requested)).status()).toBe(409);
+    expect(await alerts(manager)).toEqual(initialAlerts);
+    const saved = await (await tech.get(root)).json();
+    expect((await save(saved.version, { ...requested, status: "ORDERED" })).ok()).toBeTruthy();
+    expect(await alerts(manager)).toEqual(initialAlerts);
+    expect((await save(saved.version + 1, requested)).ok()).toBeTruthy();
+    expect(await alerts(manager)).toHaveLength(2);
+    const backup = await (await page.request.get("/api/admin/export")).json();
+    expect(backup.data.makeReadyItems.find((entry: any) => entry.propertyCode === property.code && entry.unitNumber === unit.number).materials[0].status).toBe("NEED_TO_ORDER");
+    const preview = await page.request.post("/api/admin/import", { headers, data: { backup, dryRun: true } });
+    expect(preview.ok(), await preview.text()).toBeTruthy();
+  } finally { for (const context of contexts) await context.dispose(); }
+});
+
 test("parts list supports visible keyboard batch entry, recovery and conflict protection", async ({ page }, testInfo) => {
   await login(page, adminEmail, adminPassword);
   const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
@@ -1065,6 +1158,7 @@ test("parts list supports visible keyboard batch entry, recovery and conflict pr
   const saved = await (await page.request.get(root)).json();
   expect(saved.rows).toHaveLength(original.rows.length + 2);
   expect(saved.rows.slice(-2)).toMatchObject([{ name: "Kitchen faucet", quantity: 1, unit: "each", status: "NEEDED" }, { name: "Paint", quantity: 2.5, unit: "gallons", status: "NEEDED" }]);
+  await expect(panel).toContainText("2 to gather / 0 on order");
   await expect(panel.getByRole("button", { name: "Edit Kitchen faucet", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await entry.locator("input").evaluateAll(inputs => inputs.every(input => { const rect = input.getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth; }))).toBeTruthy();
@@ -2915,6 +3009,9 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
   expect(batchWalk.block.assignedUserId).toBe(users[0].id);
   const bypass = await page.request.patch(`${origin}/api/make-ready-items/${batchItem.id}`, { headers, data: { makeReadyStatus: "DONE" } });
   expect(bypass.status(), await bypass.text()).toBe(409);
+  const reportRoot = `${origin}/api/final-walk-reports/${property.id}`;
+  const priorReport = await (await page.request.get(`${reportRoot}?itemId=${item.id}`)).json();
+  expect((await page.request.put(`${reportRoot}/items/${item.id}`, { headers, data: { version: priorReport.draft.version, value: { ...priorReport.draft.value, homeKeys: "2" } } })).ok()).toBeTruthy();
   const techContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   try {
     const techPage = await techContext.newPage();
@@ -2930,10 +3027,64 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
     const card = techPage.getByTestId(`my-work-item-${item.id}`);
     await expect(card).toBeVisible();
     await card.getByRole("button", { name: "Open work item", exact: true }).click();
+    const drawer = techPage.getByTestId("item-drawer");
+    await expect(drawer).toHaveAttribute("data-focus-pane", "work");
+    await expect(techPage.getByTestId("drawer-checklists")).toBeVisible();
+    await expect(techPage.getByTestId("unit-history-section")).toBeHidden();
+    await expect(techPage.getByTestId("drawer-attachments")).toBeHidden();
+    const workHeight = await drawer.evaluate(element => element.scrollHeight);
+    await techPage.getByTestId("drawer-pane-all").click();
+    await expect(techPage.getByTestId("unit-history-section")).toBeVisible();
+    expect(await drawer.evaluate(element => element.scrollHeight)).toBeGreaterThan(workHeight * 1.5);
+    await techPage.getByTestId("drawer-pane-work").click();
+    await techPage.screenshot({ path: testInfo.outputPath("my-work-focused-mobile.png") });
+    const quickParts = techPage.getByTestId("quick-materials");
+    await quickParts.getByLabel("Part 1", { exact: true }).fill("Unsent shop list");
+    await techPage.getByTestId("drawer-pane-notes").click();
+    await expect(techPage.getByTestId("drawer-notes-section")).toBeVisible();
+    await expect(quickParts).toBeHidden();
+    await techPage.getByTestId("comment-input").fill("Unsent scope note");
+    await techPage.getByTestId("drawer-pane-photos").click();
+    await expect(techPage.getByTestId("drawer-attachments")).toBeVisible();
+    await techPage.getByTestId("drawer-pane-notes").click();
+    await expect(techPage.getByTestId("comment-input")).toHaveValue("Unsent scope note");
+    await techPage.getByTestId("drawer-pane-work").click();
+    await expect(quickParts.getByLabel("Part 1", { exact: true })).toHaveValue("Unsent shop list");
+    techPage.once("dialog", dialog => dialog.accept());
+    await quickParts.getByRole("button", { name: "Discard unsaved lines" }).click();
+    const codes = techPage.getByTestId("resident-codes-panel");
+    await expect(codes).toBeVisible();
+    await codes.getByLabel("New resident door code", { exact: true }).fill("0482#");
+    await codes.getByLabel("Resident-specific access code (optional)").fill("UNIT-0482");
+    await codes.getByLabel("Include these resident-only codes on the Final-Walk Report").check();
+    const codesUrl = `${origin}/api/make-ready-items/${item.id}/resident-codes`;
+    await techPage.route(`**/make-ready-items/${item.id}/resident-codes`, route => route.request().method() === "PUT" ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Codes save temporarily unavailable" }) }) : route.continue());
+    await codes.getByRole("button", { name: "Save resident codes", exact: true }).click();
+    await expect(codes.getByRole("alert")).toContainText("temporarily unavailable");
+    await expect(codes.getByLabel("New resident door code", { exact: true })).toHaveValue("0482#");
+    await techPage.unroute(`**/make-ready-items/${item.id}/resident-codes`);
+    await codes.getByRole("button", { name: "Save resident codes", exact: true }).click();
+    await expect(codes.getByRole("status")).toContainText("They will appear on the Final-Walk Report");
+    const codeState = await (await techContext.request.get(codesUrl)).json();
+    expect(codeState.value).toEqual({ residentDoorCode: "0482#", residentAccessCode: "UNIT-0482", includeResidentCodes: true });
+    const savedReport = await (await page.request.get(`${reportRoot}?itemId=${item.id}`)).json();
+    expect(savedReport.draft.value.homeKeys).toBe("2");
+    expect(savedReport.draft.value.residentDoorCode).toBe("0482#");
+    const codeActivity = await (await page.request.get(`${origin}/api/activity?entityId=${item.id}&action=RESIDENT_CODES_UPDATED`)).json();
+    expect(JSON.stringify(codeActivity)).toContain("RESIDENT_CODES_UPDATED");
+    expect(JSON.stringify(codeActivity)).not.toContain("0482");
+    expect((await techContext.request.put(codesUrl, { headers: techHeaders, data: { version: codeState.version - 1, value: codeState.value } })).status()).toBe(409);
+    expect((await techContext.request.put(codesUrl, { headers: techHeaders, data: { version: codeState.version, value: { ...codeState.value, results: {} } } })).status()).toBe(400);
+    const foreignTurn = (await (await page.request.get(`${origin}/api/make-ready-items`)).json()).find((entry: any) => entry.propertyId !== property.id);
+    expect((await techContext.request.get(`${origin}/api/make-ready-items/${foreignTurn.id}/resident-codes`)).status()).toBe(403);
+    await expect.poll(() => codes.locator("input").evaluateAll(inputs => inputs.every(input => input.getBoundingClientRect().right <= innerWidth))).toBeTruthy();
+    await codes.screenshot({ path: testInfo.outputPath("resident-codes-tech-mobile.png") });
+    await techPage.getByTestId("drawer-pane-notes").click();
     await techPage.getByTestId("comment-input").fill("Initial scope: replace filter and verify fit.");
     await techPage.getByTestId("comment-submit").click();
     await expect(techPage.getByTestId("comment-list")).toContainText("Initial scope: replace filter");
     const photo = await techPage.evaluate(() => { const canvas = document.createElement("canvas"); canvas.width = 32; canvas.height = 32; canvas.getContext("2d")!.fillRect(0, 0, 32, 32); return canvas.toDataURL("image/png").split(",")[1]; });
+    await techPage.getByTestId("drawer-pane-photos").click();
     await techPage.getByTestId("initial-walk-upload").setInputFiles([
       { name: "unit-condition.png", mimeType: "image/png", buffer: Buffer.from(photo, "base64") },
       { name: "unit-condition.png", mimeType: "image/png", buffer: Buffer.from(photo, "base64") },
@@ -2950,24 +3101,29 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
     await techPage.getByTestId("item-drawer-close").click();
     await card.getByRole("button", { name: "Start Work", exact: true }).click();
     await card.getByRole("button", { name: "Open work item", exact: true }).click();
+    await techPage.getByTestId("drawer-pane-photos").click();
     await techPage.getByTestId("attachment-upload").setInputFiles({ name: "repair-after.png", mimeType: "image/png", buffer: Buffer.from(photo, "base64") });
     await expect(techPage.getByTestId("drawer-attachments")).toContainText("3 files");
+    await techPage.getByTestId("drawer-pane-work").click();
     await techPage.getByTestId("turn-materials").getByRole("button", { name: "Add part / material" }).click();
     const material = techPage.getByTestId("turn-material-editor");
     await material.getByLabel("Part / material", { exact: true }).fill("Replacement filter");
-    await material.getByRole("combobox", { name: "Status", exact: true }).selectOption("USED");
+    await material.getByRole("combobox", { name: "Status", exact: true }).selectOption("NEEDED");
     await material.getByRole("button", { name: "Save material", exact: true }).click();
     await expect(material).toHaveCount(0);
     await techPage.getByTestId(`checklist-item-${instance.items[0].id}`).check();
     await expect(techPage.getByTestId("drawer-checklists")).toContainText("1/");
     const completeResponse = techPage.waitForResponse(result => result.url().endsWith(`/make-ready-items/${item.id}`) && result.request().method() === "PATCH");
-    await techPage.getByTestId("drawer-field-completionStatus").selectOption("YES");
+    await techPage.getByTestId("work-completion-status").selectOption("YES");
     const complete = await completeResponse;
     expect(complete.ok(), await complete.text()).toBeTruthy();
     await techPage.getByTestId("item-drawer-close").click();
     await card.getByRole("button", { name: "End Work", exact: true }).click();
     await expect(card.getByRole("button", { name: "Start Work", exact: true })).toBeVisible();
     expect((await techContext.request.get(`${origin}/api/final-walk-reports/${property.id}?itemId=${item.id}`)).status()).toBe(403);
+    const handedOffCodes = await (await techContext.request.get(codesUrl)).json();
+    expect(handedOffCodes.readOnly).toBe(true);
+    expect((await techContext.request.put(codesUrl, { headers: techHeaders, data: { version: handedOffCodes.version, value: handedOffCodes.value } })).status()).toBe(409);
     expect((await techContext.request.post(`${origin}/api/make-ready-items/${item.id}/mark-ready`, { headers: techHeaders })).status()).toBe(403);
     await expect.poll(() => techPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   } finally { await techContext.close(); }
@@ -3043,6 +3199,8 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
         await expect(inspectionCard.getByRole("button", { name: "Open work item", exact: true })).toHaveCount(0);
         await expect(inspectionCard.locator("progress")).toHaveCount(0);
         await inspectionCard.getByRole("button", { name: "Inspect or hand off", exact: true }).click();
+        await expect(staffPage.getByTestId("item-drawer")).toHaveAttribute("data-focus-pane", "final");
+        await expect(staffPage.getByTestId("turn-materials")).toBeHidden();
         const controls = staffPage.getByTestId("final-walk-controls");
         await expect(controls.getByLabel("Handoff reason")).toHaveCount(0);
         await controls.getByRole("button", { name: "Cannot do this inspection?", exact: true }).click();
@@ -3071,6 +3229,7 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
         const report = staffPage.getByTestId("final-report-editor");
         await expect(report.getByTestId("final-report-unit")).toBeDisabled();
         await expect(report.getByTestId("final-report-title")).toHaveCount(0);
+        await expect(report.getByTestId("report-door-code")).toHaveValue("0482#");
         await report.getByTestId("final-report-date").fill("2026-09-08");
         await report.locator("summary").filter({ hasText: "General preparation & HVAC" }).click();
         await report.getByTestId("final-report-result-general-1").selectOption("CHECKED");
@@ -3085,12 +3244,15 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
         const preview = report.frameLocator('iframe[title="Final-walk draft preview"]');
         await expect(preview.locator(".brand")).toContainText("Final Walk Test");
         await expect(preview.locator(".draft")).toContainText("NOT FOR RESIDENT ISSUE");
+        await expect(preview.locator("body")).toContainText("0482#");
+        await expect(preview.locator("body")).toContainText("UNIT-0482");
         const download = staffPage.waitForEvent("download");
         await report.getByTestId("final-report-pdf").click();
         const pdf = await download;
         await pdf.saveAs(testInfo.outputPath("leasing-inspection-draft.pdf"));
         const bytes = readFileSync(testInfo.outputPath("leasing-inspection-draft.pdf"));
         expect(bytes.subarray(0, 4).toString()).toBe("%PDF");
+        expect(execFileSync("pdftotext", [testInfo.outputPath("leasing-inspection-draft.pdf"), "-"], { encoding: "utf8" })).toContain("0482#");
         expect((bytes.toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
         await expect.poll(() => staffPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
         await report.screenshot({ path: testInfo.outputPath("leasing-inspection-mobile.png") });

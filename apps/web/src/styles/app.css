@@ -4400,6 +4400,21 @@ textarea {
   font-size: 1.45rem;
 }
 
+.item-drawer-header:has(.drawer-work-nav) { flex-wrap: wrap; }
+.drawer-work-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .3rem; flex-basis: 100%; }
+.drawer-work-nav button { min-width: 0; min-height: 2.5rem; padding: .35rem .2rem; white-space: normal; font-size: .75rem; }
+.drawer-work-nav button[aria-pressed="true"] { background: var(--accent); color: #061624; border-color: var(--accent); }
+.drawer-work-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; margin: 0 0 .75rem; }
+.drawer-work-facts dt { color: var(--text-muted); font-size: .72rem; }
+.drawer-work-facts dd { margin: .2rem 0 0; overflow-wrap: anywhere; font-size: .85rem; }
+/* Keep editors mounted when switching sections so in-progress inputs survive. */
+.item-drawer:where([data-focus-pane]:not([data-focus-pane="all"])) > .drawer-section { display: none; }
+.item-drawer[data-focus-pane="work"] > :is([data-testid="drawer-work-summary"], [data-testid="drawer-checklists"], [data-testid="turn-materials"], [data-testid="resident-codes-panel"]),
+.item-drawer[data-focus-pane="photos"] > [data-testid="drawer-attachments"],
+.item-drawer[data-focus-pane="notes"] > [data-testid="drawer-notes-section"],
+.item-drawer[data-focus-pane="final"] > [data-testid="drawer-completion-section"] { display: block; }
+.item-drawer[data-focus-pane]:not([data-focus-pane="all"]) > * { flex-shrink: 0; }
+
 .drawer-kicker {
   color: var(--text-muted);
   font-size: 0.72rem;

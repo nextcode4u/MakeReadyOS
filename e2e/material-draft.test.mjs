@@ -33,6 +33,11 @@ test("material draft restores incomplete input and original optimistic version",
   assert.equal(JSON.stringify(parseMaterialDraft(raw, "tech", "turn")), JSON.stringify(edit));
 });
 
+test("Need to order survives draft recovery", () => {
+  const request = { ...edit, row: { ...edit.row, status: "NEED_TO_ORDER" } };
+  assert.equal(parseMaterialDraft(encodeMaterialDraft("tech", "turn", request), "tech", "turn").row.status, "NEED_TO_ORDER");
+});
+
 test("material drafts are scoped to both account and turn", () => {
   const raw = encodeMaterialDraft("tech", "turn", edit);
   assert.equal(parseMaterialDraft(raw, "other", "turn"), null);

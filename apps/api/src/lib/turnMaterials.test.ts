@@ -1,8 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { turnMaterialsSchema } from "./turnMaterials.js";
+import { newlyRequestedMaterials, turnMaterialsSchema } from "./turnMaterials.js";
 
 const row = { id: "00000000-0000-4000-8000-000000000001", name: "HVAC filter", quantity: 2, unit: "each", status: "NEEDED", notes: "20 x 20" };
+test("order request alerts occur only when a line enters Need to order", () => {
+  const needed = turnMaterialsSchema.parse([row]);
+  const requested = turnMaterialsSchema.parse([{ ...row, status: "NEED_TO_ORDER" }]);
+  assert.equal(newlyRequestedMaterials([], requested).length, 1);
+  assert.equal(newlyRequestedMaterials(needed, requested).length, 1);
+  assert.deepEqual(newlyRequestedMaterials(requested, [{ ...requested[0], quantity: 3, notes: "Supplier reference" }]), []);
+  assert.deepEqual(newlyRequestedMaterials(requested, needed), []);
+  const ordered = turnMaterialsSchema.parse([{ ...row, status: "ORDERED" }]);
+  assert.deepEqual(newlyRequestedMaterials(requested, ordered), []);
+  assert.equal(newlyRequestedMaterials(ordered, requested).length, 1);
+});
 test("materials validate meaningful quantities, bounded rows and unique IDs", () => {
   assert.equal(turnMaterialsSchema.parse([row])[0].quantity, 2);
   for (const quantity of [0, -1, Infinity, NaN, 100001]) assert.equal(turnMaterialsSchema.safeParse([{ ...row, quantity }]).success, false);
