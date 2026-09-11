@@ -870,7 +870,7 @@ test("immediate automations cannot bypass readiness or undo a successful initiat
     const { rule } = await post("/automations", {
       name: `Immediate ${mode}`, propertyId: property.id, enabled: true, triggerType: "ITEM_UPDATED",
       conditions: { all: [{ field: "unitNumber", operator: "equals", value: unit.number }] },
-      actions: [{ type: "setField", field: mode === "blocked" ? "makeReadyStatus" : "completionStatus", value: mode === "blocked" ? "DONE" : "YES" }],
+      actions: [{ type: "setField", field: "makeReadyStatus", value: mode === "blocked" ? "READY" : "DONE" }],
     });
     const edited = await page.request.patch(root, { headers, data: { notes: "User note must remain saved" } });
     expect(edited.status(), await edited.text()).toBe(200);
@@ -891,7 +891,7 @@ test("immediate automations cannot bypass readiness or undo a successful initiat
       const { rule: bypass } = await post("/automations", {
         name: "Do not skip the inspector", propertyId: property.id, enabled: true, triggerType: "ITEM_UPDATED",
         conditions: { all: [{ field: "unitNumber", operator: "equals", value: unit.number }] },
-        actions: [{ type: "setField", field: "makeReadyStatus", value: "DONE" }],
+        actions: [{ type: "setField", field: "makeReadyStatus", value: "READY" }],
       });
       const editDuringInspection = await page.request.patch(root, { headers, data: { notes: "Still waiting for the inspector" } });
       expect(editDuringInspection.status(), await editDuringInspection.text()).toBe(200);
@@ -903,9 +903,10 @@ test("immediate automations cannot bypass readiness or undo a successful initiat
   }
 });
 
-test("shop pickup reminders allow direct, bulk and scheduled readiness", async ({ page }) => {
+test("repair DONE hands off direct, bulk and scheduled work without approving readiness", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
-  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const session = await (await page.request.get("/api/auth/me")).json();
+  const headers = { "x-csrf-token": session.csrfToken };
   const post = async (path: string, data: unknown) => {
     const response = await page.request.post(`/api${path}`, { headers, data });
     expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
@@ -915,9 +916,10 @@ test("shop pickup reminders allow direct, bulk and scheduled readiness", async (
   const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
   for (const mode of ["direct", "bulk", "scheduled"]) {
     const { unit } = await post("/operations/units", { propertyId: property.id, number: `PICK-${mode}` });
-    const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" });
+    const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO", assignedTech: session.user.fullName });
     const root = `/api/make-ready-items/${item.id}`;
-    expect((await page.request.put(`${root}/materials`, { headers, data: { version: 0, rows: [{ id: "00000000-0000-4000-8000-000000000008", name: "Gather from shop", quantity: 1, unit: "each", status: "NEEDED", notes: "Pickup reminder, not an order" }] } })).ok()).toBeTruthy();
+    const status = mode === "direct" ? "NEEDED" : mode === "bulk" ? "ORDERED" : "NEED_TO_ORDER";
+    expect((await page.request.put(`${root}/materials`, { headers, data: { version: 0, rows: [{ id: "00000000-0000-4000-8000-000000000008", name: "Replacement filter", quantity: 1, unit: "each", status, notes: "" }] } })).ok()).toBeTruthy();
     if (mode === "direct") {
       const response = await page.request.patch(root, { headers, data: { makeReadyStatus: "DONE" } });
       expect(response.ok(), await response.text()).toBeTruthy();
@@ -928,8 +930,12 @@ test("shop pickup reminders allow direct, bulk and scheduled readiness", async (
       const { execution } = await post(`/automations/${rule.id}/run`, {});
       expect(execution.actionCount).toBe(1);
     }
-    expect((await (await page.request.get(root)).json()).makeReadyStatus).toBe("DONE");
-    expect((await (await page.request.get(`${root}/materials`)).json()).rows[0].status).toBe("NEEDED");
+    expect(await (await page.request.get(root)).json()).toMatchObject({ makeReadyStatus: "FINAL WALK", completionStatus: "YES", vacancyStatus: "VACANT NOT LEASED NOT READY" });
+    expect((await (await page.request.get(`${root}/materials`)).json()).rows[0].status).toBe(status);
+    const repeat = await page.request.patch(root, { headers, data: { makeReadyStatus: "DONE" } });
+    expect(repeat.ok(), await repeat.text()).toBeTruthy();
+    expect((await repeat.json()).makeReadyStatus).toBe("FINAL WALK");
+    expect((await page.request.post(`${root}/mark-ready`, { headers })).status()).toBe(409);
   }
 });
 
@@ -953,7 +959,7 @@ test("mark ready rejects incomplete work, self-review and archived turns", async
   const { rule: blockedRule } = await post("/automations", {
     name: "Do not bypass pending parts", propertyId: property.id, enabled: true, triggerType: "SCHEDULED_CHECK",
     conditions: { all: [{ field: "unitNumber", operator: "equals", value: unit.number }] },
-    actions: [{ type: "setField", field: "makeReadyStatus", value: "DONE" }],
+    actions: [{ type: "setField", field: "makeReadyStatus", value: "READY" }],
   });
   const { execution: blockedRun } = await post(`/automations/${blockedRule.id}/run`, {});
   expect(blockedRun.actionCount).toBe(0);
@@ -962,12 +968,12 @@ test("mark ready rejects incomplete work, self-review and archived turns", async
   const { template } = await post("/checklist-templates", { propertyId: property.id, name: "Required repair and optional work", items: [{ title: "Verify repair", required: true }, { title: "Optional work", required: false }] });
   const { instance } = await post(`/make-ready-items/${item.id}/checklists`, { templateId: template.id });
   const readySection = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "READY");
-  for (const data of [{ makeReadyStatus: "DONE" }, { vacancyStatus: "VACANT NOT LEASED READY" }, { boardGroup: readySection.key }]) {
+  for (const data of [{ makeReadyStatus: "READY" }, { vacancyStatus: "VACANT NOT LEASED READY" }, { boardGroup: readySection.key }]) {
     expect((await page.request.patch(root, { headers, data })).status()).toBe(409);
   }
   const { unit: secondUnit } = await post("/operations/units", { propertyId: property.id, number: "GATE-2" });
   const second = await post("/make-ready-items", { propertyId: property.id, unitId: secondUnit.id, boardGroup: section.key, itemName: secondUnit.number, unitNumber: secondUnit.number, vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" });
-  for (const change of [{ action: "SET_FIELD", field: "makeReadyStatus", value: "DONE" }, { action: "MOVE_GROUP", boardGroup: readySection.key }]) {
+  for (const change of [{ action: "SET_FIELD", field: "vacancyStatus", value: "VACANT NOT LEASED READY" }, { action: "MOVE_GROUP", boardGroup: readySection.key }]) {
     const response = await page.request.post("/api/make-ready-items/batch", { headers, data: { ids: [second.id, item.id], ...change } });
     expect(response.status(), await response.text()).toBe(409);
     const unchanged = await (await page.request.get(`/api/make-ready-items/${second.id}`)).json();
@@ -3007,7 +3013,7 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
   expect(batchTurn.makeReadyStatus).toBe("FINAL WALK");
   const batchWalk = await (await page.request.get(`${origin}/api/make-ready-items/${batchItem.id}/final-walk`)).json();
   expect(batchWalk.block.assignedUserId).toBe(users[0].id);
-  const bypass = await page.request.patch(`${origin}/api/make-ready-items/${batchItem.id}`, { headers, data: { makeReadyStatus: "DONE" } });
+  const bypass = await page.request.patch(`${origin}/api/make-ready-items/${batchItem.id}`, { headers, data: { makeReadyStatus: "READY" } });
   expect(bypass.status(), await bypass.text()).toBe(409);
   const reportRoot = `${origin}/api/final-walk-reports/${property.id}`;
   const priorReport = await (await page.request.get(`${reportRoot}?itemId=${item.id}`)).json();
@@ -3113,8 +3119,15 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
     await expect(material).toHaveCount(0);
     await techPage.getByTestId(`checklist-item-${instance.items[0].id}`).check();
     await expect(techPage.getByTestId("drawer-checklists")).toContainText("1/");
+    await techPage.getByTestId("drawer-pane-all").click();
+    for (const field of ["pestTreated", "trashOutStatus"]) {
+      const saved = techPage.waitForResponse(result => result.url().endsWith(`/make-ready-items/${item.id}`) && result.request().method() === "PATCH");
+      await techPage.getByTestId(`drawer-field-${field}`).selectOption("DONE");
+      expect((await saved).ok()).toBeTruthy();
+      await expect(techPage.getByTestId(`drawer-field-${field}`)).toHaveValue("DONE");
+    }
     const completeResponse = techPage.waitForResponse(result => result.url().endsWith(`/make-ready-items/${item.id}`) && result.request().method() === "PATCH");
-    await techPage.getByTestId("work-completion-status").selectOption("YES");
+    await techPage.getByTestId("drawer-field-makeReadyStatus").selectOption("DONE");
     const complete = await completeResponse;
     expect(complete.ok(), await complete.text()).toBeTruthy();
     await techPage.getByTestId("item-drawer-close").click();

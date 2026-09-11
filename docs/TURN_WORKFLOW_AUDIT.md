@@ -4,6 +4,8 @@
 
 ## Readiness Decision
 
+September 11 repair-completion correction: editable Make Ready = DONE now records repair completion and hands unfinished turns to FINAL WALK, consistently across direct edits, batch edits and immediate/scheduled automations. Existing finalized turns are not reopened. This is not final approval: vacancy/group Ready changes and Mark ready retain independent-inspector, required-work and on-order parts checks. Seed defaults add DONE for Pest Treated and Trash Out without rewriting existing selections. Import/create legacy-status semantics and immutable inspection issuance remain separate follow-ups.
+
 MakeReadyOS can support day-to-day scheduling, repair tracking, photos, parts and inspection handoff. It is **not yet a complete replacement for the signed paper inspection and resident handoff record**. Keep the current inspection/sign-off process until the blocking items below are delivered.
 
 ## Deployment Checkpoint

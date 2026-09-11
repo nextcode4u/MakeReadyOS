@@ -14,7 +14,7 @@ import { prisma } from "../lib/prisma.js";
 import { finalWalkCategory, pendingWalkStatuses, syncFinalWalks } from "../lib/finalWalks.js";
 import { getTurnReadiness } from "../lib/turnReadiness.js";
 import { isFinalWalkStatus } from "../lib/turnStatus.js";
-import { guardReadyMutation, lockTurnProperty, requestsInspection } from "../lib/turnMutationGuard.js";
+import { guardReadyMutation, lockTurnProperty, normalizeRepairCompletion, requestsInspection } from "../lib/turnMutationGuard.js";
 import { notifyAssignedStaff, notifyPropertyRoles } from "../lib/notifications.js";
 import { computeDerivedFields, editableFields, normalizeItemPatch, startOfDay, withLiveTurnFields } from "../lib/board.js";
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
@@ -663,6 +663,7 @@ async function processItem(itemId: string, options: {
       return { updated: current, blocked: "Automation skipped: item or rule changed after evaluation, or is no longer active.", skipHistory: true };
     }
     const patch = normalizeItemPatch(automationPatch);
+    normalizeRepairCompletion(current, patch);
     try {
       await guardReadyMutation(db, current, patch, options.request?.currentUser?.fullName ?? "Automation");
     } catch (error) {
@@ -674,7 +675,10 @@ async function processItem(itemId: string, options: {
     const updated = await db.makeReadyItem.update({
       where: { id: itemId },
       data: {
-        ...computeDerivedFields({ ...next, ...(inspection ? { makeReadyStatus: "FINAL WALK" } : {}) }),
+        ...computeDerivedFields({ ...next,
+          makeReadyStatus: typeof patch.makeReadyStatus === "string" ? patch.makeReadyStatus : next.makeReadyStatus,
+          completionStatus: typeof patch.completionStatus === "string" ? patch.completionStatus : next.completionStatus,
+        }),
         ...patch,
         priority: typeof next.priority === "number" ? next.priority : item.priority,
       },
@@ -1186,8 +1190,10 @@ export async function makeReadyRoutes(app: FastifyInstance) {
         const currentItems = await db.makeReadyItem.findMany({ where: { id: { in: payload.ids } }, orderBy: { id: "asc" } });
         if (currentItems.length !== items.length) throw Object.assign(new Error("Selected turns changed. Reload before retrying."), { statusCode: 409 });
         for (const current of currentItems) {
-          await guardReadyMutation(db, current, data, user.fullName);
-          const next = { ...data, ...(requestsInspection(current, data) ? { makeReadyStatus: "FINAL WALK" } : {}) };
+          const next = { ...data };
+          normalizeRepairCompletion(current, next);
+          await guardReadyMutation(db, current, next, user.fullName);
+          if (requestsInspection(current, next)) next.makeReadyStatus = "FINAL WALK";
           await db.makeReadyItem.update({ where: { id: current.id }, data: next });
         }
         return { count: currentItems.length };
@@ -1276,6 +1282,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       await lockTurnProperty(db, existing.propertyId);
       const current = await db.makeReadyItem.findUniqueOrThrow({ where: { id } });
       const data = normalizeItemPatch(payload);
+      normalizeRepairCompletion(current, data);
       await guardReadyMutation(db, current, data, user.fullName);
       const requested = requestsInspection(current, data);
       await db.makeReadyItem.update({ where: { id }, data: { ...data, ...(requested ? { makeReadyStatus: "FINAL WALK" } : {}) } });
