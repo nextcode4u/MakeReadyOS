@@ -6,6 +6,15 @@ const normalized = (value: unknown) => String(value ?? "").trim().toUpperCase().
 const readyPhases = new Set(["DONE", "COMPLETE", "COMPLETED", "READY"]);
 const readyVacancies = new Set(["VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY", "VACANT_READY"]);
 
+// DONE in the editable Make Ready field completes repairs, not inspection.
+// Already-finalized turns retain DONE; only Mark ready finalizes an inspection.
+export function normalizeRepairCompletion(current: Pick<MakeReadyItem, "makeReadyStatus">, patch: Record<string, unknown>) {
+  if (normalized(patch.makeReadyStatus) === "DONE" && !readyPhases.has(normalized(current.makeReadyStatus))) {
+    patch.makeReadyStatus = "FINAL WALK";
+    patch.completionStatus = "YES";
+  }
+}
+
 export function requestsInspection(current: Pick<MakeReadyItem, "makeReadyStatus" | "completionStatus">, patch: Record<string, unknown>) {
   return normalized(patch.completionStatus) === "YES"
     && normalized(current.completionStatus) !== "YES"

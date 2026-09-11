@@ -48,11 +48,13 @@ const labelSeed = {
     ["SILVERFISH", "#aab7c4", "#08111d"],
   ],
   pestTreated: [
+    ["DONE", "#46d39c", "#06291c"],
     ["", "#8d93a8", "#f4f6fa"],
     ["SCHEDULED", "#ffcc80", "#371900"],
     ["TREATED", "#4fae7f", "#05170f"],
   ],
   trashOutStatus: [
+    ["DONE", "#46d39c", "#06291c"],
     ["EASY", "#46d39c", "#06291c"],
     ["LITE", "#58a6de", "#041f31"],
     ["MEDIUM", "#ffc673", "#3a1f00"],

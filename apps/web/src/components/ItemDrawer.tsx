@@ -794,6 +794,7 @@ export function ItemDrawer({
                       <option value="">{t(language, "drawer.unset")}</option>
                       {options.map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}{option.isArchived ? " (archived)" : ""}</option>)}
                     </select>
+                    {column.key === "makeReadyStatus" ? <small>{language === "es" ? "DONE termina las reparaciones y pasa a FINAL WALK. La aprobacion final se registra por separado." : "DONE finishes the technician's repairs and moves to FINAL WALK. Final approval is recorded separately."}</small> : null}
                   </label>
                 );
               }

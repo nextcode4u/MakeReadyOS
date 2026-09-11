@@ -7,7 +7,7 @@ import { isSchedulableTurn, turnSetupPrefix } from "./turnSetup.js";
 import { writeAuditLog } from "./audit.js";
 import { prisma } from "./prisma.js";
 import { createNotification, notifyAssignedStaff } from "./notifications.js";
-import { guardReadyMutation, lockTurnProperty, requestsInspection } from "./turnMutationGuard.js";
+import { guardReadyMutation, lockTurnProperty, normalizeRepairCompletion, requestsInspection } from "./turnMutationGuard.js";
 import { syncFinalWalks } from "./finalWalks.js";
 
 export type ScheduledRunMode = "SCHEDULED" | "MANUAL";
@@ -271,9 +271,11 @@ export async function executeScheduledAutomationRules(options: {
                 if (!currentRule?.enabled || currentRule.isArchived || currentRule.updatedAt.getTime() !== rule.updatedAt.getTime()
                   || !current || current.isArchived || !current.property.isActive || current.updatedAt.getTime() !== item.updatedAt.getTime()) return null;
                 const actor = options.actorUserId ? await tx.user.findUnique({ where: { id: options.actorUserId }, select: { fullName: true } }) : null;
-                await guardReadyMutation(tx, current, normalizedPatch, actor?.fullName ?? "Scheduled automation");
-                if (requestsInspection(current, normalizedPatch)) normalizedPatch.makeReadyStatus = "FINAL WALK";
-                return tx.makeReadyItem.update({ where: { id: item.id }, data: { ...normalizedPatch, ...computeDerivedFields({ ...current, ...normalizedPatch } as typeof current) } });
+                const turnPatch = { ...normalizedPatch };
+                normalizeRepairCompletion(current, turnPatch);
+                await guardReadyMutation(tx, current, turnPatch, actor?.fullName ?? "Scheduled automation");
+                if (requestsInspection(current, turnPatch)) turnPatch.makeReadyStatus = "FINAL WALK";
+                return tx.makeReadyItem.update({ where: { id: item.id }, data: { ...turnPatch, ...computeDerivedFields({ ...current, ...turnPatch } as typeof current) } });
               });
               if (!updated) {
                 warnings.push(`${item.unitNumber}: item or rule changed after simulation; skipped this item.`);
