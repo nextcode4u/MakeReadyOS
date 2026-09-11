@@ -26,8 +26,8 @@ export function TurnReportPanel({ item, isAdmin }: { item: MakeReadyItem; isAdmi
       }}>Save unit mailbox</button>
     </fieldset> : <p>No active directory unit is linked. Import this unit in Setup first; report-only mailbox overrides remain available.</p>}
     {message ? <p role="status">{message}</p> : null}{error ? <p role="alert">{error} <button type="button" disabled={busy} onClick={async () => { if (window.confirm("Discard your mailbox edit and reload the saved assignment?")) { await query.refetch(); setValue(null); setError(""); } }}>Reload saved mailbox</button></p> : null}
-    <p>Mailbox assignments persist with the unit. Inspection results, keys, parking and resident-only codes are saved for this turn in the report editor, not inferred from completion status.</p>
-    {isAdmin ? <button type="button" className="button" disabled={value !== null && value !== (unit?.mailboxNumber ?? "")} onClick={() => setOpen(true)}>Edit / Preview this Final-Walk Report</button> : <p>An admin can edit the inspection draft and resident-specific codes.</p>}
+    <p>Mailbox assignments persist with the unit. Use Resident door &amp; access codes above during repairs; those saved values carry into this turn's report. Inspection results, keys and parking are entered in the report editor, not inferred from completion status.</p>
+    {isAdmin ? <button type="button" className="button" disabled={value !== null && value !== (unit?.mailboxNumber ?? "")} onClick={() => setOpen(true)}>Edit / Preview this Final-Walk Report</button> : <p>The assigned inspector or an admin can edit the inspection draft.</p>}
     {open ? <FinalWalkReportEditor propertyId={item.propertyId} propertyName={query.data?.property.name ?? item.propertyId} itemId={item.id} onClose={() => setOpen(false)}/> : null}
   </section>;
 }

@@ -17,12 +17,14 @@ import { HistoryCoverageNotice } from "./HistoryCoverageNotice";
 import { FinalWalkControls } from "./FinalWalkControls";
 import { TurnReportPanel } from "./TurnReportPanel";
 import { TurnMaterialsPanel } from "./TurnMaterialsPanel";
+import { ResidentCodesPanel } from "./ResidentCodesPanel";
 
 function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
   return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
 }
 
 type Props = {
+  focused?: boolean;
   item: MakeReadyItem;
   currentUser: CurrentUser;
   labelsByField: Record<string, Record<string, LabelDefinition>>;
@@ -168,6 +170,7 @@ function AttachmentMedia({ attachment, onOpen, language }: { attachment: DrawerA
 }
 
 export function ItemDrawer({
+  focused = false,
   item,
   currentUser,
   labelsByField,
@@ -195,6 +198,7 @@ export function ItemDrawer({
 }: Props) {
   const queryClient = useQueryClient();
   const language = currentUser.language;
+  const [pane, setPane] = useState<"work" | "photos" | "notes" | "final" | "all">(() => focused ? (normalized(item.makeReadyStatus).replace(/[_-]/g, " ") === "FINAL WALK" ? "final" : "work") : "all");
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [commentText, setCommentText] = useState("");
@@ -699,7 +703,7 @@ export function ItemDrawer({
   return (
     <>
       <div className="item-drawer-backdrop" onClick={onClose} aria-hidden="true" />
-      <aside className="item-drawer" data-testid="item-drawer" aria-label={tWithVars(language, "drawer.detailsForUnit", { unit: item.unitNumber })}>
+      <aside className="item-drawer" data-testid="item-drawer" data-focus-pane={pane} aria-label={tWithVars(language, "drawer.detailsForUnit", { unit: item.unitNumber })}>
         <header className="item-drawer-header">
           <div>
             <span className="drawer-kicker">{item.property.code} / {boardGroupLabel(item.boardGroup, item.propertyId, boardSections)}</span>
@@ -711,10 +715,30 @@ export function ItemDrawer({
             </div>
           </div>
           <button type="button" className="drawer-close" data-testid="item-drawer-close" onClick={onClose} aria-label={t(language, "drawer.closeDetails")}>×</button>
+          {focused ? <nav className="drawer-work-nav" aria-label={language === "es" ? "Secciones de la unidad" : "Unit work sections"}>
+            {([ ["work", "Work", "Trabajo"], ["photos", "Photos", "Fotos"], ["notes", "Notes", "Notas"], ["final", "Final walk", "Inspeccion"], ["all", "All details", "Detalles"] ] as const).map(([value, label, spanish]) => <button key={value} type="button" data-testid={`drawer-pane-${value}`} aria-pressed={pane === value} onClick={event => { setPane(value); event.currentTarget.closest("aside")?.scrollTo({ top: 0 }); }}>{language === "es" ? spanish : label}</button>)}
+          </nav> : null}
         </header>
 
         {error ? <p className="drawer-error" role="alert">{error}</p> : null}
         {pendingSyncCount ? <p className="drawer-empty" role="status">{t(language, "drawer.pendingSync").replace("{count}", String(pendingSyncCount))}</p> : null}
+        {focused ? <section className="drawer-section" data-testid="drawer-work-summary">
+          <h3>{language === "es" ? "Plan de trabajo" : "Work plan"}</h3>
+          <dl className="drawer-work-facts">
+            <div><dt>{language === "es" ? "Asignado" : "Assigned"}</dt><dd>{item.assignedTech || (language === "es" ? "Sin asignar" : "Unassigned")}</dd></div>
+            <div><dt>{language === "es" ? "Fin previsto" : "Expected finish"}</dt><dd>{dateValue(item.makeReadyDate) || "Not set"}</dd></div>
+            <div><dt>{language === "es" ? "Mudanza" : "Move-in"}</dt><dd>{dateValue(item.moveInDate) || "Not set"}</dd></div>
+          </dl>
+          {item.scopeLevel ? <p>{language === "es" ? "Alcance" : "Scope"}: {item.scopeLevel}</p> : null}
+          {item.riskReasons?.length ? <details><summary>{item.riskReasons.length} {language === "es" ? "avisos de riesgo" : "risk notices"}</summary><ul>{item.riskReasons.map((reason, index) => <li key={index}>{reason.message}</li>)}</ul></details> : null}
+          <label className="drawer-field"><span>{language === "es" ? "Reparaciones terminadas" : "Repairs completed"}</span>
+            <select data-testid="work-completion-status" value={item.completionStatus ?? ""} disabled={!canEditField(item, "completionStatus") || saving === "completionStatus"} onChange={event => void commit("completionStatus", event.target.value || null)}>
+              <option value="">{t(language, "drawer.unset")}</option>
+              {completionOptions.map(option => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}
+            </select>
+          </label>
+          <p className="helper-copy">{language === "es" ? "Completar las reparaciones envia la unidad a inspeccion; no la marca lista. Fotos, notas y detalles siguen disponibles arriba." : "Completing repairs sends the turn to final walk; it does not mark the unit ready. Photos, notes and full details are one tap above."}</p>
+        </section> : null}
         <section className="drawer-section risk-drawer-section" data-testid="drawer-risk-section">
           <h3>{t(language, "drawer.slaRisk")}</h3>
           {item.riskLevel && item.riskLevel !== "NONE" ? (
@@ -803,6 +827,83 @@ export function ItemDrawer({
           </div>
         </section>
 
+        <section className="drawer-section" data-testid="drawer-checklists">
+          <h3>{t(language, "drawer.checklists")}</h3>
+          {canManageItems ? (
+            <div className="checklist-attach">
+              <select data-testid="checklist-template-select" value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
+                <option value="">{t(language, "drawer.attachTemplate")}</option>
+                {collaborationQuery.data?.templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+              </select>
+              <button className="button button-secondary" data-testid="checklist-attach" type="button" disabled={!templateId} onClick={() => void operation("attach-checklist", async () => {
+                const selectedTemplate = collaborationQuery.data?.templates.find((template) => template.id === templateId) ?? null;
+                try {
+                  await attachChecklist(item.id, templateId, { expectedUserId: currentUser.id });
+                } catch (nextError) {
+                  if (!(isApiError(nextError) && nextError.status === 0)) {
+                    throw nextError;
+                  }
+                  if (selectedTemplate) {
+                    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current && getVerifiedSession().userId === currentUser.id ? {
+                      ...current,
+                      checklistInstances: [
+                        ...current.checklistInstances,
+                        {
+                          id: `offline-checklist-${Date.now()}`,
+                          name: `${selectedTemplate.name} (${t(language, "drawer.pendingChecklistSync")})`,
+                          items: selectedTemplate.items.map((entry) => ({
+                            id: `offline-checklist-item-${entry.id}`,
+                            title: entry.label,
+                            notes: entry.notes,
+                            required: entry.required,
+                            completed: false,
+                            completedAt: null,
+                            completedBy: null,
+                          })),
+                        },
+                      ],
+                    } : current);
+                  }
+                  await enqueueMakeReadyChecklistAttach(currentUser.id, item.id, templateId);
+                }
+                setTemplateId("");
+              })}>{t(language, "drawer.attach")}</button>
+            </div>
+          ) : null}
+          {collaborationQuery.data?.checklistInstances.map((instance) => {
+            const completed = instance.items.filter((entry) => entry.completed).length;
+            const percent = instance.items.length ? Math.round(completed / instance.items.length * 100) : 0;
+            return (
+              <article className="checklist-instance" key={instance.id}>
+                <header><strong>{instance.name}</strong><span>{completed}/{instance.items.length} / {percent}%</span></header>
+                <progress value={completed} max={instance.items.length || 1} />
+                {instance.items.map((entry) => (
+                  <label key={entry.id} className={entry.completed ? "checklist-row done" : "checklist-row"}>
+                    <input type="checkbox" data-testid={`checklist-item-${entry.id}`} checked={entry.completed} disabled={!canCollaborate || saving === entry.id} onChange={(event) => toggleChecklistItem(entry.id, event.target.checked)} />
+                    <span>{entry.title}{entry.required ? " *" : ""}</span>
+                    {entry.completedBy ? <small>{entry.completedBy.fullName}</small> : null}
+                    {pendingChecklistItemIds.includes(entry.id) ? <small>{t(language, "drawer.pendingChecklistSync")}</small> : null}
+                  </label>
+                ))}
+              </article>
+            );
+          })}
+          {!collaborationQuery.data?.checklistInstances.length ? <p className="drawer-empty">{t(language, "drawer.noChecklist")}</p> : null}
+          {canManageItems ? (
+            <details className="template-quick-create">
+              <summary>{language === "es" ? "Crear plantilla" : "Create template"}</summary>
+              <input data-testid="checklist-template-name" value={newTemplateName} onChange={(event) => setNewTemplateName(event.target.value)} placeholder={t(language, "drawer.templateNamePlaceholder")} />
+              <textarea data-testid="checklist-template-items" value={newTemplateItems} onChange={(event) => setNewTemplateItems(event.target.value)} placeholder={t(language, "drawer.templateItemsPlaceholder")} />
+              <button className="button button-secondary" type="button" disabled={!newTemplateName.trim() || !newTemplateItems.trim()} onClick={() => void operation("new-template", async () => {
+                await createChecklistTemplate({ propertyId: item.propertyId, name: newTemplateName, items: newTemplateItems.split("\n").map((title) => title.trim()).filter(Boolean).map((title) => ({ title })) });
+                setNewTemplateName("");
+                setNewTemplateItems("");
+              })}>{language === "es" ? "Crear plantilla" : "Create template"}</button>
+            </details>
+          ) : null}
+        </section>
+
+        {["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? <ResidentCodesPanel key={`codes-${currentUser.id}-${item.id}`} itemId={item.id} status={item.makeReadyStatus}/> : null}
         <TurnMaterialsPanel key={`materials-${currentUser.id}-${item.id}`} userId={currentUser.id} itemId={item.id} title={displayUnitNumber(item.property.code, item.unitNumber)} canEdit={["ADMIN", "MANAGER", "TECH", "CLEANER"].includes(currentUser.role)} />
         <section className="drawer-section">
           <h3>{t(language, "drawer.customFields")}</h3>
@@ -1042,7 +1143,7 @@ export function ItemDrawer({
           ) : null}
         </section>
 
-        <section className="drawer-section">
+        <section className="drawer-section" data-testid="drawer-notes-section">
           <h3>{t(language, "drawer.notesUpdates")}</h3>
           <textarea key={`notes:${item.notes ?? ""}`} data-testid="drawer-notes" defaultValue={item.notes ?? ""} disabled={!canEditField(item, "notes")} placeholder={t(language, "drawer.operationalNotes")} onBlur={(event) => void commit("notes", event.target.value || null)} />
           {canCollaborate ? (
@@ -1225,81 +1326,6 @@ export function ItemDrawer({
           </datalist>
         </section>
 
-        <section className="drawer-section" data-testid="drawer-checklists">
-          <h3>{t(language, "drawer.checklists")}</h3>
-          {canManageItems ? (
-            <div className="checklist-attach">
-              <select data-testid="checklist-template-select" value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
-                <option value="">{t(language, "drawer.attachTemplate")}</option>
-                {collaborationQuery.data?.templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-              </select>
-              <button className="button button-secondary" data-testid="checklist-attach" type="button" disabled={!templateId} onClick={() => void operation("attach-checklist", async () => {
-                const selectedTemplate = collaborationQuery.data?.templates.find((template) => template.id === templateId) ?? null;
-                try {
-                  await attachChecklist(item.id, templateId, { expectedUserId: currentUser.id });
-                } catch (nextError) {
-                  if (!(isApiError(nextError) && nextError.status === 0)) {
-                    throw nextError;
-                  }
-                  if (selectedTemplate) {
-                    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current && getVerifiedSession().userId === currentUser.id ? {
-                      ...current,
-                      checklistInstances: [
-                        ...current.checklistInstances,
-                        {
-                          id: `offline-checklist-${Date.now()}`,
-                          name: `${selectedTemplate.name} (${t(language, "drawer.pendingChecklistSync")})`,
-                          items: selectedTemplate.items.map((entry) => ({
-                            id: `offline-checklist-item-${entry.id}`,
-                            title: entry.label,
-                            notes: entry.notes,
-                            required: entry.required,
-                            completed: false,
-                            completedAt: null,
-                            completedBy: null,
-                          })),
-                        },
-                      ],
-                    } : current);
-                  }
-                  await enqueueMakeReadyChecklistAttach(currentUser.id, item.id, templateId);
-                }
-                setTemplateId("");
-              })}>{t(language, "drawer.attach")}</button>
-            </div>
-          ) : null}
-          {collaborationQuery.data?.checklistInstances.map((instance) => {
-            const completed = instance.items.filter((entry) => entry.completed).length;
-            const percent = instance.items.length ? Math.round(completed / instance.items.length * 100) : 0;
-            return (
-              <article className="checklist-instance" key={instance.id}>
-                <header><strong>{instance.name}</strong><span>{completed}/{instance.items.length} / {percent}%</span></header>
-                <progress value={completed} max={instance.items.length || 1} />
-                {instance.items.map((entry) => (
-                  <label key={entry.id} className={entry.completed ? "checklist-row done" : "checklist-row"}>
-                    <input type="checkbox" data-testid={`checklist-item-${entry.id}`} checked={entry.completed} disabled={!canCollaborate || saving === entry.id} onChange={(event) => toggleChecklistItem(entry.id, event.target.checked)} />
-                    <span>{entry.title}{entry.required ? " *" : ""}</span>
-                    {entry.completedBy ? <small>{entry.completedBy.fullName}</small> : null}
-                    {pendingChecklistItemIds.includes(entry.id) ? <small>{t(language, "drawer.pendingChecklistSync")}</small> : null}
-                  </label>
-                ))}
-              </article>
-            );
-          })}
-          {!collaborationQuery.data?.checklistInstances.length ? <p className="drawer-empty">{t(language, "drawer.noChecklist")}</p> : null}
-          {canManageItems ? (
-            <details className="template-quick-create">
-              <summary>{language === "es" ? "Crear plantilla" : "Create template"}</summary>
-              <input data-testid="checklist-template-name" value={newTemplateName} onChange={(event) => setNewTemplateName(event.target.value)} placeholder={t(language, "drawer.templateNamePlaceholder")} />
-              <textarea data-testid="checklist-template-items" value={newTemplateItems} onChange={(event) => setNewTemplateItems(event.target.value)} placeholder={t(language, "drawer.templateItemsPlaceholder")} />
-              <button className="button button-secondary" type="button" disabled={!newTemplateName.trim() || !newTemplateItems.trim()} onClick={() => void operation("new-template", async () => {
-                await createChecklistTemplate({ propertyId: item.propertyId, name: newTemplateName, items: newTemplateItems.split("\n").map((title) => title.trim()).filter(Boolean).map((title) => ({ title })) });
-                setNewTemplateName("");
-                setNewTemplateItems("");
-              })}>{language === "es" ? "Crear plantilla" : "Create template"}</button>
-            </details>
-          ) : null}
-        </section>
 
         <section className="drawer-section" data-testid="unit-history-section">
           <h3>{t(language, "drawer.unitHistory")}</h3>

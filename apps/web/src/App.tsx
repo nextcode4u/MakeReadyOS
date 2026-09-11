@@ -4831,6 +4831,8 @@ function App() {
       {selectedItem && metaQuery.data ? (
         <Suspense fallback={null}>
           <ItemDrawer
+            key={`${currentUser.id}-${selectedItem.id}`}
+            focused={activeView === "mywork" || activeView === "assignedwork"}
             item={selectedItem}
             currentUser={currentUser}
             labelsByField={labelsByField}

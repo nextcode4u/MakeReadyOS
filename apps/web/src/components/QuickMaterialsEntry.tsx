@@ -69,7 +69,7 @@ export function QuickMaterialsEntry({ itemId, userId, materials, disabled, onPen
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save the list. Your entries are preserved."); }
     finally { setBusy(false); }
   }}>
-    <p className="helper-copy">Type parts line by line. A blank line appears automatically; press Enter for the next part or Tab to change its quantity and unit. Save once when finished. New parts start as Needed.</p>
+    <p className="helper-copy">Type parts line by line. A blank line appears automatically; press Enter for the next part or Tab to change its quantity and unit. Save once when finished. New parts start as Needed for shop pickup and do not block completion. Use Edit on a saved part to mark it On order when waiting on an order.</p>
     <fieldset className="turn-material-fields" disabled={busy || disabled}>
       {batch.rows.map((row, index) => <div className="material-entry-row" key={row.id}>
         <label>Part {index + 1}<input ref={element => { names.current[index] = element; }} aria-label={`Part ${index + 1}`} maxLength={160} value={row.name} placeholder="e.g. Air filter" onChange={event => update(index, { name: event.target.value })} onKeyDown={event => {

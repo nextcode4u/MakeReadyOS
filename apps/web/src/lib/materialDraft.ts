@@ -21,7 +21,7 @@ const rowValid = (value: unknown) => object(value)
   && (typeof value.quantity === "number" && Number.isFinite(value.quantity) || typeof value.quantity === "string" && value.quantity.length <= 40)
   && typeof value.unit === "string" && value.unit.length <= 24
   && typeof value.notes === "string" && value.notes.length <= 1000
-  && ["NEEDED", "ORDERED", "ON_HAND", "USED", "CANCELLED"].includes(String(value.status));
+  && ["NEEDED", "NEED_TO_ORDER", "ORDERED", "ON_HAND", "USED", "CANCELLED"].includes(String(value.status));
 
 export function parseMaterialDraft(raw: string | null, userId: string, itemId: string): MaterialEdit | null {
   if (!raw || raw.length > 250000) return null;

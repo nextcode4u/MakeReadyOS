@@ -24,8 +24,12 @@ test("readiness separates required tasks, pending parts, independent review and 
   assert.equal(readinessBlockers({ ...base, propertyActive: false }).length, 1);
   assert.equal(readinessBlockers({ ...base, materials: {} }).length, 1);
   const row = { id: "00000000-0000-4000-8000-000000000001", name: "Filter", quantity: 1, unit: "each", notes: "" };
-  for (const status of ["NEEDED", "ORDERED"]) assert.equal(readinessBlockers({ ...base, materials: [{ ...row, status }] }).length, 1);
-  for (const status of ["ON_HAND", "USED", "CANCELLED"]) assert.equal(readinessBlockers({ ...base, materials: [{ ...row, status }] }).length, 0);
+  assert.match(readinessBlockers({ ...base, materials: [{ ...row, status: "ORDERED" }] })[0], /Parts on order: Filter/);
+  for (const status of ["NEEDED", "NEED_TO_ORDER", "ON_HAND", "USED", "CANCELLED"]) assert.equal(readinessBlockers({ ...base, materials: [{ ...row, status }] }).length, 0);
+  const mixed = readinessBlockers({ ...base, materials: [{ ...row, status: "NEEDED", name: "Shop pickup" }, { ...row, id: "00000000-0000-4000-8000-000000000002", status: "ORDERED", name: "Waiting on delivery" }] });
+  assert.equal(mixed.length, 1);
+  assert.match(mixed[0], /Waiting on delivery/);
+  assert.doesNotMatch(mixed[0], /Shop pickup/);
 });
 
 test("final walk requires a dated complete inspection with no unresolved findings", () => {
