@@ -58,7 +58,7 @@ self.addEventListener("activate", (event) => {
 
 function isCacheableApiRequest(request, url) {
   if (!url.pathname.startsWith("/api/")) return false;
-  if (/^\/api\/(auth|admin)(\/|$)/.test(url.pathname)) return false;
+  if (/^\/api\/(auth|admin|push)(\/|$)/.test(url.pathname)) return false;
   if (/\.(csv|xls|xlsx|pdf|html)$/.test(url.pathname) || /\/(download|export[^/]*|reports?|backup)(\/|$)/.test(url.pathname)) return false;
   const accept = request.headers.get("accept") || "";
   return accept.includes("application/json") || accept.includes("*/*");
@@ -135,4 +135,24 @@ self.addEventListener("fetch", (event) => {
       return cached || network;
     }),
   );
+});
+
+self.addEventListener("push", event => {
+  // Never render arbitrary payload text or private work details on a lock screen.
+  let tag = "mros-work";
+  try { const data = event.data?.json(); if (typeof data?.tag === "string") tag = data.tag.slice(0, 100); } catch { /* Use a generic notification for malformed data. */ }
+  event.waitUntil(self.registration.showNotification("MakeReadyOS", {
+    body: "You have a new work notification. Open MakeReadyOS to view it.",
+    icon: "/icons/pwa/makereadyos.svg", tag,
+  }));
+});
+
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const existing = windows.find(client => new URL(client.url).origin === self.location.origin);
+    if (existing) { existing.postMessage({ type: "OPEN_NOTIFICATIONS" }); await existing.focus(); }
+    else await self.clients.openWindow("/?notifications=1");
+  })());
 });

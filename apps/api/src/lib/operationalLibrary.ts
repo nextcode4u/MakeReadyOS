@@ -274,7 +274,7 @@ export const bundledOperationalLibraryPacks: OperationalLibraryPackManifest[] = 
           propertyId: null,
           conditions: {
             all: [
-              { field: "makeReadyStatus", operator: "notEquals", value: "DONE" },
+              { field: "completionStatus", operator: "notEquals", value: "YES" },
               { field: "cleaningStatus", operator: "notEquals", value: "DONE" },
               { field: "completionStatus", operator: "notEquals", value: "DONE" },
               { field: "completionStatus", operator: "notEquals", value: "YES" },
@@ -376,7 +376,7 @@ export const bundledOperationalLibraryPacks: OperationalLibraryPackManifest[] = 
           conditions: {
             all: [
               { field: "assignedTech", operator: "isEmpty" },
-              { field: "makeReadyStatus", operator: "notEquals", value: "DONE" },
+              { field: "completionStatus", operator: "notEquals", value: "YES" },
               { field: "cleaningStatus", operator: "notEquals", value: "DONE" },
               { field: "completionStatus", operator: "notEquals", value: "DONE" },
               { field: "completionStatus", operator: "notEquals", value: "YES" },

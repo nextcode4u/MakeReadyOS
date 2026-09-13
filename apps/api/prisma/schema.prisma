@@ -1139,6 +1139,7 @@ model Session {
   userAgent  String?
   ipAddress  String?
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushSubscriptions PushSubscription[]
 
   @@index([userId, expiresAt])
 }
@@ -1296,10 +1297,40 @@ model Notification {
   isRead     Boolean        @default(false)
   readAt     DateTime?
   createdAt  DateTime       @default(now())
+  pushPending Boolean       @default(true)
+  pushDeliveries PushDelivery[]
 
   @@unique([userId, dedupeKey])
   @@index([userId, isRead, createdAt])
   @@index([propertyId, createdAt])
+  @@index([pushPending, createdAt])
+}
+
+model PushSubscription {
+  id String @id @default(cuid())
+  sessionId String
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  endpoint String @unique
+  p256dh String
+  auth String
+  createdAt DateTime @default(now())
+  deliveries PushDelivery[]
+  @@index([sessionId])
+}
+
+model PushDelivery {
+  id String @id @default(cuid())
+  notificationId String
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  subscriptionId String
+  subscription PushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  eventAt DateTime
+  status String @default("PENDING")
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  @@unique([notificationId, subscriptionId, eventAt])
+  @@index([status, nextAttemptAt])
 }
 
 model NotificationPreference {

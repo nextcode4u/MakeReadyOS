@@ -79,6 +79,7 @@ const labelSeed = {
   ],
   cleaningStatus: [
     ["DONE", "#46d39c", "#06291c"],
+    ["NOT NEEDED", "#8d93a8", "#f4f6fa"],
     ["LITE", "#58a6de", "#041f31"],
     ["MEDIUM", "#ffc673", "#3a1f00"],
     ["MAJOR", "#e86a7f", "#2d0912"],
@@ -108,6 +109,8 @@ const labelSeed = {
     ["REPLACE*", "#e86a7f", "#2d0912"],
   ],
   paintStatus: [
+    ["DONE", "#46d39c", "#06291c"],
+    ["NOT NEEDED", "#8d93a8", "#f4f6fa"],
     ["GOOD", "#46d39c", "#06291c"],
     ["MAJOR TOUCH UP", "#ffc673", "#3a1f00"],
     ["FULL PAINT", "#e86a7f", "#2d0912"],

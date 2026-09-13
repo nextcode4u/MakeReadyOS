@@ -688,7 +688,7 @@ function App() {
     return Number.isFinite(stored) && stored >= boardWindowPageSize ? stored : boardWindowPageSize;
   });
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(() => new URLSearchParams(window.location.search).get("notifications") === "1");
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingSkipped, setOnboardingSkipped] = useState(() => readStorageFlag(onboardingSkippedStorageKey));
@@ -726,6 +726,18 @@ function App() {
   const [leaseWorkspaceRequest, setLeaseWorkspaceRequest] = useState<(OpenLeaseWorkspaceRequest & { nonce: number }) | null>(null);
   const [leaseQuickAddRequest, setLeaseQuickAddRequest] = useState<(OpenLeaseQuickAddRequest & { nonce: number }) | null>(null);
   const queryClient = useQueryClient();
+  useEffect(() => {
+    const listener = (event: MessageEvent) => {
+      if (event.data?.type !== "OPEN_NOTIFICATIONS") return;
+      setNotificationsOpen(true);
+      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    };
+    navigator.serviceWorker?.addEventListener("message", listener);
+    return () => navigator.serviceWorker?.removeEventListener("message", listener);
+  }, [queryClient]);
+  useEffect(() => {
+    if (notificationsOpen) void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+  }, [notificationsOpen, queryClient]);
   const hasInitializedHistoryRef = useRef(false);
   const suppressHistorySyncRef = useRef(false);
   const meQuery = useQuery({
@@ -4861,6 +4873,7 @@ function App() {
         </Suspense>
       ) : null}
       <NotificationDrawer
+        userId={currentUser.id}
         open={notificationsOpen}
         language={currentUser.language}
         data={notificationsQuery.data}

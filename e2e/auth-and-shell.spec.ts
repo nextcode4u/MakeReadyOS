@@ -15,6 +15,45 @@ const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
+test("device push database queue and session ownership integration", async () => {
+  test.skip(!process.env.COMPOSE_PROJECT_NAME?.startsWith("makereadyos-e2e-"), "Disposable e2e stack required");
+  const output = execFileSync("docker", ["compose", "exec", "-T", "api", "node", "--input-type=module"], {
+    input: readFileSync("e2e/push-worker.integration.mjs", "utf8"), encoding: "utf8", timeout: 30000,
+  });
+  expect(output).toContain("Push database/API integration passed");
+});
+
+test("device push controls enable test and disable without automatic permission prompts", async ({ page }) => {
+  await page.addInitScript(() => {
+    let subscribed = false;
+    const subscription = { endpoint: "https://fcm.googleapis.com/browser-test", toJSON: () => ({ endpoint: "https://fcm.googleapis.com/browser-test", keys: { p256dh: "test", auth: "test" } }), unsubscribe: async () => { subscribed = false; return true; } };
+    Object.defineProperty(window, "PushManager", { value: class {}, configurable: true });
+    Object.defineProperty(window, "Notification", { value: { permission: "default", requestPermission: async () => { (window as any).permissionPrompts = ((window as any).permissionPrompts || 0) + 1; return "granted"; } }, configurable: true });
+    Object.defineProperty(navigator.serviceWorker, "getRegistration", { value: async () => ({ active: {}, pushManager: { getSubscription: async () => subscribed ? subscription : null, subscribe: async () => { subscribed = true; return subscription; } } }), configurable: true });
+  });
+  let endpoints: string[] = [], saves = 0, tests = 0;
+  await page.route("**/api/push", async route => {
+    if (route.request().method() === "POST") { saves++; endpoints = [route.request().postDataJSON().endpoint]; }
+    if (route.request().method() === "DELETE") endpoints = [];
+    await route.fulfill({ json: route.request().method() === "GET" ? { configured: true, publicKey: "B".repeat(87), endpoints } : { ok: true } });
+  });
+  await page.route("**/api/push/test", async route => { tests++; await route.fulfill({ json: { ok: true } }); });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("notifications-button").click();
+  const controls = page.getByTestId("device-push-settings");
+  await expect(controls.getByRole("button", { name: "Enable on this device" })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).permissionPrompts || 0)).toBe(0);
+  await controls.getByRole("button", { name: "Enable on this device" }).click();
+  await expect(controls.getByRole("button", { name: "Disable on this device" })).toBeVisible();
+  expect(saves).toBe(1);
+  await controls.getByRole("button", { name: "Send test notification" }).click();
+  await expect(controls.getByRole("status")).toContainText("Test queued"); expect(tests).toBe(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(controls.getByRole("button", { name: "Disable on this device" })).toBeInViewport();
+  await controls.getByRole("button", { name: "Disable on this device" }).click();
+  await expect(controls.getByRole("button", { name: "Enable on this device" })).toBeVisible();
+});
+
 test("concurrent project category initialization and edits preserve unique scoped definitions", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
   const session = await (await page.request.get("/api/auth/me")).json();
@@ -884,8 +923,8 @@ test("immediate automations cannot bypass readiness or undo a successful initiat
       expect(runs[0].success).toBe(false);
       expect(runs[0].message).toContain("Parts on order");
     } else {
-      expect(current.completionStatus).toBe("YES");
-      expect(current.makeReadyStatus).toBe("FINAL WALK");
+      expect(current.completionStatus).toBe("NO");
+      expect(current.makeReadyStatus).toBe("DONE");
       expect(runs[0].success).toBe(true);
       expect((await page.request.post(`${root}/mark-ready`, { headers })).status()).toBe(409);
       const { rule: bypass } = await post("/automations", {
@@ -895,11 +934,37 @@ test("immediate automations cannot bypass readiness or undo a successful initiat
       });
       const editDuringInspection = await page.request.patch(root, { headers, data: { notes: "Still waiting for the inspector" } });
       expect(editDuringInspection.status(), await editDuringInspection.text()).toBe(200);
-      expect(await editDuringInspection.json()).toMatchObject({ makeReadyStatus: "FINAL WALK", notes: "Still waiting for the inspector" });
+      expect(await editDuringInspection.json()).toMatchObject({ makeReadyStatus: "DONE", notes: "Still waiting for the inspector" });
       const history = await (await page.request.get(`/api/automations/runs?ruleId=${bypass.id}&itemId=${item.id}`)).json();
       expect(history.runs[0]).toMatchObject({ success: false });
       expect(history.runs[0].message).toContain("Final walk / Mark ready");
     }
+  }
+});
+
+test("unit drawer uses status fields without checklist attachment controls", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const code = `NOQC${Date.now()}`;
+  const { property } = await post("/operations/properties", { code, name: "Status-only repair work" });
+  const meta = await (await page.request.get("/api/meta")).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  const { unit } = await post("/operations/units", { propertyId: property.id, number: code });
+  await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: code, unitNumber: code, vacancyStatus: "VACANT NOT LEASED NOT READY" });
+  await page.reload();
+  await page.getByRole("button", { name: `Open details for ${code}`, exact: true }).click();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(page.getByTestId("drawer-field-trashOutStatus")).toBeVisible();
+    await expect(page.getByTestId("drawer-field-pestTreated")).toBeVisible();
+    await expect(page.getByTestId("drawer-checklists")).toHaveCount(0);
+    await expect(page.getByTestId("checklist-template-select")).toHaveCount(0);
+    await expect(page.getByTestId("checklist-attach")).toHaveCount(0);
+    await expect(page.getByTestId("checklist-template-name")).toHaveCount(0);
   }
 });
 
@@ -930,11 +995,11 @@ test("repair DONE hands off direct, bulk and scheduled work without approving re
       const { execution } = await post(`/automations/${rule.id}/run`, {});
       expect(execution.actionCount).toBe(1);
     }
-    expect(await (await page.request.get(root)).json()).toMatchObject({ makeReadyStatus: "FINAL WALK", completionStatus: "YES", vacancyStatus: "VACANT NOT LEASED NOT READY" });
+    expect(await (await page.request.get(root)).json()).toMatchObject({ makeReadyStatus: "DONE", completionStatus: "NO", vacancyStatus: "VACANT NOT LEASED NOT READY" });
     expect((await (await page.request.get(`${root}/materials`)).json()).rows[0].status).toBe(status);
     const repeat = await page.request.patch(root, { headers, data: { makeReadyStatus: "DONE" } });
     expect(repeat.ok(), await repeat.text()).toBeTruthy();
-    expect((await repeat.json()).makeReadyStatus).toBe("FINAL WALK");
+    expect((await repeat.json()).makeReadyStatus).toBe("DONE");
     expect((await page.request.post(`${root}/mark-ready`, { headers })).status()).toBe(409);
   }
 });
@@ -1002,6 +1067,15 @@ test("mark ready rejects incomplete work, self-review and archived turns", async
   expect((await attempt()).status()).toBe(409);
   expect((await page.request.put(`${root}/materials`, { headers, data: { version: 1, rows: [{ ...material, status: "NEEDED" }] } })).ok()).toBeTruthy();
   await blockers.getByRole("button", { name: "Recheck completion blockers" }).click();
+  await expect(blockers).toContainText("Painting is not finished");
+  const stages = await page.request.patch(root, { headers, data: { makeReadyStatus: "DONE", paintStatus: "DONE", cleaningStatus: "DONE" } });
+  expect(stages.ok(), await stages.text()).toBeTruthy();
+  const inspection = await (await page.request.get(`/api/final-walk-reports/${property.id}?itemId=${item.id}`)).json();
+  const inspectionValue = inspection.draft.value;
+  inspectionValue.inspectionDate = new Date().toISOString().slice(0, 10);
+  for (const check of inspection.checks) inspectionValue.results[check.id] = { status: "CHECKED", note: "Inspected" };
+  expect((await page.request.put(`/api/final-walk-reports/${property.id}/items/${item.id}`, { headers, data: { version: inspection.draft.version, value: inspectionValue } })).ok()).toBeTruthy();
+  await blockers.getByRole("button", { name: "Recheck completion blockers" }).click();
   await expect(blockers).toHaveCount(0);
   const ready = await attempt(); expect(ready.ok(), await ready.text()).toBeTruthy();
   const completed = await (await page.request.get(root)).json();
@@ -1018,8 +1092,8 @@ test("mark ready rejects incomplete work, self-review and archived turns", async
   const { execution: completionRun } = await post(`/automations/${completionRule.id}/run`, {});
   expect(completionRun.results.flatMap((result: any) => result.errors)).toEqual([]);
   const handedOff = await (await page.request.get(`/api/make-ready-items/${second.id}`)).json();
-  expect(handedOff.completionStatus).toBe("YES");
-  expect(handedOff.makeReadyStatus).toBe("FINAL WALK");
+  expect(handedOff.completionStatus).toBe("NO");
+  expect(handedOff.makeReadyStatus).toBe("DONE");
   expect((await page.request.post(`/api/make-ready-items/${second.id}/mark-ready`, { headers })).status()).toBe(409);
 });
 
@@ -1050,7 +1124,7 @@ test("changing the inspection status cannot waive an existing report requirement
   const { rule } = await post("/automations", {
     name: "Do not bypass inspection history", propertyId: property.id, enabled: true, triggerType: "SCHEDULED_CHECK",
     conditions: { all: [{ field: "unitNumber", operator: "equals", value: unit.number }] },
-    actions: [{ type: "setField", field: "makeReadyStatus", value: "DONE" }],
+    actions: [{ type: "setField", field: "makeReadyStatus", value: "READY" }],
   });
   const { execution: run } = await post(`/automations/${rule.id}/run`, {});
   expect(run.actionCount).toBe(0);
@@ -1061,6 +1135,10 @@ test("changing the inspection status cannot waive an existing report requirement
   for (const check of report.checks) value.results[check.id] = { status: "CHECKED", note: "Inspected" };
   const complete = await page.request.put(reportUrl, { headers, data: { version: (await saved.json()).version, value } });
   expect(complete.ok(), await complete.text()).toBeTruthy();
+  const stagesBlocked = await page.request.post(`${root}/mark-ready`, { headers });
+  expect(stagesBlocked.status()).toBe(409);
+  expect((await stagesBlocked.json()).message).toContain("Technician repairs are not finished");
+  expect((await page.request.patch(root, { headers, data: { makeReadyStatus: "DONE", paintStatus: "DONE", cleaningStatus: "DONE" } })).ok()).toBeTruthy();
   const ready = await page.request.post(`${root}/mark-ready`, { headers });
   expect(ready.ok(), await ready.text()).toBeTruthy();
   expect((await ready.json()).makeReadyStatus).toBe("DONE");
@@ -3007,12 +3085,22 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
   const assignmentUrl = `${origin}/api/make-ready-items/${item.id}/final-walk`;
   expect((await (await page.request.get(assignmentUrl)).json()).block).toBeNull();
   const { unit: batchUnit } = await post("/operations/units", { propertyId: property.id, number: "WALK-BATCH" });
-  const batchItem = await post("/make-ready-items", { propertyId: property.id, unitId: batchUnit.id, boardGroup: section.key, unitNumber: batchUnit.number, itemName: batchUnit.number, completionStatus: "NO", vacancyStatus: "VACANT NOT LEASED NOT READY" });
+  const batchItem = await post("/make-ready-items", { propertyId: property.id, unitId: batchUnit.id, boardGroup: section.key, unitNumber: batchUnit.number, itemName: batchUnit.number, completionStatus: "NO", paintStatus: "DONE", cleaningStatus: "DONE", vacancyStatus: "VACANT NOT LEASED NOT READY" });
+  const batchTrades = await page.request.patch(`${origin}/api/make-ready-items/${batchItem.id}`, { headers, data: { paintStatus: "DONE", cleaningStatus: "LITE" } });
+  expect(batchTrades.ok(), await batchTrades.text()).toBeTruthy();
   await post("/make-ready-items/batch", { action: "SET_FIELD", ids: [batchItem.id], field: "completionStatus", value: "YES" });
   const batchTurn = await (await page.request.get(`${origin}/api/make-ready-items/${batchItem.id}`)).json();
-  expect(batchTurn.makeReadyStatus).toBe("FINAL WALK");
+  expect(batchTurn.makeReadyStatus).toBe("DONE");
+  expect(batchTurn.completionStatus).toBe("NO");
+  expect((await (await page.request.get(`${origin}/api/make-ready-items/${batchItem.id}/final-walk`)).json()).block).toBeNull();
+  await post("/make-ready-items/batch", { action: "SET_FIELD", ids: [batchItem.id], field: "cleaningStatus", value: "DONE" });
   const batchWalk = await (await page.request.get(`${origin}/api/make-ready-items/${batchItem.id}/final-walk`)).json();
   expect(batchWalk.block.assignedUserId).toBe(users[0].id);
+  expect((await page.request.patch(`${origin}/api/make-ready-items/${batchItem.id}`, { headers, data: { cleaningStatus: "LITE" } })).ok()).toBeTruthy();
+  expect((await (await page.request.get(`${origin}/api/make-ready-items/${batchItem.id}/final-walk`)).json()).block).toBeNull();
+  const { rule: cleaningRule } = await post("/automations", { name: "Cleaning completion starts inspection", propertyId: property.id, enabled: true, triggerType: "SCHEDULED_CHECK", conditions: { all: [{ field: "unitNumber", operator: "equals", value: batchUnit.number }] }, actions: [{ type: "setField", field: "cleaningStatus", value: "DONE" }] });
+  await post(`/automations/${cleaningRule.id}/run`, {});
+  expect((await (await page.request.get(`${origin}/api/make-ready-items/${batchItem.id}/final-walk`)).json()).block.assignedUserId).toBe(users[0].id);
   const bypass = await page.request.patch(`${origin}/api/make-ready-items/${batchItem.id}`, { headers, data: { makeReadyStatus: "READY" } });
   expect(bypass.status(), await bypass.text()).toBe(409);
   const reportRoot = `${origin}/api/final-walk-reports/${property.id}`;
@@ -3035,12 +3123,22 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
     await card.getByRole("button", { name: "Open work item", exact: true }).click();
     const drawer = techPage.getByTestId("item-drawer");
     await expect(drawer).toHaveAttribute("data-focus-pane", "work");
+    for (const width of [1440, 390]) {
+      await techPage.setViewportSize({ width, height: 844 });
+      for (const field of ["paintStatus", "doorsStatus", "sheetrockStatus", "pestStatus", "pestTreated", "trashOutStatus", "floorsStatus", "makeReadyStatus", "cleaningStatus", "keysMadeStatus", "cabinetsStatus", "countertopsStatus", "appliancesStatus"]) {
+        await expect(techPage.getByTestId(`drawer-field-${field}`)).toBeVisible();
+      }
+      await expect(techPage.getByTestId("drawer-field-vacancyStatus")).toBeHidden();
+      await expect(techPage.getByTestId("drawer-field-assignedTech")).toBeHidden();
+      expect(await techPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    }
     await expect(techPage.getByTestId("drawer-checklists")).toBeVisible();
     await expect(techPage.getByTestId("unit-history-section")).toBeHidden();
     await expect(techPage.getByTestId("drawer-attachments")).toBeHidden();
     const workHeight = await drawer.evaluate(element => element.scrollHeight);
     await techPage.getByTestId("drawer-pane-all").click();
     await expect(techPage.getByTestId("unit-history-section")).toBeVisible();
+    await expect(techPage.getByTestId("drawer-field-vacancyStatus")).toBeVisible();
     expect(await drawer.evaluate(element => element.scrollHeight)).toBeGreaterThan(workHeight * 1.5);
     await techPage.getByTestId("drawer-pane-work").click();
     await techPage.screenshot({ path: testInfo.outputPath("my-work-focused-mobile.png") });
@@ -3119,7 +3217,7 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
     await expect(material).toHaveCount(0);
     await techPage.getByTestId(`checklist-item-${instance.items[0].id}`).check();
     await expect(techPage.getByTestId("drawer-checklists")).toContainText("1/");
-    await techPage.getByTestId("drawer-pane-all").click();
+    await expect(drawer).toHaveAttribute("data-focus-pane", "work");
     for (const field of ["pestTreated", "trashOutStatus"]) {
       const saved = techPage.waitForResponse(result => result.url().endsWith(`/make-ready-items/${item.id}`) && result.request().method() === "PATCH");
       await techPage.getByTestId(`drawer-field-${field}`).selectOption("DONE");
@@ -3130,6 +3228,17 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
     await techPage.getByTestId("drawer-field-makeReadyStatus").selectOption("DONE");
     const complete = await completeResponse;
     expect(complete.ok(), await complete.text()).toBeTruthy();
+    await expect(techPage.getByTestId("drawer-field-makeReadyStatus")).toHaveValue("DONE");
+    await expect(techPage.getByTestId("turn-stage-summary")).toContainText("Waiting for painting");
+    expect((await (await page.request.get(assignmentUrl)).json()).block).toBeNull();
+    expect((await (await techContext.request.get(codesUrl)).json()).readOnly).toBe(false);
+    const painting = await page.request.patch(`${origin}/api/make-ready-items/${item.id}`, { headers, data: { paintStatus: "DONE" } });
+    expect(painting.ok(), await painting.text()).toBeTruthy();
+    expect((await (await page.request.get(assignmentUrl)).json()).block).toBeNull();
+    const cleaning = await page.request.patch(`${origin}/api/make-ready-items/${item.id}`, { headers, data: { cleaningStatus: "DONE" } });
+    expect(cleaning.ok(), await cleaning.text()).toBeTruthy();
+    expect(await cleaning.json()).toMatchObject({ makeReadyStatus: "DONE", completionStatus: "NO" });
+    expect((await (await page.request.get(assignmentUrl)).json()).block.assignedUserId).toBe(users[0].id);
     await techPage.getByTestId("item-drawer-close").click();
     await card.getByRole("button", { name: "End Work", exact: true }).click();
     await expect(card.getByRole("button", { name: "Start Work", exact: true })).toBeVisible();
@@ -3440,6 +3549,44 @@ test("property turn splits assign 25/75 and 100 percent independently with safe 
   expect(notices.filter((notice: any) => notice.propertyId === vab.id)).toHaveLength(1);
 });
 
+test("pond warning frogs use transparent animated sheets and clear on readiness", async ({ page }) => {
+  await page.route("**/api/make-ready-items?*", async route => {
+    const response = await route.fetch();
+    const items = await response.json();
+    const today = new Date().toISOString().slice(0, 10);
+    await route.fulfill({ response, json: items.slice(0, 3).map((item: any, index: number) => ({ ...item,
+      unitNumber: ["SICK-TEST", "SCARED-TEST", "READY-TEST"][index],
+      isArchived: false, overdue: true, makeReadyStatus: "LITE", completionStatus: index === 2 ? "YES" : "NO",
+      vacancyStatus: index === 2 ? "VACANT_LEASED_READY" : "VACANT_NOT_READY", moveInDate: index ? today : null,
+    })) });
+  });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("tab-pond").click();
+  const sick = page.getByTestId("frog-marker-sick-test"), scared = page.getByTestId("frog-marker-scared-test");
+  await expect(sick).toHaveClass(/frog-pose-sick/);
+  await expect(scared).toHaveClass(/frog-pose-scared/);
+  await expect(page.getByTestId("frog-marker-ready-test")).not.toHaveClass(/frog-pose-(sick|scared)/);
+  for (const [name, marker] of [["sick", sick], ["scared", scared]] as const) {
+    expect(await marker.evaluate(el => (el as HTMLElement).style.getPropertyValue("--frog-sprite"))).toContain(`frog-${name}.png`);
+    const body = marker.locator(".frog-body");
+    const start = await body.evaluate(el => getComputedStyle(el).backgroundPosition);
+    await expect.poll(() => body.evaluate(el => getComputedStyle(el).backgroundPosition)).not.toBe(start);
+    const pixels = await page.evaluate(async name => {
+      const image = new Image(); image.src = `/frogs/sprites/frog-${name}.png`; await image.decode();
+      const canvas = document.createElement("canvas"); canvas.width = canvas.height = 64;
+      const context = canvas.getContext("2d")!; context.imageSmoothingEnabled = false; context.drawImage(image, 0, 0, 64, 64);
+      return [0, 1, 2, 3].map(index => {
+        const pixels = context.getImageData(index % 2 * 32, Math.floor(index / 2) * 32, 32, 32).data;
+        return { visible: pixels.some((v, i) => i % 4 === 3 && v > 0), transparentCorner: pixels[3] === 0, hash: Array.from(pixels).join(",") };
+      });
+    }, name);
+    expect(pixels.every(frame => frame.visible && frame.transparentCorner)).toBe(true);
+    expect(new Set(pixels.map(frame => frame.hash)).size).toBe(4);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(scared).toBeVisible();
+});
+
 test("frog sprite sequences use painted tiles and cycle actions, not just transforms", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
   const sheets = ["green", "blue", "purple", "brown", "tan", "tophat", "cowboy", "pirate", "viking", "clown", "funnyglasses"];
@@ -3471,7 +3618,7 @@ test("frog sprite sequences use painted tiles and cycle actions, not just transf
   const initial = await body.evaluate(el => getComputedStyle(el).backgroundPosition);
   const action = await body.getAttribute("data-sprite-action");
   await expect.poll(() => body.evaluate(el => getComputedStyle(el).backgroundPosition)).not.toBe(initial);
-  await expect.poll(() => body.getAttribute("data-sprite-action"), { timeout: 7000 }).not.toBe(action);
+  if (action !== "sick" && action !== "scared") await expect.poll(() => body.getAttribute("data-sprite-action"), { timeout: 7000 }).not.toBe(action);
   await page.getByRole("button", { name: "Pause motion", exact: true }).click();
   const paused = await body.evaluate(el => getComputedStyle(el).backgroundPosition);
   await page.waitForTimeout(700);
@@ -5412,14 +5559,8 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("attachment-gallery-charge-zip")).toBeVisible();
     await expect(page.getByTestId("attachment-category-downloads")).toContainText("Damage");
     await page.keyboard.press("Escape");
-    const templateOption = page.getByTestId("checklist-template-select").locator("option").nth(1);
-    if (await templateOption.count()) {
-      await page.getByTestId("checklist-template-select").selectOption({ index: 1 });
-      await page.getByTestId("checklist-attach").click();
-      await expect(page.getByTestId("drawer-checklists").locator(".checklist-instance").last()).toBeVisible();
-      await page.getByTestId("drawer-checklists").locator(".checklist-instance").last().locator("input[type=checkbox]").first().check();
-      await expect(page.getByTestId("drawer-checklists").locator(".checklist-instance").last()).toContainText("1/");
-    }
+    await expect(page.getByTestId("checklist-template-select")).toHaveCount(0);
+    await expect(page.getByTestId("checklist-attach")).toHaveCount(0);
   });
 
   test("admin can manage vendors and assign contractor work from the item drawer", async ({ page }) => {

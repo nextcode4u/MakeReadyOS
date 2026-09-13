@@ -32,6 +32,8 @@ import { metaRoutes } from "./routes/meta.js";
 import { operationsRoutes } from "./routes/operations.js";
 import { operationalLibraryRoutes } from "./routes/operationalLibrary.js";
 import { notificationRoutes } from "./routes/notifications.js";
+import { pushRoutes } from "./routes/push.js";
+import { startPushWorker } from "./lib/push.js";
 import { planningRoutes } from "./routes/planning.js";
 import { preventiveMaintenanceRoutes } from "./routes/preventiveMaintenance.js";
 import { projectRoutes } from "./routes/projects.js";
@@ -166,6 +168,7 @@ app.register(async (api) => {
   await operationsRoutes(api);
   await operationalLibraryRoutes(api);
   await notificationRoutes(api);
+  await pushRoutes(api);
   await planningRoutes(api);
   await pestControlRoutes(api);
   await leaseComplianceRoutes(api);
@@ -185,7 +188,8 @@ app.register(async (api) => {
 
 const port = Number(process.env.PORT || 4000);
 let stopTurnScheduler: (() => Promise<void>) | undefined;
-app.addHook("onClose", async () => { await stopTurnScheduler?.(); });
+let stopPushWorker: (() => Promise<void>) | undefined;
+app.addHook("onClose", async () => { await stopTurnScheduler?.(); await stopPushWorker?.(); });
 
 const close = async () => {
   await app.close();
@@ -195,7 +199,7 @@ const close = async () => {
 process.on("SIGINT", close);
 process.on("SIGTERM", close);
 
-app.listen({ port, host: "0.0.0.0" }).then(() => { stopTurnScheduler = startTurnScheduler(); }).catch(async (error) => {
+app.listen({ port, host: "0.0.0.0" }).then(() => { stopTurnScheduler = startTurnScheduler(); stopPushWorker = startPushWorker(); }).catch(async (error) => {
   console.error(error);
   await prisma.$disconnect();
   process.exit(1);

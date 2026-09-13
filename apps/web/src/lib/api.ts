@@ -2,6 +2,11 @@ import { localDateStamp } from "./dateTime";
 import { acceptVerifiedSession, clearVerifiedSession, getVerifiedSession, isCurrentSession } from "./verifiedSession";
 
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api";
+export type DevicePushState = { configured: boolean; publicKey: string | null; endpoints: string[] };
+export const getDevicePush = (expectedUserId: string) => request<DevicePushState>("/push", { expectedUserId });
+export const saveDevicePush = (expectedUserId: string, subscription: PushSubscriptionJSON) => request<{ ok: boolean }>("/push", { expectedUserId, method: "POST", body: JSON.stringify(subscription) });
+export const disableDevicePush = (expectedUserId: string, endpoint: string) => request<{ ok: boolean }>("/push", { expectedUserId, method: "DELETE", body: JSON.stringify({ endpoint }) });
+export const testDevicePush = (expectedUserId: string, endpoint: string) => request<{ ok: boolean }>("/push/test", { expectedUserId, method: "POST", body: JSON.stringify({ endpoint }) });
 export type ManagementCompany = { id: string; name: string; logo: string | null; updatedAt: string };
 export type PropertyBranding = { managementCompanyId: string | null; logo: string | null; managementCompany: ManagementCompany | null };
 export const getManagementCompanies = () => request<{ companies: ManagementCompany[] }>("/management-companies");

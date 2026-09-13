@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { NotificationResponse, UserLanguage } from "../lib/api";
 import { formatDateTime } from "../lib/dateTime";
 import { t, tWithVars } from "../lib/i18n";
+import { DevicePushSettings } from "./DevicePushSettings";
 
 type Props = {
+  userId: string;
   open: boolean;
   data?: NotificationResponse;
   loading: boolean;
@@ -46,7 +48,7 @@ function inputToMinutes(value: string) {
   return (Number.isFinite(hour) ? hour : 0) * 60 + (Number.isFinite(minute) ? minute : 0);
 }
 
-export function NotificationDrawer({ open, data, loading, onClose, onRead, onReadAll, onDismiss, onOpenItem, onPreferenceChange, onSettingsChange, language }: Props) {
+export function NotificationDrawer({ userId, open, data, loading, onClose, onRead, onReadAll, onDismiss, onOpenItem, onPreferenceChange, onSettingsChange, language }: Props) {
   const isSpanish = language === "es";
   const [selectedPropertyId, setSelectedPropertyId] = useState("");
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(false);
@@ -82,6 +84,7 @@ export function NotificationDrawer({ open, data, loading, onClose, onRead, onRea
           <div><h2>{t(language, "notifications.title")}</h2><span>{tWithVars(language, "notifications.unreadCount", { count: String(data?.unreadCount ?? 0) })}</span></div>
           <button className="button button-ghost" onClick={onClose} aria-label={t(language, "notifications.closeAria")}>{t(language, "wiki.close")}</button>
         </header>
+        <DevicePushSettings key={userId} userId={userId} language={language} />
         <div className="notification-toolbar">
           <button data-testid="notifications-read-all" className="button button-secondary" disabled={!data?.unreadCount} onClick={() => void onReadAll()}>{t(language, "notifications.markAllRead")}</button>
         </div>

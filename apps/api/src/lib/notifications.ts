@@ -86,6 +86,7 @@ export async function createNotification(input: {
     title: input.title,
     message: input.message,
     dedupeKey: input.dedupeKey ?? null,
+    pushPending: true,
   };
   if (!input.dedupeKey) return db.notification.create({ data });
   return db.notification.upsert({

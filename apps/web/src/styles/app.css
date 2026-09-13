@@ -1321,6 +1321,7 @@
   border-top: 0;
   padding-top: .2rem;
 }
+.notification-toolbar { display: flex; flex-wrap: wrap; gap: .4rem; }
 .notification-preferences label {
   display: flex;
   align-items: center;
@@ -4409,11 +4410,12 @@ textarea {
 .drawer-work-facts dd { margin: .2rem 0 0; overflow-wrap: anywhere; font-size: .85rem; }
 /* Keep editors mounted when switching sections so in-progress inputs survive. */
 .item-drawer:where([data-focus-pane]:not([data-focus-pane="all"])) > .drawer-section { display: none; }
-.item-drawer[data-focus-pane="work"] > :is([data-testid="drawer-work-summary"], [data-testid="drawer-checklists"], [data-testid="turn-materials"], [data-testid="resident-codes-panel"]),
+.item-drawer[data-focus-pane="work"] > :is([data-testid="drawer-work-summary"], [data-testid="drawer-turn-details"], [data-testid="drawer-checklists"], [data-testid="turn-materials"], [data-testid="resident-codes-panel"]),
 .item-drawer[data-focus-pane="photos"] > [data-testid="drawer-attachments"],
 .item-drawer[data-focus-pane="notes"] > [data-testid="drawer-notes-section"],
 .item-drawer[data-focus-pane="final"] > [data-testid="drawer-completion-section"] { display: block; }
 .item-drawer[data-focus-pane]:not([data-focus-pane="all"]) > * { flex-shrink: 0; }
+.item-drawer[data-focus-pane="work"] [data-testid="drawer-turn-details"] .drawer-field:not([data-work-field="true"]) { display: none; }
 
 .drawer-kicker {
   color: var(--text-muted);
@@ -9983,6 +9985,10 @@ textarea {
 }
 
 .frog-animated .frog-marker:not(.frog-pose-tadpole):not(.frog-pose-sleeping) .frog-body { animation: pond-hop 4.5s ease-in-out infinite; animation-delay: calc(var(--frog-index) * -.83s); }
+.frog-animated .frog-marker.frog-pose-sick .frog-body { animation: pond-sick 2.4s steps(3, end) infinite; }
+.frog-animated .frog-marker.frog-pose-scared .frog-body { animation: pond-scared .5s steps(2, end) infinite; }
+@keyframes pond-sick { 0%, 100% { transform: scale(1.72); } 50% { transform: translateY(2px) scale(1.75, 1.62); } }
+@keyframes pond-scared { 0%, 100% { transform: translateX(-1px) scale(1.72); } 50% { transform: translateX(1px) scale(1.72); } }
 @keyframes pond-hop { 0%, 35%, 100% { transform: scale(1.72); } 40% { transform: scale(1.95, 1.35); } 49% { transform: translate(10px, -30px) scale(1.55, 1.9) rotate(8deg); } 58% { transform: translateX(16px) scale(1.9, 1.4); } 65% { transform: translateX(16px) scale(1.72); } 78% { transform: translate(-4px, -17px) scale(1.6, 1.8) rotate(-7deg); } 88% { transform: scale(1.9, 1.5); } }
 @keyframes pond-pad-rock { from { transform: translateY(2px); } to { transform: translateY(-2px); } }
 @keyframes pond-breathe { 0%, 100% { transform: scale(1.72) rotate(-5deg); } 50% { transform: scale(1.8, 1.6) rotate(-8deg); } }

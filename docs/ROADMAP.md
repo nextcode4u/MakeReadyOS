@@ -52,6 +52,8 @@ Current implementation status and test evidence live in [End-user UX audit](END_
 
 ## Mobile And Offline
 
+- Device Web Push is implemented locally; see [setup and verification](PUSH_NOTIFICATIONS.md). Remaining rollout: configure server VAPID keys, deploy, and verify real desktop and installed iPhone/Android delivery. Browser permission is opt-in on each device.
+
 - Continue improving field workflow for photo upload, checklist completion, comments, and quick status changes.
 - Expand weak-connection UX beyond the current offline/API retry banner into operation-specific retry states.
 - Design offline queue/sync for comments, checklist changes, photos, and limited status updates.

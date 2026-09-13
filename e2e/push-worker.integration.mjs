@@ -1,0 +1,65 @@
+// Executed inside the disposable e2e API container, with a fake push transport.
+import assert from "node:assert/strict";
+import { randomUUID, createECDH, randomBytes } from "node:crypto";
+import Fastify from "fastify";
+import webpush from "web-push";
+import { prisma } from "./dist/lib/prisma.js";
+import { pushRoutes } from "./dist/routes/push.js";
+import { deliverPushBatch } from "./dist/lib/push.js";
+
+const keys = webpush.generateVAPIDKeys();
+process.env.VAPID_PUBLIC_KEY = keys.publicKey;
+process.env.VAPID_PRIVATE_KEY = keys.privateKey;
+process.env.VAPID_SUBJECT = "mailto:test@example.com";
+const ecdh = createECDH("prime256v1"); ecdh.generateKeys();
+const subscription = { endpoint: `https://fcm.googleapis.com/testing-${randomUUID()}`, keys: { p256dh: ecdh.getPublicKey().toString("base64url"), auth: randomBytes(16).toString("base64url") } };
+const users = [];
+const app = Fastify();
+let currentUser, sessionId, authType = "session";
+app.addHook("preHandler", async request => { request.currentUser = currentUser; request.sessionId = sessionId; request.authType = authType; });
+await app.register(pushRoutes);
+const call = (method, url, payload) => app.inject({ method, url, payload });
+try {
+  for (let i = 0; i < 2; i++) users.push(await prisma.user.create({ data: { username: `push-${randomUUID()}`, fullName: "Push test", passwordHash: "unused", role: "TECH" } }));
+  const sessions = [];
+  for (const user of users) sessions.push(await prisma.session.create({ data: { userId: user.id, tokenHash: randomUUID(), csrfToken: randomUUID(), expiresAt: new Date(Date.now() + 600000) } }));
+  currentUser = users[0]; sessionId = sessions[0].id;
+  const historical = await prisma.notification.create({ data: { userId: currentUser.id, category: "ASSIGNMENT", title: "Old", message: "Old", createdAt: new Date(0) } });
+  assert.equal((await call("POST", "/push", subscription)).statusCode, 200);
+  const configuration = await call("GET", "/push");
+  assert.equal(configuration.headers["cache-control"], "no-store");
+  assert.deepEqual(configuration.json(), { configured: true, publicKey: keys.publicKey, endpoints: [subscription.endpoint] });
+  assert.ok(!configuration.body.includes(keys.privateKey));
+  authType = "apiToken"; assert.equal((await call("GET", "/push")).statusCode, 403); authType = "session";
+  currentUser = users[1]; sessionId = sessions[1].id;
+  assert.equal((await call("POST", "/push", subscription)).statusCode, 409);
+  await call("DELETE", "/push", { endpoint: subscription.endpoint });
+  assert.equal(await prisma.pushSubscription.count({ where: { endpoint: subscription.endpoint } }), 1);
+  currentUser = users[0]; sessionId = sessions[0].id;
+  const note = await prisma.notification.create({ data: { userId: currentUser.id, category: "ASSIGNMENT", title: "Private unit", message: "Secret door code" } });
+  const sent = [];
+  const send = async (device, payload) => { assert.equal(device.endpoint, subscription.endpoint); assert.ok(!payload.includes("Secret")); sent.push(JSON.parse(payload)); };
+  const flush = async (transport = send) => { await deliverPushBatch(transport); await new Promise(resolve => setTimeout(resolve, 20)); await deliverPushBatch(transport); };
+  await flush();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].tag, `mros-${note.id}`);
+  assert.equal(await prisma.pushDelivery.count({ where: { notificationId: historical.id } }), 0);
+  await prisma.notification.update({ where: { id: note.id }, data: { createdAt: new Date(), pushPending: true } });
+  await flush(); assert.equal(sent.length, 2);
+  assert.equal((await call("POST", "/push/test", { endpoint: subscription.endpoint })).statusCode, 200);
+  assert.equal((await call("POST", "/push/test", { endpoint: subscription.endpoint })).statusCode, 429);
+  await flush(); assert.equal(sent.length, 3);
+  await prisma.notification.create({ data: { userId: currentUser.id, category: "ASSIGNMENT", title: "Read", message: "Read", isRead: true } });
+  await flush(); assert.equal(sent.length, 3);
+  await prisma.notification.create({ data: { userId: currentUser.id, category: "ASSIGNMENT", title: "Gone", message: "Gone" } });
+  await flush(async () => { throw { statusCode: 410 }; });
+  assert.equal(await prisma.pushSubscription.count({ where: { endpoint: subscription.endpoint } }), 0);
+  assert.equal((await call("POST", "/push", subscription)).statusCode, 200);
+  await prisma.session.delete({ where: { id: sessionId } });
+  assert.equal(await prisma.pushSubscription.count({ where: { endpoint: subscription.endpoint } }), 0);
+  assert.equal(await prisma.pushDelivery.count({ where: { notification: { userId: currentUser.id } } }), 0);
+  console.log("Push database/API integration passed: registration, privacy, ownership, queue dedupe, tests, expiry, session cascade.");
+} finally {
+  for (const user of users) await prisma.user.delete({ where: { id: user.id } });
+  await app.close(); await prisma.$disconnect();
+}

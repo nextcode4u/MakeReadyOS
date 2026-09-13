@@ -5,6 +5,7 @@ import { boardGroupLabel, displayUnitNumber } from "../lib/board";
 import { t } from "../lib/i18n";
 import { StatusState } from "./StatusState";
 import { frogSpriteFrame, type FrogSpriteFrame } from "../lib/frogSprites";
+import { frogWarningMood, pondReady } from "../lib/frogMood";
 import { PondAudio, type PondSound } from "../lib/pondAudio";
 import { PondFieldGuide, PondWildlife } from "./PondEcosystem";
 import { approachSnack, pondElapsed, pondGreeting, pondJourney, pondLight, pondPads, pondPersonality, pondSnackDuration, snackCatchAge, selectPondHunter, type PondSnack } from "../lib/pondLife";
@@ -77,11 +78,6 @@ function rewardUnlocked(reward: typeof pondRewards[number], collection: PondColl
   if (reward.id === "barista") return Boolean(collection.discovered["secret-pond-12"]);
   if (reward.id === "purple") return collection.visitor;
   return (reward.id === "funnyglasses" || reward.id === "pirate" ? collection.feeds : collection.readyPeak) >= reward.goal;
-}
-function pondReady(item: MakeReadyItem) {
-  const vacancy = (item.vacancyStatus ?? "").toUpperCase().replace(/[ _-]+/g, "_");
-  return ["YES", "DONE", "COMPLETE", "COMPLETED"].includes((item.completionStatus ?? "").toUpperCase())
-    || (vacancy.startsWith("VACANT_") && vacancy.endsWith("_READY") && !vacancy.endsWith("_NOT_READY"));
 }
 const pondMinY = 38;
 const pondMaxY = 88;
@@ -224,10 +220,12 @@ function colorForValue(value: string, source: ColorSource, labelsByField: Props[
 }
 
 function poseForItem(item: MakeReadyItem, poseBy: FrogPondConfig["poseBy"]) {
+  if (pondReady(item)) return "celebrating";
+  const warning = frogWarningMood(item);
+  if (warning) return warning;
   const value = poseBy === "riskLevel" ? item.riskLevel : String(item[poseBy] ?? "");
   if (item.riskLevel === "CRITICAL" || value.includes("BUG") || value.includes("ROACH")) return "worried";
   if (item.riskLevel === "HIGH" || item.overdue) return "alert";
-  if (pondReady(item)) return "celebrating";
   if (item.vacancyStatus?.startsWith("NTV")) return "tadpole";
   return "working";
 }
@@ -562,10 +560,13 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
     const naturalPose = poseForItem(item, config.poseBy);
     const temperament = pondPersonality(stableNumber(item.id));
     const sleepy = (frameTick + stableNumber(item.id)) % 240 > (temperament === "sleepy" ? 180 : 224);
-    const pose = naturalPose !== "tadpole" && sleepy && greetingId !== item.id && !feeding ? "sleeping" : naturalPose;
+    const warning = naturalPose === "sick" || naturalPose === "scared";
+    const pose = !warning && naturalPose !== "tadpole" && sleepy && greetingId !== item.id && !feeding ? "sleeping" : naturalPose;
     const outfit = collection.outfits[item.id] ?? collection.outfit;
     const reward = pondRewards.find(entry => entry.id === outfit && rewardUnlocked(entry, collection));
-    const { sheet, achievementLabel } = reward ? { sheet: frogSheets[reward.sheet], achievementLabel: reward.name } : sheetForItem(item);
+    const { sheet, achievementLabel } = warning
+      ? { sheet: { url: `/frogs/sprites/frog-${naturalPose}.png`, width: 64, height: 64 }, achievementLabel: naturalPose === "sick" ? (isSpanish ? "Trabajo vencido" : "Overdue work") : (isSpanish ? "Mudanza en 3 dias o menos; no listo" : "Move-in within 3 days; not ready") }
+      : reward ? { sheet: frogSheets[reward.sheet], achievementLabel: reward.name } : sheetForItem(item);
     const frame = spriteFrameForItem(item, pose, index, frameTick, sheet);
     const tadpoleUrl = tadpoleSprites[(frameTick + index) % tadpoleSprites.length];
     const basePosition = naturalPositions[item.id];
@@ -585,7 +586,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
       x: clamp(point.x, Math.max(pondMinX, 64 / Math.max(sceneWidth, 1) * 100), Math.min(pondMaxX, 100 - 64 / Math.max(sceneWidth, 1) * 100)),
       y: clamp(point.y, pondMinY, pondMaxY),
     };
-  }), [boardSections, columns, sceneWidth, sceneHeight, collection, config.colorBy, config.density, config.groupBy, config.poseBy, frameTick, groups, labelsByField, legendValues, motionEnabled, naturalPositions, visibleItems, snack, held, rearranging, greetingId, feeding]);
+  }), [boardSections, columns, sceneWidth, sceneHeight, collection, config.colorBy, config.density, config.groupBy, config.poseBy, frameTick, groups, labelsByField, legendValues, motionEnabled, naturalPositions, visibleItems, snack, held, rearranging, greetingId, feeding, isSpanish]);
 
   const hasAdults = renderedFrogs.some(frog => frog.pose !== "tadpole");
   const hasTadpoles = renderedFrogs.some(frog => frog.pose === "tadpole");
@@ -968,7 +969,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
                 className={`frog-marker frog-pose-${pose} pond-color-${config.variant ?? "natural"}${achievementLabel === "Little barista" && pose !== "tadpole" ? " pond-barista" : ""}${dancing && pose !== "tadpole" ? " pond-dancing" : ""}${catching ? " pond-catching" : ""}${nibbling ? " pond-nibbling" : ""}${snack?.guests.includes(item.id) ? " pond-snack-guest" : ""}${greetingId === item.id ? " pond-selected" : ""}`}
                 key={item.id}
                 data-testid={`frog-marker-${item.unitNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                aria-label={`${displayUnitNumber(item.property.code, item.unitNumber)} / ${group} / ${colorLabel}`}
+                aria-label={`${displayUnitNumber(item.property.code, item.unitNumber)} / ${group} / ${colorLabel}${achievementLabel ? ` / ${achievementLabel}` : ""}`}
                 style={{
                   left: `${x}%`,
                   top: `${y}%`,
@@ -1079,6 +1080,7 @@ export function FrogPondPanel({ viewerId, items, properties, boardSections, labe
 
       <div className="frog-legend" data-testid="frog-legend">
         <strong>Legend: {config.colorBy.replace(/([A-Z])/g, " $1")}</strong>
+        <small>{isSpanish ? "Enferma: trabajo vencido. Asustada: mudanza en 3 dias o menos y unidad no lista. La urgencia reemplaza temporalmente el atuendo." : "Sick: overdue work. Scared: move-in within 3 days and unit not ready. Warning moods temporarily replace outfits."}</small>
         {legendValues.map((value, index) => <span key={value}><i style={{ background: colorForValue(value, config.colorBy, labelsByField, index) }} />{value}</span>)}
         <small>{isSpanish ? "Estilo natural: ranas sin accesorios. Elija estilos desbloqueados en la coleccion." : "Natural pond: hat-free frogs. Choose unlocked outfits in the collection."}</small>
       </div>

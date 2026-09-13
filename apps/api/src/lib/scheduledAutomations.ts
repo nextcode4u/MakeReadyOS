@@ -7,7 +7,7 @@ import { isSchedulableTurn, turnSetupPrefix } from "./turnSetup.js";
 import { writeAuditLog } from "./audit.js";
 import { prisma } from "./prisma.js";
 import { createNotification, notifyAssignedStaff } from "./notifications.js";
-import { guardReadyMutation, lockTurnProperty, normalizeRepairCompletion, requestsInspection } from "./turnMutationGuard.js";
+import { guardReadyMutation, lockTurnProperty, normalizeRepairCompletion } from "./turnMutationGuard.js";
 import { syncFinalWalks } from "./finalWalks.js";
 
 export type ScheduledRunMode = "SCHEDULED" | "MANUAL";
@@ -274,7 +274,6 @@ export async function executeScheduledAutomationRules(options: {
                 const turnPatch = { ...normalizedPatch };
                 normalizeRepairCompletion(current, turnPatch);
                 await guardReadyMutation(tx, current, turnPatch, actor?.fullName ?? "Scheduled automation");
-                if (requestsInspection(current, turnPatch)) turnPatch.makeReadyStatus = "FINAL WALK";
                 return tx.makeReadyItem.update({ where: { id: item.id }, data: { ...turnPatch, ...computeDerivedFields({ ...current, ...turnPatch } as typeof current) } });
               });
               if (!updated) {
@@ -287,7 +286,7 @@ export async function executeScheduledAutomationRules(options: {
               continue;
             }
             actionCount += Object.keys(normalizedPatch).length;
-            if ("completionStatus" in normalizedPatch || "makeReadyStatus" in normalizedPatch) await syncFinalWalks(item.propertyId, item.id);
+            if (["completionStatus", "makeReadyStatus", "paintStatus", "cleaningStatus"].some(key => key in normalizedPatch)) await syncFinalWalks(item.propertyId, item.id);
             if (typeof normalizedPatch.assignedTech === "string" && normalizedPatch.assignedTech !== item.assignedTech) {
               await notifyAssignedStaff({
                 assignedTech: normalizedPatch.assignedTech,
