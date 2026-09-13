@@ -6,6 +6,7 @@ import { t } from "../lib/i18n";
 import { StatusState } from "./StatusState";
 import { frogSpriteFrame, type FrogSpriteFrame } from "../lib/frogSprites";
 import { frogWarningMood, pondReady } from "../lib/frogMood";
+import { pondEligible } from "../lib/pondEligibility";
 import { PondAudio, type PondSound } from "../lib/pondAudio";
 import { PondFieldGuide, PondWildlife } from "./PondEcosystem";
 import { approachSnack, pondElapsed, pondGreeting, pondJourney, pondLight, pondPads, pondPersonality, pondSnackDuration, snackCatchAge, selectPondHunter, type PondSnack } from "../lib/pondLife";
@@ -338,7 +339,8 @@ const pondPlaybooks: Array<{
   },
 ];
 
-export function FrogPondPanel({ viewerId, items, properties, boardSections, labelsByField, language, selectedPropertyId, loading, error, onOpenItem, onPropertyChange, onGroupDrillDown }: Props) {
+export function FrogPondPanel({ viewerId, items: incomingItems, properties, boardSections, labelsByField, language, selectedPropertyId, loading, error, onOpenItem, onPropertyChange, onGroupDrillDown }: Props) {
+  const items = useMemo(() => incomingItems.filter(item => pondEligible(item, boardSections)), [incomingItems, boardSections]);
   const isSpanish = language === "es";
   const sceneRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);

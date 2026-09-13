@@ -108,6 +108,8 @@ function maxLevel(reasons: RiskReason[], score: number): RiskLevel {
 }
 
 export function evaluateItemRisk(item: RiskItem, now = new Date(), policyInput?: Partial<RiskPolicyInput> | null) {
+  const down = item.boardSectionType === "DOWN" || ["DOWN", "MODEL"].includes(String(item.vacancyStatus ?? "").trim().toUpperCase());
+  if (down) return { riskScore: 0, riskLevel: "NONE" as RiskLevel, riskReasons: [], lastRiskEvaluatedAt: now };
   const awaitingInspection = isFinalWalkStatus(item.makeReadyStatus);
   if (item.boardSectionType === "READY" && !awaitingInspection) {
     return { riskScore: 0, riskLevel: "NONE" as RiskLevel, riskReasons: [], lastRiskEvaluatedAt: now };
