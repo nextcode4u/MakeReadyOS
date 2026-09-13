@@ -5,7 +5,7 @@ import { prisma } from "../lib/prisma.js";
 import { finalWalkCategory, independentInspectors, inspectorStaff, nextInspector, pendingWalkStatuses, syncFinalWalks } from "../lib/finalWalks.js";
 import { createNotification } from "../lib/notifications.js";
 import { getTurnReadiness } from "../lib/turnReadiness.js";
-import { isFinalWalkStatus } from "../lib/turnStatus.js";
+import { awaitingFinalWalk, turnApproved } from "../lib/turnStatus.js";
 
 async function propertyContext(request: FastifyRequest, reply: FastifyReply) {
   if (await requireManagerOrAdmin(request, reply)) return null;
@@ -43,10 +43,10 @@ export async function finalWalkRoutes(app: FastifyInstance) {
     if (ids !== null && !ids.includes(item.propertyId)) return reply.code(403).send({ message: "Property access denied" });
     const block = await prisma.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, status: { in: pendingWalkStatuses } }, include: { assignedUser: { select: { id: true, fullName: true } } }, orderBy: { createdAt: "asc" } });
     const staff = await inspectorStaff(prisma, item.propertyId);
-    const completedBlock = !block && item.makeReadyStatus === "DONE" ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, status: "DONE" }, orderBy: { createdAt: "desc" } }) : null;
+    const completedBlock = !block && turnApproved(item) ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, status: "DONE" }, orderBy: { createdAt: "desc" } }) : null;
     const reportAvailable = !item.isArchived && (block ?? completedBlock)?.assignedUserId === request.currentUser!.id && item.assignedTech?.trim().toLowerCase() !== request.currentUser!.fullName.trim().toLowerCase();
     const nextId = block && nextInspector(block.inspectorQueue, block.assignedUserId, independentInspectors(staff, item.assignedTech).map(user => user.id));
-    return { block, reportAvailable, ready: isFinalWalkStatus(item.makeReadyStatus), blockers: await getTurnReadiness(prisma, id, request.currentUser!.fullName), next: staff.find(user => user.id === nextId) ?? null };
+    return { block, reportAvailable, ready: awaitingFinalWalk(item), blockers: await getTurnReadiness(prisma, id, request.currentUser!.fullName), next: staff.find(user => user.id === nextId) ?? null };
   });
   app.post("/make-ready-items/:id/final-walk/handoff", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
@@ -59,7 +59,7 @@ export async function finalWalkRoutes(app: FastifyInstance) {
     return prisma.$transaction(async db => {
       await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${item.propertyId}), 824018)::text`;
       const currentItem = await db.makeReadyItem.findUniqueOrThrow({ where: { id } });
-      if (currentItem.isArchived || currentItem.makeReadyStatus === "DONE") throw Object.assign(new Error("This inspection is no longer pending"), { statusCode: 409 });
+      if (currentItem.isArchived || !awaitingFinalWalk(currentItem) || turnApproved(currentItem)) throw Object.assign(new Error("This inspection is no longer pending"), { statusCode: 409 });
       const block = await db.workAssignmentBlock.findFirst({ where: { id: input.blockId, itemId: id, category: finalWalkCategory, status: { in: pendingWalkStatuses } } });
       if (!block || block.assignedUserId !== input.expectedAssigneeId) throw Object.assign(new Error("Assignment changed. Refresh before handing off."), { statusCode: 409 });
       if (user.id !== block.assignedUserId && user.role !== "ADMIN" && user.role !== "MANAGER") throw Object.assign(new Error("Only the assigned inspector or a manager can hand off"), { statusCode: 403 });

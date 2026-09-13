@@ -13,7 +13,7 @@ import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
 import { finalWalkCategory, pendingWalkStatuses, syncFinalWalks } from "../lib/finalWalks.js";
 import { getTurnReadiness } from "../lib/turnReadiness.js";
-import { isFinalWalkStatus } from "../lib/turnStatus.js";
+import { awaitingFinalWalk } from "../lib/turnStatus.js";
 import { guardReadyMutation, lockTurnProperty, normalizeRepairCompletion, requestsInspection } from "../lib/turnMutationGuard.js";
 import { notifyAssignedStaff, notifyPropertyRoles } from "../lib/notifications.js";
 import { computeDerivedFields, editableFields, normalizeItemPatch, startOfDay, withLiveTurnFields } from "../lib/board.js";
@@ -670,8 +670,6 @@ async function processItem(itemId: string, options: {
       if ((error as { statusCode?: number })?.statusCode !== 409) throw error;
       return { updated: current, blocked: error instanceof Error ? error.message : "Readiness checks blocked this automation.", skipHistory: false };
     }
-    const inspection = requestsInspection(current, patch);
-    if (inspection) patch.makeReadyStatus = "FINAL WALK";
     const updated = await db.makeReadyItem.update({
       where: { id: itemId },
       data: {
@@ -698,7 +696,7 @@ async function processItem(itemId: string, options: {
     })) });
     return updated;
   }
-  if (updated.completionStatus !== item.completionStatus || updated.makeReadyStatus !== item.makeReadyStatus) {
+  if (updated.completionStatus !== item.completionStatus || updated.makeReadyStatus !== item.makeReadyStatus || updated.paintStatus !== item.paintStatus || updated.cleaningStatus !== item.cleaningStatus) {
     await syncFinalWalks(updated.propertyId, updated.id);
   }
 
@@ -1193,12 +1191,11 @@ export async function makeReadyRoutes(app: FastifyInstance) {
           const next = { ...data };
           normalizeRepairCompletion(current, next);
           await guardReadyMutation(db, current, next, user.fullName);
-          if (requestsInspection(current, next)) next.makeReadyStatus = "FINAL WALK";
           await db.makeReadyItem.update({ where: { id: current.id }, data: next });
         }
         return { count: currentItems.length };
       }, { timeout: 30000 });
-    if (payload.action === "SET_FIELD" && ["completionStatus", "makeReadyStatus"].includes(payload.field)) {
+    if (payload.action === "SET_FIELD" && ["completionStatus", "makeReadyStatus", "cleaningStatus"].includes(payload.field)) {
       for (const item of items) await syncFinalWalks(item.propertyId, item.id);
     }
     if (payload.action === "ASSIGN_TECH" && payload.value) {
@@ -1285,7 +1282,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       normalizeRepairCompletion(current, data);
       await guardReadyMutation(db, current, data, user.fullName);
       const requested = requestsInspection(current, data);
-      await db.makeReadyItem.update({ where: { id }, data: { ...data, ...(requested ? { makeReadyStatus: "FINAL WALK" } : {}) } });
+      await db.makeReadyItem.update({ where: { id }, data });
       return requested;
     });
 
@@ -1293,6 +1290,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     if (changedKeys.some((key) => key.endsWith("Date"))) triggerTypes.push("DATE_FIELD_CHANGED");
     if (changedKeys.some((key) => statusTriggerFields.has(key))) triggerTypes.push("STATUS_FIELD_CHANGED");
     const updated = await processItem(id, { triggerTypes, request });
+    if (changedKeys.some(key => ["makeReadyStatus", "completionStatus", "paintStatus", "cleaningStatus"].includes(key))) await syncFinalWalks(updated.propertyId, updated.id);
     if (requestedInspection) {
       await syncFinalWalks(updated.propertyId, updated.id);
       const namedInspector = await prisma.workAssignmentBlock.count({ where: { itemId: updated.id, category: finalWalkCategory, status: { in: pendingWalkStatuses } } });
@@ -1409,7 +1407,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     const current = await db.makeReadyItem.findUniqueOrThrow({ where: { id } });
     if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
       const assigned = await db.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, assignedUserId: user.id, status: { in: pendingWalkStatuses } } });
-      if (!assigned || !isFinalWalkStatus(current.makeReadyStatus) || current.isArchived) throw Object.assign(new Error("Only the assigned inspector can sign off this pending final walk"), { statusCode: 403 });
+      if (!assigned || !awaitingFinalWalk(current) || current.isArchived) throw Object.assign(new Error("Only the assigned inspector can sign off this pending final walk"), { statusCode: 403 });
     }
     const blockers = await getTurnReadiness(db, id, user.fullName);
     if (blockers.length) throw Object.assign(new Error(`Cannot mark ready: ${blockers.slice(0, 8).join("; ")}${blockers.length > 8 ? `; plus ${blockers.length - 8} more. Review completion blockers in turn details.` : ""}`), { statusCode: 409 });

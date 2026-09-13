@@ -5,7 +5,7 @@ import { prisma } from "../lib/prisma.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, reportDraftSchema, reportSections, reportSettingsSchema, resolveReportMailbox, savedReportDraftSchema, savedReportSettingsSchema } from "../lib/finalWalkReport.js";
 import { finalWalkCategory } from "../lib/finalWalks.js";
-import { isFinalWalkStatus } from "../lib/turnStatus.js";
+import { awaitingFinalWalk, turnApproved, type TurnStages } from "../lib/turnStatus.js";
 
 async function inspectorAccess(request: FastifyRequest, db: typeof prisma | import("@prisma/client").Prisma.TransactionClient, propertyId: string, itemId?: string, editing = false) {
   const user = request.currentUser;
@@ -14,7 +14,7 @@ async function inspectorAccess(request: FastifyRequest, db: typeof prisma | impo
   if (!itemId || !["MANAGER", "LEASING", "TECH"].includes(user.role)) throw Object.assign(new Error("Only the assigned inspector can access this report"), { statusCode: 403 });
   const item = await db.makeReadyItem.findFirst({ where: { id: itemId, propertyId, isArchived: false } });
   const block = item && await db.workAssignmentBlock.findFirst({ where: { itemId, category: finalWalkCategory, status: { in: ["PLANNED", "IN_PROGRESS", "DONE"] } }, orderBy: { createdAt: "desc" } });
-  if (!item || !block || block.assignedUserId !== user.id || item.assignedTech?.trim().toLowerCase() === user.fullName.trim().toLowerCase() || (editing ? !isFinalWalkStatus(item.makeReadyStatus) || block.status === "DONE" : !isFinalWalkStatus(item.makeReadyStatus) && item.makeReadyStatus !== "DONE")) {
+  if (!item || !block || block.assignedUserId !== user.id || item.assignedTech?.trim().toLowerCase() === user.fullName.trim().toLowerCase() || (editing ? !awaitingFinalWalk(item) || block.status === "DONE" : !awaitingFinalWalk(item) && !turnApproved(item))) {
     throw Object.assign(new Error("Only the assigned independent inspector can access this report; completed walks are read-only"), { statusCode: 403 });
   }
 }
@@ -53,7 +53,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     if (ids !== null && !ids.includes(item.propertyId)) throw Object.assign(new Error("Property access denied"), { statusCode: 403 });
     return item;
   }
-  const codesReadOnly = (item: { isArchived: boolean; makeReadyStatus: string | null; property: { isActive: boolean } }, role: string) => item.isArchived || !item.property.isActive || role !== "ADMIN" && (isFinalWalkStatus(item.makeReadyStatus) || item.makeReadyStatus === "DONE");
+  const codesReadOnly = (item: TurnStages & { isArchived: boolean; property: { isActive: boolean } }, role: string) => item.isArchived || !item.property.isActive || role !== "ADMIN" && (awaitingFinalWalk(item) || turnApproved(item));
   app.get("/make-ready-items/:itemId/resident-codes", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
     const item = await codeContext(request, prisma);
@@ -88,7 +88,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     const reviewer = item ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory }, orderBy: { createdAt: "desc" }, select: { assignedUser: { select: { fullName: true } } } }) : null;
     return {
       canEditSettings: request.currentUser!.role === "ADMIN",
-      canEditDraft: request.currentUser!.role === "ADMIN" || isFinalWalkStatus(item?.makeReadyStatus),
+      canEditDraft: request.currentUser!.role === "ADMIN" || Boolean(item && awaitingFinalWalk(item)),
       property: { id: property.id, name: property.name, code: property.code },
       settings: settings.success ? settings.data : { version: 0, value: defaultReportSettings },
       draft: draft.success ? { ...draft.data, value: resolveReportMailbox(draft.data.value, mailbox) } : { version: 0, value: resolveReportMailbox(emptyReportDraft(), mailbox), updatedAt: null },

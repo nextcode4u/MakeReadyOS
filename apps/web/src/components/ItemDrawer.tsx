@@ -2,8 +2,8 @@ import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import { getVerifiedSession, isCurrentSession } from "../lib/verifiedSession";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BoardColumnDefinition, BoardSection, ChargePriceSheetImportSummary, ChargePriceSheetItem, ChargeReport, ChargeReportGroup, CurrentUser, CustomField, FloorPlan, ItemCollaboration, LabelDefinition, MakeReadyItem, StaffOption, UnitHistoryResponse, Vendor, VendorAssignment, WorkAssignmentBlock } from "../lib/api";
-import { attachmentArchiveUrl, attachmentDownloadUrl, attachChecklist, chargeReportCsvUrl, chargeReportPrintableHtmlUrl, chargeReportPrintableReportUrl, createChargePriceSheetItem, createChecklistTemplate, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getPestIssues, getUnitHistory, importChargePriceSheetItems, isApiError, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
-import { enqueueMakeReadyAttachmentUpload, enqueueMakeReadyChecklistAttach, enqueueMakeReadyChecklistUpdate, enqueueMakeReadyCommentCreate, enqueueMakeReadyCommentDelete, enqueueMakeReadyCommentUpdate, getOfflineSyncEventName, getOfflineSyncJobs } from "../lib/offlineSync";
+import { attachmentArchiveUrl, attachmentDownloadUrl, chargeReportCsvUrl, chargeReportPrintableHtmlUrl, chargeReportPrintableReportUrl, createChargePriceSheetItem, createItemComment, deleteItemAttachment, deleteItemComment, getActivity, getAutomationRuns, getChargePriceSheetItems, getChargeReport, getItemCollaboration, getPestIssues, getUnitHistory, importChargePriceSheetItems, isApiError, updateChecklistItem, updateItemAttachment, updateItemComment, uploadItemAttachment } from "../lib/api";
+import { enqueueMakeReadyAttachmentUpload, enqueueMakeReadyChecklistUpdate, enqueueMakeReadyCommentCreate, enqueueMakeReadyCommentDelete, enqueueMakeReadyCommentUpdate, getOfflineSyncEventName, getOfflineSyncJobs } from "../lib/offlineSync";
 import { boardGroupLabel, configuredBoardColumns, displayUnitNumber } from "../lib/board";
 import { formatDateTime } from "../lib/dateTime";
 import { t, tWithVars } from "../lib/i18n";
@@ -198,7 +198,13 @@ export function ItemDrawer({
 }: Props) {
   const queryClient = useQueryClient();
   const language = currentUser.language;
-  const [pane, setPane] = useState<"work" | "photos" | "notes" | "final" | "all">(() => focused ? (normalized(item.makeReadyStatus).replace(/[_-]/g, " ") === "FINAL WALK" ? "final" : "work") : "all");
+  const legacyFinalWalk = normalized(item.makeReadyStatus).replace(/[_-]/g, " ") === "FINAL WALK";
+  const repairsFinished = normalized(item.makeReadyStatus) === "DONE" || legacyFinalWalk;
+  const tradeFinished = (value: string | null) => ["DONE", "COMPLETE", "COMPLETED", "NOT NEEDED", "N/A"].includes(normalized(value));
+  const approved = !legacyFinalWalk && ["YES", "DONE", "COMPLETE", "COMPLETED"].includes(normalized(item.completionStatus));
+  const inspectionReady = legacyFinalWalk || (!approved && repairsFinished && tradeFinished(item.paintStatus) && tradeFinished(item.cleaningStatus));
+  const stage = approved ? "Final walk complete" : inspectionReady ? "Ready for final walk" : !repairsFinished ? "Repairs in progress" : !tradeFinished(item.paintStatus) ? "Waiting for painting" : "Waiting for cleaning";
+  const [pane, setPane] = useState<"work" | "photos" | "notes" | "final" | "all">(() => focused ? (inspectionReady ? "final" : "work") : "all");
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [commentText, setCommentText] = useState("");
@@ -220,17 +226,13 @@ export function ItemDrawer({
   const [chargeImportText, setChargeImportText] = useState("");
   const [chargeImportOverwriteExisting, setChargeImportOverwriteExisting] = useState(true);
   const [chargeImportSummary, setChargeImportSummary] = useState<ChargePriceSheetImportSummary | null>(null);
-  const [templateId, setTemplateId] = useState("");
   const [vendorDraft, setVendorDraft] = useState({ vendorId: "", trade: "", scheduledDate: "", dueDate: "", notes: "" });
-  const [newTemplateName, setNewTemplateName] = useState("");
-  const [newTemplateItems, setNewTemplateItems] = useState("");
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [pendingAttachmentSyncCount, setPendingAttachmentSyncCount] = useState(0);
   const [pendingChecklistItemIds, setPendingChecklistItemIds] = useState<string[]>([]);
   const columns = useMemo(() => configuredBoardColumns(columnDefinitions), [columnDefinitions]);
   const drawerColumns = useMemo(() => columns.filter((column) => column.key !== "unitNumber" && column.key !== "notes" && column.key !== "completionStatus"), [columns]);
   const readinessBlockers = useMemo(() => completionBlockers(item), [item]);
-  const completionOptions = useMemo(() => Object.values(labelsByField.completionStatus ?? {}).filter((option) => !option.isArchived || option.value === item.completionStatus), [item.completionStatus, labelsByField.completionStatus]);
   const activityQuery = useQuery({
     queryKey: ["activity", "item", item.id],
     queryFn: () => getActivity({ entityType: "MAKE_READY_ITEM", entityId: item.id, limit: 12 }),
@@ -731,13 +733,8 @@ export function ItemDrawer({
           </dl>
           {item.scopeLevel ? <p>{language === "es" ? "Alcance" : "Scope"}: {item.scopeLevel}</p> : null}
           {item.riskReasons?.length ? <details><summary>{item.riskReasons.length} {language === "es" ? "avisos de riesgo" : "risk notices"}</summary><ul>{item.riskReasons.map((reason, index) => <li key={index}>{reason.message}</li>)}</ul></details> : null}
-          <label className="drawer-field"><span>{language === "es" ? "Reparaciones terminadas" : "Repairs completed"}</span>
-            <select data-testid="work-completion-status" value={item.completionStatus ?? ""} disabled={!canEditField(item, "completionStatus") || saving === "completionStatus"} onChange={event => void commit("completionStatus", event.target.value || null)}>
-              <option value="">{t(language, "drawer.unset")}</option>
-              {completionOptions.map(option => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}
-            </select>
-          </label>
-          <p className="helper-copy">{language === "es" ? "Completar las reparaciones envia la unidad a inspeccion; no la marca lista. Fotos, notas y detalles siguen disponibles arriba." : "Completing repairs sends the turn to final walk; it does not mark the unit ready. Photos, notes and full details are one tap above."}</p>
+          <p data-testid="turn-stage-summary"><strong>{stage}</strong></p>
+          <p className="helper-copy">{language === "es" ? "Reparaciones, pintura, limpieza, inspeccion final. DONE en Make Ready solo termina las reparaciones." : "Repairs, painting, cleaning, then final walk. Make Ready DONE only finishes the technician's repairs, keys and codes."}</p>
         </section> : null}
         <section className="drawer-section risk-drawer-section" data-testid="drawer-risk-section">
           <h3>{t(language, "drawer.slaRisk")}</h3>
@@ -750,7 +747,7 @@ export function ItemDrawer({
             </>
           ) : <p className="drawer-empty">{t(language, "drawer.noActiveRiskFlags")}</p>}
         </section>
-        <section className="drawer-section">
+        <section className="drawer-section" data-testid="drawer-turn-details">
           <h3>{t(language, "drawer.turnDetails")}</h3>
           <div className="drawer-fields">
             {drawerColumns.map((column) => {
@@ -788,13 +785,13 @@ export function ItemDrawer({
               if (column.type === "label") {
                 const options = Object.values(labelsByField[column.key] ?? {}).filter((option) => !option.isArchived || option.value === value);
                 return (
-                  <label className="drawer-field" key={column.key}>
+                  <label className="drawer-field" key={column.key} data-work-field={column.key !== "vacancyStatus" ? "true" : undefined}>
                     <span>{column.label}</span>
                     <select data-testid={`drawer-field-${column.key}`} value={typeof value === "string" ? value : ""} disabled={!editable || busy} onChange={(event) => void commit(column.key, event.target.value || null)}>
                       <option value="">{t(language, "drawer.unset")}</option>
                       {options.map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}{option.isArchived ? " (archived)" : ""}</option>)}
                     </select>
-                    {column.key === "makeReadyStatus" ? <small>{language === "es" ? "DONE termina las reparaciones y pasa a FINAL WALK. La aprobacion final se registra por separado." : "DONE finishes the technician's repairs and moves to FINAL WALK. Final approval is recorded separately."}</small> : null}
+                    {column.key === "makeReadyStatus" ? <small>{language === "es" ? "DONE termina solo las reparaciones. Pintura y limpieza deben terminar antes de la inspeccion final." : "DONE finishes repairs only. Painting and cleaning must finish before final walk."}</small> : null}
                   </label>
                 );
               }
@@ -828,49 +825,8 @@ export function ItemDrawer({
           </div>
         </section>
 
-        <section className="drawer-section" data-testid="drawer-checklists">
+        {collaborationQuery.data?.checklistInstances.length ? <section className="drawer-section" data-testid="drawer-checklists">
           <h3>{t(language, "drawer.checklists")}</h3>
-          {canManageItems ? (
-            <div className="checklist-attach">
-              <select data-testid="checklist-template-select" value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
-                <option value="">{t(language, "drawer.attachTemplate")}</option>
-                {collaborationQuery.data?.templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-              </select>
-              <button className="button button-secondary" data-testid="checklist-attach" type="button" disabled={!templateId} onClick={() => void operation("attach-checklist", async () => {
-                const selectedTemplate = collaborationQuery.data?.templates.find((template) => template.id === templateId) ?? null;
-                try {
-                  await attachChecklist(item.id, templateId, { expectedUserId: currentUser.id });
-                } catch (nextError) {
-                  if (!(isApiError(nextError) && nextError.status === 0)) {
-                    throw nextError;
-                  }
-                  if (selectedTemplate) {
-                    queryClient.setQueryData<ItemCollaboration>(["collaboration", item.id], (current) => current && getVerifiedSession().userId === currentUser.id ? {
-                      ...current,
-                      checklistInstances: [
-                        ...current.checklistInstances,
-                        {
-                          id: `offline-checklist-${Date.now()}`,
-                          name: `${selectedTemplate.name} (${t(language, "drawer.pendingChecklistSync")})`,
-                          items: selectedTemplate.items.map((entry) => ({
-                            id: `offline-checklist-item-${entry.id}`,
-                            title: entry.label,
-                            notes: entry.notes,
-                            required: entry.required,
-                            completed: false,
-                            completedAt: null,
-                            completedBy: null,
-                          })),
-                        },
-                      ],
-                    } : current);
-                  }
-                  await enqueueMakeReadyChecklistAttach(currentUser.id, item.id, templateId);
-                }
-                setTemplateId("");
-              })}>{t(language, "drawer.attach")}</button>
-            </div>
-          ) : null}
           {collaborationQuery.data?.checklistInstances.map((instance) => {
             const completed = instance.items.filter((entry) => entry.completed).length;
             const percent = instance.items.length ? Math.round(completed / instance.items.length * 100) : 0;
@@ -889,22 +845,9 @@ export function ItemDrawer({
               </article>
             );
           })}
-          {!collaborationQuery.data?.checklistInstances.length ? <p className="drawer-empty">{t(language, "drawer.noChecklist")}</p> : null}
-          {canManageItems ? (
-            <details className="template-quick-create">
-              <summary>{language === "es" ? "Crear plantilla" : "Create template"}</summary>
-              <input data-testid="checklist-template-name" value={newTemplateName} onChange={(event) => setNewTemplateName(event.target.value)} placeholder={t(language, "drawer.templateNamePlaceholder")} />
-              <textarea data-testid="checklist-template-items" value={newTemplateItems} onChange={(event) => setNewTemplateItems(event.target.value)} placeholder={t(language, "drawer.templateItemsPlaceholder")} />
-              <button className="button button-secondary" type="button" disabled={!newTemplateName.trim() || !newTemplateItems.trim()} onClick={() => void operation("new-template", async () => {
-                await createChecklistTemplate({ propertyId: item.propertyId, name: newTemplateName, items: newTemplateItems.split("\n").map((title) => title.trim()).filter(Boolean).map((title) => ({ title })) });
-                setNewTemplateName("");
-                setNewTemplateItems("");
-              })}>{language === "es" ? "Crear plantilla" : "Create template"}</button>
-            </details>
-          ) : null}
-        </section>
+        </section> : null}
 
-        {["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? <ResidentCodesPanel key={`codes-${currentUser.id}-${item.id}`} itemId={item.id} status={item.makeReadyStatus}/> : null}
+        {["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? <ResidentCodesPanel key={`codes-${currentUser.id}-${item.id}`} itemId={item.id} status={`${item.makeReadyStatus}|${inspectionReady}|${approved}`}/> : null}
         <TurnMaterialsPanel key={`materials-${currentUser.id}-${item.id}`} userId={currentUser.id} itemId={item.id} title={displayUnitNumber(item.property.code, item.unitNumber)} canEdit={["ADMIN", "MANAGER", "TECH", "CLEANER"].includes(currentUser.role)} />
         <section className="drawer-section">
           <h3>{t(language, "drawer.customFields")}</h3>
@@ -978,16 +921,8 @@ export function ItemDrawer({
           )}
           <div className="drawer-fields">
             <label className="drawer-field">
-              <span>{t(language, "drawer.completed")}{saving === "completionStatus" ? ` / ${t(language, "drawer.saving")}` : ""}</span>
-              <select
-                data-testid="drawer-field-completionStatus"
-                value={item.completionStatus ?? ""}
-                disabled={!canEditField(item, "completionStatus") || saving === "completionStatus"}
-                onChange={(event) => void commit("completionStatus", event.target.value || null)}
-              >
-                <option value="">{t(language, "drawer.unset")}</option>
-                {completionOptions.map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}{option.isArchived ? " (archived)" : ""}</option>)}
-              </select>
+              <span>Whole turn complete</span>
+              <input data-testid="drawer-field-completionStatus" readOnly value={approved ? "Yes - final walk approved" : "No - final approval pending"}/>
             </label>
           </div>
           {canManageItems ? (

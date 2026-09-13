@@ -2,6 +2,10 @@ export type FrogSpriteFrame = { col: number; row: number; action: string };
 type Clip = { row: number; startCol: number; frames: number; hold: number; action: string };
 
 export function frogSpriteClips(width: number, pose: string, seed: number): Clip[] {
+  if (width === 64) return [
+    { row: 0, startCol: 0, frames: 2, hold: pose === "sick" ? 3 : 2, action: pose },
+    { row: 1, startCol: 0, frames: 2, hold: pose === "sick" ? 3 : 2, action: pose },
+  ];
   const large = width === 512;
   const direction = seed % 8;
   // Full sheets use columns for actions and rows for directions. Accessory sheets

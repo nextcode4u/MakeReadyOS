@@ -30,6 +30,7 @@
     "fastify": "^5.12.1",
     "nodemailer": "^9.1.1",
     "playwright-core": "^1.62.1",
+    "web-push": "^3.6.7",
     "yazl": "^3.3.1",
     "zod": "^3.25.28",
     "zod-to-json-schema": "^3.25.2"
@@ -45,6 +46,7 @@
   "devDependencies": {
     "@types/node": "^22.20.1",
     "@types/nodemailer": "^6.4.24",
+    "@types/web-push": "^3.6.4",
     "@types/yazl": "^3.3.1",
     "prisma": "^6.8.2",
     "tsx": "^4.23.9",

@@ -61,6 +61,8 @@ mkdir -p "$LOG_DIR"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/boardOptionSafety.test.ts"
   TSX_TSCONFIG_PATH="$ROOT_DIR/apps/web/tsconfig.json" node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/e2e/status-display-name.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/notifications.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/push.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/e2e/frog-mood.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/turnSetup.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/turnStartProjection.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/lib/bootstrapAdmin.test.ts"
@@ -1014,6 +1016,13 @@ mkdir -p "$LOG_DIR"
         -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"unitId\":\"$READY_UNIT_ID\",\"itemName\":\"$READY_NUMBER\",\"unitNumber\":\"$READY_NUMBER\",\"boardGroup\":\"$TEST_MAKE_READY_GROUP\",\"vacancyStatus\":\"$READY_SOURCE\"}" \
         "http://localhost:${API_PORT:-4000}/api/make-ready-items" | node -e 'let s=""; process.stdin.on("data", c=>s+=c); process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).id));')"
       READY_ITEM_IDS+=("$READY_ITEM_ID")
+      curl -fsS -b "$COOKIE_JAR" -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PATCH \
+        -d '{"makeReadyStatus":"DONE","paintStatus":"DONE","cleaningStatus":"DONE"}' \
+        "http://localhost:${API_PORT:-4000}/api/make-ready-items/$READY_ITEM_ID" >/dev/null
+      curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/final-walk-reports/$TEST_PROPERTY_ID?itemId=$READY_ITEM_ID" \
+        | node -e 'let s=""; process.stdin.on("data", c=>s+=c); process.stdin.on("end",()=>{const report=JSON.parse(s); const value=report.draft.value; value.inspectionDate=new Date().toISOString().slice(0,10); for(const check of report.checks) value.results[check.id]={status:"CHECKED",note:"Isolated test inspection"}; process.stdout.write(JSON.stringify({version:report.draft.version,value}));});' \
+        | curl -fsS -b "$COOKIE_JAR" -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PUT --data-binary @- \
+          "http://localhost:${API_PORT:-4000}/api/final-walk-reports/$TEST_PROPERTY_ID/items/$READY_ITEM_ID" >/dev/null
       curl -fsS -b "$COOKIE_JAR" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X POST \
         "http://localhost:${API_PORT:-4000}/api/make-ready-items/$READY_ITEM_ID/mark-ready" >/dev/null
       curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/make-ready-items/$READY_ITEM_ID" \

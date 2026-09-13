@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
 
-function worker() {
+function worker(extras = {}) {
   const listeners = new Map();
   const stores = new Map();
   let network = async () => Response.json({ value: "fresh" });
@@ -27,10 +27,15 @@ function worker() {
     },
   };
   vm.runInNewContext(readFileSync("assets/sw.js", "utf8"), {
-    self: { location: { origin: "http://localhost:8080" }, addEventListener: (name, callback) => listeners.set(name, callback) },
+    self: { location: { origin: "http://localhost:8080" }, addEventListener: (name, callback) => listeners.set(name, callback), ...extras },
     caches, URL, Response, fetch: request => network(request),
   });
   return {
+    dispatch: async (name, data) => {
+      let pending;
+      listeners.get(name)({ ...data, waitUntil: value => { pending = value; } });
+      await pending;
+    },
     network: callback => { network = callback; },
     failStorage: () => { storageFails = true; },
     failDelete: () => { deleteFails = true; },
@@ -80,7 +85,7 @@ test("session switches and authorization failures clear operational caches", asy
 
 test("admin, export, auth, and no-store responses are not cached", async () => {
   const sw = worker();
-  for (const path of ["/api/admin/export", "/api/admin/users", "/api/refrigerant/reports/full-audit", "/api/refrigerant/export.csv", "/api/auth/csrf"]) {
+  for (const path of ["/api/push", "/api/admin/export", "/api/admin/users", "/api/refrigerant/reports/full-audit", "/api/refrigerant/export.csv", "/api/auth/csrf"]) {
     sw.network(async () => Response.json({ sensitive: true }));
     await sw.request(path);
     sw.network(async () => { throw new Error("Offline"); });
@@ -119,4 +124,26 @@ test("failed cache deletion does not block logout or expose old data offline", a
   assert.equal((await sw.request("/api/auth/logout", "POST")).status, 200);
   sw.network(async () => { throw new Error("Offline"); });
   assert.equal((await sw.request("/api/meta")).status, 0);
+});
+
+test("push displays only generic text and clicks open authenticated Alerts without discarding drafts", async () => {
+  const displayed = [], opened = [], messages = [];
+  let focused = 0, closed = 0, windows = [];
+  const sw = worker({
+    registration: { showNotification: async (title, options) => displayed.push({ title, ...options }) },
+    clients: { matchAll: async () => windows, openWindow: async url => opened.push(url) },
+  });
+  await sw.dispatch("push", { data: { json: () => ({ title: "Private resident", body: "Door code", tag: "mros-event", url: "https://evil.test" }) } });
+  assert.equal(displayed[0].title, "MakeReadyOS");
+  assert.ok(!JSON.stringify(displayed).includes("Private"));
+  assert.ok(!JSON.stringify(displayed).includes("Door code"));
+  assert.equal(displayed[0].tag, "mros-event");
+  await sw.dispatch("push", { data: { json: () => { throw new Error("Malformed"); } } });
+  assert.equal(displayed[1].tag, "mros-work");
+  const notification = { close: () => { closed++; }, data: { url: "https://evil.test" } };
+  await sw.dispatch("notificationclick", { notification });
+  assert.deepEqual(opened, ["/?notifications=1"]);
+  windows = [{ url: "http://localhost:8080/", postMessage: value => messages.push(value.type), focus: async () => { focused++; }, navigate: () => { throw new Error("Must preserve open drafts"); } }];
+  await sw.dispatch("notificationclick", { notification });
+  assert.deepEqual(messages, ["OPEN_NOTIFICATIONS"]); assert.equal(focused, 1); assert.equal(closed, 2); assert.equal(opened.length, 1);
 });

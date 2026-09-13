@@ -13,8 +13,10 @@ test("inspection history cannot be erased by changing the current status label",
     const db = { makeReadyItem: { findUniqueOrThrow: async () => ({ ...item, ...patch }) } } as any;
     assert.match((await getTurnReadiness(db, "turn", "Reviewer")).join(";"), /Save the detailed final-walk/);
   }
-  const legacy = { makeReadyItem: { findUniqueOrThrow: async () => ({ ...item, makeReadyStatus: "LITE" }) } } as any;
-  assert.deepEqual(await getTurnReadiness(legacy, "turn", "Reviewer"), []);
+  const unfinished = { makeReadyItem: { findUniqueOrThrow: async () => ({ ...item, makeReadyStatus: "LITE" }) } } as any;
+  assert.equal((await getTurnReadiness(unfinished, "turn", "Reviewer")).length, 3);
+  const approved = { makeReadyItem: { findUniqueOrThrow: async () => ({ ...item, makeReadyStatus: "DONE", completionStatus: "YES" }) } } as any;
+  assert.deepEqual(await getTurnReadiness(approved, "turn", "Reviewer"), []);
 });
 test("readiness separates required tasks, pending parts, independent review and archived turns", () => {
   assert.deepEqual(readinessBlockers(base), []);

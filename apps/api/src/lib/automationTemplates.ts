@@ -333,7 +333,7 @@ const templates: TemplateDefinition[] = [
     category: "Assignment",
     triggerType: "SCHEDULED_CHECK",
     conditions: { all: [
-      { field: "makeReadyStatus", operator: "notEquals", value: "DONE" },
+      { field: "completionStatus", operator: "notEquals", value: "YES" },
       { field: "cleaningStatus", operator: "notEquals", value: "DONE" },
       { field: "completionStatus", operator: "notEquals", value: "DONE" },
       { field: "completionStatus", operator: "notEquals", value: "YES" },
@@ -436,7 +436,7 @@ const templates: TemplateDefinition[] = [
     triggerType: "SCHEDULED_CHECK",
     conditions: { all: [
       { field: "assignedTech", operator: "isEmpty" },
-      { field: "makeReadyStatus", operator: "notEquals", value: "DONE" },
+      { field: "completionStatus", operator: "notEquals", value: "YES" },
       { field: "cleaningStatus", operator: "notEquals", value: "DONE" },
       { field: "completionStatus", operator: "notEquals", value: "DONE" },
       { field: "completionStatus", operator: "notEquals", value: "YES" },
