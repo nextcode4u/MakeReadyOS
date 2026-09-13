@@ -3,6 +3,7 @@ import type { LabelDefinition } from "./api";
 type Turn = {
   makeReadyStatus?: string | null;
   completionStatus?: string | null;
+  vacancyStatus?: string | null;
   paintStatus?: string | null;
   cleaningStatus?: string | null;
 };
@@ -12,7 +13,9 @@ const tradeDone = (value?: string | null) => ["DONE", "COMPLETE", "COMPLETED", "
 // DONE belongs to the technician's repair stage, not the entire turn.
 export function repairStageDisplay(item: Turn, spanish = false): LabelDefinition | undefined {
   if (normalized(item.makeReadyStatus) !== "DONE") return undefined;
-  const approved = ["YES", "DONE", "COMPLETE", "COMPLETED"].includes(normalized(item.completionStatus));
+  // Availability imports can certify readiness without historical trade check-offs.
+  const approved = ["YES", "DONE", "COMPLETE", "COMPLETED"].includes(normalized(item.completionStatus))
+    || ["VACANT_READY", "VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY"].includes(normalized(item.vacancyStatus));
   const pending = [
     !tradeDone(item.paintStatus) ? (spanish ? "pintura" : "painting") : null,
     !tradeDone(item.cleaningStatus) ? (spanish ? "limpieza" : "cleaning") : null,

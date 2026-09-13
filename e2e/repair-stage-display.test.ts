@@ -19,3 +19,18 @@ test("repair completion stays amber until the entire turn is approved", () => {
   assert.equal(repairStageDisplay({ makeReadyStatus: "LITE" }), undefined);
   assert.match(repairStageDisplay(repaired, true)?.displayName ?? "", /falta pintura/);
 });
+
+test("availability-ready units remain ready without historical painting or cleaning statuses", () => {
+  for (const vacancyStatus of ["VACANT READY", "VACANT_READY", "VACANT LEASED READY", "VACANT_NOT_LEASED_READY", " vacant not leased ready "]) {
+    for (const completionStatus of [null, "", "NO"]) {
+      const label = repairStageDisplay({ makeReadyStatus: "DONE", vacancyStatus, completionStatus, paintStatus: null, cleaningStatus: null })!;
+      assert.equal(label.displayName, "Unit ready");
+      assert.equal(label.color, "#46d39c");
+    }
+  }
+  for (const vacancyStatus of ["VACANT NOT READY", "VACANT_LEASED_NOT_READY", "VACANT NOT LEASED NOT READY", "NTV LEASED"]) {
+    const label = repairStageDisplay({ makeReadyStatus: "DONE", completionStatus: "NO", vacancyStatus })!;
+    assert.equal(label.displayName, "Repairs done; awaiting painting / cleaning");
+    assert.equal(label.color, "#ffc673");
+  }
+});

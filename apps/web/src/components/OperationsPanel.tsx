@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { isPhysicallyOccupiedStatus, isReadyLikeOccupancy, normalizeOccupancy } from "../lib/availabilityStatus";
 import { useQuery } from "@tanstack/react-query";
-import { getUnitHistory, isApiError, type AvailabilityImportConflict, type AvailabilityImportConflictResponse, type AvailabilityImportInput, type AvailabilityImportResult, type BoardSection, type FloorPlan, type LabelDefinition, type MakeReadyItem, type OperatingCalendar, type OperatingCalendarInput, type Property, type RiskPolicy, type StaffOption, type Unit, type UserRole } from "../lib/api";
+import { getUnitHistory, isApiError, previewAvailabilityArchives, type AvailabilityReconciliationInput, type AvailabilityImportConflict, type AvailabilityImportConflictResponse, type AvailabilityImportInput, type AvailabilityImportResult, type BoardSection, type FloorPlan, type LabelDefinition, type MakeReadyItem, type OperatingCalendar, type OperatingCalendarInput, type Property, type RiskPolicy, type StaffOption, type Unit, type UserRole } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
@@ -39,7 +39,7 @@ type Props = {
   onCreateUnit: (input: UnitInput) => Promise<void>;
   onUpdateUnit: (id: string, input: UnitInput) => Promise<void>;
   onImportUnits: (input: { propertyId: string; units: UnitImportInput[]; updateExisting: boolean }) => Promise<UnitImportResult>;
-  onImportAvailability: (input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting: boolean; createTurns: boolean; overrideConflicts?: boolean }) => Promise<AvailabilityImportResult>;
+  onImportAvailability: (input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting: boolean; createTurns: boolean; overrideConflicts?: boolean } & AvailabilityReconciliationInput) => Promise<AvailabilityImportResult>;
   onRevertUnitImport: (input: { propertyId: string; createdUnitIds: string[] }) => Promise<void>;
   onArchiveUnit: (id: string, restore: boolean) => Promise<void>;
   onDeleteUnit: (id: string) => Promise<void>;
@@ -775,6 +775,8 @@ export function OperationsPanel({
   const [showImportHelp, setShowImportHelp] = useState(false);
   const [lastImport, setLastImport] = useState<UnitImportResult | null>(null);
   const [availabilityImportText, setAvailabilityImportText] = useState("");
+  const [availabilityFullReport, setAvailabilityFullReport] = useState(false);
+  const [availabilityReportDate, setAvailabilityReportDate] = useState("");
   const [availabilityImportError, setAvailabilityImportError] = useState("");
   const [showAvailabilityImportHelp, setShowAvailabilityImportHelp] = useState(false);
   const [lastAvailabilityImport, setLastAvailabilityImport] = useState<AvailabilityImportResult | null>(null);
@@ -1561,12 +1563,15 @@ export function OperationsPanel({
       setAvailabilityImportError("");
       if (!overrideConflicts) setAvailabilityImportConflicts(null);
       const parsedRows = parseAvailabilityRows();
+      const archivePreview = availabilityFullReport ? await previewAvailabilityArchives({ propertyId: selectedPropertyId, rows: parsedRows, reportDate: availabilityReportDate }) : null;
+      if (archivePreview && !window.confirm(`Full report reconciliation for ${selectedProperty.code} (${availabilityReportDate}):\n${archivePreview.candidates.length ? archivePreview.candidates.map(item => `${item.unitNumber}: move-in ${item.moveInDate.slice(0, 10)} -> Occupied / Archive`).join("\n") : "No missing ready units qualify for archive."}\n\nConfirm this report includes ALL available units for this property, not a filtered or partial list.`)) return;
       if (!window.confirm(isSpanish
         ? `Importar ${parsedRows.length} filas de disponibilidad a ${selectedProperty.code} - ${selectedProperty.name}? Se actualizaran la ocupacion y el tablero de esta propiedad.${overrideConflicts ? " Se sobrescribiran los conflictos locales." : ""}`
         : `Import ${parsedRows.length} availability rows into ${selectedProperty.code} - ${selectedProperty.name}? This will update occupancy and board records for this property.${overrideConflicts ? " Local conflicts will be overwritten." : ""}`)) return;
-      const result = await onImportAvailability({ propertyId: selectedPropertyId, rows: parsedRows, updateExisting: true, createTurns: true, overrideConflicts });
+      const result = await onImportAvailability({ propertyId: selectedPropertyId, rows: parsedRows, updateExisting: true, createTurns: true, overrideConflicts, fullReport: availabilityFullReport, reportDate: availabilityReportDate, archivePreviewToken: archivePreview?.token });
       setLastAvailabilityImport(result);
       setAvailabilityImportText("");
+      setAvailabilityFullReport(false);
       setAvailabilityImportConflicts(null);
     } catch (error) {
       if (isApiError(error) && error.status === 409 && error.details && typeof error.details === "object" && "conflicts" in (error.details as Record<string, unknown>)) {
@@ -2030,7 +2035,10 @@ export function OperationsPanel({
                   : `Last availability import to ${lastAvailabilityImport.property.code}: ${lastAvailabilityImport.summary.turnsCreated} turns created, ${lastAvailabilityImport.summary.turnsUpdated} turns updated, ${lastAvailabilityImport.summary.unitsCreated} units created, ${lastAvailabilityImport.summary.unitsUpdated} units updated.`}
               </div>
             ) : null}
-            <button data-testid="availability-import-submit" className="button button-primary" disabled={loading || !properties.length || !selectedPropertyId || !availabilityImportText.trim()} onClick={() => void importAvailabilityReport()}>{isSpanish ? "Importar disponibilidad y llenar tablero" : "Import Availability & Populate Board"}</button>
+            <label><input type="checkbox" data-testid="availability-full-report" checked={availabilityFullReport} onChange={event => setAvailabilityFullReport(event.target.checked)} /> Full property report: reconcile missing ready units after move-in</label>
+            {availabilityFullReport ? <label>Report date<input type="date" data-testid="availability-report-date" value={availabilityReportDate} onChange={event => setAvailabilityReportDate(event.target.value)} /><small>Use only a complete, unfiltered report. Missing ready units with move-in dates before this date will be previewed, marked occupied, and archived. Partial imports never archive omitted units.</small></label> : null}
+            {lastAvailabilityImport?.summary.turnsArchived ? <p>{lastAvailabilityImport.summary.turnsArchived} missing ready units marked occupied and archived.</p> : null}
+            <button data-testid="availability-import-submit" className="button button-primary" disabled={loading || !properties.length || !selectedPropertyId || !availabilityImportText.trim() || (availabilityFullReport && !availabilityReportDate)} onClick={() => void importAvailabilityReport()}>{isSpanish ? "Importar disponibilidad y llenar tablero" : "Import Availability & Populate Board"}</button>
           </div>
           <div className="editor-block unit-import-block">
             <h4>{isSpanish ? "Pegar CSV/XML del directorio de unidades" : "Paste Unit Directory CSV / XML"}</h4>
