@@ -12,7 +12,7 @@ if (import.meta.hot) import.meta.hot.dispose(removeErrorHandlers);
 
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((error) => {
+    navigator.serviceWorker.register(`/sw.js?v=${import.meta.env.VITE_SW_VERSION}`, { updateViaCache: "none" }).catch((error) => {
       console.warn("MakeReadyOS service worker registration failed", error);
     });
   });
