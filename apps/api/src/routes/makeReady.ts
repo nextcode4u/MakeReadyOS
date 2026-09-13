@@ -1382,6 +1382,12 @@ export async function makeReadyRoutes(app: FastifyInstance) {
 
   app.post("/make-ready-items/:id/mark-ready", async (request, reply) => {
     const user = request.currentUser!;
+    const input = z.object({ overrideReason: z.string().trim().min(10).max(1000).optional() }).strict().safeParse(request.body ?? {});
+    if (!input.success) return reply.code(400).send({ message: "Provide an override reason of 10 to 1000 characters, or use normal sign-off." });
+    const overrideReason = input.data.overrideReason;
+    if (overrideReason && user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
+      return reply.code(403).send({ message: "Only managers and admins can override full completion." });
+    }
     if (![UserRole.ADMIN, UserRole.MANAGER, UserRole.LEASING, UserRole.TECH].some(role => role === user.role)) {
       reply.code(403);
       return { message: "Manager or admin access required" };
@@ -1405,12 +1411,14 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     await prisma.$transaction(async db => {
     await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.propertyId}), 824018)::text`;
     const current = await db.makeReadyItem.findUniqueOrThrow({ where: { id } });
+    const property = await db.property.findUnique({ where: { id: current.propertyId }, select: { isActive: true } });
+    if (current.isArchived || !property?.isActive) throw Object.assign(new Error("Restore the unit and property before marking it ready."), { statusCode: 409 });
     if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
       const assigned = await db.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, assignedUserId: user.id, status: { in: pendingWalkStatuses } } });
       if (!assigned || !awaitingFinalWalk(current) || current.isArchived) throw Object.assign(new Error("Only the assigned inspector can sign off this pending final walk"), { statusCode: 403 });
     }
     const blockers = await getTurnReadiness(db, id, user.fullName);
-    if (blockers.length) throw Object.assign(new Error(`Cannot mark ready: ${blockers.slice(0, 8).join("; ")}${blockers.length > 8 ? `; plus ${blockers.length - 8} more. Review completion blockers in turn details.` : ""}`), { statusCode: 409 });
+    if (blockers.length && !overrideReason) throw Object.assign(new Error(`Cannot mark ready: ${blockers.slice(0, 8).join("; ")}${blockers.length > 8 ? `; plus ${blockers.length - 8} more. Review completion blockers in turn details.` : ""}`), { statusCode: 409 });
     await db.makeReadyItem.update({
       where: { id },
       data: {
@@ -1419,12 +1427,23 @@ export async function makeReadyRoutes(app: FastifyInstance) {
         archivedAt: null,
         completionStatus: "YES",
         makeReadyStatus: "DONE",
+        overdue: false,
+        moveInSoon: false,
         vacancyStatus: readyVacancyStatus(current.vacancyStatus),
       },
     });
-    await db.workAssignmentBlock.updateMany({ where: { itemId: id, category: finalWalkCategory, status: { in: pendingWalkStatuses } }, data: { status: "DONE" } });
+    await db.workAssignmentBlock.updateMany({ where: { itemId: id, category: finalWalkCategory, status: { in: pendingWalkStatuses } }, data: { status: overrideReason ? "CANCELED" : "DONE" } });
+    if (overrideReason) await db.auditLog.create({ data: {
+      actorUserId: user.id, propertyId: current.propertyId, entityType: "MAKE_READY_ITEM", entityId: id,
+      action: "BOARD_ITEM_COMPLETION_OVERRIDDEN",
+      message: `${current.unitNumber} was marked fully complete by administrative override: ${overrideReason}`,
+      metadata: { reason: overrideReason, role: user.role, bypassedBlockers: blockers,
+        previous: { completionStatus: current.completionStatus, makeReadyStatus: current.makeReadyStatus,
+          paintStatus: current.paintStatus, cleaningStatus: current.cleaningStatus, vacancyStatus: current.vacancyStatus, boardGroup: current.boardGroup } },
+    } });
     });
-    const item = await processItem(id, { triggerTypes: ["STATUS_FIELD_CHANGED"], request });
+    // Do not let status automations undo an explicit administrative correction.
+    const item = overrideReason ? await prisma.makeReadyItem.findUniqueOrThrow({ where: { id } }) : await processItem(id, { triggerTypes: ["STATUS_FIELD_CHANGED"], request });
     await evaluateAndPersistItemRisk(item.id, { notify: true });
     await writeAuditLog({
       request,

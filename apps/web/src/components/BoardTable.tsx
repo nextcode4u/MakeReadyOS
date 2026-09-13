@@ -9,6 +9,7 @@ import { t } from "../lib/i18n";
 import { openPestQuickAdd, openPestWorkspace } from "../lib/pestNavigation";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { LabelPill } from "./LabelPill";
+import { repairStageDisplay } from "../lib/repairStageDisplay";
 import { Modal } from "./Modal";
 import { StatusState } from "./StatusState";
 import { statusDisplayName } from "../lib/statusDisplayName";
@@ -804,7 +805,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
             <div className="mobile-board-card-status-grid">
               <div>
                 <span>Make Ready</span>
-                <LabelPill value={item.makeReadyStatus} label={item.makeReadyStatus ? labelsByField.makeReadyStatus?.[item.makeReadyStatus] : undefined} muted />
+                <LabelPill value={item.makeReadyStatus} label={repairStageDisplay(item, isSpanish) ?? (item.makeReadyStatus ? labelsByField.makeReadyStatus?.[item.makeReadyStatus] : undefined)} muted />
               </div>
               <div>
                 <span>{isSpanish ? "Mudanza" : "Move-In"}</span>
@@ -1255,7 +1256,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                     ? `${hasActivePestIssue(item) ? "Open" : "Create"} pest record for ${item.unitNumber}`
                                     : `Edit ${column.label} for ${item.unitNumber}`}
                                 >
-                                  <LabelPill value={typeof value === "string" ? value : null} label={typeof value === "string" ? labelsByField[column.key]?.[value] : undefined} muted={!editable} />
+                                  <LabelPill value={typeof value === "string" ? value : null} label={(column.key === "makeReadyStatus" ? repairStageDisplay(item, isSpanish) : undefined) ?? (typeof value === "string" ? labelsByField[column.key]?.[value] : undefined)} muted={!editable} />
                                 </button>
                                 {feedback}
                               </div>

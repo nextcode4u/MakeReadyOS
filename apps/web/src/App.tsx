@@ -2,6 +2,7 @@ import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState 
 import { getVerifiedSession, isCurrentSession, requireVerifiedUserId, verifiedSessionEventName } from "./lib/verifiedSession";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isReadyLikeOccupancy } from "./lib/availabilityStatus";
+import { repairStageDisplay } from "./lib/repairStageDisplay";
 import { ActiveFilterBar } from "./components/ActiveFilterBar";
 import { PasswordForm } from "./components/PasswordForm";
 import { BoardTable } from "./components/BoardTable";
@@ -1884,7 +1885,7 @@ function App() {
   });
 
   const markReadyMutation = useMutation({
-    mutationFn: markMakeReadyItemReady,
+    mutationFn: ({ id, overrideReason }: { id: string; overrideReason?: string }) => markMakeReadyItemReady(id, overrideReason),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["final-walk"] });
       await queryClient.invalidateQueries({ queryKey: ["my-work"] });
@@ -3621,6 +3622,7 @@ function App() {
           overdue: Boolean(track.overdueEnabled && item.overdue),
           trackLabel: track.displayName,
           statusField: context?.statusField ?? "",
+          repairStage: context?.statusField === "makeReadyStatus" ? repairStageDisplay(item, meQuery.data?.user.language === "es") : undefined,
           statusValue: context && typeof item[context.key] === "string" ? String(item[context.key]) : null,
           colorBasis: track.colorBasis,
           fixedColor: track.fixedColor,
@@ -3633,7 +3635,7 @@ function App() {
       .filter((event) => !track.visibilityFilter?.boardGroups?.length || track.visibilityFilter.boardGroups.includes(event.boardGroup))
       .filter((event) => !track.visibilityFilter?.statusValues?.length || Boolean(event.statusValue && track.visibilityFilter.statusValues.includes(event.statusValue)));
     return [track.id, events];
-  })), [scheduleFieldOptions, metaQuery.data?.customFields, sortedItems, vendorAssignmentsQuery.data?.assignments, itemsById, turnStartField?.id]);
+  })), [scheduleFieldOptions, metaQuery.data?.customFields, sortedItems, vendorAssignmentsQuery.data?.assignments, itemsById, turnStartField?.id, meQuery.data?.user.language]);
 
   const applySavedView = (view: SavedView) => {
     const filters = (view.filters ?? {}) as Record<string, unknown>;
@@ -4867,7 +4869,7 @@ function App() {
             onAssignFloorPlan={assignFloorPlan}
             onCreateVendorAssignment={async (input) => { await vendorAssignmentCreateMutation.mutateAsync(input); }}
             onUpdateVendorAssignment={async (id, input) => { await vendorAssignmentUpdateMutation.mutateAsync({ id, data: input }); }}
-            onMarkReady={async (id) => { await markReadyMutation.mutateAsync(id); }}
+            onMarkReady={async (id, overrideReason) => { await markReadyMutation.mutateAsync({ id, overrideReason }); }}
             onBatch={async (input) => { await batchItemsMutation.mutateAsync(input); }}
           />
         </Suspense>

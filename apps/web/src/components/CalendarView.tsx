@@ -6,6 +6,7 @@ import { statusDisplayName } from "../lib/statusDisplayName";
 import { StatusState } from "./StatusState";
 
 export type CalendarEvent = {
+  repairStage?: LabelDefinition;
   unfinished?: boolean;
   projected?: boolean;
   id: string;
@@ -67,6 +68,7 @@ function eventLabel(event: CalendarEvent, labelsByField: Props["labelsByField"])
   if (event.overdue) return { id: "overdue", fieldKey: "", value: "OVERDUE", color: "#e86a7f", textColor: "#2d0912", sortOrder: 0 };
   if (event.riskLevel === "CRITICAL" || event.riskLevel === "HIGH") return { id: `risk-${event.riskLevel}`, fieldKey: "", value: `${event.riskLevel} RISK`, color: "#e86a7f", textColor: "#2d0912", sortOrder: 0 };
   if (event.moveInSoon) return { id: "soon", fieldKey: "", value: "MOVE-IN SOON", color: "#ffc673", textColor: "#3a1f00", sortOrder: 0 };
+  if (event.repairStage) return event.repairStage;
   if (event.colorBasis === "FIXED" && event.fixedColor) return { id: "fixed", fieldKey: "", value: event.trackLabel, color: event.fixedColor, textColor: "#ffffff", sortOrder: 0 };
   if (event.colorBasis === "FIELD" && event.customColor) return { id: "field", fieldKey: "", value: event.customColorLabel ?? event.trackLabel, color: event.customColor, textColor: "#ffffff", sortOrder: 0 };
   return event.statusValue ? labelsByField[event.statusField]?.[event.statusValue] : undefined;
@@ -204,7 +206,8 @@ function CalendarPanel({ track, events, labelsByField, month, onMonthChange, ind
                   <button type="button" className="calendar-event" data-testid={`calendar-event-${event.id}`} onClick={() => onOpenItem(event.id)} key={`${track.id}-${event.id}`} aria-label={isSpanish ? `Abrir detalles para ${event.propertyCode} ${event.unitNumber}` : `Open details for ${event.propertyCode} ${event.unitNumber}`}>
                     <LabelPill value={`${event.propertyCode} ${event.unitNumber}`} label={eventLabel(event, labelsByField)} />
                     {event.projected ? <span data-testid={`calendar-projected-${event.id}`}>{isSpanish ? "Proyectado" : "Projected"}</span> : null}
-                    <small className="calendar-event-context">{event.riskLevel && event.riskLevel !== "NONE" ? (isSpanish ? `Riesgo ${event.riskLevel}` : `${event.riskLevel} risk`) : event.overdue ? (isSpanish ? "Atrasado" : "Overdue") : event.moveInSoon ? (isSpanish ? "Mudanza proxima" : "Move-in soon") : event.customColorLabel || event.statusValue || event.trackLabel}</small>
+                    {event.repairStage ? <small>{event.repairStage.displayName}</small> : null}
+                    <small className="calendar-event-context">{event.riskLevel && event.riskLevel !== "NONE" ? (isSpanish ? `Riesgo ${event.riskLevel}` : `${event.riskLevel} risk`) : event.overdue ? (isSpanish ? "Atrasado" : "Overdue") : event.moveInSoon ? (isSpanish ? "Mudanza proxima" : "Move-in soon") : event.repairStage ? null : event.customColorLabel || event.statusValue || event.trackLabel}</small>
                   </button>
                 ))}
               </div>

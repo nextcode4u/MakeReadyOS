@@ -16,8 +16,8 @@ export function LabelPill({ value, label, muted }: Props) {
 
   return (
     <span
-      className={clsx("pill", muted && "pill-muted")}
-      title={value}
+      className={clsx("pill", muted && "pill-muted", label?.id === "repair-stage" && "pill-repair-stage")}
+      title={displayValue}
       style={{
         background: label?.color ?? "#3c4459",
         color: label?.textColor ?? "#f4f6fa",

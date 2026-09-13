@@ -4054,6 +4054,14 @@ textarea {
   color: #dce4f2;
 }
 
+.board-table .pill.pill-repair-stage,
+.pill.pill-repair-stage {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  border-radius: 0.5rem;
+  line-height: 1.25;
+}
+
 .pill-muted {
   opacity: 0.88;
 }
