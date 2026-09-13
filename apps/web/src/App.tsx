@@ -2046,6 +2046,8 @@ function App() {
         refreshOperations(`Imported availability: ${data.summary.turnsCreated} turns created, ${data.summary.turnsUpdated} updated`),
         queryClient.invalidateQueries({ queryKey: ["make-ready-items"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["my-work"] }),
+        queryClient.invalidateQueries({ queryKey: ["planning"] }),
       ]);
       const floorPlanSummary = data.summary.floorPlansCreated || data.summary.floorPlansUpdated
         ? ` ${data.summary.floorPlansCreated ?? 0} floor plans created, ${data.summary.floorPlansUpdated ?? 0} updated.`

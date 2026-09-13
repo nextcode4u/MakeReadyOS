@@ -4148,6 +4148,7 @@ export type AvailabilityImportResult = {
     unitsUpdated: number;
     turnsCreated: number;
     turnsUpdated: number;
+    turnsArchived?: number;
     skipped: number;
     floorPlansCreated?: number;
     floorPlansUpdated?: number;
@@ -4195,7 +4196,11 @@ export function importUnits(input: { propertyId: string; units: UnitImportInput[
   });
 }
 
-export function importAvailability(input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting?: boolean; createTurns?: boolean; overrideConflicts?: boolean }) {
+export type AvailabilityReconciliationInput = { fullReport?: boolean; reportDate?: string; archivePreviewToken?: string };
+export function previewAvailabilityArchives(input: { propertyId: string; rows: AvailabilityImportInput[]; reportDate: string }) {
+  return request<{ token: string; candidates: Array<{ id: string; unitNumber: string; moveInDate: string }> }>("/operations/availability/import", { method: "POST", body: JSON.stringify({ ...input, fullReport: true, previewOnly: true }) });
+}
+export function importAvailability(input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting?: boolean; createTurns?: boolean; overrideConflicts?: boolean } & AvailabilityReconciliationInput) {
   return request<AvailabilityImportResult>("/operations/availability/import", {
     method: "POST",
     body: JSON.stringify(input),

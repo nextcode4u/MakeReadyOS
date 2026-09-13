@@ -8,6 +8,7 @@ import { prisma } from "../lib/prisma.js";
 import { evaluateAndPersistItemRisk } from "../lib/risk.js";
 import { isReadyAvailabilityStatus } from "../lib/availabilityStatus.js";
 import { ensureDefaultTurnScheduling } from "../lib/defaultTurnScheduling.js";
+import { availabilityArchivePlan } from "../lib/availabilityReconciliation.js";
 
 export const operationsQuerySchema = z.object({
   includeArchived: z.enum(["true", "false"]).optional().transform((value) => value === "true"),
@@ -133,6 +134,10 @@ export const availabilityImportSchema = z.object({
   updateExisting: z.boolean().default(true),
   createTurns: z.boolean().default(true),
   overrideConflicts: z.boolean().default(false),
+  fullReport: z.boolean().default(false),
+  reportDate: z.string().optional(),
+  previewOnly: z.boolean().default(false),
+  archivePreviewToken: z.string().optional(),
 });
 
 export const unitImportRevertSchema = z.object({
@@ -1239,6 +1244,7 @@ export async function operationsRoutes(app: FastifyInstance) {
       unitsUpdated: 0,
       turnsCreated: 0,
       turnsUpdated: 0,
+      turnsArchived: 0,
       skipped: 0,
       floorPlansCreated: 0,
       floorPlansUpdated: 0,
@@ -1302,6 +1308,12 @@ export async function operationsRoutes(app: FastifyInstance) {
       return conflict ? [conflict] : [];
     });
 
+    if (payload.fullReport && summary.errors.length) return reply.code(400).send({ message: "Fix duplicate or invalid rows before reconciling a full report." });
+    if (payload.previewOnly) {
+      if (!payload.fullReport) return reply.code(400).send({ message: "Select full report to preview missing-unit reconciliation." });
+      const plan = await availabilityArchivePlan(prisma, payload);
+      return { token: plan.token, candidates: plan.candidates.map(item => ({ id: item.id, unitNumber: item.unitNumber, moveInDate: item.moveInDate })) };
+    }
     if (conflicts.length > 0 && !payload.overrideConflicts) {
       reply.code(409);
       return {
@@ -1312,6 +1324,9 @@ export async function operationsRoutes(app: FastifyInstance) {
     }
 
     await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${payload.propertyId}), 824018)::text`;
+      const archivePlan = payload.fullReport ? await availabilityArchivePlan(tx, payload) : null;
+      if (archivePlan && archivePlan.token !== payload.archivePreviewToken) throw Object.assign(new Error("The missing-unit archive preview changed. Preview this full report again before importing."), { statusCode: 409 });
       const floorPlanCache = new Map<string, { id: string; code: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null }>();
       const existingPlans = await tx.floorPlan.findMany({
         where: { propertyId: payload.propertyId },
@@ -1479,7 +1494,23 @@ export async function operationsRoutes(app: FastifyInstance) {
           summary.turnsCreated += 1;
         }
       }
-    });
+      for (const item of archivePlan?.candidates ?? []) {
+        await tx.unit.update({ where: { id: item.unitId! }, data: { occupancyStatus: "OCCUPIED" } });
+        await tx.makeReadyItem.update({ where: { id: item.id }, data: {
+          vacancyStatus: "OCCUPIED", boardGroup: archivePlan!.archiveSection!.key, isArchived: true, archivedAt: new Date(),
+          completionStatus: "YES",
+          overdue: false, moveInSoon: false, riskScore: 0, riskLevel: "NONE", riskReasons: [],
+        } });
+        await tx.workAssignmentBlock.updateMany({ where: { itemId: item.id, category: "FINAL_WALK_INSPECTION", status: { in: ["PLANNED", "IN_PROGRESS"] } }, data: { status: "CANCELED" } });
+        await tx.auditLog.create({ data: {
+          actorUserId: request.currentUser!.id, propertyId: property.id, entityType: "MAKE_READY_ITEM", entityId: item.id,
+          action: "AVAILABILITY_MOVED_IN_ARCHIVED",
+          message: `${item.unitNumber}: inferred occupied from full availability report ${archivePlan!.reportDate}; ready turn archived.`,
+          metadata: { reportDate: archivePlan!.reportDate, moveInDate: item.moveInDate?.toISOString(), previousVacancyStatus: item.vacancyStatus, previousCompletionStatus: item.completionStatus, previousBoardGroup: item.boardGroup, previousOccupancyStatus: item.unit?.occupancyStatus },
+        } });
+        summary.turnsArchived += 1;
+      }
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000 });
 
     for (const itemId of [...createdItemIds, ...updatedItemIds]) {
       await evaluateAndPersistItemRisk(itemId, { notify: true });

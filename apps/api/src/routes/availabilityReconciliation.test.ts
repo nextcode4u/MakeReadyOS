@@ -1,0 +1,57 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+test("full availability imports preview and atomically archive missing ready units; partial imports do not", async t => {
+  process.env.DATABASE_URL = "postgresql://unused:unused@127.0.0.1:1/unused";
+  process.env.ADMIN_USERNAME = "availability-test";
+  process.env.ADMIN_PASSWORD = "Test-Only-Password!123";
+  process.env.SESSION_COOKIE_SECRET = "test-only-session-secret-12345678901234567890";
+  const { prisma } = await import("../lib/prisma.js");
+  const { operationsRoutes } = await import("./operations.js");
+  const { default: Fastify } = await import("fastify");
+  const stub = (delegate: any, key: string, fn: (...args: any[]) => unknown) => { const original = delegate[key]; delegate[key] = fn; t.after(() => { delegate[key] = original; }); };
+  const initial = { id: "missing", unitId: "unit", unitNumber: "011", propertyId: "ta", boardGroup: "ready", vacancyStatus: "VACANT LEASED READY", makeReadyStatus: "DONE", completionStatus: "NO", moveInDate: new Date("2026-09-10"), updatedAt: new Date("2026-09-11"), isArchived: false, unit: { isActive: true, occupancyStatus: "VACANT LEASED READY" } };
+  let item = { ...initial }; let failAudit = false; let role = "MANAGER"; let access = "ta";
+  const audits: any[] = []; const unitUpdates: any[] = [];
+  stub(prisma.property, "findUnique", async () => ({ id: "ta", code: "TA", name: "Town Arlington", isActive: true }));
+  stub(prisma.boardSection, "findMany", async () => [{ key: "ready", sectionType: "READY" }, { key: "archive", sectionType: "ARCHIVE" }]);
+  stub(prisma.makeReadyItem, "findMany", async ({ where }: any) => where.unitNumber || item.isArchived ? [] : [item]);
+  stub(prisma.makeReadyItem, "update", async ({ data }: any) => { item = { ...item, ...data }; return item; });
+  stub(prisma.floorPlan, "findMany", async () => []);
+  stub(prisma.unit, "findUnique", async () => ({ id: "listed-unit" }));
+  stub(prisma.unit, "update", async (args: any) => { unitUpdates.push(args); return { id: args.where.id }; });
+  stub(prisma.workAssignmentBlock, "updateMany", async () => ({ count: 0 }));
+  stub(prisma.auditLog, "create", async ({ data }: any) => { if (failAudit) throw new Error("Audit unavailable"); audits.push(data); return data; });
+  stub(prisma, "$queryRaw", async () => []);
+  stub(prisma, "$transaction", async (fn: any) => {
+    const before = { ...item }; const count = unitUpdates.length;
+    try { return await fn(prisma); } catch (error) { item = before; unitUpdates.splice(count); throw error; }
+  });
+  const app = Fastify(); app.decorateRequest("currentUser", null);
+  app.addHook("onRequest", async request => { request.currentUser = { id: "actor", role, propertyAccess: [{ propertyId: access }] } as any; });
+  await app.register(operationsRoutes); t.after(() => app.close());
+  const input = { propertyId: "ta", rows: [{ number: "100", vacancyStatus: "VACANT_READY" }], createTurns: false, reportDate: "2026-09-13" };
+  const submit = (extra: object) => app.inject({ method: "POST", url: "/operations/availability/import", payload: { ...input, ...extra } });
+  const partial = await submit({});
+  assert.equal(partial.statusCode, 200, partial.body);
+  assert.equal(item.isArchived, false);
+  const preview = await submit({ fullReport: true, previewOnly: true });
+  assert.equal(preview.statusCode, 200, preview.body);
+  assert.equal(preview.json().candidates[0].unitNumber, "011");
+  assert.equal(item.isArchived, false);
+  assert.equal((await submit({ fullReport: true, archivePreviewToken: "stale" })).statusCode, 409);
+  const token = preview.json().token;
+  role = "TECH"; assert.equal((await submit({ fullReport: true, archivePreviewToken: token })).statusCode, 403);
+  role = "MANAGER"; access = "vab"; assert.equal((await submit({ fullReport: true, archivePreviewToken: token })).statusCode, 403); access = "ta";
+  failAudit = true;
+  assert.equal((await submit({ fullReport: true, archivePreviewToken: token })).statusCode, 500);
+  assert.equal(item.isArchived, false);
+  failAudit = false;
+  const result = await submit({ fullReport: true, archivePreviewToken: token });
+  assert.equal(result.statusCode, 200, result.body);
+  assert.equal(result.json().summary.turnsArchived, 1);
+  assert.equal(item.vacancyStatus, "OCCUPIED"); assert.equal(item.boardGroup, "archive"); assert.equal(item.isArchived, true);
+  assert.equal(item.completionStatus, "YES");
+  assert.ok(unitUpdates.some(update => update.where.id === "unit" && update.data.occupancyStatus === "OCCUPIED"));
+  assert.ok(audits.some(audit => audit.action === "AVAILABILITY_MOVED_IN_ARCHIVED" && audit.actorUserId === "actor"));
+});
