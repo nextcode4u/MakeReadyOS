@@ -47,7 +47,7 @@ type Props = {
   onAssignFloorPlan: (item: MakeReadyItem, floorPlanId: string) => Promise<void>;
   onCreateVendorAssignment: (input: { vendorId: string; itemId: string; trade: string; status?: VendorAssignment["status"]; scheduledDate?: string | null; dueDate?: string | null; notes?: string | null }) => Promise<void>;
   onUpdateVendorAssignment: (id: string, input: { status?: VendorAssignment["status"]; notes?: string | null; scheduledDate?: string | null; dueDate?: string | null }) => Promise<void>;
-  onMarkReady: (id: string) => Promise<void>;
+  onMarkReady: (id: string, overrideReason?: string) => Promise<void>;
   onBatch: (input:
     | { action: "ARCHIVE" | "RESTORE"; ids: string[] }
     | { action: "ASSIGN_TECH"; ids: string[]; value: string | null }
@@ -206,6 +206,8 @@ export function ItemDrawer({
   const stage = approved ? "Final walk complete" : inspectionReady ? "Ready for final walk" : !repairsFinished ? "Repairs in progress" : !tradeFinished(item.paintStatus) ? "Waiting for painting" : "Waiting for cleaning";
   const [pane, setPane] = useState<"work" | "photos" | "notes" | "final" | "all">(() => focused ? (inspectionReady ? "final" : "work") : "all");
   const [saving, setSaving] = useState<string | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overrideConfirmed, setOverrideConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [commentText, setCommentText] = useState("");
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -922,7 +924,7 @@ export function ItemDrawer({
           <div className="drawer-fields">
             <label className="drawer-field">
               <span>Whole turn complete</span>
-              <input data-testid="drawer-field-completionStatus" readOnly value={approved ? "Yes - final walk approved" : "No - final approval pending"}/>
+              <input data-testid="drawer-field-completionStatus" readOnly value={approved ? "Yes - signed off or administratively overridden" : "No - final approval pending"}/>
             </label>
           </div>
           {canManageItems ? (
@@ -930,7 +932,7 @@ export function ItemDrawer({
               className="button button-primary"
               data-testid="drawer-mark-ready"
               type="button"
-              disabled={saving === "markReady"}
+              disabled={saving !== null}
               onClick={async () => {
                 setSaving("markReady");
                 setError("");
@@ -946,6 +948,22 @@ export function ItemDrawer({
               {saving === "markReady" ? t(language, "drawer.markingReady") : t(language, "drawer.managerSignoffMarkReady")}
             </button>
           ) : null}
+          {canManageItems && !approved ? <details data-testid="completion-override" className="drawer-section">
+            <summary>Manager / admin override</summary>
+            <p>Correct this unit to fully complete and move it to Ready Units, bypassing unfinished work and final-walk requirements. This does not certify an inspection or change individual task, parts, or report records. Pending final-walk assignments will be cancelled.</p>
+            <label className="drawer-field">
+              <span>Reason for override (required)</span>
+              <textarea data-testid="completion-override-reason" value={overrideReason} maxLength={1000} onChange={event => setOverrideReason(event.target.value)} disabled={saving !== null} />
+              <small>At least 10 characters. Your name, reason, and bypassed blockers are recorded in the audit history.</small>
+            </label>
+            <label><input type="checkbox" checked={overrideConfirmed} onChange={event => setOverrideConfirmed(event.target.checked)} disabled={saving !== null} /> I confirm this unit should be fully completed despite any outstanding requirements.</label>
+            <button type="button" className="button button-secondary" data-testid="completion-override-submit" disabled={saving !== null || !overrideConfirmed || overrideReason.trim().length < 10} onClick={async () => {
+              setSaving("completionOverride"); setError("");
+              try { await onMarkReady(item.id, overrideReason.trim()); setOverrideReason(""); setOverrideConfirmed(false); }
+              catch (nextError) { setError(nextError instanceof Error ? nextError.message : "Could not override completion."); }
+              finally { setSaving(null); }
+            }}>{saving === "completionOverride" ? "Applying override..." : "Override and mark fully complete"}</button>
+          </details> : null}
         </section>
 
         <section className="drawer-section" data-testid="drawer-planning-summary">

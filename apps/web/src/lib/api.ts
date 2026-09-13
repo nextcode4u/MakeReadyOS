@@ -4322,8 +4322,8 @@ export function patchMakeReadyItem(id: string, data: Record<string, unknown>, ac
   });
 }
 
-export function markMakeReadyItemReady(id: string) {
-  return request<MakeReadyItem>(`/make-ready-items/${id}/mark-ready`, { method: "POST" });
+export function markMakeReadyItemReady(id: string, overrideReason?: string) {
+  return request<MakeReadyItem>(`/make-ready-items/${id}/mark-ready`, { method: "POST", ...(overrideReason ? { body: JSON.stringify({ overrideReason }) } : {}) });
 }
 
 export function getCalendar(field: string, propertyId?: string) {
