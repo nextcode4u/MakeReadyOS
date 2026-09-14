@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getResidentCodes, saveResidentCodes, type ResidentCodes } from "../lib/api";
+import { getResidentCodes, isApiError, saveResidentCodes, type ResidentCodes } from "../lib/api";
 
 export function ResidentCodesPanel({ itemId, status }: { itemId: string; status: string | null }) {
   const client = useQueryClient();
@@ -11,7 +11,8 @@ export function ResidentCodesPanel({ itemId, status }: { itemId: string; status:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const current = edit ?? query.data;
+  const accessDenied = isApiError(query.error) && [401, 403, 404].includes(query.error.status);
+  const current = accessDenied ? null : edit ?? query.data;
   useEffect(() => {
     if (!edit) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };

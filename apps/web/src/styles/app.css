@@ -3160,24 +3160,24 @@ textarea {
 }
 
 .table-filter-row-selects {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
   gap: 0.36rem;
   align-items: end;
-  overflow-x: auto;
   padding-bottom: 0.28rem;
-  scrollbar-width: thin;
 }
 
 .table-filter-row-selects label {
   display: grid;
-  flex: 0 0 clamp(8.4rem, 9.7vw, 12.4rem);
   gap: 0.18rem;
-  min-width: 8.4rem;
+  min-width: 0;
   color: var(--muted);
   font-size: 0.68rem;
 }
 
 .table-filter-row-selects select {
   width: 100%;
+  min-width: 0;
 }
 
 .table-filter-row-flags {
@@ -8904,16 +8904,6 @@ textarea {
 
   .table-workflow-bar {
     display: none;
-  }
-
-  .table-filter-row-selects {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-  }
-
-  .table-filter-row-selects label {
-    flex-basis: 11rem;
-    min-width: 11rem;
   }
 
   .table-filter-row-flags {

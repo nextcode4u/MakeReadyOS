@@ -16,7 +16,7 @@ import { getTurnReadiness } from "../lib/turnReadiness.js";
 import { awaitingFinalWalk } from "../lib/turnStatus.js";
 import { guardReadyMutation, lockTurnProperty, normalizeRepairCompletion, requestsInspection } from "../lib/turnMutationGuard.js";
 import { notifyAssignedStaff, notifyPropertyRoles } from "../lib/notifications.js";
-import { computeDerivedFields, editableFields, normalizeItemPatch, startOfDay, withLiveTurnFields } from "../lib/board.js";
+import { computeDerivedFields, editableFields, normalizeItemPatch, startOfDay, withLiveTurnFields, type AutomationDefinition } from "../lib/board.js";
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { evaluateAndPersistItemRisk, riskCategories } from "../lib/risk.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
@@ -610,9 +610,10 @@ async function processItem(itemId: string, options: {
       triggerType: { in: options.triggerTypes },
       OR: [{ propertyId: null }, { propertyId: item.propertyId }],
     },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
 
-  const definitions = [];
+  const definitions: AutomationDefinition[] = [];
   for (const rule of rules) {
     const parsed = automationRuleInputSchema.safeParse({
       name: rule.name,
@@ -665,6 +666,16 @@ async function processItem(itemId: string, options: {
     const patch = normalizeItemPatch(automationPatch);
     normalizeRepairCompletion(current, patch);
     try {
+      // A later rule must not hide an earlier forbidden readiness transition.
+      const matchedRuleIds = new Set(logs.map(log => log.ruleId));
+      for (const definition of definitions.filter(rule => matchedRuleIds.has(rule.id))) {
+        for (const action of definition.actions) {
+          if (action.type !== "setField") continue;
+          const intendedPatch: Record<string, unknown> = { [action.field]: action.value };
+          normalizeRepairCompletion(current, intendedPatch);
+          await guardReadyMutation(db, current, intendedPatch, options.request?.currentUser?.fullName ?? "Automation");
+        }
+      }
       await guardReadyMutation(db, current, patch, options.request?.currentUser?.fullName ?? "Automation");
     } catch (error) {
       if ((error as { statusCode?: number })?.statusCode !== 409) throw error;

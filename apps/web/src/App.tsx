@@ -100,6 +100,7 @@ import {
   getNotifications,
   getMyWork,
   getPlanning,
+  getItemWorkPlan,
   getPestIssues,
   getPreventiveMaintenanceHistory,
   getPreventiveMaintenanceTasks,
@@ -197,6 +198,7 @@ import { openProjectCreateEventName, openProjectRecordEventName, type OpenProjec
 import { openPestQuickAddEventName, openPestWorkspaceEventName, type OpenPestQuickAddRequest, type OpenPestWorkspaceRequest } from "./lib/pestNavigation";
 import { openLeaseQuickAddEventName, openLeaseWorkspaceEventName, type OpenLeaseQuickAddRequest, type OpenLeaseWorkspaceRequest } from "./lib/leaseNavigation";
 import { isTouchMobileViewport } from "./lib/responsive";
+import { AvailabilityFreshness } from "./components/AvailabilityFreshness";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel").then((module) => ({ default: module.AdminPanel })));
 const ActivityPanel = lazy(() => import("./components/ActivityPanel").then((module) => ({ default: module.ActivityPanel })));
@@ -753,7 +755,6 @@ function App() {
   const openAssignedWorkEntry = (entry: AssignedWorkEntry) => {
     switch (entry.sourceType) {
       case "MAKE_READY_ITEM":
-        setActiveView("table");
         openItemDrawer(entry.sourceId);
         break;
       case "PROJECT_RECORD":
@@ -2042,13 +2043,17 @@ function App() {
   const importAvailabilityMutation = useMutation({
     mutationFn: importAvailability,
     onSuccess: async (data) => {
-      await Promise.all([
-        refreshOperations(`Imported availability: ${data.summary.turnsCreated} turns created, ${data.summary.turnsUpdated} updated`),
-        queryClient.invalidateQueries({ queryKey: ["make-ready-items"] }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-        queryClient.invalidateQueries({ queryKey: ["my-work"] }),
-        queryClient.invalidateQueries({ queryKey: ["planning"] }),
-      ]);
+      setOperationsError("");
+      setOperationsMessage(`Imported availability: ${data.summary.turnsCreated} turns created, ${data.summary.turnsUpdated} updated`);
+      const refreshResults = await Promise.allSettled(
+        ["operations", "meta", "make-ready-items", "activity", "dashboard", "my-work", "planning"]
+          .map(key => queryClient.invalidateQueries({ queryKey: [key] }, { throwOnError: true })),
+      );
+      if (refreshResults.some(result => result.status === "rejected")) {
+        setOperationsError("Availability import saved, but the screen could not refresh. Reload to see the saved changes; do not repeat the import.");
+        pushToast("Availability saved; refresh needed", "The import was saved. Reload this screen rather than importing again.", "info");
+        return;
+      }
       const floorPlanSummary = data.summary.floorPlansCreated || data.summary.floorPlansUpdated
         ? ` ${data.summary.floorPlansCreated ?? 0} floor plans created, ${data.summary.floorPlansUpdated ?? 0} updated.`
         : "";
@@ -2299,6 +2304,7 @@ function App() {
   });
 
   const refreshVendors = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["planning", "item-drawer"] });
     await queryClient.invalidateQueries({ queryKey: ["vendors"] });
     await queryClient.invalidateQueries({ queryKey: ["vendor-assignments"] });
     await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -3471,12 +3477,26 @@ function App() {
     }).length;
   }, [deferredSearch, metaQuery.data?.units, propertyId, structuredFilters.archiveState]);
   const itemsById = useMemo(() => new Map(boardItems.map((item) => [item.id, item])), [boardItems]);
-  const selectedItem = selectedItemId ? itemsById.get(selectedItemId) ?? null : null;
+  const selectedItemQuery = useQuery({
+    queryKey: ["make-ready-items", "drawer", selectedItemId],
+    queryFn: async (): Promise<MakeReadyItemsPage> => {
+      const item = await getMakeReadyItem(selectedItemId!);
+      // Keep the page-shaped cache contract used by item invalidation and offline edits.
+      return { items: [item], pagination: { total: 1, limit: 1, offset: 0, hasMore: false, nextOffset: null } };
+    },
+    enabled: meQuery.isSuccess && Boolean(selectedItemId),
+    staleTime: 0,
+    refetchInterval: 60000,
+  });
+  const selectedItemAccessDenied = isApiError(selectedItemQuery.error) && [401, 403, 404].includes(selectedItemQuery.error.status);
+  const selectedItem = selectedItemAccessDenied ? null : selectedItemQuery.data?.items[0] ?? null;
   const selectedItemPlanningQuery = useQuery({
     queryKey: ["planning", "item-drawer", selectedItemId],
-    queryFn: () => getPlanning({ propertyId: selectedItem?.propertyId }),
+    queryFn: () => getItemWorkPlan(selectedItemId!),
     enabled: meQuery.isSuccess && Boolean(selectedItemId && selectedItem?.propertyId),
+    refetchInterval: 60000,
   });
+  const itemWorkPlanAccessDenied = isApiError(selectedItemPlanningQuery.error) && [401, 403, 404].includes(selectedItemPlanningQuery.error.status);
   const clearBoardFilters = (preserveProperty = false) => {
     setSearch("");
     setScopeLevelFilter("");
@@ -4025,12 +4045,18 @@ function App() {
               <div className="panel-state-wrap">
                 <StatusState title={t(currentUser.language, "status.loadingBoardSetup")} description={t(currentUser.language, "status.loadingBoardSetupCopy")} />
               </div>
-            ) : operationsPropertiesQuery.isError || operationsUnitsQuery.isError || operationsOptionsQuery.isError || floorPlansQuery.isError || scheduleTracksQuery.isError || operatingCalendarsQuery.isError || riskPoliciesQuery.isError ? (
+            ) : [operationsPropertiesQuery, operationsUnitsQuery, operationsOptionsQuery, floorPlansQuery, scheduleTracksQuery, operatingCalendarsQuery, riskPoliciesQuery].some(query => query.isError && !query.data) ? (
               <div className="panel-state-wrap">
                 <StatusState title={t(currentUser.language, "status.boardSetupFailed")} description={t(currentUser.language, "status.boardSetupFailedCopy")} tone="error" />
               </div>
             ) : (
               <>
+              {[operationsPropertiesQuery, operationsUnitsQuery, operationsOptionsQuery, floorPlansQuery, scheduleTracksQuery, operatingCalendarsQuery, riskPoliciesQuery].some(query => query.isError) ? (
+                <div className="admin-message warning" role="alert" data-testid="setup-stale-warning">
+                  <p>Setup data could not refresh. Previously loaded information and unsaved forms are still shown; some information may be out of date.</p>
+                  <button type="button" className="button" onClick={() => void Promise.all([operationsPropertiesQuery, operationsUnitsQuery, operationsOptionsQuery, floorPlansQuery, scheduleTracksQuery, operatingCalendarsQuery, riskPoliciesQuery].map(query => query.refetch()))}>Retry setup refresh</button>
+                </div>
+              ) : null}
               <OperationsPanel
                 language={currentUser.language}
                 role={currentUser.role}
@@ -4447,6 +4473,7 @@ function App() {
           ) : <>
             {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
               <>
+                <AvailabilityFreshness propertyId={propertyId} />
                 <ActiveFilterBar
                   chips={activeFilterChips}
                   resultCount={structuredFilters.archiveState === "occupied" ? occupiedDirectoryResultCount : sortedItems.length}
@@ -4844,12 +4871,20 @@ function App() {
           </Suspense>
         </section>
       </main>
+      <Modal open={Boolean(selectedItemId && !selectedItem)} title={language === "es" ? "Detalles de la unidad" : "Unit details"} onClose={closeItemDrawer} testId="item-load-dialog">
+        <StatusState title={selectedItemQuery.isError ? (language === "es" ? "Unidad no disponible" : "Unit unavailable") : (language === "es" ? "Cargando unidad" : "Loading unit")}
+          description={selectedItemQuery.isError ? (language === "es" ? "No se pudo cargar o verificar el acceso. Reintenta o cierra para volver a tu trabajo." : "Could not load this unit or verify access. Retry, or close to return to your work.") : (language === "es" ? "Consultando la unidad sin cambiar tus filtros." : "Loading this unit without changing your board filters.")}
+          tone={selectedItemQuery.isError ? "error" : "default"}
+          action={selectedItemQuery.isError ? { label: language === "es" ? "Reintentar unidad" : "Retry unit", onClick: () => { void selectedItemQuery.refetch(); } } : undefined} />
+      </Modal>
       {selectedItem && metaQuery.data ? (
         <Suspense fallback={null}>
           <ItemDrawer
             key={`${currentUser.id}-${selectedItem.id}`}
             focused={activeView === "mywork" || activeView === "assignedwork"}
             item={selectedItem}
+            itemRefreshFailed={selectedItemQuery.isError}
+            onRefreshItem={() => { void selectedItemQuery.refetch(); }}
             currentUser={currentUser}
             labelsByField={labelsByField}
             customFields={metaQuery.data.customFields}
@@ -4859,8 +4894,11 @@ function App() {
             boardGroups={metaQuery.data.boardGroups}
             boardSections={metaQuery.data.boardSections}
             vendors={vendorsQuery.data?.vendors ?? []}
-            vendorAssignments={vendorAssignmentsQuery.data?.assignments ?? []}
-            workBlocks={selectedItemPlanningQuery.data?.blocks ?? []}
+            vendorAssignments={itemWorkPlanAccessDenied ? [] : selectedItemPlanningQuery.data?.assignments ?? []}
+            workBlocks={itemWorkPlanAccessDenied ? [] : selectedItemPlanningQuery.data?.blocks ?? []}
+            workPlanState={selectedItemPlanningQuery.isPending ? "loading" : selectedItemPlanningQuery.isError ? "error" : "ready"}
+            workPlanCoverage={itemWorkPlanAccessDenied ? undefined : selectedItemPlanningQuery.data?.coverage}
+            onRefreshWorkPlan={() => { void selectedItemPlanningQuery.refetch(); }}
             canEditField={(item, key) => canEditField(currentUser, key)}
             canEditCustomFields={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
             canManageItems={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}

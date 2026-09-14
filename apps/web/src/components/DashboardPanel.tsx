@@ -635,6 +635,9 @@ function AnalyticsPanel({ data, loading, propertyId, language, onDrillDown, onOp
         <span><strong>{data.metrics.slaMisses}</strong> {isSpanish ? "Incumplimientos de fecha lista" : "Ready-date misses"}</span>
         <span><strong>{data.metrics.staleRiskItems}</strong> {isSpanish ? "Riesgos estancados" : "Stale risk items"}</span>
       </div>
+      <p className="helper-copy" data-testid="analytics-completion-basis">{isSpanish
+        ? "Las fechas de finalizacion, duraciones y productividad son estimaciones historicas de unidades registradas listas, no fechas de inspeccion verificadas. Las capturas historicas pueden usar reglas anteriores."
+        : data.completionBasis ?? "Completion dates, durations and throughput are legacy estimates, not verified inspection timestamps. Stored historical snapshots may use older rules."}</p>
       {comparisonSummary ? (
         <div className="analytics-comparison-wrap">
           <div className="drawer-section-title">

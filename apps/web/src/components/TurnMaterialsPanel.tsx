@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getTurnMaterials, saveTurnMaterials, type TurnMaterial } from "../lib/api";
-import { createMaterialId, encodeMaterialDraft, materialDraftKey, parseMaterialDraft, type MaterialEdit } from "../lib/materialDraft";
+import { getTurnMaterials, isApiError, saveTurnMaterials, type TurnMaterial } from "../lib/api";
+import { createMaterialId, encodeMaterialDraft, materialDraftKey, parseMaterialDraft, reviewMaterialEdit, type MaterialEdit } from "../lib/materialDraft";
 import { Modal } from "./Modal";
 import { QuickMaterialsEntry } from "./QuickMaterialsEntry";
 
@@ -21,8 +21,11 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
   const [error, setError] = useState("");
   const [storageError, setStorageError] = useState("");
   const [quickPending, setQuickPending] = useState(false);
+  const [conflict, setConflict] = useState(false);
+  const [review, setReview] = useState<ReturnType<typeof reviewMaterialEdit> | null>(null);
   const persistDraft = (value: MaterialEdit) => {
-    try { localStorage.setItem(storageKey, encodeMaterialDraft(userId, itemId, value)); setDraft(value); setStorageError(""); return true; }
+    setDraft(value);
+    try { localStorage.setItem(storageKey, encodeMaterialDraft(userId, itemId, value)); setStorageError(""); return true; }
     catch { setStorageError("This browser could not store your draft. Keep this screen open until you can save online."); return false; }
   };
   const removeDraft = () => {
@@ -38,19 +41,19 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
   const open = (row?: TurnMaterial) => {
     if (!query.data) return;
     setEdit({ row: row ?? { id: createMaterialId(), name: "", quantity: 1, unit: "each", status: "NEEDED", notes: "" }, snapshot: query.data });
-    setDirty(false); setError("");
+    setDirty(false); setError(""); setConflict(false); setReview(null);
   };
   const close = () => {
     if (busy || dirty && !window.confirm("Discard unsaved material changes?")) return;
     removeDraft();
-    setEdit(null); setDirty(false); setError(""); void query.refetch();
+    setEdit(null); setDirty(false); setError(""); setConflict(false); setReview(null); void query.refetch();
   };
   return <section className="drawer-section" data-testid="turn-materials">
     <h3>Parts &amp; materials</h3>
     <p className="helper-copy">Your shop pickup list for this turn: record parts here, then review it at the shop to gather supplies. Needed parts are reminders, not completion blockers. Only parts marked On order block readiness until received, used, or cancelled. This internal list is not printed on the resident Final-Walk Report.</p>
     {draft && !edit && canEdit ? <div role="status" data-testid="material-draft-recovery">
       <p>A material draft is saved on this device for your account. It is not saved to the team list and does not sync automatically.</p>
-      <button type="button" disabled={query.data?.readOnly} onClick={() => { setEdit(draft); setDirty(true); setError(""); }}>Resume material draft</button>
+      <button type="button" disabled={query.data?.readOnly} onClick={() => { setEdit(draft); setDirty(true); setError(""); setReview(null); setConflict(false); }}>Resume material draft</button>
       <button type="button" onClick={() => { if (window.confirm("Discard this device's unsaved material draft?")) removeDraft(); }}>Discard material draft</button>
     </div> : null}
     {storageError && !edit ? <p role="alert">{storageError}</p> : null}
@@ -78,6 +81,7 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
     <Modal open={!!edit} title={`Parts & materials / ${title}`} onClose={close} testId="turn-material-editor">
       {edit ? <form onChange={event => {
         setDirty(true);
+        setReview(null);
         const data = new FormData(event.currentTarget);
         persistDraft({ ...edit, row: { id: edit.row.id, name: String(data.get("name") ?? ""), quantity: String(data.get("quantity") ?? ""), unit: String(data.get("unit") ?? ""), status: String(data.get("status")) as TurnMaterial["status"], notes: String(data.get("notes") ?? "") } });
       }} onSubmit={async event => {
@@ -85,9 +89,9 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
         const data = new FormData(event.currentTarget);
         const row: TurnMaterial = { id: edit.row.id, name: String(data.get("name") ?? ""), quantity: Number(data.get("quantity")), unit: String(data.get("unit") ?? ""), status: String(data.get("status")) as TurnMaterial["status"], notes: String(data.get("notes") ?? "") };
         const rows = edit.snapshot.rows.some(existing => existing.id === row.id) ? edit.snapshot.rows.map(existing => existing.id === row.id ? row : existing) : [...edit.snapshot.rows, row];
-        setBusy(true); setError("");
+        setBusy(true); setError(""); setReview(null); setConflict(false);
         try { const result = await saveTurnMaterials(itemId, { rows, version: edit.snapshot.version }); client.setQueryData(key, result); removeDraft(); setEdit(null); setDirty(false); void client.invalidateQueries({ queryKey: ["final-walk", itemId] }); }
-        catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save parts list. Your inputs are preserved."); }
+        catch (cause) { setConflict(isApiError(cause) && cause.status === 409); setError(cause instanceof Error ? cause.message : "Could not save parts list. Your inputs are preserved."); }
         finally { setBusy(false); }
       }}>
         <fieldset disabled={busy} className="turn-material-fields">
@@ -103,6 +107,28 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
           {dirty && draft && !storageError ? <p role="status">Draft stored on this device only. Use Save material while connected to update the team list.</p> : null}
         </fieldset>
         {error ? <p role="alert">{error}</p> : null}
+        {conflict ? <button type="button" disabled={busy} onClick={async () => {
+          setBusy(true); setError(""); setReview(null);
+          try {
+            const latest = await getTurnMaterials(itemId);
+            client.setQueryData(key, latest);
+            setReview(reviewMaterialEdit(draft ?? edit, latest));
+          } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not review the latest list. Your draft is preserved."); }
+          finally { setBusy(false); }
+        }}>Review latest parts list</button> : null}
+        {review ? <div role="status" data-testid="material-edit-review" style={{ overflowWrap: "anywhere" }}>
+          <p>{review.alreadySaved ? "This exact line is already saved. No repeat save is needed." : "This line has not changed on the server. Your edits can be kept with the latest list without overwriting other lines."}</p>
+          <details><summary>Latest saved list ({review.latest.rows.length} lines)</summary><ul>{review.latest.rows.map(row => <li key={row.id}>{row.name}: {row.quantity} {row.unit} / {statuses[row.status]}{row.notes ? ` / ${row.notes}` : ""}</li>)}</ul></details>
+          <button type="button" disabled={busy} onClick={() => {
+            if (review.alreadySaved) { removeDraft(); setEdit(null); setDirty(false); }
+            else {
+              const next = { ...(draft ?? edit), snapshot: review.latest };
+              setEdit(next); persistDraft(next); setDirty(true);
+            }
+            setReview(null); setConflict(false); setError("");
+          }}>{review.alreadySaved ? "Use already saved line" : "Keep my edits with latest list"}</button>
+          {!review.alreadySaved ? <p>This only updates your draft. Select Save material afterward to submit.</p> : null}
+        </div> : null}
         {storageError ? <p role="alert">{storageError}</p> : null}
       </form> : null}
     </Modal>

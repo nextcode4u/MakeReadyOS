@@ -15,6 +15,76 @@ const adminPassword = process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456";
 const techEmail = process.env.DEMO_TECH_EMAIL || "tech@example.com";
 const techPassword = process.env.DEMO_TECH_PASSWORD || "MakeReadyTech!23456";
 
+function pondTestItems(items: Record<string, unknown>[]) {
+  // Food/wardrobe tests must not inherit earlier tests' inspections, down groups or deadlines.
+  return items.slice(0, 6).map(item => ({ ...item, boardGroup: "POND_TEST", isArchived: false,
+    makeReadyStatus: null, completionStatus: "NO", vacancyStatus: "VACANT_NOT_LEASED_NOT_READY",
+    moveInDate: null, overdue: false, riskLevel: "NONE" }));
+}
+
+test("turn status readiness and inspection provenance database integration", async () => {
+  test.skip(!process.env.COMPOSE_PROJECT_NAME?.startsWith("makereadyos-e2e-"), "Disposable e2e stack required");
+  const output = execFileSync("docker", ["compose", "exec", "-T", "api", "node", "--input-type=module"], {
+    input: readFileSync("e2e/turn-status.integration.mjs", "utf8"), encoding: "utf8", timeout: 30000,
+  });
+  expect(output).toContain("Turn status database integration passed");
+});
+
+test("availability import preserves committed success when screen refresh fails", async ({ page }) => {
+  test.setTimeout(90000);
+  await login(page, adminEmail, adminPassword);
+  const session = await (await page.request.get("/api/auth/me")).json();
+  const headers = { "x-csrf-token": session.csrfToken };
+  const code = `IR${Date.now()}`;
+  const created = await page.request.post("/api/operations/properties", { headers, data: { code, name: "Import receipt fixture" } });
+  expect(created.status(), await created.text()).toBe(201);
+  const { property } = await created.json();
+  await page.reload();
+  await page.getByTestId("tab-operations").click();
+  await page.getByTestId("availability-import-property").selectOption(property.id);
+  await page.getByTestId("unit-import-csv").fill("unit,floorPlan\nUnsent-directory-unit,B1");
+  await page.getByTestId("availability-import-csv").fill("unit,availabilityStatus,reportDate\n101,Vacant Not Leased Ready,2026-09-13");
+  let committed = false;
+  let submissions = 0;
+  await page.route("**/api/operations/units?**", route => committed ? route.fulfill({ status: 503, json: { message: "Injected refresh failure" } }) : route.continue());
+  await page.route("**/api/operations/availability/import", async route => {
+    submissions++;
+    const response = await route.fetch();
+    expect(response.status(), await response.text()).toBe(200);
+    const saved = await response.json();
+    expect(saved.applied).toBe(true);
+    committed = true;
+    await route.fulfill({ response, json: { ...saved, warnings: ["Import saved. Notification refresh needs review."] } });
+  });
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByTestId("availability-import-submit").click();
+  await expect(page.getByTestId("availability-import-last-import")).toContainText(`Last availability import to ${code}`, { timeout: 30000 });
+  await expect(page.getByText("Availability import saved, but the screen could not refresh. Reload to see the saved changes; do not repeat the import.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Import saved. Notification refresh needs review.", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("availability-import-csv")).toHaveValue("");
+  await expect(page.getByTestId("unit-import-csv")).toHaveValue("unit,floorPlan\nUnsent-directory-unit,B1");
+  await expect(page.getByTestId("setup-stale-warning")).toBeVisible();
+  expect(submissions).toBe(1);
+  const units = await (await page.request.get(`/api/operations/units?propertyId=${property.id}`)).json();
+  expect(units.units.filter((unit: any) => unit.number === "101")).toHaveLength(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.unroute("**/api/operations/units?**");
+  await page.getByRole("button", { name: "Retry setup refresh", exact: true }).click();
+  await expect(page.getByTestId("setup-stale-warning")).toHaveCount(0);
+  await expect(page.getByTestId("availability-import-last-import")).toContainText(code);
+  expect(submissions).toBe(1);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByTestId("property-filter").selectOption(property.id);
+  await page.getByTestId("tab-table").click();
+  await page.getByTestId("item-details-101").click();
+  await expect(page.getByTestId("drawer-field-completionStatus")).toHaveValue("Yes - unit ready");
+  await expect(page.getByTestId("final-walk-recorded-ready")).toBeVisible();
+  await expect(page.getByTestId("turn-readiness-blockers")).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByTestId("drawer-field-completionStatus")).toHaveValue("Yes - unit ready");
+});
+
 test("device push database queue and session ownership integration", async () => {
   test.skip(!process.env.COMPOSE_PROJECT_NAME?.startsWith("makereadyos-e2e-"), "Disposable e2e stack required");
   const output = execFileSync("docker", ["compose", "exec", "-T", "api", "node", "--input-type=module"], {
@@ -1902,11 +1972,12 @@ test("tadpoles reach algae and nibble individual flakes without tongues", async 
   await page.clock.install();
   await page.route("**/api/make-ready-items?*", async route => {
     const response = await route.fetch(); const items = await response.json();
-    await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, riskLevel: "NONE", overdue: false, completionStatus: "NO", vacancyStatus: index < 3 ? "NTV" : "VACANT_NOT_LEASED_NOT_READY" })) });
+    await route.fulfill({ response, json: pondTestItems(items).map((item, index) => ({ ...item, vacancyStatus: index < 3 ? "NTV" : "VACANT_NOT_LEASED_NOT_READY" })) });
   });
   await login(page, adminEmail, adminPassword);
   await page.getByTestId("tab-pond").click();
   await page.getByTestId("pond-food").selectOption("algae");
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
   await page.getByTestId("pond-feed").click();
   const flakes = page.locator(".pond-food-algae i");
   await expect(flakes).toHaveCount(3);
@@ -1933,7 +2004,7 @@ test("pond clicks alternate food and skip unavailable species", async ({ page })
   let species = "mixed";
   await page.route("**/api/make-ready-items?*", async route => {
     const response = await route.fetch(); const items = await response.json();
-    await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, riskLevel: "NONE", overdue: false, completionStatus: "NO", vacancyStatus: species === "tadpoles" || species === "mixed" && index === 0 ? "NTV" : "VACANT_NOT_LEASED_NOT_READY" })) });
+    await route.fulfill({ response, json: pondTestItems(items).map((item, index) => ({ ...item, vacancyStatus: species === "tadpoles" || species === "mixed" && index === 0 ? "NTV" : "VACANT_NOT_LEASED_NOT_READY" })) });
   });
   await login(page, adminEmail, adminPassword);
   await page.getByTestId("tab-pond").click();
@@ -2000,7 +2071,7 @@ test("pond wardrobe, species feeding, scrapbook and quiet view preserve individu
   await page.clock.install();
   await page.route("**/api/make-ready-items?*", async route => {
     const response = await route.fetch(); const items = await response.json();
-    await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, riskLevel: "NONE", overdue: false, completionStatus: index < 3 ? "YES" : "NO", vacancyStatus: index === 3 ? "NTV" : "VACANT_NOT_LEASED_NOT_READY" })) });
+    await route.fulfill({ response, json: pondTestItems(items).map((item, index) => ({ ...item, completionStatus: index < 3 ? "YES" : "NO", vacancyStatus: index === 3 ? "NTV" : "VACANT_NOT_LEASED_NOT_READY" })) });
   });
   await login(page, adminEmail, adminPassword);
   await page.getByTestId("tab-pond").click();
@@ -2047,7 +2118,7 @@ test("natural pond stays hat-free and Rodeo frogs is an earned optional outfit",
   let ready = 2;
   await page.route("**/api/make-ready-items?*", async route => {
     const response = await route.fetch(); const items = await response.json();
-    await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, completionStatus: index < ready ? "YES" : "NO", vacancyStatus: "VACANT_NOT_LEASED_NOT_READY", assignedTech: "Test tech", scopeLevel: "MAJOR", riskLevel: "CRITICAL" })) });
+    await route.fulfill({ response, json: pondTestItems(items).map((item, index) => ({ ...item, completionStatus: index < ready ? "YES" : "NO", assignedTech: "Test tech", scopeLevel: "MAJOR", riskLevel: "CRITICAL" })) });
   });
   await login(page, adminEmail, adminPassword);
   await page.getByTestId("tab-pond").click();
@@ -2080,7 +2151,7 @@ test("pond fly catch shows a tongue and nom before removing the fly", async ({ p
   await page.addInitScript(() => { Math.random = () => .5; });
   await page.route("**/api/make-ready-items?*", async route => {
     const response = await route.fetch(); const items = await response.json();
-    const item = { ...items[0], riskLevel: "NONE", overdue: false, completionStatus: "NO", vacancyStatus: "VACANT_NOT_LEASED_NOT_READY" };
+    const item = pondTestItems(items)[0];
     await route.fulfill({ response, json: [item] });
   });
   await login(page, adminEmail, adminPassword);
@@ -2112,11 +2183,12 @@ test("living pond supports tadpoles, targeted snacks, atmosphere and discoveries
   await page.route("**/api/make-ready-items?*", async route => {
     const response = await route.fetch();
     const items = await response.json();
-    await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, riskLevel: "NONE", overdue: false, completionStatus: "NO", vacancyStatus: index === 0 ? "NTV" : "VACANT_NOT_LEASED_NOT_READY" })) });
+    await route.fulfill({ response, json: pondTestItems(items).map((item, index) => ({ ...item, vacancyStatus: index === 0 ? "NTV" : "VACANT_NOT_LEASED_NOT_READY" })) });
   });
   await login(page, adminEmail, adminPassword);
   await page.getByTestId("tab-pond").click();
   errors.length = 0; // The anonymous auth probe before login intentionally returns 401.
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
   const mutations: string[] = [];
   page.on("request", req => { if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method()) && req.url().includes("/api/make-ready-items")) mutations.push(req.url()); });
   await expect(page.getByRole("button", { name: "Sound: off", exact: true })).toBeVisible();
@@ -2182,7 +2254,7 @@ test("living pond celebrates a newly ready unit, not initial historical readines
   let complete = false;
   await page.route("**/api/make-ready-items?*", async route => {
     const response = await route.fetch(); const items = await response.json();
-    await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, completionStatus: index === 0 && complete ? "YES" : "NO", vacancyStatus: "VACANT_NOT_LEASED_NOT_READY" })) });
+    await route.fulfill({ response, json: pondTestItems(items).map((item, index) => ({ ...item, completionStatus: index === 0 && complete ? "YES" : "NO" })) });
   });
   await login(page, adminEmail, adminPassword);
   await page.getByTestId("tab-pond").click();
@@ -2695,7 +2767,7 @@ test("shared status display names preserve readiness, backups and manager proper
     expect((await response.json()).option).toMatchObject({ value: canonical, displayName: alias });
     expect(await snapshot()).toEqual(before);
     await page.getByTestId("tab-table").click();
-    await expect(page.getByTestId("board-table-view").locator(`.pill[title="${canonical}"]`).first()).toHaveText(alias);
+    await expect(page.getByTestId("board-table-view").locator(".pill").filter({ hasText: alias }).first()).toHaveText(alias);
     await openTableFilters(page);
     await page.getByTestId("filter-vacancy-status").selectOption({ label: alias });
     await expect(page.getByTestId("filter-vacancy-status")).toHaveValue(canonical);
@@ -3554,7 +3626,7 @@ test("pond warning frogs use transparent animated sheets and clear on readiness"
     const response = await route.fetch();
     const items = await response.json();
     const today = new Date().toISOString().slice(0, 10);
-    await route.fulfill({ response, json: items.slice(0, 3).map((item: any, index: number) => ({ ...item,
+    await route.fulfill({ response, json: pondTestItems(items).slice(0, 3).map((item, index) => ({ ...item,
       unitNumber: ["SICK-TEST", "SCARED-TEST", "READY-TEST"][index],
       isArchived: false, overdue: true, makeReadyStatus: "LITE", completionStatus: index === 2 ? "YES" : "NO",
       vacancyStatus: index === 2 ? "VACANT_LEASED_READY" : "VACANT_NOT_READY", moveInDate: index ? today : null,
@@ -5364,7 +5436,7 @@ test.describe("MakeReadyOS browser flows", () => {
       const response = await route.fetch();
       const items = await response.json();
       await route.fulfill({ response, json: Array.from({ length: 33 }, (_, index) => ({
-        ...items[index % items.length], id: `pond-fixture-${index}`, unitNumber: `POND-${index + 1}`,
+        ...pondTestItems(items)[index % Math.min(items.length, 6)], id: `pond-fixture-${index}`, unitNumber: `POND-${index + 1}`,
         isArchived: false, completionStatus: "NO", vacancyStatus: index % 3 ? "VACANT LEASED NOT READY" : "VACANT LEASED READY",
       })) });
     });
@@ -5436,7 +5508,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.route("**/api/make-ready-items?*", async route => {
       const response = await route.fetch();
       const items = await response.json();
-      await route.fulfill({ response, json: items.map((item: Record<string, unknown>, index: number) => ({ ...item, completionStatus: "NO", vacancyStatus: index < readyUnits ? "VACANT LEASED READY" : "VACANT LEASED NOT READY" })) });
+      await route.fulfill({ response, json: pondTestItems(items).map((item, index) => ({ ...item, completionStatus: "NO", vacancyStatus: index < readyUnits ? "VACANT LEASED READY" : "VACANT LEASED NOT READY" })) });
     });
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-pond").click();

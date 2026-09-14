@@ -2038,6 +2038,7 @@ export function OperationsPanel({
             <label><input type="checkbox" data-testid="availability-full-report" checked={availabilityFullReport} onChange={event => setAvailabilityFullReport(event.target.checked)} /> Full property report: reconcile missing ready units after move-in</label>
             {availabilityFullReport ? <label>Report date<input type="date" data-testid="availability-report-date" value={availabilityReportDate} onChange={event => setAvailabilityReportDate(event.target.value)} /><small>Use only a complete, unfiltered report. Missing ready units with move-in dates before this date will be previewed, marked occupied, and archived. Partial imports never archive omitted units.</small></label> : null}
             {lastAvailabilityImport?.summary.turnsArchived ? <p>{lastAvailabilityImport.summary.turnsArchived} missing ready units marked occupied and archived.</p> : null}
+            {lastAvailabilityImport?.warnings?.map(warning => <p key={warning} role="alert" className="admin-message warning">{warning}</p>)}
             <button data-testid="availability-import-submit" className="button button-primary" disabled={loading || !properties.length || !selectedPropertyId || !availabilityImportText.trim() || (availabilityFullReport && !availabilityReportDate)} onClick={() => void importAvailabilityReport()}>{isSpanish ? "Importar disponibilidad y llenar tablero" : "Import Availability & Populate Board"}</button>
           </div>
           <div className="editor-block unit-import-block">

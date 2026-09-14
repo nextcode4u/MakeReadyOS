@@ -79,6 +79,14 @@ run_prune() {
   echo "Mode: $([ "$DRY_RUN" = true ] && echo "dry-run" || echo "delete")"
   echo
 
+  local manifest
+  manifest="$(mktemp "$LOG_DIR/prune-candidates-XXXXXX")"
+  if ! find "$safe_dir" -maxdepth 1 -type f -name 'makereadyos-db-*.dump' ! -newermt "$RETENTION_DAYS days ago" -print0 > "$manifest"; then
+    rm -f -- "$manifest"
+    echo "ERROR: backup discovery failed; no backup files were deleted"
+    return 1
+  fi
+
   local count=0
   while IFS= read -r -d '' backup_file; do
     count=$((count + 1))
@@ -86,12 +94,14 @@ run_prune() {
       echo "Would delete: $backup_file"
     else
       if ! rm -f -- "$backup_file"; then
+        rm -f -- "$manifest"
         echo "ERROR: failed to delete expired backup: $backup_file"
         return 1
       fi
       echo "Deleted: $backup_file"
     fi
-  done < <(find "$safe_dir" -maxdepth 1 -type f -name 'makereadyos-db-*.dump' ! -newermt "$RETENTION_DAYS days ago" -print0)
+  done < "$manifest"
+  rm -f -- "$manifest"
 
   if [ "$count" -eq 0 ]; then
     echo "No expired database backups found."
@@ -102,8 +112,14 @@ run_prune() {
 }
 
 set +e
-run_prune 2>&1 | tee "$LOG_FILE"
-STATUS="${PIPESTATUS[0]}"
+# The logging parent collects errors; the worker must still stop on failure.
+(
+  set -e
+  run_prune
+) 2>&1 | tee "$LOG_FILE"
+PIPE_STATUSES=("${PIPESTATUS[@]}")
+STATUS="${PIPE_STATUSES[0]}"
+if [ "$STATUS" -eq 0 ]; then STATUS="${PIPE_STATUSES[1]}"; fi
 set -e
 echo "Prune log written to $LOG_FILE"
 exit "$STATUS"

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { type TurnMaterials, saveTurnMaterials } from "../lib/api";
-import { createMaterialId, materialDraftKey, parseMaterialDraft, type MaterialEdit } from "../lib/materialDraft";
+import { type TurnMaterials, getTurnMaterials, isApiError, saveTurnMaterials } from "../lib/api";
+import { createMaterialId, materialDraftKey, parseMaterialDraft, reviewMaterialAdditions, type MaterialEdit } from "../lib/materialDraft";
 
 type Row = MaterialEdit["row"];
 type Batch = { rows: Row[]; snapshot: TurnMaterials };
@@ -26,6 +26,8 @@ export function QuickMaterialsEntry({ itemId, userId, materials, disabled, onPen
   const [error, setError] = useState("");
   const [storageError, setStorageError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [conflict, setConflict] = useState(false);
+  const [review, setReview] = useState<ReturnType<typeof reviewMaterialAdditions> | null>(null);
   const names = useRef<(HTMLInputElement | null)[]>([]);
   const pending = batch.rows.some(row => row.name !== "" || String(row.quantity) !== "1" || row.unit !== "each");
   useEffect(() => { onPending(pending); }, [pending, onPending]);
@@ -50,7 +52,7 @@ export function QuickMaterialsEntry({ itemId, userId, materials, disabled, onPen
     const snapshot = pending ? batch.snapshot : materials;
     if (rows[rows.length - 1]?.name.trim() && rows.length + snapshot.rows.length < 100) rows.push(blankRow());
     const next = { rows, snapshot };
-    setBatch(next); store(next); setSaved(false);
+    setBatch(next); store(next); setSaved(false); setReview(null);
   };
   return <form data-testid="quick-materials" onSubmit={async event => {
     event.preventDefault();
@@ -65,8 +67,8 @@ export function QuickMaterialsEntry({ itemId, userId, materials, disabled, onPen
         version: batch.snapshot.version,
         rows: [...batch.snapshot.rows, ...entered.map(row => ({ ...row, name: row.name.trim(), unit: row.unit.trim(), quantity: Number(row.quantity) }))],
       });
-      clear(); setBatch({ rows: [blankRow()], snapshot: result }); setSaved(true); onSaved(result);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save the list. Your entries are preserved."); }
+      clear(); setBatch({ rows: [blankRow()], snapshot: result }); setSaved(true); setConflict(false); setReview(null); onSaved(result);
+    } catch (cause) { setConflict(isApiError(cause) && cause.status === 409); setError(cause instanceof Error ? cause.message : "Could not save the list. Your entries are preserved."); }
     finally { setBusy(false); }
   }}>
     <p className="helper-copy">Type parts line by line. A blank line appears automatically; press Enter for the next part or Tab to change its quantity and unit. Save once when finished. New parts start as Needed for shop pickup and do not block completion. Use Edit on a saved part to mark it On order when waiting on an order.</p>
@@ -82,13 +84,34 @@ export function QuickMaterialsEntry({ itemId, userId, materials, disabled, onPen
       </div>)}
       <div className="material-entry-actions">
         <button type="submit" className="button button-primary" disabled={!pending}>{busy ? "Saving parts..." : "Save parts list"}</button>
-        <button type="button" disabled={!pending} onClick={() => { if (window.confirm("Discard these unsaved parts?")) { clear(); setBatch({ rows: [blankRow()], snapshot: materials }); setError(""); } }}>Discard unsaved lines</button>
+        <button type="button" disabled={!pending} onClick={() => { if (window.confirm("Discard these unsaved parts?")) { clear(); setBatch({ rows: [blankRow()], snapshot: materials }); setError(""); setConflict(false); setReview(null); } }}>Discard unsaved lines</button>
       </div>
     </fieldset>
     {materials.rows.length >= 100 ? <p>Maximum 100 lines per turn. Existing lines can still be edited.</p> : null}
     {pending ? <p role="status">Unsaved lines {storageError ? "are not backed up on this device" : "are kept on this device for your account"}. Save parts list to share with the team.</p> : null}
     {saved ? <p role="status">Parts list saved to the team list.</p> : null}
     {error ? <p role="alert">{error}</p> : null}
+    {conflict ? <div data-testid="material-conflict-review" style={{ overflowWrap: "anywhere" }}>
+      <p>Your new lines are preserved. Review the latest team list before retrying; this will not overwrite anyone else's saved lines.</p>
+      <button type="button" disabled={busy || disabled} onClick={async () => {
+        setBusy(true); setError(""); setReview(null);
+        try { setReview(reviewMaterialAdditions(batch.rows, await getTurnMaterials(itemId))); }
+        catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load the latest list. Your draft is preserved."); }
+        finally { setBusy(false); }
+      }}>Review latest list</button>
+      {review ? <div>
+        <p>{review.latest.rows.length} saved {review.latest.rows.length === 1 ? "line" : "lines"} / {review.additions.length} new {review.additions.length === 1 ? "line" : "lines"} to keep / {review.alreadySaved} already saved, not added twice.</p>
+        <details><summary>Latest saved parts</summary><ul>{review.latest.rows.map(row => <li key={row.id}>{row.name}: {row.quantity} {row.unit} ({row.status.replace(/_/g, " ").toLowerCase()})</li>)}</ul></details>
+        <p>New lines: {review.additions.map(row => row.name || "Unnamed line").join(", ") || "None"}</p>
+        <button type="button" disabled={busy || disabled} onClick={() => {
+          const next = { rows: [...review.additions, blankRow()], snapshot: review.latest };
+          setBatch(next);
+          if (review.additions.length) store(next); else clear();
+          onSaved(review.latest); setSaved(review.additions.length === 0); setConflict(false); setReview(null); setError("");
+        }}>{review.additions.length ? "Keep my lines with the latest list" : "Use latest saved list"}</button>
+        <p>{review.additions.length ? "This only updates your draft. Use Save parts list afterward to submit your additions." : "Your lines are already saved. This clears the duplicate device draft without submitting another save."}</p>
+      </div> : null}
+    </div> : null}
     {storageError ? <p role="alert">{storageError}</p> : null}
   </form>;
 }

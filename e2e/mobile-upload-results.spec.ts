@@ -1,0 +1,63 @@
+import { expect, test } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+
+test("photo batch reports rejected files without skipping later photos or ZIP evidence", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await page.getByTestId("login-email").fill(process.env.ADMIN_EMAIL || "admin@example.com");
+  await page.getByTestId("login-password").fill(process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456");
+  await page.getByTestId("login-submit").click();
+  await expect(page.getByTestId("property-filter")).toBeVisible();
+  const session = await (await page.request.get("/api/auth/me")).json();
+  const headers = { "x-csrf-token": session.csrfToken };
+  const meta = await (await page.request.get("/api/meta")).json();
+  const property = meta.properties[0];
+  const section = meta.boardSections.find((row: any) => row.propertyId === property.id && row.sectionType === "MAKE_READY");
+  const create = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  };
+  const { unit } = await create("/operations/units", { propertyId: property.id, number: `PHOTO-${Date.now()}` });
+  const item = await create("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" });
+  await page.reload();
+  await page.getByTestId("property-filter").selectOption(property.id);
+  await page.getByRole("button", { name: `Open details for ${unit.number}`, exact: true }).click();
+  const photo = await page.evaluate(() => { const canvas = document.createElement("canvas"); canvas.width = 32; canvas.height = 32; canvas.getContext("2d")!.fillRect(0, 0, 32, 32); return canvas.toDataURL("image/png").split(",")[1]; });
+  let calls = 0;
+  await page.route(`**/make-ready-items/${item.id}/attachments?*`, async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    calls++;
+    if (calls === 2) return route.fulfill({ status: 400, json: { message: "Injected invalid image" } });
+    return route.continue();
+  });
+  await page.getByTestId("initial-walk-upload").setInputFiles(["inside.png", "rejected.png", "outside.png"].map(name => ({ name, mimeType: "image/png", buffer: Buffer.from(photo, "base64") })));
+  const results = page.getByTestId("attachment-upload-results");
+  await expect(results).toContainText("2 server-confirmed / 0 queued on this device / 1 failed / 0 not attempted");
+  await expect(results).toContainText("outside.png: uploaded");
+  await expect(results).toContainText("rejected.png: failed / Injected invalid image");
+  expect(calls).toBe(3);
+  await expect(page.getByTestId("initial-walk-upload")).toBeEnabled();
+  await expect(page.getByTestId("drawer-attachments")).toContainText("ZIP exports contain files stored on the server");
+  const downloading = page.waitForEvent("download");
+  await page.getByTestId("initial-walk-zip").click();
+  const download = await downloading;
+  const path = testInfo.outputPath("confirmed-initial-photos.zip");
+  await download.saveAs(path);
+  const manifest = JSON.parse(execFileSync("unzip", ["-p", path, "manifest.json"], { encoding: "utf8" }));
+  expect(manifest.count).toBe(2);
+  expect(manifest.turnId).toBe(item.id);
+  expect(manifest.attachments.every((row: any) => row.inspectionStage === "INITIAL_WALK")).toBe(true);
+  await page.unroute(`**/make-ready-items/${item.id}/attachments?*`);
+  await page.route(`**/make-ready-items/${item.id}/attachments?*`, async route => {
+    const response = await route.fetch();
+    expect(response.ok(), await response.text()).toBeTruthy();
+    await route.fulfill({ status: 503, json: { message: "Response lost after attachment committed" } });
+  });
+  await page.getByTestId("initial-walk-upload").setInputFiles({ name: "uncertain-response.png", mimeType: "image/png", buffer: Buffer.from(photo, "base64") });
+  await expect(results).toContainText("1 upload outcome(s) unconfirmed");
+  await expect(results).toContainText("the server may already have stored this file");
+  const collaboration = await (await page.request.get(`/api/make-ready-items/${item.id}/collaboration`)).json();
+  expect(collaboration.attachments).toHaveLength(3);
+  await expect(page.getByTestId("drawer-attachments")).toContainText("3 files");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+});

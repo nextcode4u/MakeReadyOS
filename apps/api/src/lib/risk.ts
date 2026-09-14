@@ -2,8 +2,8 @@ import type { MakeReadyItem, Prisma, PropertyRiskPolicy } from "@prisma/client";
 import { createNotification } from "./notifications.js";
 import { prisma } from "./prisma.js";
 import { queueWebhookEvent } from "./webhookQueue.js";
-import { calendarDayDifference, computeDerivedFields } from "./board.js";
-import { isFinalWalkStatus } from "./turnStatus.js";
+import { calendarDayDifference, computeDerivedFields, isTurnReady } from "./board.js";
+import { isFinalWalkStatus, tradeDone } from "./turnStatus.js";
 
 export const riskLevels = ["NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 export type RiskLevel = (typeof riskLevels)[number];
@@ -111,7 +111,7 @@ export function evaluateItemRisk(item: RiskItem, now = new Date(), policyInput?:
   const down = item.boardSectionType === "DOWN" || ["DOWN", "MODEL"].includes(String(item.vacancyStatus ?? "").trim().toUpperCase());
   if (down) return { riskScore: 0, riskLevel: "NONE" as RiskLevel, riskReasons: [], lastRiskEvaluatedAt: now };
   const awaitingInspection = isFinalWalkStatus(item.makeReadyStatus);
-  if (item.boardSectionType === "READY" && !awaitingInspection) {
+  if (isTurnReady(item) || item.boardSectionType === "READY" && !awaitingInspection) {
     return { riskScore: 0, riskLevel: "NONE" as RiskLevel, riskReasons: [], lastRiskEvaluatedAt: now };
   }
   const policy = normalizeRiskPolicy(policyInput);
@@ -121,7 +121,7 @@ export function evaluateItemRisk(item: RiskItem, now = new Date(), policyInput?:
 
   const add = (reason: RiskReason) => reasons.push(reason);
 
-  if (daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= policy.moveInCriticalDays && !isDone(item.cleaningStatus)) {
+  if (daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= policy.moveInCriticalDays && !isDone(item.cleaningStatus) && !tradeDone(item.cleaningStatus)) {
     add({ category: "MOVE_IN_RISK", level: "CRITICAL", score: 95, message: `Move-in is within ${policy.moveInCriticalDays} day${policy.moveInCriticalDays === 1 ? "" : "s"} and cleaning is incomplete.` });
   } else if (daysUntilMoveIn !== null && daysUntilMoveIn >= 0 && daysUntilMoveIn <= policy.moveInHighDays && incomplete) {
     add({ category: "MOVE_IN_RISK", level: "HIGH", score: 75, message: `Move-in is within ${policy.moveInHighDays} days and make-ready is incomplete.` });
@@ -151,7 +151,7 @@ export function evaluateItemRisk(item: RiskItem, now = new Date(), policyInput?:
     add({ category: "FLOORING_RISK", level: "HIGH", score: 65, message: "Flooring replacement is selected but flooring date is missing." });
   }
 
-  if (item.paintStatus && !["GOOD", "DONE", "NONE"].includes(item.paintStatus.toUpperCase())) {
+  if (item.paintStatus && !["GOOD", "DONE", "NONE"].includes(item.paintStatus.trim().toUpperCase()) && !tradeDone(item.paintStatus)) {
     add({ category: "PAINT_RISK", level: daysUntilMoveIn !== null && daysUntilMoveIn <= policy.moveInMediumDays ? "HIGH" : "MEDIUM", score: daysUntilMoveIn !== null && daysUntilMoveIn <= policy.moveInMediumDays ? 65 : 35, message: `Paint still needs attention: ${item.paintStatus}.` });
   }
 
