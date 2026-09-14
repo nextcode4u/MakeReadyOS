@@ -1,6 +1,6 @@
 # Projects Workflow Audit
 
-2026-09-14. Local implementation; not pushed or deployed. Production requires the additive `20260914120000_project_quotes_costs` migration and matching API/web images.
+2026-09-14. Application commit `32129c6` pushed and deployed to `mr-os.com`, including the additive `20260914120000_project_quotes_costs` migration and matching API/web images. GitHub CI passed. Public page/assets, authenticated identity and Projects overview/list checks passed without creating production records. See the deployment checkpoint in [Reliability and polish](RELIABILITY_POLISH.md).
 
 ## Working Model
 
