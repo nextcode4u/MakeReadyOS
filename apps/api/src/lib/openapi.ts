@@ -1,5 +1,6 @@
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { z, type ZodTypeAny } from "zod";
+import { projectQuoteInput, projectCostInput } from "./projectBudget.js";
 import { loginSchema } from "../routes/auth.js";
 import { analyticsPropertyQuerySchema, analyticsSnapshotQuerySchema } from "../routes/analytics.js";
 import {
@@ -250,7 +251,9 @@ const zodSchemas: Record<string, ZodTypeAny> = {
   RiskPolicyRequest: riskPolicyPayloadSchema,
   ProjectCategoryRequest: projectCategorySchema,
   ProjectRecordRequest: projectRecordSchema,
-  ProjectRecordPatchRequest: projectRecordSchema.partial(),
+  ProjectRecordPatchRequest: projectRecordSchema.partial().extend({ expectedUpdatedAt: z.coerce.date().optional() }),
+  ProjectQuoteSaveRequest: projectQuoteInput,
+  ProjectCostSaveRequest: projectCostInput,
   ProjectRecordQuery: projectRecordQuerySchema,
   ProjectCommentRequest: projectCommentSchema,
   ProjectAttachmentPatchRequest: projectAttachmentPatchSchema,
@@ -5165,7 +5168,7 @@ export const openApiDocument = {
     "/api/projects/records/{id}/attachments": {
       post: {
         tags: ["Projects"],
-        summary: "Upload project attachment",
+        summary: "Upload project attachment; send metadata fields before the file part",
         security: [{ cookieSession: [] }],
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
         requestBody: {
@@ -5178,6 +5181,7 @@ export const openApiDocument = {
                   file: { type: "string", format: "binary" },
                   attachmentType: { type: "string" },
                   caption: { type: "string" },
+                  quoteId: { type: "string", format: "uuid", description: "Optional quote belonging to this project." },
                 },
               },
             },
@@ -5186,10 +5190,44 @@ export const openApiDocument = {
         responses: { "201": { description: "Project attachment uploaded.", ...json(ref("ProjectAttachmentResponse")) } },
       },
     },
+    "/api/projects/records/{id}/budget": {
+      get: {
+        tags: ["Projects"], summary: "List quotes, internal costs and included-only subtotals in integer cents",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "quotes, costLines and summary; unpriced quotes and missing actuals are counted separately." } },
+      },
+    },
+    "/api/projects/records/{id}/quotes/{entryId}": {
+      put: {
+        tags: ["Projects"], summary: "Save a project quote; retry the same client UUID safely",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }, { name: "entryId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: ref("ProjectQuoteSaveRequest") } } },
+        responses: { "200": { description: "Saved entry and alreadySaved flag. Only Included quotes contribute to planned cost." }, "409": { description: "Version conflict or archived project; reload before changing the draft." } },
+      },
+    },
+    "/api/projects/records/{id}/cost-lines/{entryId}": {
+      put: {
+        tags: ["Projects"], summary: "Save an in-house labor, materials or equipment cost line",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }, { name: "entryId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: ref("ProjectCostSaveRequest") } } },
+        responses: { "200": { description: "Saved entry and alreadySaved flag. Archived lines remain in history but not totals." }, "409": { description: "Version conflict or archived project." } },
+      },
+    },
+    "/api/projects/records/{id}/documents.zip": {
+      get: {
+        tags: ["Projects"], summary: "Download all project documents and a file manifest",
+        security: [{ cookieSession: [] }, { bearerApiToken: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "ZIP with unique file paths and manifest.json." }, "409": { description: "A stored file is missing; no partial archive returned." }, "413": { description: "More than 1000 files or 500 MB." } },
+      },
+    },
     "/api/projects/attachments/{id}/download": {
       get: {
         tags: ["Projects"],
-        summary: "Download project attachment",
+        summary: "Download project attachment; inline=true previews PDFs/images only",
         security: [{ cookieSession: [] }, { bearerApiToken: [] }],
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
         responses: { "200": { description: "Project attachment bytes." }, "404": { $ref: "#/components/responses/NotFound" } },

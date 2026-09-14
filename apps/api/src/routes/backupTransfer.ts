@@ -6,6 +6,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
 import { lockProjectCategories } from "../lib/projectCategoryLock.js";
 import { turnMaterialsSchema } from "../lib/turnMaterials.js";
+import { projectQuoteInput, projectCostInput } from "../lib/projectBudget.js";
 
 const backupFormat = "makereadyos.backup";
 const backupVersion = 1;
@@ -689,6 +690,8 @@ const projectCategoryBackupSchema = z.object({
 });
 
 const projectRecordBackupSchema = z.object({
+  quotes: z.array(projectQuoteInput.omit({ expectedVersion: true }).extend({ id: z.string().uuid(), version: z.number().int().positive(), createdAt: z.string().datetime(), updatedAt: z.string().datetime() })).max(500).optional().default([]),
+  costLines: z.array(projectCostInput.innerType().omit({ expectedVersion: true }).extend({ id: z.string().uuid(), version: z.number().int().positive(), createdAt: z.string().datetime(), updatedAt: z.string().datetime() }).refine(line => line.quantity * line.unitCostCents <= 1000000000, "Line estimate exceeds limit")).max(500).optional().default([]),
   portableKey: z.string().min(1),
   propertyCode: z.string().min(1),
   recordType: z.string().min(1),
@@ -761,6 +764,7 @@ const projectTaskBackupSchema = z.object({
 });
 
 const projectAttachmentBackupSchema = z.object({
+  quoteId: z.string().uuid().nullable().optional().default(null),
   recordKey: z.string().min(1),
   propertyCode: z.string().min(1),
   uploaderName: z.string().nullable().optional().default(null),
@@ -1040,7 +1044,7 @@ const importSchema = z.object({
 
 type NativeBackup = z.infer<typeof backupSchema>;
 type SummaryBucket = { created: number; skipped: number; conflicts: number; errors: string[] };
-type ImportSummary = Record<keyof NativeBackup["data"], SummaryBucket>;
+type ImportSummary = Record<keyof NativeBackup["data"] | "projectQuotes" | "projectCostLines", SummaryBucket>;
 
 function itemPortableKey(item: {
   property: { code: string };
@@ -1116,6 +1120,8 @@ function emptySummary(): ImportSummary {
     preventiveMaintenanceWikiReferences: bucket(),
     projectCategories: bucket(),
     projectRecords: bucket(),
+    projectQuotes: bucket(),
+    projectCostLines: bucket(),
     projectComments: bucket(),
     projectTasks: bucket(),
     projectAttachments: bucket(),
@@ -1351,6 +1357,8 @@ async function buildExport(): Promise<NativeBackup> {
     prisma.projectCategory.findMany({ include: { property: true }, orderBy: [{ propertyId: "asc" }, { sortOrder: "asc" }, { name: "asc" }] }),
     prisma.projectRecord.findMany({
       include: {
+        quotes: { orderBy: { createdAt: "asc" } },
+        costLines: { orderBy: { createdAt: "asc" } },
         property: true,
         propertyMap: true,
         attachments: { orderBy: { createdAt: "asc" } },
@@ -2230,6 +2238,8 @@ async function buildExport(): Promise<NativeBackup> {
         sortOrder: category.sortOrder,
       })),
       projectRecords: projectRecords.map((record) => ({
+        quotes: record.quotes.map(({ recordId: _recordId, ...entry }) => ({ ...entry, status: projectQuoteInput.shape.status.parse(entry.status), createdAt: entry.createdAt.toISOString(), updatedAt: entry.updatedAt.toISOString() })),
+        costLines: record.costLines.map(({ recordId: _recordId, ...entry }) => ({ ...entry, category: projectCostInput.innerType().shape.category.parse(entry.category), createdAt: entry.createdAt.toISOString(), updatedAt: entry.updatedAt.toISOString() })),
         portableKey: projectRecordKeysById.get(record.id) ?? projectRecordPortableKey({
           propertyCode: record.property.code,
           recordType: record.recordType,
@@ -2304,6 +2314,7 @@ async function buildExport(): Promise<NativeBackup> {
         updatedAt: task.updatedAt.toISOString(),
       }))).filter((task) => task.recordKey),
       projectAttachments: projectRecords.flatMap((record) => record.attachments.map((attachment) => ({
+        quoteId: attachment.quoteId,
         recordKey: projectRecordKeysById.get(record.id) ?? "",
         propertyCode: record.property.code,
         uploaderName: attachment.uploaderName,
@@ -2595,6 +2606,8 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
   rejectDuplicates("preventiveMaintenanceWikiReferences", backup.data.preventiveMaintenanceWikiReferences.map((reference) => `${reference.recordType}|${reference.recordKey}|${reference.targetType}|${reference.entrySection ?? ""}|${reference.targetTitle ?? ""}|${reference.vendorType ?? ""}|${reference.companyName ?? ""}|${reference.assetKind ?? ""}|${reference.originalName ?? ""}`));
   rejectDuplicates("projectCategories", backup.data.projectCategories.map((category) => projectCategoryPortableKey(category)));
   rejectDuplicates("projectRecords", backup.data.projectRecords.map((record) => record.portableKey));
+  rejectDuplicates("projectQuotes", backup.data.projectRecords.flatMap(record => record.quotes.map(quote => quote.id)));
+  rejectDuplicates("projectCostLines", backup.data.projectRecords.flatMap(record => record.costLines.map(line => line.id)));
   rejectDuplicates("projectComments", backup.data.projectComments.map((comment) => `${comment.recordKey}|${comment.authorName ?? ""}|${comment.createdAt}`));
   rejectDuplicates("projectTasks", backup.data.projectTasks.map((task) => `${task.recordKey}|${task.title}|${task.createdAt}`));
   rejectDuplicates("projectAttachments", backup.data.projectAttachments.map((attachment) => `${attachment.recordKey}|${attachment.storedName}`));
@@ -2946,6 +2959,7 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
   }
   for (const attachment of backup.data.projectAttachments) {
     if (!projectRecordKeys.has(attachment.recordKey)) summary.projectAttachments.errors.push(`Project record ${attachment.recordKey} is missing for attachment ${attachment.originalName}`);
+    if (attachment.quoteId && !projectRecordsByKey.get(attachment.recordKey)?.quotes.some(quote => quote.id === attachment.quoteId)) summary.projectAttachments.errors.push(`Quote is missing or belongs to another project for attachment ${attachment.originalName}`);
   }
   for (const reference of backup.data.projectWikiReferences) {
     if (!projectRecordKeys.has(reference.recordKey)) summary.projectWikiReferences.errors.push(`Project record ${reference.recordKey} is missing for wiki reference`);
@@ -4505,7 +4519,7 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
       } else {
         summary.projectRecords.created += 1;
         if (!dryRun && propertyId) {
-          const { portableKey: _portableKey, propertyCode: _propertyCode, categoryName: _categoryName, propertyMapName: _propertyMapName, ...data } = record;
+          const { portableKey: _portableKey, propertyCode: _propertyCode, categoryName: _categoryName, propertyMapName: _propertyMapName, quotes: _quotes, costLines: _costLines, ...data } = record;
           const created = await tx.projectRecord.create({
             data: {
               ...data,
@@ -4550,6 +4564,28 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
         title: record.title,
         createdAt: record.createdAt.toISOString(),
       }), record.id));
+    }
+
+    for (const record of backup.data.projectRecords) {
+      const recordId = projectRecordMap.get(record.portableKey);
+      for (const quote of record.quotes) {
+        const existing = await tx.projectQuote.findUnique({ where: { id: quote.id } });
+        if (existing && existing.recordId !== recordId) throw Object.assign(new Error("Quote ID belongs to another project; no import changes were committed"), { statusCode: 409 });
+        if (existing) summary.projectQuotes.skipped++;
+        else {
+          summary.projectQuotes.created++;
+          if (!dryRun && recordId) await tx.projectQuote.create({ data: { ...quote, recordId, createdAt: new Date(quote.createdAt), updatedAt: new Date(quote.updatedAt) } });
+        }
+      }
+      for (const line of record.costLines) {
+        const existing = await tx.projectCostLine.findUnique({ where: { id: line.id } });
+        if (existing && existing.recordId !== recordId) throw Object.assign(new Error("Cost ID belongs to another project; no import changes were committed"), { statusCode: 409 });
+        if (existing) summary.projectCostLines.skipped++;
+        else {
+          summary.projectCostLines.created++;
+          if (!dryRun && recordId) await tx.projectCostLine.create({ data: { ...line, recordId, createdAt: new Date(line.createdAt), updatedAt: new Date(line.updatedAt) } });
+        }
+      }
     }
 
     for (const comment of backup.data.projectComments) {
@@ -4629,6 +4665,7 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
               propertyId,
               uploadedById: null,
               uploaderName: attachment.uploaderName,
+              quoteId: attachment.quoteId,
               originalName: attachment.originalName,
               storedName: attachment.storedName,
               mimeType: attachment.mimeType,

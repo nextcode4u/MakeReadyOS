@@ -945,6 +945,8 @@ model ProjectRecord {
   comments            ProjectComment[]
   tasks               ProjectTask[]
   wikiReferences      ProjectWikiReference[]
+  quotes              ProjectQuote[]
+  costLines           ProjectCostLine[]
   workSessions        WorkSession[]
 
   @@index([propertyId, recordType, status])
@@ -972,10 +974,49 @@ model ProjectAttachment {
   sizeBytes      Int
   attachmentType String        @default("GENERAL")
   caption        String?
+  quoteId        String?
+  quote          ProjectQuote? @relation(fields: [quoteId], references: [id], onDelete: SetNull)
   createdAt      DateTime      @default(now())
 
   @@index([recordId, createdAt])
+  @@index([quoteId])
   @@index([propertyId, createdAt])
+}
+
+model ProjectQuote {
+  id           String @id @default(uuid())
+  recordId     String
+  record       ProjectRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  scope        String
+  companyName  String
+  reference    String?
+  amountCents  Int?
+  status       String @default("Received")
+  dueDate      DateTime?
+  notes        String?
+  version      Int @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  attachments  ProjectAttachment[]
+
+  @@index([recordId, createdAt])
+}
+
+model ProjectCostLine {
+  id              String @id @default(uuid())
+  recordId        String
+  record          ProjectRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  description     String
+  category        String
+  quantity        Float @default(1)
+  unitCostCents   Int
+  actualCostCents Int?
+  isArchived      Boolean @default(false)
+  version         Int @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([recordId, createdAt])
 }
 
 model ProjectComment {

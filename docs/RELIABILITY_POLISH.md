@@ -1,7 +1,13 @@
 # Reliability And Polish Queue
 
-Updated: 2026-09-13. Prioritize existing daily workflows over new modules.
+Updated: 2026-09-14. Prioritize existing daily workflows over new modules.
 Checked items mean implementation and verification; see the release checkpoint below for deployed coverage. Field validation remains separate.
+
+## Projects Usability: 2026-09-14
+
+Local work, not deployed: structured multi-vendor/multi-scope quotes, multiple PDFs per quote, in-house labor/material cost lines, inline vendor creation, deadline editing, previews/ZIP downloads, report/export totals and native backup coverage. Existing manual bids and amounts remain intact and separate. See [Projects workflow audit and follow-up queue](PROJECTS_WORKFLOW_AUDIT.md) for intended behavior, limits, tests and remaining recommendations. The prior production release below is unchanged.
+
+Verification: `logs/test-20260914-075557.txt` passed the full isolated/API/database/build/lint/dependency gate. Subsequent Projects browser regressions passed 11/11 (`/tmp/mros-project-existing-browser.log`). The final commercial workflow and desktop/mobile layout check passed 1/1 (`/tmp/mros-project-browser-final.log`), including multiple quote PDFs, included-only amounts, internal actuals, optimistic deadline saves, ZIP/PDF/CSV downloads, native backup restoration/replay, rejected foreign quote links, and missing-file ZIP rejection. Final production-image builds and lint pass; screenshots were inspected. The additive migration applied successfully in disposable test databases, not production. No push or deployment was requested for this task.
 
 ## Release Wrap-Up: 2026-09-13
 
