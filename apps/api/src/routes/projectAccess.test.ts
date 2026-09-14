@@ -36,6 +36,10 @@ test("project mutations enforce property scope and eligible assignments before w
   await app.register(projectRoutes);
   t.after(() => app.close());
   const routes = [
+    { method: "GET", url: "/projects/records/record/budget" },
+    { method: "GET", url: "/projects/records/record/documents.zip" },
+    { method: "PUT", url: "/projects/records/record/quotes/00000000-0000-4000-8000-000000000001", payload: {} },
+    { method: "PUT", url: "/projects/records/record/cost-lines/00000000-0000-4000-8000-000000000001", payload: {} },
     { method: "PATCH", url: "/projects/records/record", payload: { title: "Edit" } },
     { method: "POST", url: "/projects/records/record/convert", payload: {} },
     { method: "POST", url: "/projects/records/record/comments", payload: { body: "Comment" } },
@@ -57,6 +61,10 @@ test("project mutations enforce property scope and eligible assignments before w
     });
   }
   token = undefined; recordProperty = "allowed";
+  for (const role of ["LEASING", "VIEWER", "CLEANER"]) await t.test(`${role} cannot change project quotes or costs`, async () => {
+    actor = { id: "actor", role, propertyAccess: [{ propertyId: "allowed" }] };
+    for (const route of routes.slice(2, 4)) assert.equal((await app.inject(route)).statusCode, 403);
+  });
   actor = { id: "manager", role: "MANAGER", propertyAccess: [{ propertyId: "allowed" }] };
   await t.test("changing property requires a separate transfer workflow", async () => {
     writes = 0;
@@ -67,7 +75,7 @@ test("project mutations enforce property scope and eligible assignments before w
   for (const role of ["MANAGER", "TECH", "ADMIN"]) await t.test(`${role} retains in-scope edit access`, async () => {
     actor = { id: "actor", role, propertyAccess: [{ propertyId: "allowed" }] };
     writes = 0;
-    const response = await app.inject(routes[0]);
+    const response = await app.inject(routes[4]);
     assert.equal(response.statusCode, 500);
     assert.match(response.body, /TEST_STOP_BEFORE_WRITE/);
     assert.equal(writes, 1);

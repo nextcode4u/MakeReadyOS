@@ -61,6 +61,8 @@ test("operational reports preserve matching rows, spreadsheet text, and complete
   }));
   stub(prisma.projectRecord, "findMany", async () => [{
     ...rows[0], title: spreadsheetText, recordType: "Project", executionType: "Undecided",
+    quotes: [{ status: "Included", amountCents: 10025 }, { status: "Received", amountCents: 99999 }],
+    costLines: [{ isArchived: false, quantity: 2, unitCostCents: 1000, actualCostCents: null }],
   }]);
   stub(prisma.preventiveMaintenanceTask, "findMany", async () => [{
     ...rows[0], taskName: spreadsheetText, status: "COMPLETED",
@@ -108,6 +110,7 @@ test("operational reports preserve matching rows, spreadsheet text, and complete
     for (const format of ["csv", "xls"]) {
       const response = await app.inject(`/${module}/export.${format}?propertyId=a`);
       assert.equal(response.statusCode, 200, response.body);
+      if (module === "projects") assert.ok(response.body.includes("120.25"), "Project export includes selected quotes and internal costs, not alternative bids");
       assert.ok(response.body.includes('"\'=1+1\tsecond column\n""quoted"""'),
         `${module}/${format} must escape formulas and quote tabs, newlines, and quotes`);
     }

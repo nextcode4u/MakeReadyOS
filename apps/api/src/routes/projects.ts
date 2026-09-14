@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { stringify } from "csv-stringify/sync";
@@ -17,6 +17,8 @@ import { lockProjectCategories } from "../lib/projectCategoryLock.js";
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { ensureStoredUploadParent, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
+import { projectCommercialRoutes } from "./projectCommercial.js";
+import { projectBudgetSummary } from "../lib/projectBudget.js";
 
 const projectRecordTypes = ["Recommendation", "Project"] as const;
 const projectExecutionTypes = ["In-House", "Vendor", "Hybrid", "Undecided"] as const;
@@ -149,6 +151,7 @@ export const projectWikiReferenceSchema = z.object({
 });
 
 const projectAttachmentUploadSchema = z.object({
+  quoteId: z.string().uuid().optional(),
   attachmentType: z.enum(projectAttachmentTypes).optional(),
   caption: z.string().trim().max(240).optional(),
 });
@@ -387,6 +390,8 @@ async function projectOverview(propertyId: string | undefined, request: FastifyR
         recordType: true, status: true, createdAt: true, completedDate: true,
         dueDate: true, budgetYear: true, source: true, deferredMaintenance: true,
         estimatedCost: true, totalAmount: true, actualCost: true,
+        quotes: { select: { status: true, amountCents: true } },
+        costLines: { select: { isArchived: true, quantity: true, unitCostCents: true, actualCostCents: true } },
       },
     }),
     prisma.projectRecord.findMany({ where, include, orderBy: { updatedAt: "desc" }, take: 10 }),
@@ -438,6 +443,9 @@ async function projectOverview(propertyId: string | undefined, request: FastifyR
       deferredMaintenance: active.filter((entry) => entry.deferredMaintenance).length,
       estimatedProjectValue: active.reduce((sum, entry) => sum + (entry.estimatedCost ?? entry.totalAmount ?? 0), 0),
       actualCompletedCostThisYear: completedThisYear.reduce((sum, entry) => sum + (entry.actualCost ?? 0), 0),
+      includedQuoteValue: active.reduce((sum, entry) => sum + projectBudgetSummary(entry.quotes ?? [], []).vendorEstimateCents, 0) / 100,
+      inHousePlanCost: active.reduce((sum, entry) => sum + projectBudgetSummary([], entry.costLines ?? []).inHouseEstimateCents, 0) / 100,
+      unpricedIncludedQuotes: active.reduce((sum, entry) => sum + projectBudgetSummary(entry.quotes ?? [], []).unknownIncludedQuotes, 0),
     },
     recommendationsByAge,
     projectsByBudgetYear,
@@ -491,7 +499,7 @@ async function reportScopeLabel(propertyId: string | undefined) {
 }
 
 function buildProjectsOverviewHtml(
-  filtered: Array<Prisma.ProjectRecordGetPayload<{ include: { property: true; attachments: true } }>>,
+  filtered: Array<Prisma.ProjectRecordGetPayload<{ include: { property: true; attachments: true; quotes: true; costLines: true } }>>,
   scopeLabel: string,
 ) {
   return `<!doctype html>
@@ -520,7 +528,9 @@ body{font-family:Arial,sans-serif;padding:24px;background:#f8fafc;color:#0f172a}
     <div class="kpi"><strong>${filtered.length}</strong><span>Total records</span></div>
     <div class="kpi"><strong>${filtered.filter((record) => record.status === "In Progress").length}</strong><span>In progress</span></div>
     <div class="kpi"><strong>${filtered.filter((record) => record.deferredMaintenance).length}</strong><span>Deferred</span></div>
-    <div class="kpi"><strong>${htmlEscape(filtered.reduce((sum, record) => sum + (record.estimatedCost ?? record.totalAmount ?? 0), 0))}</strong><span>Estimated value</span></div>
+    <div class="kpi"><strong>${htmlEscape(filtered.reduce((sum, record) => sum + (record.estimatedCost ?? record.totalAmount ?? 0), 0))}</strong><span>Original manual estimates (separate)</span></div>
+    <div class="kpi"><strong>${htmlEscape((filtered.reduce((sum, record) => sum + projectBudgetSummary(record.quotes, record.costLines).plannedCents, 0) / 100).toFixed(2))}</strong><span>Included quotes + in-house plan subtotal ($)</span></div>
+    <div class="kpi"><strong>${filtered.reduce((sum, record) => sum + projectBudgetSummary(record.quotes, record.costLines).unknownIncludedQuotes, 0)}</strong><span>Included quotes still unpriced</span></div>
   </div>
   <div class="grid">
     ${filtered.map((record) => `
@@ -569,10 +579,16 @@ type ProjectReportRecord = Prisma.ProjectRecordGetPayload<{
     comments: true;
     tasks: true;
     wikiReferences: true;
+    quotes: true;
+    costLines: true;
   };
 }>;
 
 async function projectReportHtml(record: ProjectReportRecord, options?: { inlineImages?: boolean }) {
+  const quotes = record.quotes ?? [];
+  const costs = (record.costLines ?? []).filter(line => !line.isArchived);
+  const budget = projectBudgetSummary(quotes, costs);
+  const money = (value: number | null) => value === null ? "Not priced / not recorded" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value / 100);
   const inlineImages = options?.inlineImages ?? false;
   const photos = record.attachments.filter((attachment) => isImageAttachment(attachment.mimeType));
   const photoGroups = projectPhotoGroups(record);
@@ -656,6 +672,15 @@ async function projectReportHtml(record: ProjectReportRecord, options?: { inline
     </section>
 
     <section class="section">
+      <h2>Quotes and in-house costs</h2>
+      <p>Included vendor quotes: ${money(budget.vendorEstimateCents)}. In-house estimate: ${money(budget.inHouseEstimateCents)}. Combined plan subtotal: <strong>${money(budget.plannedCents)}</strong>.</p>
+      <p>${budget.unknownIncludedQuotes} included quote(s) not priced. Recorded in-house actuals: ${money(budget.recordedInHouseActualCents)}; ${budget.unrecordedActualLines} line(s) not recorded. Original project estimate/actual fields are separate and are not added again. This is a planning summary, not purchase authorization.</p>
+      ${quotes.map(quote => `<div style="overflow-wrap:anywhere;break-inside:avoid;margin:12px 0"><strong>${htmlEscape(quote.scope)} / ${htmlEscape(quote.companyName)}</strong><p>${htmlEscape(quote.status)} / ${money(quote.amountCents)} / Reference: ${htmlEscape(quote.reference ?? "Not set")} / Quote deadline: ${quote.dueDate?.toISOString().slice(0, 10) ?? "Not set"}</p><p>${htmlEscape(quote.notes)}</p></div>`).join("") || "<p>No individual quotes recorded.</p>"}
+      ${costs.map(line => `<div style="overflow-wrap:anywhere;break-inside:avoid;margin:8px 0"><strong>${htmlEscape(line.description)}</strong> / ${htmlEscape(line.category)}: ${line.quantity} x ${money(line.unitCostCents)} = ${money(Math.round(line.quantity * line.unitCostCents))}. Actual line total: ${money(line.actualCostCents)}</div>`).join("") || "<p>No in-house cost lines recorded.</p>"}
+      <h3>Supporting documents</h3>
+      ${record.attachments.filter(file => !isImageAttachment(file.mimeType)).map(file => `<p style="overflow-wrap:anywhere">${htmlEscape(file.originalName)} / ${htmlEscape(file.attachmentType)} / Uploaded ${file.createdAt.toISOString().slice(0, 10)}</p>`).join("") || "<p>No supporting documents.</p>"}
+    </section>
+    <section class="section">
       <h2>Comments</h2>
       ${comments.length ? comments.map((comment) => `<div class="comment"><strong>${htmlEscape(comment.authorName ?? "Unknown")}</strong><p>${htmlEscape(comment.body)}</p><p class="muted">${htmlEscape(comment.createdAt.toLocaleString())}</p></div>`).join("") : `<p class="muted">No comments yet.</p>`}
     </section>
@@ -665,6 +690,7 @@ async function projectReportHtml(record: ProjectReportRecord, options?: { inline
 }
 
 export async function projectRoutes(app: FastifyInstance) {
+  await projectCommercialRoutes(app, { requireProjectsAccess, assertPropertyAccess, canEditProjectRecord });
   app.get("/projects/overview", async (request, reply) => {
     if (!requireProjectsAccess(request, reply, "view")) return;
     const query = z.object({ propertyId: z.string().optional() }).parse(request.query);
@@ -771,6 +797,7 @@ export async function projectRoutes(app: FastifyInstance) {
         ...(techScopedProjectWhere(request) ?? {}),
       },
       include: {
+        _count: { select: { quotes: true } },
         property: true,
         category: true,
         attachments: true,
@@ -942,6 +969,8 @@ export async function projectRoutes(app: FastifyInstance) {
         comments: { orderBy: [{ createdAt: "desc" }] },
         tasks: true,
         wikiReferences: true,
+        quotes: true,
+        costLines: true,
       },
     });
     if (!record) return reply.code(404).send({ message: "Project record not found" });
@@ -963,6 +992,8 @@ export async function projectRoutes(app: FastifyInstance) {
         comments: { orderBy: [{ createdAt: "desc" }] },
         tasks: true,
         wikiReferences: true,
+        quotes: true,
+        costLines: true,
       },
     });
     if (!record) return reply.code(404).send({ message: "Project record not found" });
@@ -977,10 +1008,16 @@ export async function projectRoutes(app: FastifyInstance) {
   app.patch("/projects/records/:id", async (request, reply) => {
     if (!requireProjectsAccess(request, reply, "edit")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = projectRecordSchema.partial().parse(request.body);
+    const { expectedUpdatedAt, ...input } = projectRecordSchema.partial().extend({ expectedUpdatedAt: z.coerce.date().optional() }).parse(request.body);
     const existing = await prisma.projectRecord.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ message: "Project record not found" });
     if (!(await canEditProjectRecord(request, existing))) return reply.code(403).send({ message: "Projects edit access denied" });
+    if (expectedUpdatedAt && existing.updatedAt.getTime() !== expectedUpdatedAt.getTime()) return reply.code(409).send({ message: "Project changed. Reload before applying your schedule; your draft was not saved." });
+    if (["dueDate", "scheduledDate", "startDate"].some(key => key in input)) {
+      const deadline = input.dueDate === undefined ? existing.dueDate : input.dueDate;
+      const starts = [input.scheduledDate === undefined ? existing.scheduledDate : input.scheduledDate, input.startDate === undefined ? existing.startDate : input.startDate];
+      if (deadline && starts.some(date => date && date > deadline)) return reply.code(400).send({ message: "The deadline cannot be before the scheduled or actual start date." });
+    }
     if (input.propertyId !== undefined && input.propertyId !== existing.propertyId) {
       return reply.code(409).send({ message: "Project property cannot be changed by editing. Create a record in the correct property instead." });
     }
@@ -990,7 +1027,7 @@ export async function projectRoutes(app: FastifyInstance) {
     const nextStatus = input.status ?? existing.status;
     const completedDate = nextStatus === "Completed" ? (input.completedDate ?? existing.completedDate ?? new Date()) : input.completedDate;
     const record = await prisma.projectRecord.update({
-      where: { id },
+      where: { id, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
       data: {
         ...input,
         assignedUserId: "assignedUserId" in input ? assignedUser?.id ?? null : undefined,
@@ -1003,6 +1040,9 @@ export async function projectRoutes(app: FastifyInstance) {
         updatedById: request.currentUser!.id,
       },
       include: { property: true, category: true, attachments: true, comments: true, tasks: true, wikiReferences: true },
+    }).catch(error => {
+      if (expectedUpdatedAt && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") throw Object.assign(new Error("Project changed. Reload before saving your schedule."), { statusCode: 409 });
+      throw error;
     });
     if (assignedUser?.id && assignedUser.id !== existing.assignedUserId) {
       await createNotification({
@@ -1153,20 +1193,32 @@ export async function projectRoutes(app: FastifyInstance) {
     const record = await prisma.projectRecord.findUnique({ where: { id }, include: { property: true } });
     if (!record) return reply.code(404).send({ message: "Project record not found" });
     if (!(await canEditProjectRecord(request, record))) return reply.code(403).send({ message: "Projects edit access denied" });
+    if (record.isArchived) return reply.code(409).send({ message: "Restore the project before uploading files" });
     const upload = await request.file();
     if (!upload) return reply.code(400).send({ message: "Attachment file is required" });
     const fields = projectAttachmentUploadSchema.parse({
+      quoteId: readMultipartFieldValue(upload.fields?.quoteId),
       attachmentType: readMultipartFieldValue(upload.fields?.attachmentType),
       caption: readMultipartFieldValue(upload.fields?.caption),
     });
+    if (fields.quoteId && !(await prisma.projectQuote.findFirst({ where: { id: fields.quoteId, recordId: record.id } }))) return reply.code(400).send({ message: "Quote does not belong to this project" });
     const extension = extname(upload.filename).toLowerCase();
     if (!allowedAttachmentExtensions.has(extension) || !allowedAttachmentTypes.has(upload.mimetype)) {
       return reply.code(415).send({ message: "Unsupported project file type." });
     }
     const storedName = routedStoredName(record.property, `projects/${randomUUID()}-${sanitizeFilename(upload.filename)}`);
     await ensureStoredUploadParent(storedName);
-    await pipeline(upload.file, createWriteStream(resolveStoredUploadPath(storedName)));
-    const attachment = await prisma.projectAttachment.create({
+    try { await pipeline(upload.file, createWriteStream(resolveStoredUploadPath(storedName))); }
+    catch (error) { await rm(resolveStoredUploadPath(storedName), { force: true }); throw error; }
+    if (upload.file.truncated) {
+      await rm(resolveStoredUploadPath(storedName), { force: true });
+      return reply.code(413).send({ message: "Project file exceeded the upload size limit" });
+    }
+    const attachment = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT "id" FROM "ProjectRecord" WHERE "id" = ${record.id} FOR UPDATE`;
+    const current = await tx.projectRecord.findUniqueOrThrow({ where: { id: record.id } });
+    if (current.isArchived || !(await canEditProjectRecord(request, current))) throw Object.assign(new Error("Project changed; reload before uploading files"), { statusCode: 409 });
+    const saved = await tx.projectAttachment.create({
       data: {
         recordId: record.id,
         propertyId: record.propertyId,
@@ -1178,18 +1230,21 @@ export async function projectRoutes(app: FastifyInstance) {
         sizeBytes: upload.file.bytesRead,
         attachmentType: fields.attachmentType ?? "GENERAL",
         caption: fields.caption ?? null,
+        quoteId: fields.quoteId ?? null,
       },
     });
     await writeAuditLog({
       request,
       actorUserId: request.currentUser!.id,
-      propertyId: attachment.propertyId,
+      propertyId: saved.propertyId,
       entityType: "PROJECT_ATTACHMENT",
-      entityId: attachment.id,
+      entityId: saved.id,
       action: "PROJECT_ATTACHMENT_UPLOADED",
-      message: `Uploaded ${attachment.originalName} to ${record.title}`,
-      metadata: { attachmentType: attachment.attachmentType, caption: attachment.caption },
-    });
+      message: `Uploaded ${saved.originalName} to ${record.title}`,
+      metadata: { attachmentType: saved.attachmentType, caption: saved.caption, quoteId: saved.quoteId },
+    }, tx);
+    return saved;
+    }).catch(async error => { await rm(resolveStoredUploadPath(storedName), { force: true }); throw error; });
     reply.code(201);
     return { attachment };
   });
@@ -1201,7 +1256,11 @@ export async function projectRoutes(app: FastifyInstance) {
     if (!attachment) return reply.code(404).send({ message: "Project attachment not found" });
     await assertPropertyAccess(request, attachment.propertyId);
     reply.header("content-type", attachment.mimeType);
-    reply.header("content-disposition", `attachment; filename="${sanitizeFilename(attachment.originalName)}"`);
+    const { inline } = z.object({ inline: z.enum(["true", "false"]).optional() }).parse(request.query);
+    const preview = inline === "true" && (attachment.mimeType === "application/pdf" || attachment.mimeType.startsWith("image/"));
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Cache-Control", "private, no-store");
+    reply.header("content-disposition", `${preview ? "inline" : "attachment"}; filename="${sanitizeFilename(attachment.originalName)}"`);
     return reply.send(createReadStream(resolveStoredUploadPath(attachment.storedName)));
   });
 
@@ -1280,7 +1339,7 @@ export async function projectRoutes(app: FastifyInstance) {
         isArchived: query.includeArchived ? undefined : false,
         ...(techScopedProjectWhere(request) ?? {}),
       },
-      include: { property: true, attachments: true },
+      include: { property: true, attachments: true, quotes: true, costLines: true },
       orderBy: [{ updatedAt: "desc" }],
     });
     const filtered = records.filter((record) => {
@@ -1312,6 +1371,12 @@ export async function projectRoutes(app: FastifyInstance) {
       ScheduledDate: record.scheduledDate?.toISOString().slice(0, 10) ?? "",
       DueDate: record.dueDate?.toISOString().slice(0, 10) ?? "",
       AssignedUser: record.assignedUserName ?? "",
+      IncludedQuoteSubtotal: projectBudgetSummary(record.quotes, record.costLines).vendorEstimateCents / 100,
+      InHouseEstimate: projectBudgetSummary(record.quotes, record.costLines).inHouseEstimateCents / 100,
+      PlannedSubtotal: projectBudgetSummary(record.quotes, record.costLines).plannedCents / 100,
+      UnpricedIncludedQuotes: projectBudgetSummary(record.quotes, record.costLines).unknownIncludedQuotes,
+      RecordedInHouseActual: projectBudgetSummary(record.quotes, record.costLines).recordedInHouseActualCents / 100,
+      InHouseActualsNotRecorded: projectBudgetSummary(record.quotes, record.costLines).unrecordedActualLines,
     }));
     reply.header("content-type", "text/csv; charset=utf-8");
     reply.header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-projects-export.csv`)}"`);
@@ -1332,7 +1397,7 @@ export async function projectRoutes(app: FastifyInstance) {
         isArchived: query.includeArchived ? undefined : false,
         ...(techScopedProjectWhere(request) ?? {}),
       },
-      include: { property: true, attachments: true },
+      include: { property: true, attachments: true, quotes: true, costLines: true },
       orderBy: [{ updatedAt: "desc" }],
     });
     const filtered = records.filter((record) => {
@@ -1342,6 +1407,7 @@ export async function projectRoutes(app: FastifyInstance) {
     });
     const scopeLabel = await reportScopeLabel(query.propertyId);
     const header = ["Property", "Record Type", "Title", "Source", "Status", "Priority", "Days Open", "Budget Year", "Deferred", "Deferred Reason", "Target Year", "Category", "Execution Type", "Estimated Cost", "Actual Cost", "Company Name", "Total Amount", "Scheduled Date", "Due Date", "Assigned User"];
+    header.push("Included Quote Subtotal", "In-House Estimate", "Planned Subtotal", "Unpriced Included Quotes", "Recorded In-House Actual", "In-House Actuals Not Recorded");
     const lines = [header, ...filtered.map((record) => [
       record.property.code,
       record.recordType,
@@ -1363,6 +1429,12 @@ export async function projectRoutes(app: FastifyInstance) {
       record.scheduledDate?.toISOString().slice(0, 10) ?? "",
       record.dueDate?.toISOString().slice(0, 10) ?? "",
       record.assignedUserName ?? "",
+      projectBudgetSummary(record.quotes, record.costLines).vendorEstimateCents / 100,
+      projectBudgetSummary(record.quotes, record.costLines).inHouseEstimateCents / 100,
+      projectBudgetSummary(record.quotes, record.costLines).plannedCents / 100,
+      projectBudgetSummary(record.quotes, record.costLines).unknownIncludedQuotes,
+      projectBudgetSummary(record.quotes, record.costLines).recordedInHouseActualCents / 100,
+      projectBudgetSummary(record.quotes, record.costLines).unrecordedActualLines,
     ])];
     reply.header("content-type", "application/vnd.ms-excel; charset=utf-8");
     reply.header("content-disposition", `attachment; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-projects-export.xls`)}"`);
@@ -1383,7 +1455,7 @@ export async function projectRoutes(app: FastifyInstance) {
         isArchived: query.includeArchived ? undefined : false,
         ...(techScopedProjectWhere(request) ?? {}),
       },
-      include: { property: true, attachments: true },
+      include: { property: true, attachments: true, quotes: true, costLines: true },
       orderBy: [{ updatedAt: "desc" }],
     });
     const filtered = records.filter((record) => {
@@ -1410,7 +1482,7 @@ export async function projectRoutes(app: FastifyInstance) {
         isArchived: query.includeArchived ? undefined : false,
         ...(techScopedProjectWhere(request) ?? {}),
       },
-      include: { property: true, attachments: true },
+      include: { property: true, attachments: true, quotes: true, costLines: true },
       orderBy: [{ updatedAt: "desc" }],
     });
     const filtered = records.filter((record) => {

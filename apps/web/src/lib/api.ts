@@ -1753,6 +1753,7 @@ export type ProjectCategory = {
 };
 
 export type ProjectAttachment = {
+  quoteId?: string | null;
   id: string;
   recordId: string;
   propertyId: string;
@@ -1804,6 +1805,7 @@ export type ProjectWikiReference = {
 };
 
 export type ProjectRecord = {
+  _count?: { quotes: number };
   id: string;
   propertyId: string;
   property: Property;
@@ -3210,7 +3212,7 @@ export function createProjectRecord(input: {
   return request<{ record: ProjectRecord }>("/projects/records", { ...account, method: "POST", body: JSON.stringify(input) });
 }
 
-export function updateProjectRecord(id: string, input: Partial<Parameters<typeof createProjectRecord>[0]>) {
+export function updateProjectRecord(id: string, input: Partial<Parameters<typeof createProjectRecord>[0]> & { expectedUpdatedAt?: string }) {
   return request<{ record: ProjectRecord }>(`/projects/records/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
@@ -3230,11 +3232,12 @@ export function updateProjectTask(id: string, input: { title?: string; status?: 
   return request<{ task: ProjectTask }>(`/projects/tasks/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
-export function uploadProjectAttachment(id: string, file: File, attachmentType?: ProjectAttachmentType, caption?: string, account?: AccountBoundRequest) {
+export function uploadProjectAttachment(id: string, file: File, attachmentType?: ProjectAttachmentType, caption?: string, account?: AccountBoundRequest, quoteId?: string) {
   const data = new FormData();
-  data.append("file", file);
   if (attachmentType) data.append("attachmentType", attachmentType);
   if (caption) data.append("caption", caption);
+  if (quoteId) data.append("quoteId", quoteId);
+  data.append("file", file);
   return request<{ attachment: ProjectAttachment }>(`/projects/records/${encodeURIComponent(id)}/attachments`, { ...account, method: "POST", body: data });
 }
 
@@ -3248,6 +3251,28 @@ export function updateProjectAttachment(id: string, input: {
 export function projectAttachmentDownloadUrl(id: string) {
   return `${apiBaseUrl}/projects/attachments/${encodeURIComponent(id)}/download`;
 }
+
+export type ProjectQuote = {
+  id: string; recordId: string; scope: string; companyName: string; reference: string | null;
+  amountCents: number | null; status: "Requested" | "Received" | "Included" | "Declined" | "Superseded";
+  dueDate: string | null; notes: string | null; version: number; attachments: ProjectAttachment[];
+};
+export type ProjectCostLine = {
+  id: string; recordId: string; description: string; category: "Labor" | "Materials" | "Equipment" | "Other";
+  quantity: number; unitCostCents: number; actualCostCents: number | null; isArchived: boolean; version: number;
+};
+export type ProjectBudget = { quotes: ProjectQuote[]; costLines: ProjectCostLine[]; summary: {
+  vendorEstimateCents: number; inHouseEstimateCents: number; plannedCents: number;
+  unknownIncludedQuotes: number; recordedInHouseActualCents: number; unrecordedActualLines: number;
+} };
+export function getProjectBudget(id: string) { return request<ProjectBudget>(`/projects/records/${encodeURIComponent(id)}/budget`); }
+export function saveProjectQuote(recordId: string, id: string, input: Omit<ProjectQuote, "id" | "recordId" | "version" | "attachments"> & { expectedVersion: number }, account?: AccountBoundRequest) {
+  return request<{ entry: Omit<ProjectQuote, "attachments">; alreadySaved: boolean }>(`/projects/records/${encodeURIComponent(recordId)}/quotes/${encodeURIComponent(id)}`, { ...account, method: "PUT", body: JSON.stringify(input) });
+}
+export function saveProjectCost(recordId: string, id: string, input: Omit<ProjectCostLine, "id" | "recordId" | "version"> & { expectedVersion: number }, account?: AccountBoundRequest) {
+  return request<{ entry: ProjectCostLine }>(`/projects/records/${encodeURIComponent(recordId)}/cost-lines/${encodeURIComponent(id)}`, { ...account, method: "PUT", body: JSON.stringify(input) });
+}
+export function projectDocumentsZipUrl(id: string) { return `${apiBaseUrl}/projects/records/${encodeURIComponent(id)}/documents.zip`; }
 
 export function createProjectWikiReference(id: string, input: { targetType: "ENTRY" | "VENDOR" | "ASSET"; targetId: string }) {
   return request<{ reference: ProjectWikiReference }>(`/projects/records/${encodeURIComponent(id)}/wiki-references`, { method: "POST", body: JSON.stringify(input) });

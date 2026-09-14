@@ -57,6 +57,8 @@ import type { OpenProjectCreateRequest, OpenProjectRecordRequest } from "../lib/
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
 import { isTouchMobileViewport } from "../lib/responsive";
 import { Modal } from "./Modal";
+import { ProjectBudgetPanel } from "./ProjectBudgetPanel";
+import { ProjectSchedulePanel } from "./ProjectSchedulePanel";
 
 type Props = {
   properties: Property[];
@@ -267,6 +269,7 @@ function hasQuickCaptureContent(draft: ReturnType<typeof recordDraft>, files: St
 function ProjectDetail({
   record,
   canEdit,
+  canManageVendors,
   users,
   language = "en",
   onSave,
@@ -280,19 +283,30 @@ function ProjectDetail({
 }: {
   record: ProjectRecord;
   canEdit: boolean;
+  canManageVendors: boolean;
   users: Array<{ id: string; fullName: string; role: UserRole }>;
   language?: UserLanguage;
   history: ProjectHistoryEntry[];
   onSave: (record: ProjectRecord, patch: Partial<ProjectRecord>) => void;
   onConvert: (id: string) => void;
-  onAddComment: (id: string, body: string) => void;
-  onAddTask: (id: string, input: { title: string; status?: ProjectTaskStatus; assignedUserId?: string | null; dueDate?: string | null }) => void;
+  onAddComment: (id: string, body: string) => Promise<unknown>;
+  onAddTask: (id: string, input: { title: string; status?: ProjectTaskStatus; assignedUserId?: string | null; dueDate?: string | null }) => Promise<unknown>;
   onUpdateTask: (task: ProjectTask, patch: { status?: ProjectTaskStatus; assignedUserId?: string | null; dueDate?: string | null; completedDate?: string | null }) => void;
   onUpload: (id: string, files: FileList | null, attachmentType: ProjectAttachmentType, caption?: string) => void;
   onUpdateAttachment: (id: string, patch: { attachmentType?: ProjectAttachmentType; caption?: string | null }) => void;
 }) {
   const [comment, setComment] = useState("");
   const [task, setTask] = useState(taskDraft);
+  const entryLock = useRef(false);
+  const [entryBusy, setEntryBusy] = useState(false);
+  const [entryError, setEntryError] = useState("");
+  async function saveEntry(action: () => Promise<unknown>, clear: () => void) {
+    if (entryLock.current) return;
+    entryLock.current = true; setEntryBusy(true); setEntryError("");
+    try { await action(); clear(); }
+    catch (error) { setEntryError(error instanceof Error ? error.message : "Could not save. Your entry is retained."); }
+    finally { entryLock.current = false; setEntryBusy(false); }
+  }
   const [attachmentType, setAttachmentType] = useState<ProjectAttachmentType>("GENERAL");
   const [attachmentCaption, setAttachmentCaption] = useState("");
   const [previewAttachmentId, setPreviewAttachmentId] = useState<string | null>(null);
@@ -313,16 +327,6 @@ function ProjectDetail({
     label: `${user.fullName} / ${user.role}`,
     keywords: [user.fullName, user.role],
   })), [users]);
-  useEffect(() => {
-    setBidDraft({
-      companyName: record.companyName ?? "",
-      contactName: record.contactName ?? "",
-      contactPhone: record.contactPhone ?? "",
-      contactEmail: record.contactEmail ?? "",
-      bidStatus: record.bidStatus ?? "Needed",
-      bidNotes: record.bidNotes ?? "",
-    });
-  }, [record]);
   const groupedAttachments = attachmentTypes.map((type) => ({
     ...type,
     items: record.attachments.filter((attachment) => attachment.attachmentType === type.value),
@@ -377,6 +381,7 @@ function ProjectDetail({
   return (
     <>
       <section className="pool-card projects-detail-shell">
+      {entryError ? <p role="alert">{entryError}</p> : null}
       <div className="projects-detail-section">
         <div className="drawer-section-title">
           <h3>{record.title}</h3>
@@ -463,6 +468,9 @@ function ProjectDetail({
         </section>
       ) : null}
 
+      <ProjectSchedulePanel key={`schedule-${record.id}`} record={record} canEdit={canEdit} />
+      <ProjectBudgetPanel key={record.id} record={record} canEdit={canEdit} canManageVendors={canManageVendors} />
+
       <PropertyWikiWorkflowPanel
         title={isSpanish ? "Contexto de la wiki de la propiedad" : "Property Wiki Context"}
         module="PROJECTS"
@@ -479,13 +487,15 @@ function ProjectDetail({
       <div className="projects-detail-workspace">
         <div className="projects-detail-column">
           <section className="projects-detail-card">
+            <details>
+            <summary>{isSpanish ? "Resumen anterior de cotizacion" : "Original bid summary / contact"}</summary>
             <div className="drawer-section-title">
               <h4>{isSpanish ? "Cotizaciones / Propuestas" : "Bids / Quotes"}</h4>
             </div>
             {canEdit ? (
               <>
                 <div className="pool-entry-actions projects-detail-actions">
-                  <button className="button button-secondary" type="button" onClick={() => onSave(record, { status: "Needs Bid", bidStatus: "Requested" })}>{isSpanish ? "Solicitar cotización" : "Request Bid"}</button>
+                  <button className="button button-secondary" type="button" onClick={() => onSave(record, { status: record.recordType === "Recommendation" ? "Needs Bid" : record.status, bidStatus: "Requested" })}>{isSpanish ? "Solicitar cotización" : "Request Bid"}</button>
                   <button className="button button-secondary" type="button" onClick={() => onSave(record, { status: record.recordType === "Recommendation" ? "Got Bid" : record.status, bidStatus: "Received" })}>{isSpanish ? "Marcar recibida" : "Mark Received"}</button>
                   <button className="button button-secondary" type="button" onClick={() => onSave(record, { bidStatus: "Approved" })}>{isSpanish ? "Aprobar cotización" : "Approve Bid"}</button>
                   <button className="button button-secondary" type="button" onClick={() => onSave(record, { bidStatus: "Denied" })}>{isSpanish ? "Rechazar cotización" : "Deny Bid"}</button>
@@ -541,10 +551,11 @@ function ProjectDetail({
                 <span>{record.bidStatus ?? (isSpanish ? "Sin estado de cotización" : "No bid status")}</span>
               </div>
             )}
+            </details>
           </section>
 
           <section className="projects-detail-card">
-            <h4>{isSpanish ? "Fotos" : "Photos"}</h4>
+            <h4>{isSpanish ? "Fotos y documentos" : "Photos & documents"}</h4>
             <div className="projects-photo-toolbar">
               {canEdit ? (
                 <>
@@ -579,7 +590,8 @@ function ProjectDetail({
                         <strong>{attachment.caption ?? attachment.originalName}</strong>
                         <span>{group.label}</span>
                         <span>{attachment.uploaderName ?? (isSpanish ? "Desconocido" : "Unknown")} / {formatDate(attachment.createdAt)}</span>
-                        <a href={projectAttachmentDownloadUrl(attachment.id)} target="_blank" rel="noreferrer">{isSpanish ? "Abrir" : "Open"}</a>
+                        <a href={`${projectAttachmentDownloadUrl(attachment.id)}?inline=true`} target="_blank" rel="noreferrer">{isSpanish ? "Vista previa" : "Preview"}</a>
+                        <a href={projectAttachmentDownloadUrl(attachment.id)}>{isSpanish ? "Descargar" : "Download"}</a>
                         {canEdit ? (
                           editingAttachmentId === attachment.id ? (
                             <div className="projects-attachment-editor">
@@ -653,16 +665,15 @@ function ProjectDetail({
             {canEdit ? (
               <form className="pool-entry-form projects-detail-form" onSubmit={(event) => {
                 event.preventDefault();
-                onAddTask(record.id, {
+                void saveEntry(() => onAddTask(record.id, {
                   title: task.title,
                   status: task.status,
                   assignedUserId: task.assignedUserId || null,
                   dueDate: task.dueDate || null,
-                });
-                setTask(taskDraft());
+                }), () => setTask(taskDraft()));
               }}>
                 <div className="form-grid projects-detail-compact-grid">
-                  <label>{isSpanish ? "Nueva tarea" : "New task"}<input value={task.title} onChange={(event) => setTask((current) => ({ ...current, title: event.target.value }))} /></label>
+                  <label>{isSpanish ? "Nueva tarea" : "New task"}<input disabled={entryBusy} value={task.title} onChange={(event) => setTask((current) => ({ ...current, title: event.target.value }))} /></label>
                   <label>{isSpanish ? "Usuario asignado" : "Assigned user"}
                     <SearchSelect
                       options={userOptions}
@@ -676,7 +687,7 @@ function ProjectDetail({
                   </label>
                   <label>{isSpanish ? "Fecha límite" : "Due date"}<input type="date" value={task.dueDate} onChange={(event) => setTask((current) => ({ ...current, dueDate: event.target.value }))} /></label>
                 </div>
-                <button className="button button-primary" type="submit" disabled={!task.title.trim()}>{isSpanish ? "Agregar tarea" : "Add Task"}</button>
+                <button className="button button-primary" type="submit" disabled={entryBusy || !task.title.trim()}>{isSpanish ? "Agregar tarea" : "Add Task"}</button>
               </form>
             ) : null}
           </section>
@@ -695,11 +706,10 @@ function ProjectDetail({
             {canEdit ? (
               <form className="pool-entry-form projects-detail-form" onSubmit={(event) => {
                 event.preventDefault();
-                onAddComment(record.id, comment);
-                setComment("");
+                void saveEntry(() => onAddComment(record.id, comment), () => setComment(""));
               }}>
-                <label>{isSpanish ? "Comentario" : "Comment"}<textarea value={comment} onChange={(event) => setComment(event.target.value)} /></label>
-                <button className="button button-primary" type="submit" disabled={!comment.trim()}>{isSpanish ? "Agregar comentario" : "Add Comment"}</button>
+                <label>{isSpanish ? "Comentario" : "Comment"}<textarea disabled={entryBusy} value={comment} onChange={(event) => setComment(event.target.value)} /></label>
+                <button className="button button-primary" type="submit" disabled={entryBusy || !comment.trim()}>{isSpanish ? "Agregar comentario" : "Add Comment"}</button>
               </form>
             ) : null}
           </section>
@@ -802,6 +812,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   const [queuedCaptures, setQueuedCaptures] = useState<QueuedProjectCaptureSummary[]>([]);
   const [queueSyncing, setQueueSyncing] = useState(false);
   const [projectUploadNotice, setProjectUploadNotice] = useState<string | null>(null);
+  const projectUploadBusy = useRef(false);
   const [draft, setDraft] = useState(() => recordDraft(selectedPropertyId || properties[0]?.id || ""));
   const [categoryForm, setCategoryForm] = useState<CategoryDraft>(categoryDraft);
   const canView = userRole !== "CLEANER";
@@ -1035,7 +1046,8 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
     onSuccess: invalidate,
   });
 
-  const selectedRecord = detailQuery.data?.record;
+  const detailDenied = isApiError(detailQuery.error) && [401, 403, 404].includes(detailQuery.error.status);
+  const selectedRecord = detailDenied ? undefined : detailQuery.data?.record;
   const records = recordsQuery.data?.records ?? [];
   const visibleRecords = useMemo(() => {
     if (tab !== "bids") return records;
@@ -1044,6 +1056,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
       || record.status === "Got Bid"
       || (record.bidStatus !== null && record.bidStatus !== "Not Applicable")
       || Boolean(record.companyName)
+      || Boolean(record._count?.quotes)
       || record.attachments.some((attachment) => attachment.attachmentType === "BID"));
   }, [records, tab]);
   const pinnedRecords = mapQuery.data?.records ?? [];
@@ -1437,7 +1450,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
             {Object.entries(overviewQuery.data.summary).map(([key, value]) => (
               <article key={key} className={`pool-kpi ${key === "deferredMaintenance" || key === "overdue" ? "warning" : key === "actualCompletedCostThisYear" ? "" : ""}`}>
                 <strong>{typeof value === "number" && (key.toLowerCase().includes("value") || key.toLowerCase().includes("cost")) ? formatCurrency(value) : value}</strong>
-                <span>{key.replace(/([A-Z])/g, " $1")}</span>
+                <span>{key === "estimatedProjectValue" ? "Original manual estimates (separate from quote plan)" : key === "actualCompletedCostThisYear" ? "Manually reported completed cost this year" : key.replace(/([A-Z])/g, " $1")}</span>
               </article>
             ))}
           </div>
@@ -2080,20 +2093,25 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
             </div>
           </section>
           <section className="pool-card">
+            {detailQuery.isError ? <p role="alert">{detailDenied ? "Project access is unavailable." : "Could not refresh project details. Displayed details may be stale."} <button type="button" onClick={() => void detailQuery.refetch()}>Retry project</button></p> : null}
+            {[updateMutation, convertMutation, taskUpdateMutation, attachmentUpdateMutation].find(mutation => mutation.isError)?.error ? <p role="alert">{String([updateMutation, convertMutation, taskUpdateMutation, attachmentUpdateMutation].find(mutation => mutation.isError)?.error)}</p> : null}
             {selectedRecord ? (
               <ProjectDetail
+                key={selectedRecord.id}
                 record={selectedRecord}
                 history={detailQuery.data?.history ?? []}
                 canEdit={canEdit}
+                canManageVendors={userRole === "ADMIN" || userRole === "MANAGER"}
                 users={assignableUsers}
                 language={language}
-                onSave={(record, patch) => void updateMutation.mutateAsync({ id: record.id, patch })}
-                onConvert={(id) => void convertMutation.mutateAsync(id)}
-                onAddComment={(id, body) => void commentMutation.mutateAsync({ id, body })}
-                onAddTask={(id, input) => void taskCreateMutation.mutateAsync({ id, input })}
-                onUpdateTask={(task, patch) => void taskUpdateMutation.mutateAsync({ id: task.id, patch })}
+                onSave={(record, patch) => updateMutation.mutate({ id: record.id, patch })}
+                onConvert={(id) => convertMutation.mutate(id)}
+                onAddComment={(id, body) => commentMutation.mutateAsync({ id, body })}
+                onAddTask={(id, input) => taskCreateMutation.mutateAsync({ id, input })}
+                onUpdateTask={(task, patch) => taskUpdateMutation.mutate({ id: task.id, patch })}
                 onUpload={(id, files, attachmentType, caption) => {
                   if (!files?.length) return;
+                  if (projectUploadBusy.current) { setProjectUploadNotice("An upload batch is still running. Wait for its results before selecting more files."); return; }
                   const accepted = Array.from(files).filter((file) => isAllowedProjectAttachment(file, attachmentType));
                   const rejectedCount = files.length - accepted.length;
                   if (rejectedCount) {
@@ -2105,9 +2123,30 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                   } else {
                     setProjectUploadNotice(null);
                   }
-                  accepted.forEach((file) => void uploadMutation.mutateAsync({ id, file, attachmentType, caption }));
+                  const session = getVerifiedSession();
+                  if (!session.userId) { setProjectUploadNotice("Sign in again before uploading."); return; }
+                  const ownerUserId = session.userId;
+                  projectUploadBusy.current = true;
+                  void (async () => {
+                    const outcomes: string[] = rejectedCount ? [`${rejectedCount} unsupported or empty file(s) skipped.`] : [];
+                    try {
+                      for (const file of accepted) {
+                        if (!isCurrentSession(session)) break;
+                        try {
+                          await uploadProjectAttachment(id, file, attachmentType, caption, { expectedUserId: ownerUserId });
+                          outcomes.push(`${file.name}: uploaded.`);
+                        } catch (error) {
+                          outcomes.push(`${file.name}: ${isApiError(error) && error.status >= 400 && error.status < 500 ? error.message : "upload unconfirmed; check the documents before retrying."}`);
+                          if (isApiError(error) && [401, 403, 404].includes(error.status)) break;
+                        }
+                        if (isCurrentSession(session)) setProjectUploadNotice(outcomes.join(" "));
+                      }
+                      if (isCurrentSession(session)) await invalidate();
+                    } catch { if (isCurrentSession(session)) setProjectUploadNotice(`${outcomes.join(" ")} Refresh failed; reload before retrying uploads.`); }
+                    finally { projectUploadBusy.current = false; }
+                  })();
                 }}
-                onUpdateAttachment={(id, patch) => void attachmentUpdateMutation.mutateAsync({ id, patch })}
+                onUpdateAttachment={(id, patch) => attachmentUpdateMutation.mutate({ id, patch })}
               />
             ) : <StatusState title={isSpanish ? "Seleccione un registro" : "Select a record"} description={isSpanish ? "Elija un proyecto o recomendación para ver detalles, archivos, comentarios y tareas." : "Choose a project or recommendation to view details, files, comments, and tasks."} />}
           </section>
