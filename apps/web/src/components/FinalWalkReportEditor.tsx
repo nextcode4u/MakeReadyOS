@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getFinalReport, previewFinalReport, saveFinalReportDraft, saveFinalReportSettings, type FinalReportData, type FinalReportDraft, type FinalReportResult, type FinalReportSettings } from "../lib/api";
+import { getFinalReport, isApiError, previewFinalReport, saveFinalReportDraft, saveFinalReportSettings, type FinalReportData, type FinalReportDraft, type FinalReportResult, type FinalReportSettings } from "../lib/api";
 import { Modal } from "./Modal";
 import "./finalWalkReportEditor.css";
 
@@ -8,6 +8,7 @@ export function FinalWalkReportEditor({ propertyId, propertyName, itemId, onClos
   const query = useQuery({ queryKey: ["final-report", propertyId, itemId], queryFn: () => getFinalReport(propertyId, itemId), staleTime: 0, gcTime: 0, refetchOnWindowFocus: false });
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
+  const accessRejected = isApiError(query.error) && [401, 403, 404].includes(query.error.status);
   useEffect(() => {
     if (!dirty) return;
     const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
@@ -15,7 +16,10 @@ export function FinalWalkReportEditor({ propertyId, propertyName, itemId, onClos
     return () => window.removeEventListener("beforeunload", guard);
   }, [dirty]);
   return <Modal open title={`Final-walk report / ${propertyName}`} testId="final-report-editor" onClose={() => { if (!busy && (!dirty || window.confirm("Discard unsaved report changes?"))) onClose(); }}>
-    {query.isPending || query.isFetching ? <p>Loading report settings...</p> : query.isError ? <p role="alert">Could not load report settings. <button type="button" onClick={() => void query.refetch()}>Retry</button></p> : <ReportEditor initial={query.data} onDirty={setDirty} onBusy={setBusy} />}
+    {query.isPending ? <p>Loading report settings...</p> : !query.data || accessRejected ? <p role="alert">Could not load report settings. <button type="button" onClick={() => void query.refetch()}>Retry</button></p> : <>
+      {query.isError ? <p role="alert" data-testid="report-refresh-warning">Saved report data could not refresh. Your current form is preserved; it may differ from the latest saved record. <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>Retry report refresh</button></p> : null}
+      <ReportEditor initial={query.data} onDirty={setDirty} onBusy={setBusy} />
+    </>}
   </Modal>;
 }
 

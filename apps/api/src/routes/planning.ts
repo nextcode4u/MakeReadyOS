@@ -56,6 +56,30 @@ async function ensureScopedItem(itemId: string, propertyIds: string[] | null) {
 }
 
 export async function planningRoutes(app: FastifyInstance) {
+  app.get("/planning/items/:itemId", async (request, reply) => {
+    // This staff view combines planning and vendor data with different API-token scopes.
+    if (request.authType === "apiToken") return reply.code(403).send({ message: "Staff session required" });
+    const { itemId } = z.object({ itemId: z.string().min(1) }).parse(request.params);
+    const { item, error, status } = await ensureScopedItem(itemId, scopedAllowedPropertyIds(request));
+    if (!item) return reply.code(status).send({ message: error });
+    reply.header("Cache-Control", "no-store");
+    const scope = { itemId, propertyId: item.propertyId };
+    const blockWhere = { ...scope, status: { not: "CANCELED" } };
+    const vendorWhere = { ...scope, status: { not: "CANCELED" } };
+    const limit = 200;
+    const [blocks, assignments, blockTotal, vendorTotal] = await Promise.all([
+      prisma.workAssignmentBlock.findMany({ where: blockWhere, take: limit,
+        include: { assignedUser: { select: { id: true, fullName: true, role: true } }, property: true, item: true },
+        orderBy: [{ plannedDate: "asc" }, { id: "asc" }] }),
+      prisma.vendorAssignment.findMany({ where: vendorWhere, take: limit,
+        include: { vendor: true, property: true, item: { select: { id: true, unitNumber: true, assignedTech: true, moveInDate: true } } },
+        orderBy: [{ scheduledDate: "asc" }, { id: "asc" }] }),
+      prisma.workAssignmentBlock.count({ where: blockWhere }),
+      prisma.vendorAssignment.count({ where: vendorWhere }),
+    ]);
+    return { blocks, assignments, coverage: { blockTotal, vendorTotal, blocksTruncated: blockTotal > blocks.length, vendorsTruncated: vendorTotal > assignments.length } };
+  });
+
   app.get("/planning", async (request, reply) => {
     const query = planningQuerySchema.parse(request.query);
     const scoped = scopedAllowedPropertyIds(request);

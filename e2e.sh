@@ -80,7 +80,8 @@ mkdir -p "$LOG_DIR"
   echo "Web is ready"
   echo
 
-  export E2E_BASE_URL="http://localhost:${WEB_PORT:-8080}"
+  # Match readiness probes and avoid localhost address-family stalls under Docker/WSL.
+  export E2E_BASE_URL="http://127.0.0.1:${WEB_PORT:-8080}"
   export E2E_PRODUCTION=1
   export ADMIN_EMAIL
   export ADMIN_PASSWORD

@@ -5,9 +5,16 @@ import vm from "node:vm";
 import ts from "../apps/api/node_modules/typescript/lib/typescript.js";
 
 const exports = {};
+const turnStatus = {};
+vm.runInNewContext(ts.transpileModule(readFileSync("apps/web/src/lib/turnStatus.ts", "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, { exports: turnStatus });
 vm.runInNewContext(ts.transpileModule(readFileSync("apps/web/src/lib/structuredFilters.ts", "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-}).outputText, { exports });
+}).outputText, { exports, require: name => {
+  assert.equal(name, "./turnStatus");
+  return turnStatus;
+} });
 const { defaultStructuredFilters, itemMatchesStructuredFilters } = exports;
 const now = new Date(2026, 8, 8, 12);
 const matches = (patch) => itemMatchesStructuredFilters({

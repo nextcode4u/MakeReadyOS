@@ -61,20 +61,19 @@ async function capture(page: Page, testInfo: TestInfo, mode: DisplayMode, worksp
 }
 
 test.describe("visual QA capture", () => {
-  test("capture desktop review bundle for theme and dense workspace pass", async ({ page }, testInfo) => {
+  const modes: DisplayMode[] = [
+    { key: "default", theme: "default" },
+    { key: "light", theme: "light" },
+    { key: "eye-strain", theme: "dark", eyeStrain: true },
+    { key: "dyslexia", theme: "light", dyslexia: true },
+  ];
+  for (const mode of modes) test(`capture desktop review bundle for ${mode.key}`, async ({ page }, testInfo) => {
     await login(page);
 
     await page.getByTestId("display-menu").click();
     await page.getByTestId("compact-mode-toggle").setChecked(true);
     await page.getByTestId("display-menu").click();
     await expect(page.locator(".app-shell")).toHaveClass(/compact-mode/);
-
-    const modes: DisplayMode[] = [
-      { key: "default", theme: "default" },
-      { key: "light", theme: "light" },
-      { key: "eye-strain", theme: "dark", eyeStrain: true },
-      { key: "dyslexia", theme: "light", dyslexia: true },
-    ];
 
     const workspaces: WorkspaceCapture[] = [
       { key: "table", open: async (currentPage) => currentPage.getByTestId("tab-table").click(), ready: () => "board-table-view" },
@@ -88,13 +87,9 @@ test.describe("visual QA capture", () => {
       { key: "admin", open: async (currentPage) => currentPage.getByTestId("tab-admin").click(), ready: () => "admin-panel" },
     ];
 
-    for (const mode of modes) {
-      await test.step(`capture ${mode.key}`, async () => {
-        await setDisplayMode(page, mode);
-        for (const workspace of workspaces) {
-          await capture(page, testInfo, mode, workspace);
-        }
-      });
+    await setDisplayMode(page, mode);
+    for (const workspace of workspaces) {
+      await test.step(`capture ${workspace.key}`, () => capture(page, testInfo, mode, workspace));
     }
   });
 });

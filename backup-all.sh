@@ -30,8 +30,14 @@ run_backup() {
 }
 
 set +e
-run_backup 2>&1 | tee "$LOG_FILE"
-STATUS="${PIPESTATUS[0]}"
+# The logging parent collects errors; the worker must still stop on failure.
+(
+  set -e
+  run_backup
+) 2>&1 | tee "$LOG_FILE"
+PIPE_STATUSES=("${PIPESTATUS[@]}")
+STATUS="${PIPE_STATUSES[0]}"
+if [ "$STATUS" -eq 0 ]; then STATUS="${PIPE_STATUSES[1]}"; fi
 set -e
 echo "Backup log written to $LOG_FILE"
 exit "$STATUS"

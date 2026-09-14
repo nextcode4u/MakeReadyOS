@@ -1510,39 +1510,52 @@ export async function operationsRoutes(app: FastifyInstance) {
         } });
         summary.turnsArchived += 1;
       }
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000 });
+      for (const entry of availabilityActivity) {
+        const detail = [
+          entry.reportDate ? `report ${entry.reportDate}` : null,
+          entry.sourceStatus ? `source ${entry.sourceStatus}` : null,
+        ].filter(Boolean).join(" / ");
+        await writeAuditLog({
+          request,
+          actorUserId: request.currentUser!.id,
+          propertyId: property.id,
+          entityType: "MAKE_READY_ITEM",
+          entityId: entry.itemId,
+          action: "AVAILABILITY_SYNCED",
+          message: `Availability import updated ${entry.unitNumber}${detail ? ` (${detail})` : ""}`,
+          metadata: entry,
+        }, tx);
+      }
 
-    for (const itemId of [...createdItemIds, ...updatedItemIds]) {
-      await evaluateAndPersistItemRisk(itemId, { notify: true });
-    }
-
-    for (const entry of availabilityActivity) {
-      const detail = [
-        entry.reportDate ? `report ${entry.reportDate}` : null,
-        entry.sourceStatus ? `source ${entry.sourceStatus}` : null,
-      ].filter(Boolean).join(" / ");
       await writeAuditLog({
         request,
         actorUserId: request.currentUser!.id,
         propertyId: property.id,
-        entityType: "MAKE_READY_ITEM",
-        entityId: entry.itemId,
-        action: "AVAILABILITY_SYNCED",
-        message: `Availability import updated ${entry.unitNumber}${detail ? ` (${detail})` : ""}`,
-        metadata: entry,
-      });
-    }
+        entityType: "AVAILABILITY_IMPORT",
+        action: "AVAILABILITY_IMPORTED",
+        message: `Imported availability rows for ${property.code}: ${summary.turnsCreated} turns created, ${summary.turnsUpdated} turns updated`,
+        metadata: {
+          ...summary,
+          receiptVersion: 1,
+          fullReport: payload.fullReport,
+          reportDate: archivePlan?.reportDate ?? null,
+          sourceReportDates: [...new Set(sanitizedRows.flatMap(row => row.reportDate ? [row.reportDate] : []))],
+        },
+      }, tx);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000 });
 
-    await writeAuditLog({
-      request,
-      actorUserId: request.currentUser!.id,
-      propertyId: property.id,
-      entityType: "AVAILABILITY_IMPORT",
-      action: "AVAILABILITY_IMPORTED",
-      message: `Imported availability rows for ${property.code}: ${summary.turnsCreated} turns created, ${summary.turnsUpdated} turns updated`,
-      metadata: summary,
-    });
+    let failedRefreshes = 0;
+    for (const itemId of [...createdItemIds, ...updatedItemIds]) {
+      try {
+        await evaluateAndPersistItemRisk(itemId, { notify: true });
+      } catch (error) {
+        failedRefreshes++;
+        request.log.error({ err: error, itemId }, "Availability saved; risk/notification refresh failed");
+      }
+    }
     return {
+      applied: true,
+      warnings: failedRefreshes ? [`Import saved. Risk or notification refresh failed for ${failedRefreshes} turn(s). Do not repeat the import to retry these checks.`] : [],
       property: { id: property.id, code: property.code, name: property.name },
       summary,
       createdItemIds,

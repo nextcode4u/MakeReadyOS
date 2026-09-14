@@ -4,6 +4,7 @@ import type { AutomationActionInput } from "./automationDefinition.js";
 import { applyRules, evaluateRuleConditions, type AutomationDefinition, startOfDay } from "./board.js";
 import { prisma } from "./prisma.js";
 import type { OperatingCalendarPolicy } from "./operatingCalendar.js";
+import { isTurnReady } from "./turnStatus.js";
 
 type AssignLeastLoadedStaffAction = Extract<AutomationActionInput, { type: "assignLeastLoadedStaff" }>;
 
@@ -53,16 +54,6 @@ type AutomationItem = Partial<MakeReadyItem> & {
 function roleOrder(roles: UserRole[], role: UserRole) {
   const index = roles.indexOf(role);
   return index === -1 ? roles.length : index;
-}
-
-function activeItemCountStatusFilter() {
-  return {
-    OR: [
-      { completionStatus: null },
-      { completionStatus: "" },
-      { completionStatus: { notIn: ["DONE", "YES"] } },
-    ],
-  };
 }
 
 function targetDateForAction(item: AutomationItem, action: AssignLeastLoadedStaffAction) {
@@ -143,9 +134,8 @@ async function resolveLeastLoadedAssignee(item: AutomationItem, action: AssignLe
         isArchived: false,
         assignedTech: { in: candidateNames },
         id: { not: item.id },
-        ...activeItemCountStatusFilter(),
       },
-      select: { assignedTech: true },
+      select: { assignedTech: true, completionStatus: true, vacancyStatus: true, makeReadyStatus: true },
     }),
     prisma.workAssignmentBlock.findMany({
       where: {
@@ -160,7 +150,7 @@ async function resolveLeastLoadedAssignee(item: AutomationItem, action: AssignLe
 
   const activeCounts = new Map<string, number>();
   for (const assignment of activeAssignments) {
-    if (!assignment.assignedTech) continue;
+    if (!assignment.assignedTech || isTurnReady(assignment)) continue;
     activeCounts.set(assignment.assignedTech, (activeCounts.get(assignment.assignedTech) ?? 0) + 1);
   }
 

@@ -35,6 +35,11 @@ test("full availability imports preview and atomically archive missing ready uni
   const partial = await submit({});
   assert.equal(partial.statusCode, 200, partial.body);
   assert.equal(item.isArchived, false);
+  const updatesBeforeFailedReceipt = unitUpdates.length;
+  failAudit = true;
+  assert.equal((await submit({})).statusCode, 500);
+  assert.equal(unitUpdates.length, updatesBeforeFailedReceipt, "Failed import receipt must roll back listed-unit updates too");
+  failAudit = false;
   const preview = await submit({ fullReport: true, previewOnly: true });
   assert.equal(preview.statusCode, 200, preview.body);
   assert.equal(preview.json().candidates[0].unitNumber, "011");
@@ -54,4 +59,20 @@ test("full availability imports preview and atomically archive missing ready uni
   assert.equal(item.completionStatus, "YES");
   assert.ok(unitUpdates.some(update => update.where.id === "unit" && update.data.occupancyStatus === "OCCUPIED"));
   assert.ok(audits.some(audit => audit.action === "AVAILABILITY_MOVED_IN_ARCHIVED" && audit.actorUserId === "actor"));
+  const receipts = audits.filter(audit => audit.action === "AVAILABILITY_IMPORTED");
+  assert.equal(receipts[0].metadata.fullReport, false);
+  assert.equal(receipts.at(-1).metadata.fullReport, true);
+  assert.equal(receipts.at(-1).metadata.reportDate, "2026-09-13");
+  assert.equal(receipts.at(-1).metadata.receiptVersion, 1);
+
+  stub(prisma.makeReadyItem, "findFirst", async () => null);
+  stub(prisma.boardSection, "findFirst", async () => ({ key: "ready" }));
+  stub(prisma.makeReadyItem, "create", async ({ data }: any) => ({ ...data, id: "new-turn" }));
+  stub(prisma.makeReadyItem, "findUnique", async () => { throw new Error("Risk refresh unavailable"); });
+  const savedWithWarning = await submit({ createTurns: true });
+  assert.equal(savedWithWarning.statusCode, 200, savedWithWarning.body);
+  assert.equal(savedWithWarning.json().applied, true);
+  assert.deepEqual(savedWithWarning.json().createdItemIds, ["new-turn"]);
+  assert.match(savedWithWarning.json().warnings[0], /Import saved.*Do not repeat/);
+  assert.equal(audits.filter(audit => audit.action === "AVAILABILITY_IMPORTED").length, receipts.length + 1);
 });

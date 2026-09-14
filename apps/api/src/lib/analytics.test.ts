@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+test("completion estimates require whole-unit readiness, not a finished trade or archival alone", async () => {
+  const { completionDateForItem } = await import("./analytics.js");
+  const now = new Date("2026-09-13T12:00:00Z");
+  const past = new Date("2026-09-12T12:00:00Z");
+  const base = { updatedAt: past, completionStatus: "NO", vacancyStatus: "VACANT_NOT_LEASED_NOT_READY" };
+  for (const item of [
+    { ...base, makeReadyStatus: "DONE" },
+    { ...base, cleaningStatus: "DONE" },
+    { ...base, archivedAt: past },
+    { ...base, completionStatus: "YES", makeReadyStatus: "FINAL_WALK" },
+  ]) assert.equal(completionDateForItem(item, now), null);
+  assert.equal(completionDateForItem({ ...base, vacancyStatus: " vacant leased ready " }, now), past);
+  assert.equal(completionDateForItem({ ...base, completionStatus: " completed " }, now), past);
+});
+
 test("completion estimates never treat a future timestamp as completed work", async () => {
   const { completionDateForItem } = await import("./analytics.js");
   const now = new Date("2026-09-09T12:00:00Z");
@@ -49,6 +64,7 @@ test("future completion estimates are excluded consistently from summary, throug
   stub(prisma.boardSection, "findMany", async () => []);
 
   const summary = await analyticsSummary(property.id, now);
+  assert.match(summary.completionBasis, /not verified inspection timestamps/);
   assert.equal(summary.metrics.completedThisWeek, 0);
   assert.equal(summary.metrics.completedThisMonth, 0);
   assert.equal(summary.metrics.averageTurnDuration, 0);

@@ -18,6 +18,9 @@ import { FinalWalkControls } from "./FinalWalkControls";
 import { TurnReportPanel } from "./TurnReportPanel";
 import { TurnMaterialsPanel } from "./TurnMaterialsPanel";
 import { ResidentCodesPanel } from "./ResidentCodesPanel";
+import { awaitingFinalWalk, isTurnReady, tradeDone, turnStageLabel } from "../lib/turnStatus";
+import { uploadBatch, type UploadOutcome } from "../lib/uploadBatch";
+import { matchesTurnStep, turnNextStep } from "../lib/turnNextAction";
 
 function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
   return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
@@ -26,6 +29,8 @@ function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
 type Props = {
   focused?: boolean;
   item: MakeReadyItem;
+  itemRefreshFailed: boolean;
+  onRefreshItem: () => void;
   currentUser: CurrentUser;
   labelsByField: Record<string, Record<string, LabelDefinition>>;
   customFields: CustomField[];
@@ -37,6 +42,9 @@ type Props = {
   vendors: Vendor[];
   vendorAssignments: VendorAssignment[];
   workBlocks: WorkAssignmentBlock[];
+  workPlanState: "loading" | "error" | "ready";
+  workPlanCoverage?: { blockTotal: number; vendorTotal: number; blocksTruncated: boolean; vendorsTruncated: boolean };
+  onRefreshWorkPlan: () => void;
   canEditField: (item: MakeReadyItem, key: string) => boolean;
   canEditCustomFields: boolean;
   canManageItems: boolean;
@@ -68,6 +76,7 @@ function normalized(value: string | null | undefined) {
 }
 
 function completionBlockers(item: MakeReadyItem) {
+  if (isTurnReady(item)) return [];
   const blockers: string[] = [];
   const requireValue = (value: string | null | undefined, label: string) => {
     if (!normalized(value) || normalized(value) === "-") blockers.push(`${label} is not set.`);
@@ -83,9 +92,9 @@ function completionBlockers(item: MakeReadyItem) {
   requireExact(item.doorsStatus, "GOOD", "Doors");
   requireExact(item.sheetrockStatus, "GOOD", "Sheetrock");
   requireExact(item.floorsStatus, "GOOD", "Floors");
-  requireExact(item.cleaningStatus, "DONE", "Cleaning");
+  if (!tradeDone(item.cleaningStatus)) blockers.push("Cleaning should be Done or Not needed.");
   requireExact(item.keysMadeStatus, "MADE", "Keys Made");
-  if (!["GOOD", "MAJOR TOUCH UP", "MED TOUCH UP", "LITE TOUCH UP", "TOUCH UP"].includes(normalized(item.paintStatus))) {
+  if (!tradeDone(item.paintStatus) && !["GOOD", "MAJOR TOUCH UP", "MED TOUCH UP", "LITE TOUCH UP", "TOUCH UP"].includes(normalized(item.paintStatus))) {
     blockers.push("Paint is not marked ready or touch-up scoped.");
   }
   return blockers;
@@ -172,6 +181,8 @@ function AttachmentMedia({ attachment, onOpen, language }: { attachment: DrawerA
 export function ItemDrawer({
   focused = false,
   item,
+  itemRefreshFailed,
+  onRefreshItem,
   currentUser,
   labelsByField,
   customFields,
@@ -183,6 +194,9 @@ export function ItemDrawer({
   vendors,
   vendorAssignments,
   workBlocks,
+  workPlanState,
+  workPlanCoverage,
+  onRefreshWorkPlan,
   canEditField,
   canEditCustomFields,
   canManageItems,
@@ -198,12 +212,9 @@ export function ItemDrawer({
 }: Props) {
   const queryClient = useQueryClient();
   const language = currentUser.language;
-  const legacyFinalWalk = normalized(item.makeReadyStatus).replace(/[_-]/g, " ") === "FINAL WALK";
-  const repairsFinished = normalized(item.makeReadyStatus) === "DONE" || legacyFinalWalk;
-  const tradeFinished = (value: string | null) => ["DONE", "COMPLETE", "COMPLETED", "NOT NEEDED", "N/A"].includes(normalized(value));
-  const approved = !legacyFinalWalk && ["YES", "DONE", "COMPLETE", "COMPLETED"].includes(normalized(item.completionStatus));
-  const inspectionReady = legacyFinalWalk || (!approved && repairsFinished && tradeFinished(item.paintStatus) && tradeFinished(item.cleaningStatus));
-  const stage = approved ? "Final walk complete" : inspectionReady ? "Ready for final walk" : !repairsFinished ? "Repairs in progress" : !tradeFinished(item.paintStatus) ? "Waiting for painting" : "Waiting for cleaning";
+  const approved = isTurnReady(item);
+  const inspectionReady = awaitingFinalWalk(item);
+  const stage = turnStageLabel(item, boardSections.some(section => section.propertyId === item.propertyId && section.key === item.boardGroup && section.sectionType === "DOWN"));
   const [pane, setPane] = useState<"work" | "photos" | "notes" | "final" | "all">(() => focused ? (inspectionReady ? "final" : "work") : "all");
   const [saving, setSaving] = useState<string | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
@@ -231,6 +242,8 @@ export function ItemDrawer({
   const [vendorDraft, setVendorDraft] = useState({ vendorId: "", trade: "", scheduledDate: "", dueDate: "", notes: "" });
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [pendingAttachmentSyncCount, setPendingAttachmentSyncCount] = useState(0);
+  const [uploadOutcomes, setUploadOutcomes] = useState<UploadOutcome[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [pendingChecklistItemIds, setPendingChecklistItemIds] = useState<string[]>([]);
   const columns = useMemo(() => configuredBoardColumns(columnDefinitions), [columnDefinitions]);
   const drawerColumns = useMemo(() => columns.filter((column) => column.key !== "unitNumber" && column.key !== "notes" && column.key !== "completionStatus"), [columns]);
@@ -271,6 +284,11 @@ export function ItemDrawer({
   const canCollaborate = currentUser.role !== "VIEWER";
   const itemVendorAssignments = vendorAssignments.filter((assignment) => assignment.itemId === item.id);
   const itemWorkBlocks = workBlocks.filter((block) => block.itemId === item.id && block.status !== "CANCELED");
+  const nextStep = turnNextStep(item, boardSections.some(section => section.propertyId === item.propertyId && section.key === item.boardGroup && section.sectionType === "DOWN"));
+  const nextStepAssignments = nextStep ? [
+    ...itemWorkBlocks.filter(block => block.status !== "DONE" && matchesTurnStep(nextStep, block.category)).map(block => ({ id: block.id, owner: block.assignedUser.fullName, date: block.plannedDate, status: block.status })),
+    ...itemVendorAssignments.filter(assignment => !["COMPLETED", "CANCELED"].includes(assignment.status) && nextStep !== "inspection" && matchesTurnStep(nextStep, assignment.trade)).map(assignment => ({ id: assignment.id, owner: assignment.vendor.name, date: assignment.scheduledDate, status: assignment.status })),
+  ] : [];
   const attachments = collaborationQuery.data?.attachments ?? [];
   const comments = collaborationQuery.data?.comments ?? [];
   const activeChargePriceSheetItems = (chargePriceSheetQuery.data?.items ?? []).filter((entry) => entry.isActive && !entry.isArchived);
@@ -478,18 +496,18 @@ export function ItemDrawer({
   };
   const uploadFiles = (files: FileList | null, inspectionStage?: "INITIAL_WALK") => {
     const selected = Array.from(files ?? []);
-    if (!selected.length) return;
+    if (!selected.length || uploading) return;
+    const session = getVerifiedSession();
+    setUploadOutcomes([]);
+    setUploading(true);
     void operation("attachments-upload", async () => {
-      for (const file of selected) {
-        try {
-          await uploadItemAttachment(item.id, file, inspectionStage, { expectedUserId: currentUser.id });
-        } catch (error) {
-          if (!(isApiError(error) && error.status === 0)) {
-            throw error;
-          }
-          await enqueueMakeReadyAttachmentUpload(currentUser.id, item.id, [file], inspectionStage);
-        }
-      }
+      try { await uploadBatch(selected, {
+        current: () => isCurrentSession(session),
+        upload: file => uploadItemAttachment(item.id, file, inspectionStage, { expectedUserId: currentUser.id }),
+        queue: file => enqueueMakeReadyAttachmentUpload(currentUser.id, item.id, [file], inspectionStage),
+        errorStatus: cause => isApiError(cause) ? cause.status : undefined,
+        progress: setUploadOutcomes,
+      }); } finally { if (isCurrentSession(session)) setUploading(false); }
     });
   };
   const operation = async (key: string, action: () => Promise<unknown>) => {
@@ -725,17 +743,27 @@ export function ItemDrawer({
         </header>
 
         {error ? <p className="drawer-error" role="alert">{error}</p> : null}
+        {itemRefreshFailed ? <p className="drawer-error" role="alert">{language === "es" ? "No se pudo actualizar la unidad. Los datos visibles pueden estar desactualizados; tus entradas no guardadas siguen aqui." : "Could not refresh the unit. Displayed data may be stale; your unsaved input is still here."} <button type="button" onClick={onRefreshItem}>{language === "es" ? "Reintentar unidad" : "Retry unit"}</button></p> : null}
         {pendingSyncCount ? <p className="drawer-empty" role="status">{t(language, "drawer.pendingSync").replace("{count}", String(pendingSyncCount))}</p> : null}
         {focused ? <section className="drawer-section" data-testid="drawer-work-summary">
           <h3>{language === "es" ? "Plan de trabajo" : "Work plan"}</h3>
           <dl className="drawer-work-facts">
-            <div><dt>{language === "es" ? "Asignado" : "Assigned"}</dt><dd>{item.assignedTech || (language === "es" ? "Sin asignar" : "Unassigned")}</dd></div>
+            <div><dt>{language === "es" ? "Tecnico de reparaciones" : "Repair technician"}</dt><dd>{item.assignedTech || (language === "es" ? "Sin asignar" : "Unassigned")}</dd></div>
             <div><dt>{language === "es" ? "Fin previsto" : "Expected finish"}</dt><dd>{dateValue(item.makeReadyDate) || "Not set"}</dd></div>
             <div><dt>{language === "es" ? "Mudanza" : "Move-in"}</dt><dd>{dateValue(item.moveInDate) || "Not set"}</dd></div>
           </dl>
           {item.scopeLevel ? <p>{language === "es" ? "Alcance" : "Scope"}: {item.scopeLevel}</p> : null}
           {item.riskReasons?.length ? <details><summary>{item.riskReasons.length} {language === "es" ? "avisos de riesgo" : "risk notices"}</summary><ul>{item.riskReasons.map((reason, index) => <li key={index}>{reason.message}</li>)}</ul></details> : null}
           <p data-testid="turn-stage-summary"><strong>{stage}</strong></p>
+          {nextStep ? <div data-testid="drawer-next-action">
+            <strong>{language === "es" ? "Siguiente paso" : "Next step"}: {(language === "es" ? { repairs: "Terminar reparaciones, llaves y codigos del residente", painting: "Terminar pintura y actualizar su estado", cleaning: "Terminar limpieza y actualizar su estado", inspection: "Inspeccion final independiente y revision de correcciones" } : { repairs: "Finish repairs, keys and resident codes", painting: "Complete painting and update the paint status", cleaning: "Complete cleaning and update the cleaning status", inspection: "Independent final walk and correction review" })[nextStep]}</strong>
+            {workPlanState !== "ready" ? <p role="status">{language === "es" ? "Asignaciones por verificar. Revisa el plan de trabajo." : "Stage assignments are not verified. Review the work plan."}</p> : <>
+              {nextStepAssignments.length ? <ul>{nextStepAssignments.slice(0, 4).map(assignment => <li key={assignment.id}>{assignment.owner} / {assignment.date?.slice(0, 10) || (language === "es" ? "Fecha sin definir" : "Date not set")} / {assignment.status.replace(/_/g, " ")}</li>)}</ul> : <p>{nextStep === "repairs" && item.assignedTech ? (language === "es" ? `Responsable de reparaciones: ${item.assignedTech}. No se muestra un bloque programado correspondiente.` : `Repair owner: ${item.assignedTech}. No matching scheduled work block shown.`) : (language === "es" ? "No se muestra una asignacion abierta para esta etapa. Revisa categorias personalizadas o asigna cobertura." : "No matching open stage assignment shown. Review the work plan for custom categories or arrange coverage.")}</p>}
+              {nextStepAssignments.length > 4 || workPlanCoverage?.blocksTruncated || workPlanCoverage?.vendorsTruncated ? <p>{language === "es" ? "Se muestra solo parte del historial. No supongas que la cobertura esta completa." : "Only part of the assignment history is shown. Do not assume coverage is complete."}</p> : null}
+            </>}
+            <small>{language === "es" ? "Las fechas son planes, no pruebas de finalizacion. Revisa los estados, piezas pedidas y hallazgos de inspeccion." : "Assignment dates are planned work, not proof of completion. Trade checks, parts on order and inspection findings still need review."}</small>
+            <div><button type="button" className="button button-secondary" onClick={() => { setPane("all"); requestAnimationFrame(() => document.querySelector('[data-testid="drawer-planning-summary"]')?.scrollIntoView({ block: "start" })); }}>{language === "es" ? "Revisar plan de trabajo" : "Review work plan"}</button></div>
+          </div> : null}
           <p className="helper-copy">{language === "es" ? "Reparaciones, pintura, limpieza, inspeccion final. DONE en Make Ready solo termina las reparaciones." : "Repairs, painting, cleaning, then final walk. Make Ready DONE only finishes the technician's repairs, keys and codes."}</p>
         </section> : null}
         <section className="drawer-section risk-drawer-section" data-testid="drawer-risk-section">
@@ -924,7 +952,7 @@ export function ItemDrawer({
           <div className="drawer-fields">
             <label className="drawer-field">
               <span>Whole turn complete</span>
-              <input data-testid="drawer-field-completionStatus" readOnly value={approved ? "Yes - signed off or administratively overridden" : "No - final approval pending"}/>
+              <input data-testid="drawer-field-completionStatus" readOnly value={approved ? "Yes - unit ready" : "No - final approval pending"}/>
             </label>
           </div>
           {canManageItems ? (
@@ -967,8 +995,11 @@ export function ItemDrawer({
         </section>
 
         <section className="drawer-section" data-testid="drawer-planning-summary">
-          <div className="drawer-section-title"><h3>{t(language, "drawer.inHousePlanning")}</h3><span className="muted">{t(language, "drawer.blocksCount").replace("{count}", String(itemWorkBlocks.length)).replace("{suffix}", itemWorkBlocks.length === 1 ? "" : "s")}</span></div>
-          {itemWorkBlocks.length === 0 ? <p className="drawer-empty">{t(language, "drawer.noInHousePlanning")}</p> : (
+          <div className="drawer-section-title"><h3>{t(language, "drawer.inHousePlanning")}</h3><span className="muted">{workPlanState === "ready" ? t(language, "drawer.blocksCount").replace("{count}", String(itemWorkBlocks.length)).replace("{suffix}", itemWorkBlocks.length === 1 ? "" : "s") : "Not verified"}</span></div>
+          {workPlanState === "loading" ? <p role="status">Loading this unit's work plan...</p> : null}
+          {workPlanState === "error" ? <p role="alert">Could not refresh this unit's work plan. Any entries shown may be out of date. <button type="button" onClick={onRefreshWorkPlan}>Retry work plan</button></p> : null}
+          {workPlanCoverage?.blocksTruncated ? <p role="status">Showing {itemWorkBlocks.length} of {workPlanCoverage.blockTotal} blocks. This is not the complete history.</p> : null}
+          {itemWorkBlocks.length === 0 ? workPlanState === "ready" ? <p className="drawer-empty">{t(language, "drawer.noInHousePlanning")}</p> : null : (
             <div className="attachment-list">
               {itemWorkBlocks.map((block) => (
                 <div key={block.id} className="attachment-row vendor-assignment-row">
@@ -1045,8 +1076,11 @@ export function ItemDrawer({
         </section>
 
         <section className="drawer-section" data-testid="drawer-vendor-assignments">
-          <div className="drawer-section-title"><h3>{t(language, "drawer.vendorWork")}</h3><span className="muted">{t(language, "drawer.assignmentCount").replace("{count}", String(itemVendorAssignments.length)).replace("{suffix}", itemVendorAssignments.length === 1 ? "" : "s")}</span></div>
-          {itemVendorAssignments.length === 0 ? <p className="drawer-empty">{t(language, "drawer.noVendorWork")}</p> : (
+          <div className="drawer-section-title"><h3>{t(language, "drawer.vendorWork")}</h3><span className="muted">{workPlanState === "ready" ? t(language, "drawer.assignmentCount").replace("{count}", String(itemVendorAssignments.length)).replace("{suffix}", itemVendorAssignments.length === 1 ? "" : "s") : "Not verified"}</span></div>
+          {workPlanState === "loading" ? <p role="status">Loading this unit's vendor work...</p> : null}
+          {workPlanState === "error" ? <p role="alert">Could not refresh this unit's vendor work. Any entries shown may be out of date. <button type="button" onClick={onRefreshWorkPlan}>Retry vendor work</button></p> : null}
+          {workPlanCoverage?.vendorsTruncated ? <p role="status">Showing {itemVendorAssignments.length} of {workPlanCoverage.vendorTotal} assignments. This is not the complete history.</p> : null}
+          {itemVendorAssignments.length === 0 ? workPlanState === "ready" ? <p className="drawer-empty">{t(language, "drawer.noVendorWork")}</p> : null : (
             <div className="attachment-list">
               {itemVendorAssignments.map((assignment) => (
                 <div key={assignment.id} className="attachment-row vendor-assignment-row">
@@ -1204,7 +1238,7 @@ export function ItemDrawer({
           <div className="drawer-section-title"><h3>{t(language, "drawer.photosAttachments")}</h3>{canCollaborate ? (
             <label className="button button-secondary file-action">
               {t(language, "drawer.uploadPhotosFiles")}
-              <input data-testid="attachment-upload" type="file" multiple accept={attachmentAccept} onChange={(event) => {
+              <input data-testid="attachment-upload" type="file" multiple disabled={uploading} accept={attachmentAccept} onChange={(event) => {
                 uploadFiles(event.target.files);
                 event.target.value = "";
               }} />
@@ -1212,12 +1246,20 @@ export function ItemDrawer({
           ) : null}</div>
           <div data-testid="initial-walk-evidence">
             <p>Initial walk: the repair technician records inside/outside condition and possible charge evidence before starting repairs. Keep later work photos in their own stages.</p>
-            {["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? <label className="button button-secondary file-action">Initial walk photos<input data-testid="initial-walk-upload" type="file" multiple accept={attachmentAccept} onChange={event => { uploadFiles(event.target.files, "INITIAL_WALK"); event.target.value = ""; }}/></label> : null}
+            {["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? <label className="button button-secondary file-action">Initial walk photos<input data-testid="initial-walk-upload" type="file" multiple disabled={uploading} accept={attachmentAccept} onChange={event => { uploadFiles(event.target.files, "INITIAL_WALK"); event.target.value = ""; }}/></label> : null}
             <a className="button button-secondary" data-testid="initial-walk-zip" href={attachmentArchiveUrl(item.id, { stage: "INITIAL_WALK" })}>Download initial walk ZIP</a>
             <a className="button button-secondary" data-testid="complete-evidence-zip" href={attachmentArchiveUrl(item.id)}>Download complete turn ZIP</a>
             <p className="helper-copy">ZIPs preserve originals and include an evidence index with uploader, notes, charge candidates and UTC upload timestamps, not verified camera capture times. Suitable for manual document upload or shared-drive backup, not automatic charge posting.</p>
           </div>
           {pendingAttachmentSyncCount ? <p className="drawer-empty" role="status">{t(language, "drawer.pendingAttachmentSync").replace("{count}", String(pendingAttachmentSyncCount))}</p> : null}
+          {uploading ? <p role="status">Uploading selected files. Keep this unit open until the results appear.</p> : null}
+          {uploadOutcomes.length ? <div data-testid="attachment-upload-results" style={{ overflowWrap: "anywhere" }}>
+            <p role="status">Last selection: {uploadOutcomes.filter(row => row.status === "UPLOADED").length} server-confirmed / {uploadOutcomes.filter(row => row.status === "QUEUED").length} queued on this device / {uploadOutcomes.filter(row => row.status === "FAILED").length} failed / {uploadOutcomes.filter(row => row.status === "NOT_ATTEMPTED").length} not attempted.</p>
+            {uploadOutcomes.some(row => row.status === "UNCONFIRMED") ? <p role="alert">{uploadOutcomes.filter(row => row.status === "UNCONFIRMED").length} upload outcome(s) unconfirmed. Check the refreshed gallery before retrying to avoid duplicates.</p> : null}
+            <ul>{uploadOutcomes.map((row, index) => <li key={index}>{row.name}: {row.status.toLowerCase().replace(/_/g, " ")}{row.message ? ` / ${row.message}` : ""}</li>)}</ul>
+            {uploadOutcomes.some(row => row.status === "FAILED" || row.status === "NOT_ATTEMPTED") ? <p role="alert">Some files were not uploaded or queued. Select only those files again after correcting the error; do not reselect files confirmed uploaded.</p> : null}
+          </div> : null}
+          <p className="helper-copy">ZIP exports contain files stored on the server, not device-only queued files. Wait for sync and refresh the gallery before exporting. Initial walk ZIP includes only the Initial Walk stage.</p>
           <div className="attachment-workflow-summary">
             <span><strong>{attachments.length}</strong> {t(language, "drawer.files")}</span>
             <span><strong>{imageCount}</strong> {t(language, "drawer.images")}</span>
@@ -1376,7 +1418,7 @@ export function ItemDrawer({
           {canCollaborate ? (
             <label className="button button-secondary file-action">
               {t(language, "drawer.uploadMultiple")}
-              <input data-testid="attachment-gallery-upload" type="file" multiple accept={attachmentAccept} onChange={(event) => {
+              <input data-testid="attachment-gallery-upload" type="file" multiple disabled={uploading} accept={attachmentAccept} onChange={(event) => {
                 uploadFiles(event.target.files);
                 event.target.value = "";
               }} />

@@ -1,5 +1,6 @@
 import { prisma } from "./prisma.js";
 import { withLiveTurnFields } from "./board.js";
+import { isTurnReady } from "./turnStatus.js";
 
 const dayMs = 24 * 60 * 60 * 1000;
 
@@ -20,10 +21,6 @@ function daysBetween(start?: Date | null, end?: Date | null) {
   return Math.max(0, Math.ceil((end.getTime() - start.getTime()) / dayMs));
 }
 
-function isCompleteStatus(value?: string | null) {
-  return Boolean(value && ["YES", "DONE", "GOOD", "MADE", "COMPLETE", "COMPLETED"].includes(value.toUpperCase()));
-}
-
 export function completionDateForItem(item: {
   archivedAt?: Date | null;
   moveInDate?: Date | null;
@@ -31,11 +28,10 @@ export function completionDateForItem(item: {
   completionStatus?: string | null;
   makeReadyStatus?: string | null;
   cleaningStatus?: string | null;
+  vacancyStatus?: string | null;
 }, asOf = new Date()) {
-  let candidate = item.archivedAt ?? null;
-  if (isCompleteStatus(item.completionStatus) || isCompleteStatus(item.makeReadyStatus) || isCompleteStatus(item.cleaningStatus)) {
-    candidate ??= item.moveInDate ?? item.updatedAt;
-  }
+  if (!isTurnReady(item)) return null;
+  const candidate = item.archivedAt ?? item.moveInDate ?? item.updatedAt;
   // These are legacy estimates, not sign-offs; a future estimate is not completed work.
   return candidate && candidate <= asOf ? candidate : null;
 }
@@ -340,6 +336,7 @@ export async function analyticsSummary(wherePropertyId: { in: string[] } | strin
 
   return {
     generatedAt: now,
+    completionBasis: "Completion timing, durations and throughput use legacy archive/move-in/update date estimates for units recorded ready, not verified inspection timestamps. Stored historical snapshots may use older rules.",
     metrics: {
       activeTurns: activeItems.length,
       averageDaysVacant: activeItems.length ? Math.round(activeItems.reduce((sum, item) => sum + item.daysVacant, 0) / activeItems.length) : 0,

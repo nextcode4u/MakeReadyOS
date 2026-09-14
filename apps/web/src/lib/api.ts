@@ -399,6 +399,7 @@ export type DashboardResponse = {
 };
 
 export type AnalyticsSummaryResponse = {
+  completionBasis?: string;
   generatedAt: string;
   metrics: {
     activeTurns: number;
@@ -1212,7 +1213,7 @@ export type WorkAssignmentBlock = {
 };
 
 export type FinalWalkSettings = { inspectors: string[]; enabled: boolean; staff: Array<{ id: string; fullName: string; role: string }> };
-export type FinalWalkAssignment = { ready: boolean; reportAvailable?: boolean; blockers?: string[]; block: (WorkAssignmentBlock & { inspectorQueue: string[] }) | null; next: { id: string; fullName: string } | null };
+export type FinalWalkAssignment = { ready: boolean; unitReady?: boolean; reportAvailable?: boolean; blockers?: string[]; block: (WorkAssignmentBlock & { inspectorQueue: string[] }) | null; next: { id: string; fullName: string } | null };
 export function getFinalWalkSettings(propertyId: string) { return request<FinalWalkSettings>(`/automations/final-walk/${propertyId}`); }
 export function saveFinalWalkSettings(propertyId: string, input: Omit<FinalWalkSettings, "staff">) { return request<{ saved: boolean; assigned: number }>(`/automations/final-walk/${propertyId}`, { method: "PUT", body: JSON.stringify(input) }); }
 export function getFinalWalk(itemId: string) { return request<FinalWalkAssignment>(`/make-ready-items/${itemId}/final-walk`); }
@@ -4142,6 +4143,8 @@ export type AvailabilityImportInput = UnitImportInput & {
 };
 
 export type AvailabilityImportResult = {
+  applied?: boolean;
+  warnings?: string[];
   property: Pick<Property, "id" | "code" | "name">;
   summary: {
     unitsCreated: number;
@@ -4157,6 +4160,12 @@ export type AvailabilityImportResult = {
   createdItemIds: string[];
   updatedItemIds: string[];
 };
+
+export type AvailabilityFreshness = { properties: {
+  id: string; code: string; name: string;
+  latestImport: { importedAt: string; coverage: "FULL" | "PARTIAL" | "UNKNOWN"; reportDate: string | null; dateIssue: "INVALID" | "MIXED" | "UNKNOWN" | null } | null;
+}[] };
+export const getAvailabilityFreshness = (propertyId?: string) => request<AvailabilityFreshness>(`/operations/availability/status${propertyId ? `?propertyId=${encodeURIComponent(propertyId)}` : ""}`);
 
 export type AvailabilityImportConflict = {
   itemId: string;
@@ -4979,6 +4988,10 @@ export function getPlanning(filters: { propertyId?: string; assignedUserId?: str
     if (value) params.set(key, String(value));
   });
   return request<PlanningResponse>(`/planning${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function getItemWorkPlan(itemId: string) {
+  return request<{ blocks: WorkAssignmentBlock[]; assignments: VendorAssignment[]; coverage: { blockTotal: number; vendorTotal: number; blocksTruncated: boolean; vendorsTruncated: boolean } }>(`/planning/items/${encodeURIComponent(itemId)}`);
 }
 
 export function createWorkAssignmentBlock(input: {

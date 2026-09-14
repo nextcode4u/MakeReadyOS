@@ -30,6 +30,7 @@ import { integrationRoutes } from "./routes/integrations.js";
 import { makeReadyRoutes } from "./routes/makeReady.js";
 import { metaRoutes } from "./routes/meta.js";
 import { operationsRoutes } from "./routes/operations.js";
+import { availabilityFreshnessRoutes } from "./routes/availabilityFreshness.js";
 import { operationalLibraryRoutes } from "./routes/operationalLibrary.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { pushRoutes } from "./routes/push.js";
@@ -166,6 +167,7 @@ app.register(async (api) => {
   await makeReadyRoutes(api);
   await metaRoutes(api);
   await operationsRoutes(api);
+  await availabilityFreshnessRoutes(api);
   await operationalLibraryRoutes(api);
   await notificationRoutes(api);
   await pushRoutes(api);

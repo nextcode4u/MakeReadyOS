@@ -1,6 +1,7 @@
 import type { MakeReadyItem, Prisma } from "@prisma/client";
 import { applyBusinessDayOffset, type DateOffsetField, type OperatingCalendarPolicy } from "./operatingCalendar.js";
-import { isFinalWalkStatus } from "./turnStatus.js";
+import { isTurnReady } from "./turnStatus.js";
+export { isTurnReady } from "./turnStatus.js";
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -150,14 +151,6 @@ export function calendarDayDifference(from: Date, to: Date): number {
   // Calendar dates remain one day apart across 23- and 25-hour DST days.
   const ordinal = (date: Date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
   return (ordinal(to) - ordinal(from)) / DAY_MS;
-}
-
-export function isTurnReady(item: Pick<Partial<MakeReadyItem>, "vacancyStatus" | "completionStatus" | "makeReadyStatus">) {
-  const normalize = (value: string | null | undefined) => String(value ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
-  // Repair completion is an inspection handoff, not final readiness.
-  if (isFinalWalkStatus(item.makeReadyStatus)) return false;
-  return ["VACANT_READY", "VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY"].includes(normalize(item.vacancyStatus))
-    || ["DONE", "YES", "COMPLETE", "COMPLETED"].includes(normalize(item.completionStatus));
 }
 
 export function computeDerivedFields(item: Partial<MakeReadyItem>, now = new Date()) {

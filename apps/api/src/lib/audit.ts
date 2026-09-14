@@ -1,4 +1,5 @@
 import type { FastifyRequest } from "fastify";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma.js";
 import { clientIpAddress } from "./auth.js";
 
@@ -11,10 +12,10 @@ export async function writeAuditLog(options: {
   action: string;
   message: string;
   metadata?: Record<string, unknown>;
-}) {
+}, db: Pick<Prisma.TransactionClient, "auditLog"> = prisma) {
   const ipAddress = options.request ? clientIpAddress(options.request) : null;
 
-  await prisma.auditLog.create({
+  await db.auditLog.create({
     data: {
       actorUserId: options.actorUserId ?? null,
       propertyId: options.propertyId ?? null,

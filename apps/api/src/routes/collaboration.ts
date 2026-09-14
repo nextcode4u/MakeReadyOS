@@ -21,6 +21,7 @@ import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, 
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 import { lockTurnProperty } from "../lib/turnMutationGuard.js";
 import { checklistMutation } from "../lib/checklistMutation.js";
+import { withLiveTurnFields } from "../lib/board.js";
 
 const maxUploadMb = Number(process.env.MAX_UPLOAD_MB ?? 0);
 const maxUploadBytes = maxUploadMb > 0 ? maxUploadMb * 1024 * 1024 : null;
@@ -1463,7 +1464,10 @@ export async function collaborationRoutes(app: FastifyInstance) {
       include: { property: { select: { id: true, code: true, name: true } }, workAssignmentBlocks: { where: { status: { in: ["PLANNED", "IN_PROGRESS"] } }, include: { assignedUser: { select: { id: true, fullName: true, role: true } } }, orderBy: { plannedDate: "asc" } } },
       orderBy: [{ overdue: "desc" }, { moveInDate: "asc" }, { updatedAt: "desc" }],
     });
-    for (const item of makeReadyItems) {
+    const statusNow = new Date();
+    const liveMakeReadyItems = makeReadyItems.map(item => withLiveTurnFields(item, statusNow))
+      .sort((left, right) => Number(right.overdue) - Number(left.overdue));
+    for (const item of liveMakeReadyItems) {
       if (item.workAssignmentBlocks.length) {
         for (const block of item.workAssignmentBlocks) {
           addEntry({ userId: block.assignedUser.id, assignedUserName: block.assignedUser.fullName, role: block.assignedUser.role, sourceType: "MAKE_READY_ITEM", sourceId: item.id, property: item.property, title: `${item.property.code} ${item.unitNumber}`, subtitle: `Make Ready / ${item.boardGroup.replace(/_/g, " ")} / ${block.category}`, status: item.makeReadyStatus ?? "Unstarted", scheduledDate: block.plannedDate, dueDate: item.moveInDate, overdue: item.overdue });
@@ -1601,7 +1605,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
     const target = userId ? await prisma.user.findUnique({ where: { id: userId } }) : user;
     if (!target) return reply.code(404).send({ message: "Staff member not found" });
     const scopedProperties = allowedPropertyIds(user);
-    const items = await prisma.makeReadyItem.findMany({
+    const storedItems = await prisma.makeReadyItem.findMany({
       where: {
         isArchived: false,
         ...(scopedProperties ? { propertyId: { in: scopedProperties } } : {}),
@@ -1618,6 +1622,9 @@ export async function collaborationRoutes(app: FastifyInstance) {
       },
       orderBy: [{ overdue: "desc" }, { moveInDate: "asc" }, { updatedAt: "desc" }],
     });
+    const statusNow = new Date();
+    const items = storedItems.map(item => withLiveTurnFields(item, statusNow))
+      .sort((left, right) => Number(right.overdue) - Number(left.overdue));
     const projectItems = await prisma.projectRecord.findMany({
       where: {
         isArchived: false,

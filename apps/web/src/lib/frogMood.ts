@@ -1,10 +1,7 @@
-type Turn = { completionStatus?: string | null; vacancyStatus?: string | null; moveInDate?: string | null; overdue?: boolean; isArchived?: boolean };
+import { isTurnReady } from "./turnStatus";
 
-export function pondReady(item: Turn) {
-  const vacancy = (item.vacancyStatus ?? "").toUpperCase().replace(/[ _-]+/g, "_");
-  return ["YES", "DONE", "COMPLETE", "COMPLETED"].includes((item.completionStatus ?? "").toUpperCase())
-    || (vacancy.startsWith("VACANT_") && vacancy.endsWith("_READY") && !vacancy.endsWith("_NOT_READY"));
-}
+type Turn = { makeReadyStatus?: string | null; completionStatus?: string | null; vacancyStatus?: string | null; moveInDate?: string | null; overdue?: boolean; isArchived?: boolean };
+export const pondReady = isTurnReady;
 
 export function frogWarningMood(item: Turn, now = new Date()): "sick" | "scared" | null {
   if (item.isArchived || pondReady(item)) return null;
