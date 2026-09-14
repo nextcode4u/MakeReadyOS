@@ -1,7 +1,5 @@
 # Projects Workflow Audit
 
-2026-09-14. Local implementation; not pushed or deployed. Production requires the additive `20260914120000_project_quotes_costs` migration and matching API/web images.
-
 ## Working Model
 
 - A property recommendation can collect quotes before it becomes a project. Conversion retains the record and its documents.
