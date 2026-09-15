@@ -5,7 +5,7 @@ Checked items mean implementation and verification; see the release checkpoint b
 
 ## Approved Module Roadmap
 
-On-call module: see [Shared On-Call Workspace](ON_CALL.md) for the user-approved public-schedule/protected-guide access model, implementation scope and follow-up queue. Deployed as `c65667a` on 2026-09-14; migration, live smoke checks and GitHub CI passed. External sharing remains disabled until configured.
+On-call module: see [Shared On-Call Workspace](ON_CALL.md) for the user-approved public-schedule/protected-guide access model, implementation scope and follow-up queue. Deployed as `2c4b5a1` on 2026-09-14, including protected map uploads/markers, rotation/swaps, calendar, AM/PM controls and phone icon. Migration status, live smoke checks and GitHub CI passed. Existing sharing configuration was preserved.
 
 Approved by the user on 2026-09-14. Recommendations are pending work, not a new verification of deployed behavior. Reuse the existing tasks listed below rather than creating parallel implementations. Order: shared status consistency, issued inspection reports, reliable photos/offline recovery, trade handoffs, then Projects comparisons/reminders. Off-server recovery remains a parallel infrastructure priority.
 
