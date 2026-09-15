@@ -32,6 +32,7 @@ import { formatDateTime as sharedFormatDateTime, todayInputValue } from "../lib/
 import { enqueuePmComplete, enqueuePmSkip, enqueuePmUpload, getOfflineSyncEventName, listOfflineSyncJobs, syncOfflineJobs, type OfflineSyncJobSummary } from "../lib/offlineSync";
 import { t } from "../lib/i18n";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
+import { PmStarterPanel } from "./PmStarterPanel";
 import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
 import { StatusState } from "./StatusState";
 import { openProjectCreate } from "../lib/projectNavigation";
@@ -66,7 +67,8 @@ function startOfWeek(value: Date) {
 
 function formatDate(value: string | Date | null | undefined) {
   if (!value) return "-";
-  return new Date(value).toLocaleDateString();
+  const date = typeof value === "string" ? value.slice(0, 10) : value.toISOString().slice(0, 10);
+  return new Date(`${date}T12:00:00`).toLocaleDateString();
 }
 
 function formatDateTime(value: string | Date | null | undefined) {
@@ -538,6 +540,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
         </div>
       </div>
 
+      {propertyId && ["ADMIN", "MANAGER"].includes(userRole) ? <PmStarterPanel key={propertyId} propertyId={propertyId} propertyName={properties.find(p => p.id === propertyId)?.name ?? propertyId} onApplied={invalidate} /> : null}
       <div className="module-tabs">
         {(["dashboard", "calendar", "tasks", "templates", "history", "reports"] as Tab[]).map((value) => (
           <button key={value} className={tab === value ? "active" : ""} type="button" onClick={() => setTab(value)}>

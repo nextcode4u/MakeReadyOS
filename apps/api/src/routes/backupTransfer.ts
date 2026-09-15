@@ -614,6 +614,9 @@ const propertyWikiReferenceBackupSchema = z.object({
 });
 
 const preventiveMaintenanceTemplateBackupSchema = z.object({
+  starterKey: z.string().nullable().optional().default(null),
+  unitNumber: z.string().nullable().optional().default(null),
+  firstDueDate: z.string().datetime().nullable().optional().default(null),
   portableKey: z.string().min(1),
   propertyCode: z.string().min(1),
   name: z.string().min(1),
@@ -1504,6 +1507,9 @@ async function buildExport(): Promise<NativeBackup> {
       : String(column))
     : null;
   const portablePreventiveMaintenanceTemplates: z.infer<typeof preventiveMaintenanceTemplateBackupSchema>[] = preventiveMaintenanceTemplates.map((template) => ({
+    starterKey: template.starterKey?.split(":")[0] ?? null,
+    unitNumber: units.find(unit => unit.id === template.unitId)?.number ?? null,
+    firstDueDate: template.firstDueDate?.toISOString() ?? null,
     portableKey: preventiveMaintenanceTemplateKeysById.get(template.id) ?? preventiveMaintenanceTemplatePortableKey({
       propertyCode: template.property.code,
       name: template.name,
@@ -2896,6 +2902,11 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
     if (!propertyCodes.has(template.propertyCode) && !(await prisma.property.findUnique({ where: { code: template.propertyCode } }))) {
       summary.preventiveMaintenanceTemplates.errors.push(`Property ${template.propertyCode} is missing for PM template ${template.name}`);
     }
+    if (template.unitNumber && !backup.data.units.some(unit => unit.propertyCode === template.propertyCode && unit.number === template.unitNumber)) {
+      const property = await prisma.property.findUnique({ where: { code: template.propertyCode } });
+      const unit = property ? await prisma.unit.findUnique({ where: { propertyId_number: { propertyId: property.id, number: template.unitNumber } } }) : null;
+      if (!unit) summary.preventiveMaintenanceTemplates.errors.push(`Unit ${template.propertyCode} ${template.unitNumber} is missing for PM template ${template.name}`);
+    }
   }
   for (const task of backup.data.preventiveMaintenanceTasks) {
     if (!propertyCodes.has(task.propertyCode) && !(await prisma.property.findUnique({ where: { code: task.propertyCode } }))) {
@@ -4223,17 +4234,23 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
 
     const preventiveMaintenanceTemplateMap = new Map<string, string>();
     for (const template of backup.data.preventiveMaintenanceTemplates) {
-      const propertyId = propertyMap.get(template.propertyCode);
+      const propertyId = propertyMap.get(template.propertyCode) ?? (await tx.property.findUnique({ where: { code: template.propertyCode } }))?.id;
+      if (propertyId) propertyMap.set(template.propertyCode, propertyId);
+      const unitId = template.unitNumber ? unitMap.get(`${template.propertyCode}|${template.unitNumber}`) ?? (propertyId ? (await tx.unit.findUnique({ where: { propertyId_number: { propertyId, number: template.unitNumber } } }))?.id : null) : null;
+      if (template.unitNumber && !unitId && !dryRun) throw Object.assign(new Error(`PM inspection unit ${template.propertyCode} ${template.unitNumber} was not restored`), { statusCode: 400 });
+      const starterKey = template.starterKey ? `${template.starterKey}${unitId ? `:${unitId}` : ""}` : null;
       const portableKey = preventiveMaintenanceTemplatePortableKey(template);
       const existing = propertyId ? await tx.preventiveMaintenanceTemplate.findFirst({
         where: {
           propertyId,
+          ...(starterKey ? { starterKey } : {
           name: template.name,
           category: template.category,
           frequency: template.frequency,
           customEveryDays: template.customEveryDays,
           annualMonth: template.annualMonth,
           annualDay: template.annualDay,
+          }),
         },
       }) : null;
       if (existing) {
@@ -4242,10 +4259,13 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
       } else {
         summary.preventiveMaintenanceTemplates.created += 1;
         if (!dryRun && propertyId) {
-          const { propertyCode: _propertyCode, ...data } = template;
+          const { propertyCode: _propertyCode, portableKey: _portableKey, unitNumber: _unitNumber, ...data } = template;
           const created = await tx.preventiveMaintenanceTemplate.create({
             data: {
               ...data,
+              starterKey,
+              unitId,
+              firstDueDate: template.firstDueDate ? new Date(template.firstDueDate) : null,
               propertyId,
               assignedUserId: null,
             },
