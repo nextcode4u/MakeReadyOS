@@ -52,7 +52,11 @@ test("PM starters schedule directory units and preserve recurrence without dupli
   const panel = page.getByTestId("preventive-maintenance-panel");
   await panel.locator(".module-actions select").selectOption(propertyId!);
   const starter = page.getByTestId("pm-starters");
-  await starter.locator("summary").click();
+  await expect(starter.getByRole("heading", { name: "Quick Start", exact: true })).toBeVisible();
+  await expect(starter.getByLabel("Inspection / log")).toBeVisible();
+  await starter.getByRole("button", { name: "Hide setup", exact: true }).click();
+  await expect(starter.getByLabel("Inspection / log")).toBeHidden();
+  await starter.getByRole("button", { name: "Open Quick Start", exact: true }).click();
   await starter.getByLabel("Inspection / log").selectOption("lighting");
   await starter.getByLabel("First due date").fill("2026-11-05");
   await starter.getByRole("button", { name: /Enable schedule for/ }).click();

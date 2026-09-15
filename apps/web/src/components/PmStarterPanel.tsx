@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { applyPmStarter, getPmStarters, previewPmInspections, type PmInspectionDate, type PreventiveMaintenanceFrequency } from "../lib/api";
 import { todayInputValue } from "../lib/dateTime";
+import "./PmStarterPanel.css";
 
 export function PmStarterPanel({ propertyId, propertyName, onApplied }: { propertyId: string; propertyName: string; onApplied: () => Promise<void> }) {
+  const [expanded, setExpanded] = useState(true);
+  const formId = useId();
   const catalog = useQuery({ queryKey: ["pm", "starters", propertyId], queryFn: () => getPmStarters(propertyId) });
   const [key, setKey] = useState("lighting");
   const [frequency, setFrequency] = useState<PreventiveMaintenanceFrequency>("Weekly");
@@ -19,8 +22,18 @@ export function PmStarterPanel({ propertyId, propertyName, onApplied }: { proper
   const preview = useMutation({ mutationFn: () => previewPmInspections({ propertyId, from, to, weekdays }), onSuccess: result => { setPlan(result.plan); setMessage(""); } });
   const apply = useMutation({ mutationFn: (enabled: boolean) => applyPmStarter({ propertyId, key, enabled, frequency, firstDueDate: from, ...(frequency === "Custom" ? { customEveryDays: interval } : {}), ...(unitMode ? { unitDates: plan.map(({ unitId, dueDate }) => ({ unitId, dueDate })) } : {}) }), onSuccess: async (_, enabled) => { setMessage(enabled ? "Schedule saved. See Tasks and Calendar for the next inspections." : "Future recurrence paused. Existing tasks and history are retained."); await onApplied(); } });
   const busy = preview.isPending || apply.isPending;
-  return <details className="panel" data-testid="pm-starters">
-    <summary><strong>Quick start: inspection logs and recurring maintenance</strong></summary>
+  return <section className="pm-quick-start" data-testid="pm-starters" aria-label="Preventive maintenance quick start">
+    <div className="pm-quick-start-heading">
+      <div>
+        <span className="eyebrow">Start here</span>
+        <h2>Quick Start</h2>
+        <p>Set up inspection logs and recurring maintenance for <strong>{propertyName}</strong>.</p>
+        <p className="pm-quick-start-examples">Lighting, property walks, sprinklers, unit inspections, warranties and more.</p>
+      </div>
+      <button type="button" className={expanded ? "secondary" : ""} aria-expanded={expanded} aria-controls={formId} onClick={() => setExpanded(!expanded)}>{expanded ? "Hide setup" : "Open Quick Start"}</button>
+    </div>
+    <div id={formId} hidden={!expanded} className="pm-quick-start-form">
+    <p className="pm-quick-start-steps">1. Choose a log &nbsp; / &nbsp; 2. Set dates and frequency &nbsp; / &nbsp; 3. Enable schedule</p>
     <h3>Set up maintenance for {propertyName}</h3>
     <p>Choose a starting point, set its frequency and first date, then enable it. Edit instructions, assignments and evidence requirements in Templates.</p>
     {catalog.isLoading ? <p>Loading starter library...</p> : null}
@@ -53,5 +66,6 @@ export function PmStarterPanel({ propertyId, propertyName, onApplied }: { proper
     </fieldset>
     {catalog.error || preview.error || apply.error ? <p role="alert">{(catalog.error || preview.error || apply.error)?.message}</p> : null}
     {message ? <p role="status">{message}</p> : null}
-  </details>;
+    </div>
+  </section>;
 }

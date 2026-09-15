@@ -1,7 +1,9 @@
 # Preventive maintenance quick start
 
 Managers and admins can open Preventive Maintenance, select a property, and
-expand **Quick start: inspection logs and recurring maintenance**.
+use the prominent **Quick Start** section above the module tabs. Setup opens by
+default. **Hide setup** makes it compact; the **Open Quick Start** button remains
+visible so it is easy to find again.
 
 - Starters: lighting, general property, landscape sprinklers, unit inspections,
   warranty reviews, HVAC/filters, gates/access, roof/drainage observations,

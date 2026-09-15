@@ -1,0 +1,30 @@
+.pm-quick-start {
+  min-width: 0;
+  margin-block: 8px 20px;
+  padding: clamp(14px, 2vw, 24px);
+  border: 1px solid var(--accent);
+  border-left-width: 4px;
+  border-radius: 14px;
+  background: linear-gradient(110deg, color-mix(in srgb, var(--accent) 10%, var(--panel)), var(--panel));
+}
+
+.pm-quick-start-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.pm-quick-start-heading > div {
+  flex: 1 1 240px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pm-quick-start-heading h2 { margin: 4px 0 8px; }
+.pm-quick-start-heading p { margin: 6px 0; }
+.pm-quick-start-examples { color: var(--muted); }
+.pm-quick-start-heading button { min-height: 44px; }
+.pm-quick-start-form { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 12px; }
+.pm-quick-start-steps { color: var(--accent); font-weight: 600; line-height: 1.7; }
