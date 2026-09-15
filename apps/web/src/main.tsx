@@ -6,6 +6,7 @@ import { installAppErrorHandlers, showAppError } from "./lib/appErrors";
 import "./styles/app.css";
 
 const queryClient = new QueryClient();
+const OnCallPanel = React.lazy(() => import("./components/OnCallPanel").then(module => ({ default: module.OnCallPanel })));
 
 const removeErrorHandlers = installAppErrorHandlers();
 if (import.meta.hot) import.meta.hot.dispose(removeErrorHandlers);
@@ -24,7 +25,7 @@ try {
   }).render(
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>
-        <App />
+        {/^\/on-call\/?$/.test(window.location.pathname) ? <React.Suspense fallback={<p role="status">Loading on-call...</p>}><OnCallPanel external /></React.Suspense> : <App />}
       </QueryClientProvider>
     </React.StrictMode>,
   );

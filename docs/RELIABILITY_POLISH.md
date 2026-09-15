@@ -3,6 +3,38 @@
 Updated: 2026-09-14. Prioritize existing daily workflows over new modules.
 Checked items mean implementation and verification; see the release checkpoint below for deployed coverage. Field validation remains separate.
 
+## Approved Module Roadmap
+
+On-call module: see [Shared On-Call Workspace](ON_CALL.md) for the user-approved public-schedule/protected-guide access model, implementation scope and follow-up queue. This is a local implementation, not a deployed feature yet.
+
+Approved by the user on 2026-09-14. Recommendations are pending work, not a new verification of deployed behavior. Reuse the existing tasks listed below rather than creating parallel implementations. Order: shared status consistency, issued inspection reports, reliable photos/offline recovery, trade handoffs, then Projects comparisons/reminders. Off-server recovery remains a parallel infrastructure priority.
+
+Existing task coverage:
+
+- **Board / Table:** One shared unit-status rule, cross-screen regressions and readiness provenance in Next Priorities.
+- **My Work / Assigned Work / Unit Details:** Prominent next action, explicit painter/cleaner handoffs and the Unit Work Plan checkpoint. Keep confirmed work ahead of projections; lead with the current step in initial walk -> repairs/parts/keys -> painting -> cleaning -> final walk, without hiding relevant details.
+- **Initial Walk / Photos:** Per-unit upload confirmation and photo reliability prerequisites. Only server-confirmed evidence can be described as backed up; resume safely without duplicate photos/issues.
+- **Final Walk:** Verified report issuance, immutable revisions, durable reviewer/technician identities, packet preflight and failed-inspection corrections. Keep drafts distinct from issued evidence.
+- **Calendar / Planning:** Schedule capacity warnings, explain scheduled dates and rescheduling consistency. Preview downstream changes and preserve confirmed/manual dates unless explicitly changed.
+- **Projects:** Use the [Projects follow-up queue](PROJECTS_WORKFLOW_AUDIT.md#follow-up-queue) for scope-based quote comparisons, expiry/deadline reminders, associating existing PDFs, durable uploads and concurrency.
+- **Setup / Imports:** Property-specific Added / Updated / Skipped / Archived review and guarded undo. Keep availability, unit directory and mailbox setup together; verify existing navigation before adding controls.
+- **Accounts / Notifications:** Existing read-only View as user and notification noise-reduction tasks, including quiet hours and urgent handoffs.
+- **Backups:** Off-server recovery protection and Backup Reliability Follow-Up, including encrypted paired database/uploads backups, coordinated restore and tested recovery.
+
+Additional scope to implement or incorporate into the related task:
+
+- [ ] **P2: Parts partial receipts and order queue.** Extend the per-unit shop list with quantities requested, ordered and received. Make Need to order visible in a manager/admin action queue without duplicate notifications. Ordinary pickup reminders remain non-blocking; do not introduce the previously declined combined shop pickup list. Extend the parts task in [Turn workflow audit](TURN_WORKFLOW_AUDIT.md#blocking-follow-up).
+- [ ] **P2: Explain automation outcomes.** Show the relevant unit/property rule, assignment split, triggering data and reason for applied or skipped actions in plain language. Distinguish historical execution evidence from a current-rule explanation; never invent an explanation for an unrecorded historical decision.
+- [ ] **P2: Vendor context and duplicate-safe capture.** Extend the Projects vendor procurement task with optional inline contact details, duplicate detection and links to associated quotes, projects and scheduled work. Respect property access and preserve existing vendor associations.
+- [ ] **P2: Refrigerant reconciliation view.** Extend the existing calculation/report audit with starting contents + additions - removals = expected remaining, modeling each usage, recovery and transfer direction explicitly. Explain discrepancies and distinguish measured from inferred weights; verify against known transaction fixtures without double-counting transfers.
+- [ ] **P2: Pool trends and follow-up.** Extend product-specific dosing/unit verification with unmistakable selected product, concentration and units, reading trends, and assigned follow-up for exceptions. Preserve unknown readings and avoid presenting generic correction suggestions as product-specific guidance.
+- [ ] **P2: Baseline pool correction and sequencing guide.** User clarification: keep useful generic correction suggestions, not just product-specific dosing. Explain the general next action for a single out-of-range reading and evaluate combinations, especially low free chlorine with high pH, to recommend a reviewed order of operations rather than independent chemical-addition prompts. Spell out free chlorine (FC), combined chlorine (CC), and calcium hardness (CH); low CH must not be interpreted as low chlorine. Separate general guidance from calculated product-specific doses. Before implementation, validate decision rules against authoritative pool-operation guidance and product labels, accounting for relevant readings, sanitizer type and missing inputs. Explicitly warn against mixing acid and chlorine or adding them simultaneously; show separate steps with label-specific circulation/retesting requirements, not a universal wait time. Include applicable pool-closure/reopening guidance without treating chemical addition alone as evidence that swimming is safe. Test combined exceptions, contradictory/missing readings, different products and units, and recommendations after retesting; this TODO does not establish an unverified acid-first or chlorine-first rule.
+- [ ] **P2: Pest / Lease next action.** Make responsible person, next action and follow-up date clear for every open issue. Verify existing reminders before extending them; resolution must retain evidence, history and property scope.
+- [ ] **P2: Preventive-maintenance recurrence clarity.** Distinguish missed work from future occurrences and test repeated/concurrent scheduling for duplicate tasks. Define reschedule, completion and cancellation behavior without erasing historical occurrences.
+- [ ] **P2: Wiki / Maps field access.** Make equipment documents and service history reachable from the relevant unit or map pin with minimal navigation. Reuse existing relationships, respect access controls and collapse empty context rather than adding more panels.
+- [ ] **P2: Dashboard / report drill-through.** Link metrics to the underlying records using the same property/date/status scope and disclose partial coverage. Extend completion-date auditing and report-scope work; distinguish verified completion events from inferred dates and preserve filters in downloads.
+- [ ] **P3: Pond discovery continuity.** Extend the existing cross-device discovery task with explanations of earned milestones. Keep cosmetics optional and noncompetitive, avoid incentives to mark incomplete units ready, and distinguish server-verified progress from local discoveries.
+
 ## Projects Usability: 2026-09-14
 
 Deployed in `32129c6`: structured multi-vendor/multi-scope quotes, multiple PDFs per quote, in-house labor/material cost lines, inline vendor creation, deadline editing, previews/ZIP downloads, report/export totals and native backup coverage. Existing manual bids and amounts remain intact and separate. See [Projects workflow audit and follow-up queue](PROJECTS_WORKFLOW_AUDIT.md) for intended behavior, limits, tests and remaining recommendations.

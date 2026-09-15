@@ -219,12 +219,13 @@ const PoolLogPanel = lazy(() => import("./components/PoolLogPanel").then((module
 const PestControlPanel = lazy(() => import("./components/PestControlPanel").then((module) => ({ default: module.PestControlPanel })));
 const LeaseCompliancePanel = lazy(() => import("./components/LeaseCompliancePanel").then((module) => ({ default: module.LeaseCompliancePanel })));
 const PropertyWikiPanel = lazy(() => import("./components/PropertyWikiPanel").then((module) => ({ default: module.PropertyWikiPanel })));
+const OnCallPanel = lazy(() => import("./components/OnCallPanel").then((module) => ({ default: module.OnCallPanel })));
 const PropertyMapsPanel = lazy(() => import("./components/PropertyMapsPanel").then((module) => ({ default: module.PropertyMapsPanel })));
 const ProjectsPanel = lazy(() => import("./components/ProjectsPanel").then((module) => ({ default: module.ProjectsPanel })));
 const RefrigerantPanel = lazy(() => import("./components/RefrigerantPanel").then((module) => ({ default: module.RefrigerantPanel })));
 const VendorsPanel = lazy(() => import("./components/VendorsPanel").then((module) => ({ default: module.VendorsPanel })));
 
-type AppView = "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "fields" | "automations" | "activity" | "admin";
+type AppView = "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "fields" | "automations" | "activity" | "admin";
 type KanbanGroupKey = string;
 type NavigationHistoryState = { view?: AppView; selectedItemId?: string | null };
 type DashboardDrilldownContext = {
@@ -381,7 +382,7 @@ function moduleRailMask(path: string) {
 function isAppView(value: unknown): value is AppView {
   return typeof value === "string" && [
     "dashboard", "mywork", "planning", "table", "kanban", "calendar", "maps", "pond", "operations", "vendors",
-    "refrigerant", "pool", "pest", "lease", "pm", "projects", "wiki", "fields", "automations", "activity", "admin",
+    "refrigerant", "pool", "pest", "lease", "pm", "projects", "wiki", "oncall", "fields", "automations", "activity", "admin",
   ].includes(value);
 }
 
@@ -3366,6 +3367,7 @@ function App() {
           { id: "pm", label: t(currentUser.language, "command.pm"), description: t(currentUser.language, "command.pmCopy"), view: "pm" as const },
           { id: "projects", label: t(currentUser.language, "command.projects"), description: t(currentUser.language, "command.projectsCopy"), view: "projects" as const },
           { id: "wiki", label: t(currentUser.language, "command.wiki"), description: t(currentUser.language, "command.wikiCopy"), view: "wiki" as const },
+          { id: "oncall", label: "On-call", description: "Shared schedule and protected property access guides", view: "oncall" as const },
         ].filter((action) => {
           if (action.view === "refrigerant") {
             return currentUser.role !== "CLEANER" && currentUser.role !== "LEASING";
@@ -3806,7 +3808,7 @@ function App() {
       <main className="workspace module-rail-layout">
         <aside className="module-rail" aria-label="MakeReadyOS modules">
           <button
-            className={activeView === "refrigerant" || activeView === "pool" || activeView === "pest" || activeView === "lease" || activeView === "pm" || activeView === "projects" || activeView === "wiki" ? "module-rail-button" : "module-rail-button active"}
+            className={activeView === "refrigerant" || activeView === "pool" || activeView === "pest" || activeView === "lease" || activeView === "pm" || activeView === "projects" || activeView === "wiki" || activeView === "oncall" ? "module-rail-button" : "module-rail-button active"}
             type="button"
             title="MakeReadyOS board"
             aria-label="MakeReadyOS board"
@@ -3887,6 +3889,9 @@ function App() {
             onClick={() => setActiveView("wiki")}
           >
             <span className="module-rail-icon" style={moduleRailMask("/icons/fontawesome/wiki.svg")} aria-hidden="true" />
+          </button>
+          <button className={activeView === "oncall" ? "module-rail-button active" : "module-rail-button"} type="button" aria-label="On-call" title="On-call" data-testid="module-rail-oncall" onClick={() => setActiveView("oncall")}>
+            <span aria-hidden="true">OC</span>
           </button>
           {activeFilterChips.length ? (
             <button className="module-rail-button rail-filter-count" type="button" onClick={() => clearBoardFilters(true)} aria-label="Clear active filters">{activeFilterChips.length}</button>
@@ -4250,6 +4255,8 @@ function App() {
               openRecordRequest={projectRecordRequest}
               openCreateRequest={projectCreateRequest}
             />
+          ) : activeView === "oncall" ? (
+            <OnCallPanel key={currentUser.id} userId={currentUser.id} />
           ) : activeView === "wiki" ? (
             <PropertyWikiPanel
               properties={metaQuery.data?.properties ?? []}

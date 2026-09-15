@@ -58,7 +58,7 @@ self.addEventListener("activate", (event) => {
 
 function isCacheableApiRequest(request, url) {
   if (!url.pathname.startsWith("/api/")) return false;
-  if (/^\/api\/(auth|admin|push)(\/|$)/.test(url.pathname)) return false;
+  if (/^\/api\/(auth|admin|push|on-call)(\/|$)/.test(url.pathname)) return false;
   if (/\.(csv|xls|xlsx|pdf|html)$/.test(url.pathname) || /\/(download|export[^/]*|reports?|backup)(\/|$)/.test(url.pathname)) return false;
   const accept = request.headers.get("accept") || "";
   return accept.includes("application/json") || accept.includes("*/*");
