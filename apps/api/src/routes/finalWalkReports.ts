@@ -42,7 +42,7 @@ async function directoryMailbox(item: { propertyId: string; unitId: string | nul
   return unit?.mailboxNumber ?? null;
 }
 export async function finalWalkReportRoutes(app: FastifyInstance) {
-  const residentCodesSchema = reportDraftSchema.pick({ residentDoorCode: true, residentAccessCode: true, includeResidentCodes: true }).strip();
+  const residentCodesSchema = reportDraftSchema.pick({ residentDoorCode: true, residentAccessCode: true, includeResidentCodes: true, mailbox: true, mailboxSource: true, mailboxKeys: true }).strip();
   async function codeContext(request: FastifyRequest, db: typeof prisma | import("@prisma/client").Prisma.TransactionClient) {
     const user = request.currentUser;
     if (!user || request.authType === "apiToken" || !["ADMIN", "MANAGER", "TECH"].includes(user.role)) throw Object.assign(new Error("Maintenance staff access required"), { statusCode: 403 });
@@ -59,12 +59,13 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     const item = await codeContext(request, prisma);
     const parsed = savedReportDraftSchema.safeParse(item.finalWalkReportDraft?.payload);
     if (item.finalWalkReportDraft && !parsed.success) throw Object.assign(new Error("Saved report could not be read. Ask an admin to review it before editing codes."), { statusCode: 409 });
-    return { version: parsed.success ? parsed.data.version : 0, value: residentCodesSchema.parse(parsed.success ? parsed.data.value : emptyReportDraft()), updatedAt: parsed.success ? parsed.data.updatedAt : null, readOnly: codesReadOnly(item, request.currentUser!.role) };
+    const mailbox = await directoryMailbox(item);
+    return { version: parsed.success ? parsed.data.version : 0, value: residentCodesSchema.parse(resolveReportMailbox(parsed.success ? parsed.data.value : emptyReportDraft(), mailbox)), updatedAt: parsed.success ? parsed.data.updatedAt : null, readOnly: codesReadOnly(item, request.currentUser!.role) };
   });
   app.put("/make-ready-items/:itemId/resident-codes", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
     const initial = await codeContext(request, prisma);
-    const input = z.object({ version: z.number().int().nonnegative(), value: z.object({ residentDoorCode: reportDraftSchema.shape.residentDoorCode.removeDefault(), residentAccessCode: reportDraftSchema.shape.residentAccessCode.removeDefault(), includeResidentCodes: z.boolean() }).strict() }).strict().parse(request.body);
+    const input = z.object({ version: z.number().int().nonnegative(), value: z.object({ residentDoorCode: reportDraftSchema.shape.residentDoorCode.removeDefault(), residentAccessCode: reportDraftSchema.shape.residentAccessCode.removeDefault(), includeResidentCodes: z.boolean(), mailbox: reportDraftSchema.shape.mailbox.optional(), mailboxSource: reportDraftSchema.shape.mailboxSource.optional(), mailboxKeys: reportDraftSchema.shape.mailboxKeys.optional() }).strict() }).strict().parse(request.body);
     return prisma.$transaction(async db => {
       await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${initial.propertyId}), 824018)::text`;
       await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${initial.id}), 824020)::text`;
@@ -74,8 +75,8 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
       if (item.finalWalkReportDraft && !current.success || (current.success ? current.data.version : 0) !== input.version) throw Object.assign(new Error("Report or codes changed in another session. Reload saved codes before saving."), { statusCode: 409 });
       const draft = { version: input.version + 1, updatedAt: new Date().toISOString(), value: { ...(current.success ? current.data.value : emptyReportDraft()), ...input.value } };
       await db.finalWalkReportDraft.upsert({ where: { itemId: item.id }, create: { itemId: item.id, payload: draft }, update: { payload: draft } });
-      await db.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: item.propertyId, entityType: "MAKE_READY_ITEM", entityId: item.id, action: "RESIDENT_CODES_UPDATED", message: "Updated resident-only door/access codes and report inclusion. Code values are hidden from activity history.", metadata: { version: draft.version, includeResidentCodes: input.value.includeResidentCodes } } });
-      return { version: draft.version, value: input.value, updatedAt: draft.updatedAt, readOnly: false };
+      await db.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: item.propertyId, entityType: "MAKE_READY_ITEM", entityId: item.id, action: "RESIDENT_CODES_UPDATED", message: "Updated resident handoff codes, mailbox details and report inclusion. Code values are hidden from activity history.", metadata: { version: draft.version, includeResidentCodes: input.value.includeResidentCodes } } });
+      return { version: draft.version, value: residentCodesSchema.parse(resolveReportMailbox(draft.value, await directoryMailbox(item))), updatedAt: draft.updatedAt, readOnly: false };
     });
   });
   app.get("/final-walk-reports/:propertyId", async (request, reply) => {

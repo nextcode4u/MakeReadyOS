@@ -35,7 +35,7 @@ export function ResidentCodesPanel({ itemId, status }: { itemId: string; status:
       try {
         const result = await saveResidentCodes(itemId, { version: edit.version, value: edit.value });
         client.setQueryData(key, result); setEdit(null); setShow(false);
-        setMessage(result.value.includeResidentCodes ? "Resident codes saved and logged. They will appear on the Final-Walk Report." : "Resident codes saved and logged. Report inclusion is off.");
+        setMessage(result.value.includeResidentCodes ? "Resident codes and mailbox details saved and logged for the Final-Walk Report." : "Mailbox details saved for the Final-Walk Report. Resident codes saved and logged; code inclusion is off.");
       } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save resident codes. Your entries are preserved."); }
       finally { setBusy(false); }
     }}>
@@ -43,6 +43,10 @@ export function ResidentCodesPanel({ itemId, status }: { itemId: string; status:
         <label>New resident door code<input autoComplete="new-password" type={show ? "text" : "password"} maxLength={60} value={current.value.residentDoorCode} onChange={event => change({ residentDoorCode: event.target.value })}/></label>
         <label>Resident-specific access code (optional)<input autoComplete="new-password" type={show ? "text" : "password"} maxLength={60} value={current.value.residentAccessCode} onChange={event => change({ residentAccessCode: event.target.value })}/></label>
         <label style={{ display: "flex", alignItems: "center" }}><input style={{ width: "auto" }} type="checkbox" checked={current.value.includeResidentCodes} onChange={event => change({ includeResidentCodes: event.target.checked })}/>Include these resident-only codes on the Final-Walk Report</label>
+        <label>Mailbox number<input data-testid="work-mailbox-number" maxLength={40} value={current.value.mailbox ?? ""} onChange={event => change({ mailbox: event.target.value, mailboxSource: "CUSTOM" })}/></label>
+        <label>Mailbox key count<input data-testid="work-mailbox-keys" maxLength={20} value={current.value.mailboxKeys ?? ""} onChange={event => change({ mailboxKeys: event.target.value })}/></label>
+        <p className="helper-copy">{current.value.mailboxSource === "CUSTOM" ? "Using a mailbox number for this turn only; the property directory is unchanged." : "Mailbox number comes from the unit directory. Editing it overrides this turn's report only."} Mailbox details appear on the report even when code inclusion is off.</p>
+        {current.value.mailboxSource === "CUSTOM" ? <button type="button" onClick={() => change({ mailboxSource: "DIRECTORY", mailbox: "" })}>Use directory mailbox on save</button> : null}
         <button className="button button-primary" type="submit" disabled={!edit}>{busy ? "Saving codes..." : "Save resident codes"}</button>
       </fieldset>
       <button type="button" className="button button-secondary" onClick={() => setShow(value => !value)}>{show ? "Hide codes" : "Show codes"}</button>
