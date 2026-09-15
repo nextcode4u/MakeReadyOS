@@ -15,6 +15,7 @@ import { Modal } from "./Modal";
 import { StatusState } from "./StatusState";
 import { HistoryCoverageNotice } from "./HistoryCoverageNotice";
 import { FinalWalkControls } from "./FinalWalkControls";
+import { FinalWalkReportEditor } from "./FinalWalkReportEditor";
 import { TurnReportPanel } from "./TurnReportPanel";
 import { TurnMaterialsPanel } from "./TurnMaterialsPanel";
 import { ResidentCodesPanel } from "./ResidentCodesPanel";
@@ -219,6 +220,7 @@ export function ItemDrawer({
   const stage = turnStageLabel(item, boardSections.some(section => section.propertyId === item.propertyId && section.key === item.boardGroup && section.sectionType === "DOWN"));
   const [pane, setPane] = useState<"work" | "photos" | "notes" | "final" | "all">(() => focused ? (inspectionReady ? "final" : "work") : "all");
   const [saving, setSaving] = useState<string | null>(null);
+  const [completedReportOpen, setCompletedReportOpen] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
   const [overrideConfirmed, setOverrideConfirmed] = useState(false);
   const [error, setError] = useState("");
@@ -732,6 +734,7 @@ export function ItemDrawer({
           <div>
             <span className="drawer-kicker">{item.property.code} / {boardGroupLabel(item.boardGroup, item.propertyId, boardSections)}</span>
             <h2>{item.unitNumber}</h2>
+            {approved && !item.isArchived && ["ADMIN", "MANAGER", "LEASING"].includes(currentUser.role) ? <button type="button" className="button button-primary" data-testid="completed-unit-report" onClick={() => setCompletedReportOpen(true)}>{language === "es" ? "Editar / descargar informe final" : "Edit / download final-walk report"}</button> : null}
             <div className="drawer-pills">
               <LabelPill value={item.vacancyStatus} label={item.vacancyStatus ? labelsByField.vacancyStatus?.[item.vacancyStatus] : undefined} />
               <LabelPill value={item.makeReadyStatus} label={item.makeReadyStatus ? labelsByField.makeReadyStatus?.[item.makeReadyStatus] : undefined} />
@@ -743,6 +746,7 @@ export function ItemDrawer({
             {([ ["work", "Work", "Trabajo"], ["photos", "Photos", "Fotos"], ["notes", "Notes", "Notas"], ["final", "Final walk", "Inspeccion"], ["all", "All details", "Detalles"] ] as const).map(([value, label, spanish]) => <button key={value} type="button" data-testid={`drawer-pane-${value}`} aria-pressed={pane === value} onClick={event => { setPane(value); event.currentTarget.closest("aside")?.scrollTo({ top: 0 }); }}>{language === "es" ? spanish : label}</button>)}
           </nav> : null}
         </header>
+        {completedReportOpen ? <FinalWalkReportEditor key={item.id} propertyId={item.propertyId} propertyName={item.property.name} itemId={item.id} onClose={() => setCompletedReportOpen(false)} /> : null}
 
         {error ? <p className="drawer-error" role="alert">{error}</p> : null}
         {itemRefreshFailed ? <p className="drawer-error" role="alert">{language === "es" ? "No se pudo actualizar la unidad. Los datos visibles pueden estar desactualizados; tus entradas no guardadas siguen aqui." : "Could not refresh the unit. Displayed data may be stale; your unsaved input is still here."} <button type="button" onClick={onRefreshItem}>{language === "es" ? "Reintentar unidad" : "Retry unit"}</button></p> : null}

@@ -3487,8 +3487,9 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
         expect((await (await context.request.get(assignmentUrl)).json()).block).toBeNull();
         const completedReport = await context.request.get(`${root}?itemId=${item.id}`);
         expect(completedReport.ok()).toBeTruthy();
-        expect((await completedReport.json()).canEditDraft).toBe(false);
-        expect((await context.request.put(`${root}/items/${item.id}`, { headers: staffHeaders, data: { version: saved.draft.version, value: saved.draft.value } })).status()).toBe(403);
+        const completedData = await completedReport.json();
+        expect(completedData.canEditDraft).toBe(true);
+        expect((await context.request.put(`${root}/items/${item.id}`, { headers: staffHeaders, data: { version: completedData.draft.version, value: completedData.draft.value } })).ok()).toBe(true);
         expect((await (await context.request.get(assignmentUrl)).json()).reportAvailable).toBe(true);
         const finalData = await (await context.request.get(`${root}?itemId=${item.id}`)).json();
         const exportAfter = await context.request.post(`${root}/preview`, { headers: staffHeaders, data: { itemId: item.id, settings: { ...finalData.settings.value, title: "Unauthorized branding override" }, draft: finalData.draft.value, format: "html" } });

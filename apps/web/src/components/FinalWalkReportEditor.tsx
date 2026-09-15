@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getFinalReport, isApiError, previewFinalReport, returnFinalWalkToTech, saveFinalReportDraft, saveFinalReportSettings, type FinalReportData, type FinalReportDraft, type FinalReportResult, type FinalReportSettings } from "../lib/api";
+import { downloadResidentReport, getFinalReport, isApiError, previewFinalReport, returnFinalWalkToTech, saveFinalReportDraft, saveFinalReportSettings, type FinalReportData, type FinalReportDraft, type FinalReportResult, type FinalReportSettings } from "../lib/api";
 import { Modal } from "./Modal";
 import "./finalWalkReportEditor.css";
 
@@ -60,6 +60,15 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned }: { initial: Final
     const missing = initial.checks.find(check => ["ATTENTION", "NA"].includes(result(check.id).status) && !result(check.id).note.trim());
     if (missing) throw new Error(`Add a reason for: ${missing.label}`);
   };
+  const residentPdf = () => void run(async () => {
+    if (!item) return;
+    const response = await downloadResidentReport(initial.property.id, item.id, savedDraft.version);
+    const bytes = Uint8Array.from(atob(response.pdfBase64), char => char.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    const link = document.createElement("a"); link.href = url; link.download = `final-walk-${initial.property.code.replace(/[^a-z0-9-]/gi, "_")}-${item.unitNumber.replace(/[^a-z0-9-]/gi, "_")}-r${savedDraft.version}.pdf`; link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    setMessage("One-page resident report downloaded from saved inspection records. Unit status was not changed.");
+  });
   const preview = (format: "html" | "pdf") => void run(async () => {
     if (item) validateDraft();
     const response = await previewFinalReport(initial.property.id, { itemId: item?.id, settings, draft, format });
@@ -73,8 +82,9 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned }: { initial: Final
     }
   });
   return <div className="final-report-workspace">
-    <div className="final-report-notice"><strong>{initial.canEditSettings ? "Admin draft workspace" : "Assigned inspector draft workspace"}</strong><p>Record inspection details for this turn. Saving never marks a unit ready or signs an inspection. All previews and PDFs are labeled Draft / Not for resident issue.</p></div>
+    <div className="final-report-notice"><strong>{item?.unitReady ? "Completed unit / inspection report" : "Inspection report workspace"}</strong><p>Saving inspection details does not change the unit's Ready status or create an electronic signature. Preview and draft downloads include unsaved edits. Resident PDFs use saved, completed inspection records only.</p>{item?.unitReady ? <p>You can return here from Table &gt; Ready Units &gt; open unit &gt; Edit / download final-walk report, even after the unit leaves My Work.</p> : null}</div>
     {error ? <p role="alert">{error}</p> : null}{message ? <p role="status">{message}</p> : null}
+    {item?.unitReady ? <div className="final-report-download"><button type="button" className="button button-primary" data-testid="final-report-resident-pdf" disabled={busy || settingsDirty || draftDirty || !savedDraft.version} onClick={residentPdf}>Download resident PDF</button><p>Save changes first. Requires recorded technician and final-walk checks, inspection date, confirmed handoff counts and no unresolved corrections. Missing records are never inferred from Ready status.</p></div> : null}
     <fieldset disabled={busy} className="final-report-form">
       <label>Property<input readOnly value={`${initial.property.code} / ${initial.property.name}`} /></label>
       <label>Turn to inspect<select disabled={!initial.canEditSettings} data-testid="final-report-unit" value={item?.id ?? ""} onChange={event => {
@@ -119,7 +129,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned }: { initial: Final
         <label>Internal follow-up for technician<textarea rows={3} maxLength={1000} value={draft.technicianFollowUp} onChange={event => updateDraft({ technicianFollowUp: event.target.value })}/></label>
         <p>Not printed on the resident report. Send corrections to reopen the technician's work and notify them; painting and cleaning stay unchanged. The final walk must be rechecked afterward.</p>
         {draft.technicianResolution ? <p><strong>Technician resolution:</strong> {draft.technicianResolution}</p> : null}
-        <button type="button" disabled={!draft.technicianFollowUp.trim() && !initial.checks.some(check => result(check.id).status === "ATTENTION")} onClick={() => void run(async () => {
+        <button type="button" disabled={item.unitReady || (!draft.technicianFollowUp.trim() && !initial.checks.some(check => result(check.id).status === "ATTENTION"))} onClick={() => void run(async () => {
           validateDraft();
           const saved = await saveFinalReportDraft(initial.property.id, item.id, { version: savedDraft.version, value: draft });
           setSavedDraft(saved); setDraft(saved.value);

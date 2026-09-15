@@ -1,6 +1,6 @@
 [data-testid="final-report-editor"] { width: min(1240px, 96vw); max-width: 96vw; }
 .final-report-workspace { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(0, 1.4fr); gap: 20px; align-items: start; min-width: 0; }
-.final-report-notice, .final-report-workspace > [role] { grid-column: 1 / -1; margin: 0; }
+.final-report-notice, .final-report-download, .final-report-workspace > [role] { grid-column: 1 / -1; margin: 0; }
 .final-report-notice { border-left: 3px solid #d0a65b; padding: 10px 14px; background: var(--panel); }
 .final-report-notice p { margin-bottom: 0; }
 .final-report-form { display: grid; gap: 12px; min-width: 0; margin: 0; padding: 0; border: 0; }

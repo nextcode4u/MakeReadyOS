@@ -96,6 +96,6 @@ test("ready-import inspection view reports readiness without inventing inspectio
   t.after(() => app.close());
   const response = await app.inject({ method: "GET", url: "/make-ready-items/ready-import/final-walk" });
   assert.equal(response.statusCode, 200, response.body);
-  assert.deepEqual(response.json(), { block: null, reportAvailable: false, unitReady: true, ready: false, blockers: [], next: null });
+  assert.deepEqual(response.json(), { block: null, reportAvailable: true, unitReady: true, ready: false, blockers: [], next: null });
   assert.equal(inspectionReads, 1, "An import alone must not imply completed inspection history");
 });

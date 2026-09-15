@@ -44,7 +44,7 @@ export async function finalWalkRoutes(app: FastifyInstance) {
     const block = await prisma.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, status: { in: pendingWalkStatuses } }, include: { assignedUser: { select: { id: true, fullName: true } } }, orderBy: { createdAt: "asc" } });
     const staff = await inspectorStaff(prisma, item.propertyId);
     const completedBlock = !block && turnApproved(item) ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, status: "DONE" }, orderBy: { createdAt: "desc" } }) : null;
-    const reportAvailable = !item.isArchived && (block ?? completedBlock)?.assignedUserId === request.currentUser!.id && item.assignedTech?.trim().toLowerCase() !== request.currentUser!.fullName.trim().toLowerCase();
+    const reportAvailable = !item.isArchived && ((isTurnReady(item) && ["ADMIN", "MANAGER", "LEASING"].includes(request.currentUser!.role)) || ((block ?? completedBlock)?.assignedUserId === request.currentUser!.id && item.assignedTech?.trim().toLowerCase() !== request.currentUser!.fullName.trim().toLowerCase()));
     const nextId = block && nextInspector(block.inspectorQueue, block.assignedUserId, independentInspectors(staff, item.assignedTech).map(user => user.id));
     const unitReady = isTurnReady(item);
     return { block, reportAvailable, unitReady, ready: awaitingFinalWalk(item), blockers: unitReady ? [] : await getTurnReadiness(prisma, id, request.currentUser!.fullName), next: staff.find(user => user.id === nextId) ?? null };

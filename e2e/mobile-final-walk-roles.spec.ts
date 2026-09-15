@@ -103,6 +103,36 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     expect((Buffer.from(pdf.pdfBase64, "base64").toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
     await send(inspector, inspectorHeaders, "POST", `${itemPath}/mark-ready`, {});
     expect((await (await page.request.get(`${origin}/api${itemPath}`)).json()).completionStatus).toBe("YES");
+    data = await (await inspector.request.get(`${origin}/api${reportPath}?itemId=${item.id}`)).json();
+    expect(data.canEditDraft).toBe(true);
+    expect(data.item.unitReady).toBe(true);
+    const completed = await send(inspector, inspectorHeaders, "PUT", `${reportPath}/items/${item.id}`, { version: data.draft.version, value: { ...data.draft.value, parking: "Space 12" } });
+    expect((await (await page.request.get(`${origin}/api${itemPath}`)).json()).completionStatus).toBe("YES");
+    const resident = await send(inspector, inspectorHeaders, "POST", `${reportPath}/items/${item.id}/resident-pdf`, { version: completed.version });
+    expect((Buffer.from(resident.pdfBase64, "base64").toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
+    expect((await inspector.request.post(`${origin}/api${reportPath}/items/${item.id}/resident-pdf`, { headers: inspectorHeaders, data: { version: completed.version - 1 } })).status()).toBe(409);
+    expect((await tech.request.get(`${origin}/api${reportPath}?itemId=${item.id}`)).status()).toBe(403);
+    // Ready units imported without an inspection assignment remain editable by leasing,
+    // but cannot produce a resident copy without recorded checks.
+    const imported = await send(page, admin, "POST", "/make-ready-items", { propertyId: property.id, unitNumber: "READY-2", itemName: "READY-2", boardGroup: group, vacancyStatus: "VACANT LEASED READY" });
+    const importedData = await (await inspector.request.get(`${origin}/api${reportPath}?itemId=${imported.id}`)).json();
+    expect(importedData.canEditDraft).toBe(true);
+    expect((await (await inspector.request.get(`${origin}/api/make-ready-items/${imported.id}/final-walk`)).json()).reportAvailable).toBe(true);
+    const incomplete = await send(inspector, inspectorHeaders, "PUT", `${reportPath}/items/${imported.id}`, { version: importedData.draft.version, value: importedData.draft.value });
+    expect((await inspector.request.post(`${origin}/api${reportPath}/items/${imported.id}/resident-pdf`, { headers: inspectorHeaders, data: { version: incomplete.version } })).status()).toBe(409);
+    await inspector.getByRole("button", { name: "Inspection details / report", exact: true }).click();
+    await expect(report.getByText("Completed unit / inspection report", { exact: true })).toBeVisible();
+    await expect(report.getByLabel("Parking / garage assignment", { exact: true })).toHaveValue("Space 12");
+    const download = inspector.waitForEvent("download");
+    await report.getByTestId("final-report-resident-pdf").click();
+    expect((await download).suggestedFilename()).toContain("SPLIT-1");
+    await report.getByRole("button", { name: "Close dialog" }).click();
+    await inspector.getByTestId("item-drawer-close").click();
+    await inspector.getByRole("button", { name: /View:/ }).click();
+    await inspector.getByTestId("tab-table").click();
+    await inspector.getByTestId("mobile-details-split-1").click();
+    await inspector.getByTestId("completed-unit-report").click();
+    await expect(report.getByTestId("final-report-resident-pdf")).toBeVisible();
     await inspector.screenshot({ path: testInfo.outputPath("final-walk-mobile.png") });
     await page.evaluate(() => { localStorage.setItem("makereadyos.themeMode", "dark"); localStorage.setItem("makereadyos.compactMode", "false"); });
     await page.reload();
