@@ -1,6 +1,129 @@
 import { expect, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 
+test("on-call rotation calendar, swaps, emergency cover and protected PDF markers", async ({ page, browser }, testInfo) => {
+  test.setTimeout(180000);
+  await page.goto("/");
+  await page.getByTestId("login-email").fill(process.env.ADMIN_EMAIL || "admin@example.com");
+  await page.getByTestId("login-password").fill(process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456");
+  await page.getByTestId("login-submit").click();
+  await expect(page.getByTestId("property-filter")).toBeVisible();
+  const origin = new URL(page.url()).origin;
+  const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
+  const existing = await (await page.request.get("/api/on-call")).json();
+  const people = ["Zack", "Williams", "Third"].map(name => ({ id: randomUUID(), name, publicPhone: "" }));
+  const property = { id: randomUUID(), name: "Rotation property", address: "", shopLocation: "PRIVATE SHOP", accessCodes: "PRIVATE CODE", instructions: "", mapUrl: "", guideUrl: "" };
+  const response = await page.request.put("/api/on-call", { headers, data: { version: existing.version, data: { title: "Rotation test", timeZone: "America/Chicago", people, properties: [property], shifts: [] }, externalEnabled: true, accessCode: "Rotation-Code-123456" } });
+  expect(response.status(), await response.text()).toBe(200);
+  await page.getByTestId("module-rail-oncall").click();
+  await expect(page.getByTestId("module-rail-oncall").locator("svg")).toBeVisible();
+  await expect(page.getByTestId("module-rail-oncall")).not.toContainText("OC");
+  const panel = page.getByTestId("on-call-panel");
+  await panel.getByRole("button", { name: "Manage on-call" }).click();
+  await panel.getByRole("button", { name: "Set up weekly rotation" }).click();
+  const start = new Date(); start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() - 5 + 7) % 7) - 7);
+  await panel.getByLabel("Start on or after").fill(start.toISOString().slice(0, 10));
+  await expect(panel.getByLabel("Handoff time (America/Chicago) hour", { exact: true })).toHaveValue("5");
+  await expect(panel.getByLabel("Handoff time (America/Chicago) AM or PM", { exact: true })).toHaveValue("PM");
+  await panel.getByLabel("Handoff time (America/Chicago) hour", { exact: true }).selectOption("12");
+  for (const [meridian, stored] of [["AM", "00:00"], ["PM", "12:00"]]) {
+    await panel.getByLabel("Handoff time (America/Chicago) AM or PM", { exact: true }).selectOption(meridian);
+    await panel.getByRole("button", { name: "Save on-call", exact: true }).click();
+    await expect(panel.getByRole("status")).toContainText("On-call saved");
+    expect((await (await page.request.get("/api/on-call")).json()).data.rotation.at).toBe(stored);
+  }
+  await panel.getByLabel("Handoff time (America/Chicago) hour", { exact: true }).selectOption("5");
+  await panel.getByRole("button", { name: "Save on-call", exact: true }).click();
+  await expect(panel.getByRole("status")).toContainText("On-call saved");
+  await panel.getByLabel("Display time zone").fill("America/");
+  await panel.getByRole("button", { name: "Save on-call", exact: true }).click();
+  await expect(panel.getByRole("alert")).toContainText("valid time zone");
+  await panel.getByLabel("Display time zone").fill("America/Chicago");
+  await panel.getByRole("button", { name: "Save on-call", exact: true }).click();
+  await expect(panel.getByRole("status")).toContainText("On-call saved");
+  let saved = await (await page.request.get("/api/on-call")).json();
+  expect(saved.schedule.shifts.length).toBeGreaterThan(50);
+  expect(saved.schedule.shifts[0].personId).toBe(people[0].id);
+  expect(new Intl.DateTimeFormat("en", { timeZone: "America/Chicago", hour: "2-digit", hourCycle: "h23" }).format(new Date(saved.schedule.shifts[1].start))).toBe("17");
+  const slots = saved.schedule.shifts.filter((shift: { start: string }) => Date.parse(shift.start) > Date.now());
+  await panel.getByLabel("Swap first rotation shift").selectOption(slots[0].id);
+  await panel.getByLabel("With rotation shift").selectOption(slots[1].id);
+  await panel.getByRole("button", { name: "Prepare swap (save to apply)" }).click();
+  await panel.getByRole("button", { name: "Save on-call", exact: true }).click();
+  await expect(panel.getByRole("status")).toContainText("On-call saved");
+  saved = await (await page.request.get("/api/on-call")).json();
+  expect(saved.schedule.shifts.find((shift: { start: string }) => shift.start === slots[0].start).personId).toBe(slots[1].personId);
+  expect(saved.schedule.shifts.find((shift: { start: string }) => shift.start === slots[1].start).personId).toBe(slots[0].personId);
+  await panel.getByRole("button", { name: "Add coverage change / cover now" }).click();
+  await panel.getByLabel("Covering person").last().selectOption(people[2].id);
+  await panel.getByLabel("Private coordination note").last().fill("PRIVATE FAMILY EMERGENCY");
+  await panel.getByRole("button", { name: "Save on-call", exact: true }).click();
+  await expect(panel.getByRole("status")).toContainText("On-call saved");
+  saved = await (await page.request.get("/api/on-call")).json();
+  expect(saved.schedule.shifts.find((shift: { start: string; end: string }) => Date.parse(shift.start) <= Date.now() && Date.parse(shift.end) > Date.now()).personId).toBe(people[2].id);
+  // A real PDF exercises the converter, not just its signature check.
+  const pdfPage = await browser.newPage();
+  await pdfPage.setContent('<html><body style="margin:0;background:#eee"><h1>Property map</h1><div style="margin:80px;border:5px solid black;height:200px">Shop / Office</div></body></html>');
+  const pdf = await pdfPage.pdf({ width: "800px", height: "600px", printBackground: true });
+  await pdfPage.close();
+  await panel.getByText("Properties & protected access guides (1)", { exact: true }).click();
+  await panel.getByLabel("Upload map for Rotation property", { exact: true }).setInputFiles({ name: "site.pdf", mimeType: "application/pdf", buffer: pdf });
+  await expect(panel.getByRole("status")).toContainText("Property map uploaded and saved");
+  await panel.locator("summary").filter({ hasText: "View map / shop & office: Rotation property" }).click();
+  const map = panel.locator(".on-call-map-canvas");
+  await expect.poll(() => map.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+  await panel.getByRole("button", { name: "Mark shop", exact: true }).click();
+  const box = await map.boundingBox();
+  await map.click({ position: { x: box!.width * .25, y: box!.height * .5 } });
+  await panel.getByRole("button", { name: "Mark office", exact: true }).click();
+  await map.click({ position: { x: box!.width * .75, y: box!.height * .5 } });
+  await expect(map.locator(".on-call-map-pin")).toHaveCount(2);
+  await panel.getByRole("button", { name: "Save on-call", exact: true }).click();
+  await expect(panel.getByRole("status")).toContainText("On-call saved");
+  saved = await (await page.request.get("/api/on-call")).json();
+  expect(saved.data.properties[0].markers).toHaveLength(2);
+  await panel.getByRole("button", { name: "Close editor" }).click();
+  await expect(panel.getByRole("heading", { name: "Coverage calendar" })).toBeVisible();
+  await expect(panel.getByRole("region", { name: "On-call calendar" }).getByText("Third", { exact: true }).first()).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  const guest = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
+  try {
+    const previewPath = `${origin}/api/on-call/share/properties/${property.id}/map?preview=1&page=1`;
+    expect((await guest.request.get(previewPath)).status()).toBe(403);
+    const publicState = await (await guest.request.get(`${origin}/api/on-call/share`)).json();
+    expect(publicState.schedule.shifts.length).toBeGreaterThan(50);
+    expect(JSON.stringify(publicState)).not.toContain("PRIVATE");
+    const unlock = await guest.request.post(`${origin}/api/on-call/unlock`, { headers: { Origin: origin }, data: { code: "Rotation-Code-123456" } });
+    expect(unlock.status()).toBe(200);
+    const preview = await guest.request.get(previewPath);
+    expect(preview.status()).toBe(200); expect(preview.headers()["content-type"]).toBe("image/png");
+    expect(preview.headers()["cache-control"]).toContain("no-store");
+    const privateState = await (await guest.request.get(`${origin}/api/on-call/share`)).json();
+    expect(privateState.data.properties[0].markers).toHaveLength(2);
+    expect(JSON.stringify(privateState)).not.toContain("FAMILY");
+    const guestPage = await guest.newPage(); await guestPage.goto(`${origin}/on-call/`);
+    await guestPage.locator("summary").filter({ hasText: "View map / shop & office: Rotation property" }).click();
+    await expect(guestPage.locator(".on-call-map-pin")).toHaveCount(2);
+    await expect(guestPage.getByRole("button", { name: "Mark shop", exact: true })).toHaveCount(0);
+    await expect.poll(() => guestPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    await expect.poll(() => guestPage.locator(".on-call-calendar-scroll").evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy();
+    await guestPage.locator(".on-call-map").screenshot({ path: testInfo.outputPath("protected-map-pins-mobile.png") });
+    await guestPage.getByRole("region", { name: "On-call calendar" }).screenshot({ path: testInfo.outputPath("rotation-calendar-mobile.png") });
+    await guestPage.getByRole("button", { name: "Lock property guides", exact: true }).click();
+    await expect(guestPage.getByRole("button", { name: "Unlock property guides", exact: true })).toBeEnabled();
+    expect((await guest.request.get(previewPath)).status()).toBe(403);
+  } finally { await guest.close(); }
+  const oldMapId = saved.data.properties[0].mapFile.id;
+  const replaced = await page.request.post(`/api/on-call/properties/${property.id}/map?version=${saved.version}`, { headers, multipart: { file: { name: "replacement.pdf", mimeType: "application/pdf", buffer: pdf } } });
+  expect(replaced.status()).toBe(200);
+  saved = await (await page.request.get("/api/on-call")).json();
+  expect(saved.data.properties[0].markers).toEqual([]);
+  expect((await page.request.get(`/api/on-call/properties/${property.id}/map?preview=1&file=${oldMapId}`)).status()).toBe(409);
+  // Leave the isolated workspace empty for the independent access regression below.
+  const clear = await page.request.put("/api/on-call", { headers, data: { version: saved.version, data: { title: "On-call", timeZone: "America/Chicago", people: [], properties: [], shifts: [] }, externalEnabled: false } });
+  expect(clear.status(), await clear.text()).toBe(200);
+});
+
 test("on-call separates public schedules, protected guides and staff editing", async ({ page, browser }, testInfo) => {
   test.setTimeout(120000);
   await page.goto("/");
@@ -16,7 +139,7 @@ test("on-call separates public schedules, protected guides and staff editing", a
   const properties = Array.from({ length: 5 }, (_, i) => ({ id: randomUUID(), name: `Covered property ${i + 1}`, address: "PROTECTED-ADDRESS", shopLocation: `PROTECTED-SHOP-${i}`, accessCodes: `PROTECTED-CODE-${i}`, instructions: `PROTECTED-GUIDE-${i}`, mapUrl: "https://example.com/protected-map", guideUrl: "https://example.com/protected-guide" }));
   const data = { title: "Five-property on-call", timeZone: "America/Chicago", people, properties, shifts: [{ id: randomUUID(), personId: people[0].id, backupId: people[1].id, propertyIds: properties.map(property => property.id), start: new Date(Date.now() - 3600000).toISOString(), end: new Date(Date.now() + 86400000).toISOString(), notes: "Public shift note" }] };
   const save = async (body: unknown, status = 200) => { const result = await page.request.put("/api/on-call", { headers, data: body }); expect(result.status(), await result.text()).toBe(status); return result.json(); };
-  await save({ version: existing.version, data, externalEnabled: true }, 400);
+  if (!existing.hasAccessCode) await save({ version: existing.version, data, externalEnabled: true }, 400);
   let saved = await save({ version: existing.version, data, externalEnabled: true, accessCode: "Shared-Only-123456" });
   await save({ version: existing.version, data, externalEnabled: true }, 409);
   await save({ version: saved.version, data: { ...data, people: [] }, externalEnabled: true }, 400);
@@ -33,6 +156,23 @@ test("on-call separates public schedules, protected guides and staff editing", a
   await panel.getByRole("button", { name: "Save on-call", exact: true }).click();
   await expect(panel.getByRole("status")).toContainText("On-call saved");
   saved = await (await page.request.get("/api/on-call")).json();
+  await panel.getByText("Properties & protected access guides (5)", { exact: true }).click();
+  const mapBytes = Buffer.from("%PDF-1.4\nOn-call map fixture\n%%EOF");
+  const uploadMap = async (name: string, mimeType: string, buffer: Buffer, version = saved.version) => page.request.post(`/api/on-call/properties/${properties[0].id}/map?version=${version}`, { headers, multipart: { file: { name, mimeType, buffer } } });
+  expect((await uploadMap("not-a-map.pdf", "application/pdf", Buffer.from("<html>not PDF</html>"))).status()).toBe(400);
+  expect((await uploadMap("map.pdf", "application/pdf", mapBytes, saved.version - 1)).status()).toBe(409);
+  expect((await uploadMap("too-large.pdf", "application/pdf", Buffer.concat([mapBytes, Buffer.alloc(10 * 1024 * 1024)]))).status()).toBe(413);
+  await panel.getByLabel("Upload map for Covered property 1", { exact: true }).setInputFiles({ name: "property-map.pdf", mimeType: "application/pdf", buffer: mapBytes });
+  await expect(panel.getByRole("status")).toContainText("Property map uploaded and saved");
+  saved = await (await page.request.get("/api/on-call")).json();
+  const mapPath = `/api/on-call/properties/${properties[0].id}/map`;
+  const sharedMapPath = `${origin}/api/on-call/share/properties/${properties[0].id}/map`;
+  const staffMap = await page.request.get(mapPath);
+  expect(staffMap.status()).toBe(200);
+  expect(await staffMap.body()).toEqual(mapBytes);
+  expect(staffMap.headers()["content-disposition"]).toContain("attachment");
+  expect(staffMap.headers()["cache-control"]).toContain("no-store");
+  await save({ version: saved.version, data: { ...saved.data, properties: saved.data.properties.map((property: { id: string }) => property.id === properties[1].id ? { ...property, mapFile: saved.data.properties[0].mapFile } : property) }, externalEnabled: true }, 400);
   const backup = await (await page.request.get("/api/admin/export")).json();
   expect(backup.data.onCallWorkspaces).toEqual([saved.data]);
   expect(JSON.stringify(backup.data.onCallWorkspaces)).not.toContain("Shared-Only-123456");
@@ -52,6 +192,8 @@ test("on-call separates public schedules, protected guides and staff editing", a
     const visible = await guest.request.get(`${origin}/api/on-call/share`);
     expect(visible.headers()["cache-control"]).toContain("no-store");
     expect(await visible.text()).not.toContain("PROTECTED");
+    expect(await visible.text()).not.toContain("mapFile");
+    expect((await guest.request.get(sharedMapPath)).status()).toBe(403);
     expect(await (await guest.request.get(`${origin}/api/on-call/share`)).text()).not.toContain("protected-map");
     expect((await guest.request.get(`${origin}/api/make-ready-items`)).status()).toBe(401);
     expect((await guest.request.put(`${origin}/api/on-call`, { data: {} })).status()).toBe(401);
@@ -61,8 +203,15 @@ test("on-call separates public schedules, protected guides and staff editing", a
     await expect(guestPage.getByRole("alert")).toContainText("Incorrect access code");
     await guestPage.getByLabel("Access code", { exact: true }).fill("Shared-Only-123456");
     await guestPage.getByRole("button", { name: "Unlock property guides" }).click();
-    await expect(guestPage.getByRole("button", { name: "Lock property guides" })).toBeVisible();
-    await guestPage.locator("summary").filter({ hasText: "Covered property 1" }).click();
+    await expect(guestPage.getByRole("button", { name: "Lock property guides", exact: true })).toBeEnabled();
+    const guestMap = await guest.request.get(sharedMapPath);
+    expect(guestMap.status()).toBe(200); expect(await guestMap.body()).toEqual(mapBytes);
+    expect((await guest.request.get(`${origin}${mapPath}`)).status()).toBe(401);
+    await expect(guestPage.getByRole("link", { name: "Download Covered property 1 map: property-map.pdf" })).toBeVisible();
+    const downloadEvent = guestPage.waitForEvent("download");
+    await guestPage.getByRole("link", { name: "Download Covered property 1 map: property-map.pdf" }).click();
+    expect((await downloadEvent).suggestedFilename()).toBe("property-map.pdf");
+    await guestPage.locator("summary").filter({ hasText: /^Covered property 1$/ }).click();
     await expect(guestPage.getByText("PROTECTED-CODE-0", { exact: true })).toBeVisible();
     await expect(guestPage.getByRole("link", { name: "Open property map" }).first()).toHaveAttribute("rel", "noopener noreferrer");
     expect((await guest.request.get(`${origin}/api/on-call`)).status()).toBe(401);
@@ -74,19 +223,22 @@ test("on-call separates public schedules, protected guides and staff editing", a
     saved = await save({ version: saved.version, data: saved.data, externalEnabled: true, accessCode: "Rotated-Only-654321" });
     const revoked = await (await guest.request.get(`${origin}/api/on-call/share`)).json();
     expect(revoked.unlocked).toBe(false); expect(JSON.stringify(revoked)).not.toContain("PROTECTED");
+    expect((await guest.request.get(sharedMapPath)).status()).toBe(403);
     await guestPage.getByRole("button", { name: "Refresh", exact: true }).click();
     await expect(guestPage.getByText("PROTECTED-CODE-0", { exact: true })).toHaveCount(0);
     await guestPage.getByLabel("Access code", { exact: true }).fill("Rotated-Only-654321");
     await guestPage.getByRole("button", { name: "Unlock property guides" }).click();
-    await guestPage.getByRole("button", { name: "Lock property guides" }).click();
+    await guestPage.getByRole("button", { name: "Lock property guides", exact: true }).click();
     await expect(guestPage.getByRole("button", { name: "Unlock property guides" })).toBeEnabled();
     expect((await (await guest.request.get(`${origin}/api/on-call/share`)).json()).unlocked).toBe(false);
+    expect((await guest.request.get(sharedMapPath)).status()).toBe(403);
     for (let i = 0; i < 11; i++) {
       const response = await guest.request.post(`${origin}/api/on-call/unlock`, { headers: { Origin: origin }, data: { code: "not-correct" } });
       if (i === 10) expect(response.status()).toBe(429);
     }
     saved = await save({ version: saved.version, data: saved.data, externalEnabled: false });
     expect((await guest.request.get(`${origin}/api/on-call/share`)).status()).toBe(404);
+    expect((await guest.request.get(sharedMapPath)).status()).toBe(404);
   } finally { await guest.close(); }
   for (const role of ["TECH", "LEASING", "CLEANER", "VIEWER", "MANAGER"]) {
     const username = `oncall-${role.toLowerCase()}-${Date.now()}`;
@@ -100,9 +252,30 @@ test("on-call separates public schedules, protected guides and staff editing", a
       const token = (await login.json()).csrfToken;
       const view = await context.request.get(`${origin}/api/on-call`);
       expect(view.status()).toBe(200); expect(await view.text()).toContain("PROTECTED-CODE-0");
+      expect((await context.request.get(`${origin}${mapPath}`)).status()).toBe(200);
+      const upload = await context.request.post(`${origin}${mapPath}?version=${saved.version}`, { headers: { "x-csrf-token": token }, multipart: { file: { name: "replacement.pdf", mimeType: "application/pdf", buffer: mapBytes } } });
+      expect(upload.status()).toBe(role === "MANAGER" ? 200 : 403);
+      if (role === "MANAGER") saved = await (await page.request.get("/api/on-call")).json();
+      if (role === "MANAGER") {
+        const images = [
+          { name: "map.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=", "base64") },
+          { name: "map.exe", mimeType: "image/jpeg", buffer: Buffer.from([255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 255, 217]) },
+        ];
+        for (const image of images) {
+          const result = await context.request.post(`${origin}${mapPath}?version=${saved.version}`, { headers: { "x-csrf-token": token }, multipart: { file: image } });
+          expect(result.status(), await result.text()).toBe(200);
+          const downloaded = await context.request.get(`${origin}${mapPath}`);
+          expect(downloaded.headers()["content-type"]).toBe(image.mimeType);
+          expect(await downloaded.body()).toEqual(image.buffer);
+          saved = await (await page.request.get("/api/on-call")).json();
+        }
+        expect(saved.data.properties[0].mapFile.name).toBe("map.jpg");
+      }
       const edit = await context.request.put(`${origin}/api/on-call`, { headers: { "x-csrf-token": token }, data: { version: saved.version, data: saved.data, externalEnabled: false } });
       expect(edit.status(), await edit.text()).toBe(role === "MANAGER" ? 200 : 403);
       if (role === "MANAGER") saved = await edit.json();
     } finally { await context.close(); }
   }
+  saved = await save({ version: saved.version, data: { ...saved.data, properties: saved.data.properties.map((property: { id: string }) => property.id === properties[0].id ? { ...property, mapFile: null } : property) }, externalEnabled: false });
+  expect((await page.request.get(mapPath)).status()).toBe(404);
 });

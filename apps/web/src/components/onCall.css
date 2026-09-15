@@ -29,4 +29,24 @@
 .on-call-edit-property, .on-call-edit-shift { border-top: 1px solid var(--border); padding-top: 12px; }
 .on-call [role="alert"] { color: var(--danger); }
 .on-call a, .on-call p { overflow-wrap: anywhere; }
+.on-call-map-canvas { position: relative; width: 100%; max-width: 1100px; overflow: hidden; background: var(--panel); }
+.on-call-map-canvas img { display: block; width: 100%; height: auto; }
+.on-call-map-canvas.placing { cursor: crosshair; outline: 2px solid var(--accent); }
+.on-call-map-pin { position: absolute; transform: translate(-50%, -50%); background: #075aab; border: 2px solid white; border-radius: 5px; padding: 3px 7px; color: white; font-weight: bold; pointer-events: none; }
+.on-call-map-pin.office { background: #376a30; }
+.on-call-calendar-scroll { overflow-x: auto; }
+.on-call-time-fields { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 8px; }
+.on-call-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(84px, 1fr)); min-width: 588px; gap: 3px; }
+.on-call-calendar-grid > strong { padding: 8px; }
+.on-call-calendar-grid > button { min-height: 85px; text-align: left; align-content: start; }
+.on-call-calendar-grid small { display: block; overflow-wrap: anywhere; line-height: 1.3; margin-top: 5px; }
+.on-call-calendar-grid .today { outline: 2px solid var(--accent); outline-offset: -2px; }
+.on-call-calendar-grid .outside { opacity: .5; }
+.on-call-calendar-grid [aria-pressed="true"] { background: var(--panel); border-color: var(--accent); }
 @media (max-width: 650px) { .on-call { padding: 14px; } .on-call-header { flex-direction: column; gap: 8px; } .on-call-fields, .on-call-schedule article { grid-template-columns: 1fr; gap: 6px; } }
+@media (max-width: 650px) {
+  .on-call-calendar-grid { min-width: 0; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .on-call-calendar-grid > strong { padding: 5px 1px; font-size: .72rem; text-align: center; }
+  .on-call-calendar-grid > button { min-width: 0; min-height: 76px; padding: 5px 3px !important; font-size: .8rem !important; }
+  .on-call-calendar-grid small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
