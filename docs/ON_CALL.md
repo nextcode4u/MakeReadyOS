@@ -1,6 +1,6 @@
 # Shared On-Call Workspace
 
-Local implementation; not deployed. Requires migration `20260915020000_on_call_workspace` and matching API/web images.
+Deployed to `mr-os.com` on 2026-09-14 as release `c65667a`, with migration `20260915020000_on_call_workspace` and matching API/web images. External sharing remains disabled until explicitly configured.
 
 ## Access Model
 
@@ -40,6 +40,8 @@ Limits: 200 contacts, 100 properties, 2,000 shifts and a 2 MB save request. No a
 - [ ] Spanish translations and more granular per-record editing once real multi-coordinator usage warrants it.
 
 ## Verification
+
+Deployment: all three containers healthy; migration applied successfully (59 migrations total). Public entry assets and authenticated admin on-call reads passed. The external page returned 200 with no-store/noindex headers; the disabled public API returned 404. The server's bind-mounted Nginx configuration was updated to include the on-call headers while preserving HTTPS redirection. GitHub CI run `34919040847` passed. No production business records or sharing settings changed. Readable pre-deployment backups: `backups/makereadyos-db-20260914-205339.dump` and `backups/makereadyos-uploads-20260914-205348.tgz`; previous API/web images retained as `rollback-c412e63`.
 
 2026-09-14: API/web production-image builds and web lint passed. Ten targeted schema/service-worker tests passed, including protected-field omission, invalid references/dates/links and exclusion from offline caching. The isolated production-image browser test passed in `logs/e2e-20260914-204306.txt` (`/tmp/mros-on-call-e2e-final.log`). It covers five independent properties, external contacts, failed-save draft preservation, version conflicts, public/private serialization, native backup content and merge preview, guest denial on regular APIs, wrong-code handling, rotation/revocation, locking, persistent attempt limits, sharing disable, all five non-admin roles, and mobile overflow. Mobile/desktop screenshots were captured and the mobile layout reviewed during the test passes.
 
