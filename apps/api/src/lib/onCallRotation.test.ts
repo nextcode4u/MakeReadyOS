@@ -28,6 +28,24 @@ test("rotation repeats indefinitely and switches exactly at the handoff", () => 
   assert.ok(later.some(row => row.start <= "2036-09-14T12:00:00.000Z" && row.end > "2036-09-14T12:00:00.000Z"));
   assert.ok(later.length < 110);
 });
+test("selected starting person offsets the cycle without rearranging it, with manual overrides preserved", () => {
+  const data = fixture();
+  const ids = data.people.map(person => person.id);
+  data.rotation = { enabled: true, startDate: "2026-09-11", startPersonId: ids[1], weekday: 5, at: "17:00", personIds: ids, propertyIds: data.properties.map(property => property.id) };
+  const now = Date.parse("2026-09-14T12:00:00Z");
+  const rows = onCallSchedule(onCallSchema.parse(data), now).shifts;
+  assert.deepEqual(rows.slice(0, 4).map(row => row.personId), [ids[1], ids[2], ids[0], ids[1]]);
+  const friday = "2026-09-18T22:00:00.000Z";
+  assert.equal(rows.find(row => row.start <= friday && row.end > friday)?.personId, ids[2]);
+  assert.deepEqual(data.rotation.personIds, ids);
+  data.shifts = [{ id: randomUUID(), personId: ids[0], backupId: "", propertyIds: data.rotation.propertyIds, start: "2026-09-14T00:00:00.000Z", end: friday, notes: "" }];
+  assert.equal(onCallSchedule(data, now).shifts.find(row => Date.parse(row.start) <= now && Date.parse(row.end) > now)?.personId, ids[0]);
+  data.rotation.startPersonId = randomUUID();
+  assert.equal(onCallSchema.safeParse(data).success, false);
+  data.rotation.startPersonId = ids[1];
+  data.rotation.personIds = [ids[0]];
+  assert.equal(onCallSchema.safeParse(data).success, false);
+});
 test("emergency coverage splits a shift and normal coverage resumes without changing the order", () => {
   const data = fixture();
   data.rotation = { enabled: true, startDate: "2026-09-11", weekday: 5, at: "17:00", personIds: data.people.map(person => person.id), propertyIds: data.properties.map(property => property.id) };

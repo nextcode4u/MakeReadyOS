@@ -23,6 +23,7 @@ test("on-call rotation calendar, swaps, emergency cover and protected PDF marker
   await panel.getByRole("button", { name: "Set up weekly rotation" }).click();
   const start = new Date(); start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() - 5 + 7) % 7) - 7);
   await panel.getByLabel("Start on or after").fill(start.toISOString().slice(0, 10));
+  await panel.getByLabel("Start rotation with").selectOption(people[1].id);
   await expect(panel.getByLabel("Handoff time (America/Chicago) hour", { exact: true })).toHaveValue("5");
   await expect(panel.getByLabel("Handoff time (America/Chicago) AM or PM", { exact: true })).toHaveValue("PM");
   await panel.getByLabel("Handoff time (America/Chicago) hour", { exact: true }).selectOption("12");
@@ -43,7 +44,11 @@ test("on-call rotation calendar, swaps, emergency cover and protected PDF marker
   await expect(panel.getByRole("status")).toContainText("On-call saved");
   let saved = await (await page.request.get("/api/on-call")).json();
   expect(saved.schedule.shifts.length).toBeGreaterThan(50);
-  expect(saved.schedule.shifts[0].personId).toBe(people[0].id);
+  expect(saved.data.rotation.startPersonId).toBe(people[1].id);
+  expect(saved.data.rotation.personIds).toEqual(people.map(person => person.id));
+  expect(saved.schedule.shifts[0].personId).toBe(people[1].id);
+  expect(saved.schedule.shifts[1].personId).toBe(people[2].id);
+  expect(saved.schedule.shifts[2].personId).toBe(people[0].id);
   expect(new Intl.DateTimeFormat("en", { timeZone: "America/Chicago", hour: "2-digit", hourCycle: "h23" }).format(new Date(saved.schedule.shifts[1].start))).toBe("17");
   const slots = saved.schedule.shifts.filter((shift: { start: string }) => Date.parse(shift.start) > Date.now());
   await panel.getByLabel("Swap first rotation shift").selectOption(slots[0].id);

@@ -5,7 +5,7 @@ export type OnCallMarker = { kind: "SHOP" | "OFFICE"; x: number; y: number; page
 export type OnCallProperty = { id: string; name: string; address: string; shopLocation: string; accessCodes: string; instructions: string; mapUrl: string; guideUrl: string; mapFile?: { id: string; name: string; mime: string; size: number } | null; markers?: OnCallMarker[] };
 export const onCallMapUrl = (propertyId: string, external: boolean) => `${apiBaseUrl}/on-call/${external ? "share/" : ""}properties/${encodeURIComponent(propertyId)}/map`;
 export type OnCallShift = { id: string; personId: string; backupId: string; propertyIds: string[]; start: string; end: string; notes: string };
-export type OnCallRotation = { enabled: boolean; startDate: string; weekday: number; at: string; personIds: string[]; propertyIds: string[] };
+export type OnCallRotation = { enabled: boolean; startDate: string; startPersonId?: string; weekday: number; at: string; personIds: string[]; propertyIds: string[] };
 export type OnCallCoverageChange = { id: string; personId: string; start: string; end: string; reason: string };
 export type OnCallData = { title: string; timeZone: string; people: OnCallPerson[]; properties: OnCallProperty[]; shifts: OnCallShift[]; rotation?: OnCallRotation | null; coverageChanges?: OnCallCoverageChange[] };
 export type OnCallSchedule = { shifts: OnCallShift[]; from: string; through: string };
