@@ -4,7 +4,9 @@
 
 Admin: Setup > Properties > select a property > Branding > **Edit / Preview Final-Walk Report**. Save property/company logo changes before opening.
 
-Local follow-up (2026-09-08, not deployed): assigned independent inspectors can open **My Work > Inspect or hand off > Inspection details / report** for their own turn. They can save inspection details while in FINAL WALK, and review/export drafts after completion. Handoff revokes the previous inspector's access. Only admins can edit property wording/style or browse all property turns; API tokens cannot use these endpoints. Resident-only code fields are available to the assigned inspector, not all staff on the property. See [role workflow audit](TURN_WORKFLOW_AUDIT.md).
+For completed units, the **Edit / download final-walk report** shortcut is at the top of the unit drawer on both desktop and mobile; no scrolling to the final-walk section is needed.
+
+Assigned independent inspectors can open **My Work > Inspect or hand off > Inspection details / report** for their own turn. After completion, open **Table > Ready Units > open unit > Final walk > Inspection details / report**. Leasing and managers with property access, admins, and the assigned independent inspector can edit and download the completed unit's report even after it leaves My Work. Ready units imported without an inspection assignment are also accessible to leasing/management, but readiness never supplies missing inspection evidence. Pending inspections still require the assigned inspector (or admin); handoff revokes the previous inspector's access while pending. Only admins can edit property wording/style or browse all property turns in this editor. API tokens cannot use these endpoints. See [role workflow audit](TURN_WORKFLOW_AUDIT.md).
 
 The editor provides:
 
@@ -20,7 +22,7 @@ The editor provides:
 
 ## Output And Data Boundaries
 
-This is a **draft workspace**, not an immutable issued-inspection record. PDFs remain labeled DRAFT / NOT FINALIZED / NOT FOR RESIDENT ISSUE. Saving alone does not mark a unit ready. Normal Mark ready requires the separate tech and final checks, an inspection date, confirmed handoff counts and no outstanding findings/corrections. Manager/admin completion overrides remain explicitly separate from inspection evidence.
+Preview and **Download draft PDF** retain DRAFT / NOT FINALIZED / NOT FOR RESIDENT ISSUE labels and may include unsaved form values. **Download resident PDF** is available prominently for Ready units and uses only the saved revision, saved branding and directory mailbox. It requires all eight technician checks and nine final checks recorded as Checked or N/A, an inspection date, numeric confirmed handoff counts, and no pending corrections. Stale revisions and incomplete records are rejected. The one-page resident copy records exporter, export time and saved revision; it is a preparation summary, not a signed certification or immutable issued record. Export is audited without recording access codes in activity history. Save changes before exporting. Saving a completed unit's report does not reopen or reapprove it. Manager/admin completion overrides remain explicitly separate from inspection evidence.
 
 **Save and send corrections to technician** records internal findings, notifies the assigned active technician, and creates a correction assignment in My Work. It reopens technician repairs but retains painting/cleaning statuses. The technician records a resolution in Work, then marks repairs Done; the previous eligible inspector receives the recheck. The inspector must recheck findings and confirm handoff before approval. Internal request/resolution text and legacy follow-up text do not print on resident reports. The report endpoint cannot overwrite technician preparation evidence.
 
@@ -37,6 +39,7 @@ Endpoints:
 - PUT `/api/final-walk-reports/:propertyId/settings`
 - PUT `/api/final-walk-reports/:propertyId/items/:itemId`
 - POST `/api/final-walk-reports/:propertyId/items/:itemId/return-to-tech`
+- POST `/api/final-walk-reports/:propertyId/items/:itemId/resident-pdf` (saved `version`, base64 PDF)
 - POST `/api/final-walk-reports/:propertyId/preview` (`html` or base64-encoded `pdf` response)
 
 ## Still Separate

@@ -3,11 +3,11 @@ import { z } from "zod";
 import { allowedPropertyIds, requireAdmin } from "../lib/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
-import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, technicianChecks, reportDraftSchema, reportSections, reportSettingsSchema, resolveReportMailbox, savedReportDraftSchema, savedReportSettingsSchema } from "../lib/finalWalkReport.js";
+import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, technicianChecks, reportDraftSchema, reportSections, reportSettingsSchema, residentReportBlockers, resolveReportMailbox, savedReportDraftSchema, savedReportSettingsSchema } from "../lib/finalWalkReport.js";
 import { createNotification } from "../lib/notifications.js";
 import { syncTurnCodes } from "../lib/unitAccessCodes.js";
 import { finalWalkCategory } from "../lib/finalWalks.js";
-import { awaitingFinalWalk, turnApproved, type TurnStages } from "../lib/turnStatus.js";
+import { awaitingFinalWalk, isTurnReady, turnApproved, type TurnStages } from "../lib/turnStatus.js";
 
 async function inspectorAccess(request: FastifyRequest, db: typeof prisma | import("@prisma/client").Prisma.TransactionClient, propertyId: string, itemId?: string, editing = false) {
   const user = request.currentUser;
@@ -15,9 +15,10 @@ async function inspectorAccess(request: FastifyRequest, db: typeof prisma | impo
   if (user.role === "ADMIN") return;
   if (!itemId || !["MANAGER", "LEASING", "TECH"].includes(user.role)) throw Object.assign(new Error("Only the assigned inspector can access this report"), { statusCode: 403 });
   const item = await db.makeReadyItem.findFirst({ where: { id: itemId, propertyId, isArchived: false } });
+  if (item && isTurnReady(item) && ["MANAGER", "LEASING"].includes(user.role)) return;
   const block = item && await db.workAssignmentBlock.findFirst({ where: { itemId, category: finalWalkCategory, status: { in: ["PLANNED", "IN_PROGRESS", "DONE"] } }, orderBy: { createdAt: "desc" } });
-  if (!item || !block || block.assignedUserId !== user.id || item.assignedTech?.trim().toLowerCase() === user.fullName.trim().toLowerCase() || (editing ? !awaitingFinalWalk(item) || block.status === "DONE" : !awaitingFinalWalk(item) && !turnApproved(item))) {
-    throw Object.assign(new Error("Only the assigned independent inspector can access this report; completed walks are read-only"), { statusCode: 403 });
+  if (!item || !block || block.assignedUserId !== user.id || item.assignedTech?.trim().toLowerCase() === user.fullName.trim().toLowerCase() || (!awaitingFinalWalk(item) && !isTurnReady(item)) || (editing && !isTurnReady(item) && block.status === "DONE")) {
+    throw Object.assign(new Error("Report access requires the assigned independent inspector, or leasing/management access to a ready unit"), { statusCode: 403 });
   }
 }
 
@@ -102,13 +103,13 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     const reviewer = item ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory }, orderBy: { createdAt: "desc" }, select: { assignedUser: { select: { fullName: true } } } }) : null;
     return {
       canEditSettings: request.currentUser!.role === "ADMIN",
-      canEditDraft: request.currentUser!.role === "ADMIN" || Boolean(item && awaitingFinalWalk(item)),
+      canEditDraft: request.currentUser!.role === "ADMIN" || Boolean(item && (awaitingFinalWalk(item) || isTurnReady(item))),
       property: { id: property.id, name: property.name, code: property.code },
       settings: settings.success ? settings.data : { version: 0, value: defaultReportSettings },
       draft: draft.success ? { ...draft.data, value: resolveReportMailbox(draft.data.value, mailbox) } : { version: 0, value: resolveReportMailbox(await initialReportDraft(item), mailbox), updatedAt: null },
       sections: reportSections.map(section => ({ id: section.id, title: section.title })), checks: reportChecks, technicianChecks,
       items: await prisma.makeReadyItem.findMany({ where: { propertyId: property.id, isArchived: false, ...(request.currentUser!.role === "ADMIN" ? {} : { id: itemId }) }, select: { id: true, unitNumber: true, boardGroup: true }, orderBy: { unitNumber: "asc" } }),
-      item: item ? { id: item.id, unitNumber: item.unitNumber, directoryMailbox: mailbox, technician: item.assignedTech, reviewer: reviewer?.assignedUser.fullName ?? null, checklists: item.checklistInstances } : null,
+      item: item ? { id: item.id, unitNumber: item.unitNumber, unitReady: isTurnReady(item), directoryMailbox: mailbox, technician: item.assignedTech, reviewer: reviewer?.assignedUser.fullName ?? null, checklists: item.checklistInstances } : null,
     };
   });
   app.put("/final-walk-reports/:propertyId/settings", async (request, reply) => {
@@ -176,6 +177,27 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
       await db.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: property.id, entityType: "MAKE_READY_ITEM", entityId: itemId, action: "FINAL_WALK_RETURNED_TO_TECH", message: "Returned inspection to assigned technician for corrections; painting and cleaning statuses retained", metadata: { version: draft.version, assignedUserId: staff[0].id } } });
       return { returned: true };
     });
+  });
+  app.post("/final-walk-reports/:propertyId/items/:itemId/resident-pdf", async (request, reply) => {
+    const { itemId } = z.object({ itemId: z.string().min(1) }).parse(request.params);
+    const property = await context(request, reply, itemId); if (!property) return;
+    const input = z.object({ version: z.number().int().positive() }).strict().parse(request.body);
+    const item = await findItem(property.id, itemId);
+    if (!isTurnReady(item)) throw Object.assign(new Error("Mark the unit ready before downloading its resident report."), { statusCode: 409 });
+    const saved = savedReportDraftSchema.safeParse(item.finalWalkReportDraft?.payload);
+    if (!saved.success || saved.data.version !== input.version) throw Object.assign(new Error("Save or reload the inspection before downloading its resident report."), { statusCode: 409 });
+    const blockers = residentReportBlockers(saved.data.value);
+    if (blockers.length) throw Object.assign(new Error(`Resident report needs completed inspection records: ${blockers.join("; ")}`), { statusCode: 409 });
+    const settings = savedReportSettingsSchema.safeParse(property.branding?.finalWalkReportSettings);
+    const html = finalWalkReportHtml({ propertyName: property.name, propertyCode: property.code, propertyLogo: property.branding?.logo ?? null, companyName: property.branding?.managementCompany?.name ?? null, companyLogo: property.branding?.managementCompany?.logo ?? null, unitNumber: item.unitNumber, technician: item.assignedTech, reviewer: null }, settings.success ? settings.data.value : defaultReportSettings, resolveReportMailbox(saved.data.value, await directoryMailbox(item)), { exportedBy: request.currentUser!.fullName, exportedAt: new Date().toISOString(), revision: saved.data.version });
+    const pdf = await renderPdfFromHtml(html, { singlePage: true });
+    // Rendering can take seconds. Do not return an obsolete report if the turn changed meanwhile.
+    const latest = await findItem(property.id, itemId);
+    const latestDraft = savedReportDraftSchema.safeParse(latest.finalWalkReportDraft?.payload);
+    if (!isTurnReady(latest) || !latestDraft.success || latestDraft.data.version !== input.version) throw Object.assign(new Error("The turn changed while generating the report. Reload and try again."), { statusCode: 409 });
+    await inspectorAccess(request, prisma, property.id, itemId);
+    await prisma.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: property.id, entityType: "MAKE_READY_ITEM", entityId: itemId, action: "FINAL_WALK_RESIDENT_REPORT_EXPORTED", message: "Exported resident inspection summary from saved records; no status change or electronic signature", metadata: { version: input.version } } });
+    return { pdfBase64: pdf.toString("base64") };
   });
   app.post("/final-walk-reports/:propertyId/preview", async (request, reply) => {
     const requestedItem = z.object({ itemId: z.string().optional() }).safeParse(request.body);

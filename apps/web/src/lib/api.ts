@@ -37,12 +37,13 @@ export type FinalReportData = {
   checks: { id: string; section: string; label: string }[];
   technicianChecks: { id: string; label: string }[];
   items: { id: string; unitNumber: string; boardGroup: string }[];
-  item: { id: string; unitNumber: string; directoryMailbox: string | null; technician: string | null; reviewer: string | null; checklists: { id: string; name: string; items: { id: string; title: string; completed: boolean; completedAt: string | null }[] }[] } | null;
+  item: { id: string; unitNumber: string; unitReady: boolean; directoryMailbox: string | null; technician: string | null; reviewer: string | null; checklists: { id: string; name: string; items: { id: string; title: string; completed: boolean; completedAt: string | null }[] }[] } | null;
 };
 export const getFinalReport = (propertyId: string, itemId?: string) => request<FinalReportData>(`/final-walk-reports/${propertyId}${itemId ? `?itemId=${encodeURIComponent(itemId)}` : ""}`);
 export const saveFinalReportSettings = (propertyId: string, input: FinalReportData["settings"]) => request<FinalReportData["settings"]>(`/final-walk-reports/${propertyId}/settings`, { method: "PUT", body: JSON.stringify(input) });
 export const saveFinalReportDraft = (propertyId: string, itemId: string, input: { version: number; value: FinalReportDraft }) => request<FinalReportData["draft"]>(`/final-walk-reports/${propertyId}/items/${itemId}`, { method: "PUT", body: JSON.stringify(input) });
 export const returnFinalWalkToTech = (propertyId: string, itemId: string, version: number) => request<{ returned: boolean }>(`/final-walk-reports/${propertyId}/items/${itemId}/return-to-tech`, { method: "POST", body: JSON.stringify({ version }) });
+export const downloadResidentReport = (propertyId: string, itemId: string, version: number) => request<{ pdfBase64: string }>(`/final-walk-reports/${propertyId}/items/${itemId}/resident-pdf`, { method: "POST", body: JSON.stringify({ version }) });
 export const previewFinalReport = (propertyId: string, input: { itemId?: string; settings: FinalReportSettings; draft: FinalReportDraft; format: "html" | "pdf" }) => request<{ html?: string; pdfBase64?: string }>(`/final-walk-reports/${propertyId}/preview`, { method: "POST", body: JSON.stringify(input) });
 export type MailboxDirectory = { property: { id: string; code: string; name: string }; units: { id: string; number: string; mailboxNumber: string | null }[] };
 export type MailboxPlan = { token: string; applied: boolean; errors: string[]; changes: { id: string; number: string; before: string | null; after: string; action: "UPDATE" | "KEEP" | "UNCHANGED" | "SKIP" }[] };

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, technicianChecks, reportDraftSchema, reportSettingsSchema } from "./finalWalkReport.js";
+import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, technicianChecks, reportDraftSchema, reportSettingsSchema, residentReportBlockers } from "./finalWalkReport.js";
 
 test("final-walk separates nine presentation checks from eight technician checks", () => {
   assert.equal(reportChecks.length, 9);
@@ -50,10 +50,33 @@ test("report endpoints reject out-of-scope staff and API tokens before database 
   try {
     for (const value of ["MANAGER", "LEASING", "TECH", "CLEANER", "VIEWER", "ADMIN"]) {
       role = value; token = value === "ADMIN";
-      for (const [method, suffix] of [["GET", ""], ["PUT", "/settings"], ["PUT", "/items/item"], ["POST", "/preview"], ["POST", "/items/item/return-to-tech"]] as const) {
+      for (const [method, suffix] of [["GET", ""], ["PUT", "/settings"], ["PUT", "/items/item"], ["POST", "/preview"], ["POST", "/items/item/return-to-tech"], ["POST", "/items/item/resident-pdf"]] as const) {
         const response = await app.inject({ method, url: `/final-walk-reports/outside${suffix}` });
         assert.equal(response.statusCode, 403, response.body);
       }
     }
   } finally { await app.close(); }
+});
+
+test("resident report requires evidence and never invents signatures or includes internal notes", () => {
+  const context = { propertyName: "Property", propertyCode: "P", companyName: "Company", propertyLogo: null, companyLogo: null, unitNumber: "163", technician: "Tech", reviewer: null };
+  const publication = { exportedBy: "Leasing <staff>", exportedAt: "2026-09-15T12:00:00Z", revision: 3 };
+  const draft = emptyReportDraft();
+  assert.ok(residentReportBlockers(draft).length > 0);
+  assert.throws(() => finalWalkReportHtml(context, defaultReportSettings, draft, publication));
+  Object.assign(draft, { inspectionDate: "2026-09-15", handoffConfirmed: true, homeKeys: "2", mailboxKeys: "2", fobs: "0", remotes: "0", technicianFollowUp: "private note" });
+  for (const check of technicianChecks) draft.technicianResults[check.id] = { status: "CHECKED", note: "" };
+  for (const check of reportChecks) draft.results[check.id] = { status: "CHECKED", note: "" };
+  assert.deepEqual(residentReportBlockers(draft), []);
+  const html = finalWalkReportHtml(context, defaultReportSettings, draft, publication);
+  assert.ok(!html.includes("NOT FOR RESIDENT ISSUE"));
+  assert.ok(!html.includes("private note"));
+  assert.ok(html.includes("Saved revision 3"));
+  assert.ok(html.includes("Leasing &lt;staff&gt;"));
+  assert.ok(html.includes("not a signed certification"));
+  draft.correctionPending = true;
+  assert.ok(residentReportBlockers(draft).length);
+  draft.correctionPending = false;
+  draft.results[reportChecks[0].id].status = "ATTENTION";
+  assert.ok(residentReportBlockers(draft).length);
 });
