@@ -17,7 +17,7 @@ export const savePropertyBranding = (id: string, input: { managementCompanyId: s
 export type FinalReportSettings = { title: string; introduction: string; footer: string; accent: string };
 export type FinalReportResult = { status: "NOT_CHECKED" | "CHECKED" | "ATTENTION" | "NA"; note: string };
 export type FinalReportDraft = { inspectionDate: string; results: Record<string, FinalReportResult>; mailbox: string; mailboxSource?: "DIRECTORY" | "CUSTOM"; homeKeys: string; mailboxKeys: string; fobs: string; remotes: string; parking: string; followUp: string; residentDoorCode: string; residentAccessCode: string; includeResidentCodes: boolean };
-export type ResidentCodes = { version: number; value: Pick<FinalReportDraft, "residentDoorCode" | "residentAccessCode" | "includeResidentCodes">; updatedAt: string | null; readOnly: boolean };
+export type ResidentCodes = { version: number; value: Pick<FinalReportDraft, "residentDoorCode" | "residentAccessCode" | "includeResidentCodes" | "mailbox" | "mailboxSource" | "mailboxKeys">; updatedAt: string | null; readOnly: boolean };
 export const getResidentCodes = (itemId: string) => request<ResidentCodes>(`/make-ready-items/${itemId}/resident-codes`);
 export const saveResidentCodes = (itemId: string, input: Pick<ResidentCodes, "version" | "value">) => request<ResidentCodes>(`/make-ready-items/${itemId}/resident-codes`, { method: "PUT", body: JSON.stringify(input) });
 export type FinalReportData = {
