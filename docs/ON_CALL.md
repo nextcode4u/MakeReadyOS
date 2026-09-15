@@ -1,7 +1,5 @@
 # Shared On-Call Workspace
 
-Local implementation; not deployed. Requires migration `20260915020000_on_call_workspace` and matching API/web images.
-
 ## Access Model
 
 - Signed-in staff of every role can open the On-call module without a shared code. Managers and admins can manage it. API tokens cannot access its internal endpoints.
