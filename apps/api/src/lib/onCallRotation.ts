@@ -32,6 +32,7 @@ export function onCallSchedule(data: OnCallData, now = Date.now()) {
   const rows = [...data.shifts];
   const rotation = data.rotation;
   if (rotation?.enabled) {
+    const startIndex = Math.max(0, rotation.personIds.indexOf(rotation.startPersonId ?? rotation.personIds[0]));
     const weekday = new Date(`${rotation.startDate}T12:00:00Z`).getUTCDay();
     const anchor = addDays(rotation.startDate, (rotation.weekday - weekday + 7) % 7);
     const anchorInstant = handoffInstant(anchor, rotation.at, data.timeZone);
@@ -61,7 +62,7 @@ export function onCallSchedule(data: OnCallData, now = Date.now()) {
         const propertyIds = rotation.propertyIds.filter(id => !manual.some(shift => shift.propertyIds.includes(id) && shift.start <= a && shift.end > a));
         if (!propertyIds.length) continue;
         const exception = exceptions.find(change => change.start <= a && change.end > a);
-        rows.push({ id: stableId(`${a}/${b}/${propertyIds.join(",")}`), start: a, end: b, personId: exception?.personId ?? rotation.personIds[index % rotation.personIds.length], backupId: "", propertyIds, notes: exception ? "Coverage change" : "Weekly rotation" });
+        rows.push({ id: stableId(`${a}/${b}/${propertyIds.join(",")}`), start: a, end: b, personId: exception?.personId ?? rotation.personIds[(startIndex + index) % rotation.personIds.length], backupId: "", propertyIds, notes: exception ? "Coverage change" : "Weekly rotation" });
       }
     }
   }
