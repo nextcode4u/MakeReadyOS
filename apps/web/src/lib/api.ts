@@ -4660,6 +4660,17 @@ export function deletePoolLogAttachment(id: string) {
   return request<{ ok: true }>(`/pool/attachments/${id}`, { method: "DELETE" });
 }
 
+export type PmInspectionDate = { unitId: string; number: string; building: string | null; dueDate: string };
+export function getPmStarters(propertyId: string) {
+  return request<{ starters: { key: string; name: string; instructions: string; frequency: PreventiveMaintenanceFrequency }[]; units: { id: string; number: string }[]; installed: { starterKey: string; isActive: boolean; isArchived: boolean }[] }>(`/pm/starters?propertyId=${encodeURIComponent(propertyId)}`);
+}
+export function previewPmInspections(input: { propertyId: string; from: string; to: string; weekdays: number[] }) {
+  return request<{ plan: PmInspectionDate[] }>("/pm/starters/preview", { method: "POST", body: JSON.stringify(input) });
+}
+export function applyPmStarter(input: { propertyId: string; key: string; enabled: boolean; frequency: PreventiveMaintenanceFrequency; firstDueDate: string; customEveryDays?: number; unitDates?: { unitId: string; dueDate: string }[] }) {
+  return request<{ updated: number; enabled: boolean }>("/pm/starters/apply", { method: "POST", body: JSON.stringify(input) });
+}
+
 export function getPreventiveMaintenanceOverview(propertyId?: string) {
   const params = new URLSearchParams();
   if (propertyId) params.set("propertyId", propertyId);

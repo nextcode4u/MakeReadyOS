@@ -28,6 +28,14 @@ test("PM template edits cannot transfer generated work between properties", asyn
   app.addHook("onRequest", async request => { request.currentUser = actor; request.apiToken = token; });
   await app.register(preventiveMaintenanceRoutes);
   t.after(() => app.close());
+  await t.test("starter configuration enforces manager role and property scope", async () => {
+    const payload = { propertyId: "outside", key: "lighting", enabled: true, frequency: "Weekly", firstDueDate: "2026-10-01" };
+    actor = { id: "tech", role: "TECH", propertyAccess: [{ propertyId: "outside" }] };
+    assert.equal((await app.inject({ method: "POST", url: "/pm/starters/apply", payload })).statusCode, 403);
+    actor = { id: "manager", role: "MANAGER", propertyAccess: [{ propertyId: "allowed" }] };
+    assert.equal((await app.inject({ method: "POST", url: "/pm/starters/apply", payload })).statusCode, 403);
+    assert.equal((await app.inject({ method: "POST", url: "/pm/starters/preview", payload: { propertyId: "outside", from: "2026-10-01", to: "2026-12-31", weekdays: [1] } })).statusCode, 403);
+  });
   const send = (payload: object) => app.inject({ method: "PATCH", url: "/pm/templates/template", payload });
   for (const role of ["MANAGER", "ADMIN"]) {
     await t.test(`${role} cannot move a template to another property`, async () => {

@@ -14,6 +14,7 @@ import { prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { notifyPropertyRoles } from "../lib/notifications.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
+import { renderPoolReport, poolObservationFields } from "../lib/poolReport.js";
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
@@ -195,19 +196,6 @@ function endOfDay(value = new Date()) {
 
 function sanitizeFilename(filename: string) {
   return basename(filename).replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 180) || "pool-attachment";
-}
-
-function htmlEscape(value: unknown) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function formatDisplayDate(value: Date | null | undefined) {
-  return value ? value.toLocaleDateString() : "";
 }
 
 async function reportScopeLabel(propertyId: string | undefined) {
@@ -826,47 +814,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
       orderBy: [{ logDate: "desc" }, { createdAt: "desc" }],
     });
     const scopeLabel = await reportScopeLabel(query.propertyId);
-    const reviewCount = entries.filter((entry) => ["REVIEW", "INCOMPLETE"].includes((entry.evaluationJson as { status?: string } | null)?.status ?? "") || entry.safetyChecks.some((check) => check.value === "FAIL")).length;
-    const rows = entries.map((entry) => {
-      const evaluation = entry.evaluationJson as { status?: string; issues?: Array<{ message?: string }> } | null;
-      return `<tr>
-        <td>${htmlEscape(entry.property.code)}</td>
-        <td>${htmlEscape(entry.facility.name)}</td>
-        <td>${htmlEscape(formatDisplayDate(entry.logDate))}</td>
-        <td>${htmlEscape(entry.logTime ?? "")}</td>
-        <td>${htmlEscape(entry.technicianName ?? "")}</td>
-        <td>${htmlEscape(entry.ph ?? "")}</td>
-        <td>${htmlEscape(entry.freeChlorine ?? "")}</td>
-        <td>${htmlEscape(entry.combinedChlorine ?? "")}</td>
-        <td>${htmlEscape(evaluation?.status ?? "Logged")}</td>
-        <td>${htmlEscape((evaluation?.issues ?? []).map((issue) => issue.message ?? "").join("; "))}</td>
-        <td>${htmlEscape(entry.safetyChecks.filter((check) => check.value === "FAIL").map((check) => check.label).join("; "))}</td>
-        <td>${htmlEscape(entry.chemicalAdditions.map((addition) => `${addition.chemicalName} ${formatChemicalAdditionAmount(addition.amount, addition.unit)}`).join("; "))}</td>
-        <td>${htmlEscape(entry.attachments.length)}</td>
-      </tr>`;
-    }).join("");
-    const html = `<!doctype html>
-      <html><head><meta charset="utf-8"><title>MakeReadyOS Pool Log Report</title>
-      <style>
-        body{font-family:Arial,sans-serif;color:#111827;margin:24px}
-        h1{margin:0 0 4px} .muted{color:#4b5563}
-        .summary{display:flex;gap:12px;margin:18px 0;flex-wrap:wrap}
-        .card{border:1px solid #d1d5db;border-radius:8px;padding:10px 14px}
-        .card strong{display:block;font-size:22px}
-        table{width:100%;border-collapse:collapse;font-size:12px}
-        th,td{border:1px solid #d1d5db;padding:6px;text-align:left;vertical-align:top}
-        th{background:#f3f4f6}
-        @media print{button{display:none}body{margin:12px}}
-      </style></head><body>
-      <button onclick="window.print()">Print / Save PDF</button>
-      <h1>MakeReadyOS Pool Log Report</h1>
-      <p class="muted">${htmlEscape(scopeLabel)} | Generated ${htmlEscape(new Date().toLocaleString())}</p>
-      <div class="summary">
-        <div class="card"><strong>${entries.length}</strong><span>Log entries</span></div>
-        <div class="card"><strong>${reviewCount}</strong><span>Review entries</span></div>
-      </div>
-      <table><thead><tr><th>Property</th><th>Pool/Spa</th><th>Date</th><th>Time</th><th>Tech</th><th>pH</th><th>FC</th><th>CC</th><th>Status</th><th>Chemistry issues</th><th>Safety failures</th><th>Chemicals</th><th>Files</th></tr></thead><tbody>${rows || "<tr><td colspan=\"13\">No pool logs found.</td></tr>"}</tbody></table>
-      </body></html>`;
+    const html = renderPoolReport(entries, scopeLabel, formatChemicalAdditionAmount, { ...query, printable: true });
     reply.header("content-type", "text/html; charset=utf-8");
     return html;
   });
@@ -886,46 +834,8 @@ export async function poolLogRoutes(app: FastifyInstance) {
       orderBy: [{ logDate: "desc" }, { createdAt: "desc" }],
     });
     const scopeLabel = await reportScopeLabel(query.propertyId);
-    const reviewCount = entries.filter((entry) => ["REVIEW", "INCOMPLETE"].includes((entry.evaluationJson as { status?: string } | null)?.status ?? "") || entry.safetyChecks.some((check) => check.value === "FAIL")).length;
-    const rows = entries.map((entry) => {
-      const evaluation = entry.evaluationJson as { status?: string; issues?: Array<{ message?: string }> } | null;
-      return `<tr>
-        <td>${htmlEscape(entry.property.code)}</td>
-        <td>${htmlEscape(entry.facility.name)}</td>
-        <td>${htmlEscape(formatDisplayDate(entry.logDate))}</td>
-        <td>${htmlEscape(entry.logTime ?? "")}</td>
-        <td>${htmlEscape(entry.technicianName ?? "")}</td>
-        <td>${htmlEscape(entry.ph ?? "")}</td>
-        <td>${htmlEscape(entry.freeChlorine ?? "")}</td>
-        <td>${htmlEscape(entry.combinedChlorine ?? "")}</td>
-        <td>${htmlEscape(evaluation?.status ?? "Logged")}</td>
-        <td>${htmlEscape((evaluation?.issues ?? []).map((issue) => issue.message ?? "").join("; "))}</td>
-        <td>${htmlEscape(entry.safetyChecks.filter((check) => check.value === "FAIL").map((check) => check.label).join("; "))}</td>
-        <td>${htmlEscape(entry.chemicalAdditions.map((addition) => `${addition.chemicalName} ${formatChemicalAdditionAmount(addition.amount, addition.unit)}`).join("; "))}</td>
-        <td>${htmlEscape(entry.attachments.length)}</td>
-      </tr>`;
-    }).join("");
-    const html = `<!doctype html>
-      <html><head><meta charset="utf-8"><title>MakeReadyOS Pool Log Report</title>
-      <style>
-        body{font-family:Arial,sans-serif;color:#111827;margin:24px}
-        h1{margin:0 0 4px} .muted{color:#4b5563}
-        .summary{display:flex;gap:12px;margin:18px 0;flex-wrap:wrap}
-        .card{border:1px solid #d1d5db;border-radius:8px;padding:10px 14px}
-        .card strong{display:block;font-size:22px}
-        table{width:100%;border-collapse:collapse;font-size:12px}
-        th,td{border:1px solid #d1d5db;padding:6px;text-align:left;vertical-align:top}
-        th{background:#f3f4f6}
-      </style></head><body>
-      <h1>MakeReadyOS Pool Log Report</h1>
-      <p class="muted">${htmlEscape(scopeLabel)} | Generated ${htmlEscape(new Date().toLocaleString())}</p>
-      <div class="summary">
-        <div class="card"><strong>${entries.length}</strong><span>Log entries</span></div>
-        <div class="card"><strong>${reviewCount}</strong><span>Review entries</span></div>
-      </div>
-      <table><thead><tr><th>Property</th><th>Pool/Spa</th><th>Date</th><th>Time</th><th>Tech</th><th>pH</th><th>FC</th><th>CC</th><th>Status</th><th>Chemistry issues</th><th>Safety failures</th><th>Chemicals</th><th>Files</th></tr></thead><tbody>${rows || "<tr><td colspan=\"13\">No pool logs found.</td></tr>"}</tbody></table>
-      </body></html>`;
-    const pdf = await renderPdfFromHtml(html);
+    const html = renderPoolReport(entries, scopeLabel, formatChemicalAdditionAmount, { ...query, printable: false });
+    const pdf = await renderPdfFromHtml(html, { footerTemplate: '<div style="font-size:9px;width:100%;text-align:center;color:#50616f">MakeReadyOS Pool Log &middot; Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>' });
     reply.header("content-type", "application/pdf");
     reply.header("content-disposition", `inline; filename="${sanitizeFilename(`makereadyos-${scopeLabel}-pool-log-report.pdf`)}"`);
     return reply.send(pdf);
@@ -1008,12 +918,12 @@ export async function poolLogRoutes(app: FastifyInstance) {
         propertyId: query.propertyId ?? { in: allowed },
         ...(query.from || query.to ? { logDate: { ...(query.from ? { gte: dateOnly(new Date(query.from)) } : {}), ...(query.to ? { lte: endOfDay(new Date(query.to)) } : {}) } } : {}),
       },
-      include: { property: true, facility: true, safetyChecks: true, chemicalAdditions: true },
+      include: { property: true, facility: true, safetyChecks: true, chemicalAdditions: true, attachments: true },
       orderBy: [{ logDate: "desc" }, { createdAt: "desc" }],
     });
     const scopeLabel = await reportScopeLabel(query.propertyId);
     const rows = [
-      ["property", "pool_spa", "date", "time", "tech", "ph", "free_chlorine", "combined_chlorine", "total_chlorine", "alkalinity", "cya", "calcium_hardness", "temperature", "status", "issues", "chemical_additions", "notes"],
+      ["property", "pool_spa", "date", "time", "tech", "ph", "free_chlorine", "combined_chlorine", "total_chlorine", "alkalinity", "cya", "calcium_hardness", "temperature", "status", "issues", "chemical_additions", "notes", "concentration_unit", "temperature_unit", ...poolObservationFields.map(([key]) => key), "safety_checks", "attachments", "record_id"],
       ...entries.map((entry) => {
         const evaluation = entry.evaluationJson as { status?: string; issues?: Array<{ message?: string }> } | null;
         return [
@@ -1032,8 +942,14 @@ export async function poolLogRoutes(app: FastifyInstance) {
           entry.waterTemperature ?? "",
           evaluation?.status ?? "",
           (evaluation?.issues ?? []).map((issue) => issue.message ?? "").join("; "),
-          entry.chemicalAdditions.map((addition) => `${addition.chemicalName} ${formatChemicalAdditionAmount(addition.amount, addition.unit)}`).join("; "),
+          entry.chemicalAdditions.map((addition) => `${addition.chemicalName} ${formatChemicalAdditionAmount(addition.amount, addition.unit)}${addition.notes ? ` - ${addition.notes}` : ""}`).join("; "),
           entry.notes ?? "",
+          "ppm (pH is unitless)",
+          "Not recorded",
+          ...poolObservationFields.map(([key]) => entry[key] ? "Yes" : "Not marked"),
+          entry.safetyChecks.map(check => `${check.label}: ${check.value}${check.notes ? ` - ${check.notes}` : ""}`).join("; "),
+          entry.attachments.map(file => file.originalName).join("; "),
+          entry.id,
         ];
       }),
     ];

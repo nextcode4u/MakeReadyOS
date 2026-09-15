@@ -175,6 +175,7 @@ model Unit {
   pestIssues      PestIssue[]
   leaseComplianceIssues LeaseComplianceIssue[]
   mapLocations    UnitMapLocation[]
+  preventiveMaintenanceTemplates PreventiveMaintenanceTemplate[]
 
   @@unique([propertyId, number])
   @@index([floorPlanId])
@@ -2064,6 +2065,10 @@ model PreventiveMaintenanceTemplate {
   description      String?
   instructions     String?
   frequency        String
+  starterKey       String?
+  unitId           String?
+  unit             Unit?                       @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  firstDueDate     DateTime?
   customEveryDays  Int?
   annualMonth      Int?
   annualDay        Int?
@@ -2087,6 +2092,7 @@ model PreventiveMaintenanceTemplate {
   @@index([propertyId, isArchived, isActive])
   @@index([propertyId, category])
   @@index([propertyId, frequency])
+  @@unique([propertyId, starterKey])
   @@index([propertyId, assignedRole, assignedUserId])
 }
 

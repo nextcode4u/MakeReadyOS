@@ -12,6 +12,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { createNotification, notifyPropertyRoles } from "../lib/notifications.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
+import { pmDate, pmFrequency, pmStarters, planUnitInspectionDates, nextPmStarterDate } from "../lib/pmStarters.js";
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
@@ -234,7 +235,9 @@ function initialDueDate(template: {
   frequency: string;
   annualMonth: number | null;
   annualDay: number | null;
+  firstDueDate?: Date | null;
 }) {
+  if (template.firstDueDate) return template.firstDueDate;
   const today = startOfDay();
   if (template.frequency === "Annual" && template.annualMonth && template.annualDay) {
     const next = new Date(today.getFullYear(), template.annualMonth - 1, template.annualDay);
@@ -256,8 +259,8 @@ async function syncTaskStatuses(tasks: Array<{ id: string; status: string; dueDa
     .map((task) => ({ id: task.id, nextStatus: derivedTaskStatus(task) }))
     .filter((task) => task.nextStatus !== tasks.find((entry) => entry.id === task.id)?.status);
   if (!updates.length) return;
-  await Promise.all(updates.map((update) => prisma.preventiveMaintenanceTask.update({
-    where: { id: update.id },
+  await Promise.all(updates.map((update) => prisma.preventiveMaintenanceTask.updateMany({
+    where: { id: update.id, status: { in: ["UPCOMING", "DUE", "OVERDUE"] } },
     data: { status: update.nextStatus },
   })));
 }
@@ -276,8 +279,23 @@ async function createTaskFromTemplate(template: {
   photosRequired: boolean;
   notesRequired: boolean;
   passFailRequired: boolean;
+  isActive?: boolean;
+  isArchived?: boolean;
+  unitId?: string | null;
 }, dueDate: Date) {
-  const task = await prisma.preventiveMaintenanceTask.create({
+  if (template.isActive === false || template.isArchived) return null;
+  if (template.unitId && !await prisma.unit.findFirst({ where: { id: template.unitId, propertyId: template.propertyId, isActive: true } })) return null;
+  const task = await prisma.$transaction(async db => {
+    await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${template.id}))::text`;
+    const current = await db.preventiveMaintenanceTemplate.findUnique({ where: { id: template.id } });
+    if (!current || !current.isActive || current.isArchived) return null;
+    const open = await db.preventiveMaintenanceTask.findFirst({ where: { templateId: template.id, status: { in: ["UPCOMING", "DUE", "OVERDUE"] } } });
+    if (open) return open;
+    const last = await db.preventiveMaintenanceTask.findFirst({ where: { templateId: template.id, status: { in: ["COMPLETED", "SKIPPED"] } }, orderBy: { completedAt: "desc" } });
+    if (last) dueDate = current.firstDueDate
+      ? nextPmStarterDate({ ...current, firstDueDate: current.firstDueDate }, last.dueDate)
+      : templateNextDueDate(current, last.completedAt ?? last.dueDate);
+    return db.preventiveMaintenanceTask.create({
     data: {
       propertyId: template.propertyId,
       templateId: template.id,
@@ -295,8 +313,9 @@ async function createTaskFromTemplate(template: {
       notesRequired: template.notesRequired,
       passFailRequired: template.passFailRequired,
     },
+    });
   });
-  if (task.dueDate <= endOfDay(addDays(new Date(), 7))) {
+  if (task && task.dueDate <= endOfDay(addDays(new Date(), 7))) {
     if (template.assignedUserId) {
       await createNotification({
         userId: template.assignedUserId,
@@ -339,6 +358,8 @@ async function ensureOpenTaskForTemplate(template: {
   passFailRequired: boolean;
   isActive: boolean;
   isArchived: boolean;
+  firstDueDate?: Date | null;
+  unitId?: string | null;
 }) {
   if (!template.isActive || template.isArchived) return null;
   const existing = await prisma.preventiveMaintenanceTask.findFirst({
@@ -362,7 +383,12 @@ async function ensureGeneratedTasks(request: FastifyRequest, propertyId?: string
       isActive: true,
     },
   });
-  return Promise.all(templates.map((template) => ensureOpenTaskForTemplate(template)));
+  const tasks = [];
+  // A directory can create hundreds of templates; avoid exhausting the DB pool.
+  for (let offset = 0; offset < templates.length; offset += 5) {
+    tasks.push(...await Promise.all(templates.slice(offset, offset + 5).map(template => ensureOpenTaskForTemplate(template))));
+  }
+  return tasks;
 }
 
 function taskMatchesQuery(task: {
@@ -420,6 +446,59 @@ async function getPmReportTasks(request: FastifyRequest, query: z.infer<typeof p
 }
 
 export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
+  app.get("/pm/starters", async (request, reply) => {
+    if (!requirePmAccess(request, reply, "view")) return;
+    const { propertyId } = z.object({ propertyId: z.string().min(1) }).parse(request.query);
+    await assertPropertyAccess(request, propertyId);
+    const units = await prisma.unit.findMany({ where: { propertyId, isActive: true }, select: { id: true, number: true, building: true }, orderBy: { number: "asc" } });
+    const installed = await prisma.preventiveMaintenanceTemplate.findMany({ where: { propertyId, starterKey: { not: null } }, select: { id: true, starterKey: true, unitId: true, frequency: true, isActive: true, isArchived: true, firstDueDate: true } });
+    return { starters: pmStarters, units, installed };
+  });
+  app.post("/pm/starters/preview", async (request, reply) => {
+    if (!["ADMIN", "MANAGER"].includes(request.currentUser!.role)) return reply.code(403).send({ message: "Manager or admin access required to plan PM" });
+    const input = z.object({ propertyId: z.string().min(1), from: pmDate, to: pmDate, weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7) }).strict().parse(request.body);
+    await assertPropertyAccess(request, input.propertyId);
+    const units = await prisma.unit.findMany({ where: { propertyId: input.propertyId, isActive: true }, select: { id: true, number: true, building: true } });
+    if (units.length > 2000) return reply.code(400).send({ message: "This planner supports up to 2,000 active units per property" });
+    return { plan: planUnitInspectionDates(units, input.from, input.to, input.weekdays) };
+  });
+  app.post("/pm/starters/apply", async (request, reply) => {
+    if (!["ADMIN", "MANAGER"].includes(request.currentUser!.role)) return reply.code(403).send({ message: "Manager or admin access required to configure PM starters" });
+    const input = z.object({ propertyId: z.string().min(1), key: z.string(), enabled: z.boolean(), frequency: pmFrequency, customEveryDays: z.number().int().min(1).max(365).optional(), firstDueDate: pmDate, unitDates: z.array(z.object({ unitId: z.string().min(1), dueDate: pmDate }).strict()).max(2000).optional() }).strict().parse(request.body);
+    await assertPropertyAccess(request, input.propertyId);
+    const starter = pmStarters.find(row => row.key === input.key);
+    if (!starter) return reply.code(400).send({ message: "Choose an available PM starter" });
+    if (input.frequency === "Custom" && !input.customEveryDays) return reply.code(400).send({ message: "Enter the custom interval in days" });
+    const templates = await prisma.$transaction(async db => {
+      await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`pm-starters:${input.propertyId}`}))::text`;
+      const matching = { propertyId: input.propertyId, OR: [{ starterKey: input.key }, { starterKey: { startsWith: `${input.key}:` } }] };
+      if (!input.enabled) {
+        await db.preventiveMaintenanceTemplate.updateMany({ where: matching, data: { isActive: false, updatedById: request.currentUser!.id } });
+        return [];
+      }
+      const rows: Array<{ unitId: string | null; dueDate: string; number?: string }> = [];
+      if (input.key === "unit-inspection") {
+        if (!input.unitDates?.length || new Set(input.unitDates.map(row => row.unitId)).size !== input.unitDates.length) throw Object.assign(new Error("Preview inspections and select unique units before applying"), { statusCode: 400 });
+        const units = await db.unit.findMany({ where: { propertyId: input.propertyId, isActive: true, id: { in: input.unitDates.map(row => row.unitId) } } });
+        if (units.length !== input.unitDates.length) throw Object.assign(new Error("The unit directory changed or a unit is outside this property. Preview again."), { statusCode: 409 });
+        for (const row of input.unitDates) rows.push({ ...row, number: units.find(unit => unit.id === row.unitId)!.number });
+      } else rows.push({ unitId: null, dueDate: input.firstDueDate });
+      const result = [];
+      for (const row of rows) {
+        const starterKey = row.unitId ? `${input.key}:${row.unitId}` : input.key;
+        const firstDueDate = new Date(`${row.dueDate}T00:00:00Z`);
+        const existing = await db.preventiveMaintenanceTemplate.findUnique({ where: { propertyId_starterKey: { propertyId: input.propertyId, starterKey } } });
+        const schedule = { frequency: input.frequency, customEveryDays: input.frequency === "Custom" ? input.customEveryDays : null, firstDueDate, isActive: true, isArchived: false, updatedById: request.currentUser!.id };
+        const template = existing ? await db.preventiveMaintenanceTemplate.update({ where: { id: existing.id }, data: schedule }) : await db.preventiveMaintenanceTemplate.create({ data: { ...schedule, propertyId: input.propertyId, starterKey, unitId: row.unitId, name: `${starter.name}${row.number ? ` - Unit ${row.number}` : ""}`, category: starter.category, instructions: starter.instructions, assignedRole: input.key === "warranty" ? "MANAGER" : "TECH", notesRequired: true, passFailRequired: input.key !== "warranty", createdById: request.currentUser!.id } });
+        await db.preventiveMaintenanceTask.updateMany({ where: { templateId: template.id, status: { in: ["DUE", "UPCOMING", "OVERDUE"] } }, data: { dueDate: firstDueDate, status: derivedTaskStatus({ status: "UPCOMING", dueDate: firstDueDate }) } });
+        result.push(template);
+      }
+      return result;
+    }, { timeout: 60000 });
+    for (const template of templates) await ensureOpenTaskForTemplate(template);
+    await writeAuditLog({ request, propertyId: input.propertyId, entityType: "PM_STARTER", entityId: input.key, action: "PM_STARTER_CONFIGURED", message: `${input.enabled ? "Enabled/updated" : "Paused"} ${starter.name}; ${templates.length} schedules` });
+    return { updated: templates.length, enabled: input.enabled };
+  });
   app.get("/pm/overview", async (request, reply) => {
     if (!requirePmAccess(request, reply, "view")) return;
     const query = z.object({ propertyId: z.string().optional() }).parse(request.query);
@@ -766,6 +845,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
     });
     if (!task) throw Object.assign(new Error("PM task not found"), { statusCode: 404 });
     await assertPropertyAccess(request, task.propertyId);
+    if (["COMPLETED", "SKIPPED"].includes(task.status)) return reply.code(409).send({ message: "This PM task is already closed" });
     if (task.photosRequired && task.attachments.length === 0) {
       throw Object.assign(new Error("Photo is required before completing this PM task"), { statusCode: 400 });
     }
@@ -777,7 +857,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
     }
     const completedAt = new Date();
     const updated = await prisma.preventiveMaintenanceTask.update({
-      where: { id },
+      where: { id, status: { in: ["DUE", "UPCOMING", "OVERDUE"] } },
       data: {
         status: "COMPLETED",
         completionOutcome: input.outcome,
@@ -788,7 +868,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
       },
       include: { property: true, template: true, attachments: true },
     });
-    await createTaskFromTemplate(updated.template, templateNextDueDate(updated.template, completedAt));
+    await createTaskFromTemplate(updated.template, templateNextDueDate(updated.template, updated.template.firstDueDate ? updated.dueDate : completedAt));
     await writeAuditLog({
       request,
       actorUserId: request.currentUser!.id,
@@ -832,9 +912,10 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
     });
     if (!task) throw Object.assign(new Error("PM task not found"), { statusCode: 404 });
     await assertPropertyAccess(request, task.propertyId);
+    if (["COMPLETED", "SKIPPED"].includes(task.status)) return reply.code(409).send({ message: "This PM task is already closed" });
     const completedAt = new Date();
     const updated = await prisma.preventiveMaintenanceTask.update({
-      where: { id },
+      where: { id, status: { in: ["DUE", "UPCOMING", "OVERDUE"] } },
       data: {
         status: "SKIPPED",
         completionOutcome: "SKIPPED",
@@ -845,7 +926,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
       },
       include: { property: true, template: true, attachments: true },
     });
-    await createTaskFromTemplate(updated.template, templateNextDueDate(updated.template, completedAt));
+    await createTaskFromTemplate(updated.template, templateNextDueDate(updated.template, updated.template.firstDueDate ? updated.dueDate : completedAt));
     await writeAuditLog({
       request,
       actorUserId: request.currentUser!.id,
