@@ -9,6 +9,7 @@ MakeReadyOS roles are operational roles, not just UI labels.
 - `TECH`: assigned maintenance execution, work-status fields, comments/photos, checklist completion, My Work, Assigned Work session start/end for their own assignments, and dashboard visibility.
 - `LEASING`: scoped operational read access plus leasing-facing updates such as applicant, NTV/vacated/move-in dates, vacancy status, comments, Assigned Work visibility, and cross-module progress review for leasing handoff.
 - `CLEANER`: scoped cleaning execution, cleaning/make-ready completion fields, comments/photos, checklist completion, My Work, Assigned Work session start/end for their own assignments, and dashboard visibility.
+- `PAINTER`: scoped on-site painting execution, painting-status/notes updates, comments/photos, checklist completion, planning assignments and My Work. Outside painting companies can remain vendors instead of login accounts.
 - `VIEWER`: read-only scoped access.
 
 ## Implementation Notes
@@ -21,9 +22,16 @@ The current field-edit boundary is intentionally practical:
 - `TECH` can edit maintenance/work execution fields.
 - `LEASING` can edit leasing/date/vacancy fields.
 - `CLEANER` can edit cleaning execution fields.
+- `PAINTER` can edit `paintStatus` and `notes`, not repair completion or overall ready status.
 - `VIEWER` cannot mutate board fields.
 
 Property scoping still applies to every non-admin role through `UserPropertyAccess`.
+
+Keys & Access lookup is available to admins, managers, techs and leasing. Painters
+and cleaners require an admin-enabled per-user keycode-viewing checkbox, off by
+default. Viewers and API tokens are always denied. Bulk import/export and direct directory
+edits require an admin or scoped manager. Reveals and changes are audited without
+including code values. See [Keys & Access](KEYS_AND_ACCESS.md).
 
 Assigned Work follows the same property scope rules. `ADMIN`, scoped `MANAGER`, and scoped `LEASING` users can review who is assigned across Make Ready, Projects, Pest Control, Lease Compliance, and Preventive Maintenance. Assigned operators can start and end their own active work sessions; `ADMIN` and scoped `MANAGER` users can also end an in-progress session when supervision or reassignment requires it.
 

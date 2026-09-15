@@ -271,7 +271,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   const [queueSyncing, setQueueSyncing] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [templateDraft, setTemplateDraft] = useState(templateDraftState);
-  const canEdit = userRole === "ADMIN" || userRole === "MANAGER" || userRole === "TECH" || userRole === "CLEANER";
+  const canEdit = userRole === "ADMIN" || userRole === "MANAGER" || userRole === "TECH" || userRole === "CLEANER" || userRole === "PAINTER";
   const canAdmin = userRole === "ADMIN";
   const range = calendarRange(calendarMode, calendarAnchor);
 

@@ -120,7 +120,7 @@ export const pestRecurringDismissSchema = z.object({
 function pestRoleAccess(role: UserRole) {
   if (role === UserRole.ADMIN) return { view: true, edit: true, admin: true };
   if (role === UserRole.MANAGER || role === UserRole.TECH || role === UserRole.LEASING) return { view: true, edit: true, admin: false };
-  if (role === UserRole.CLEANER || role === UserRole.VIEWER) return { view: true, edit: false, admin: false };
+  if (role === UserRole.CLEANER || role === UserRole.PAINTER || role === UserRole.VIEWER) return { view: true, edit: false, admin: false };
   return { view: false, edit: false, admin: false };
 }
 

@@ -104,6 +104,7 @@ const unitSchema = z.object({
   propertyCode: z.string().min(1),
   number: z.string().min(1),
   mailboxNumber: z.string().max(40).nullable().optional().default(null),
+  accessCodes: z.object({ doorCode: z.string().max(60), accessCode: z.string().max(60), keyCode: z.string().max(60) }).nullable().optional().default(null),
   floorPlanCode: z.string().nullable().optional().default(null),
   floorPlanName: z.string().nullable().optional().default(null),
   floorPlan: z.string().nullable(),
@@ -1311,7 +1312,7 @@ async function buildExport(): Promise<NativeBackup> {
     prisma.scheduleTrack.findMany({ orderBy: [{ sortOrder: "asc" }, { displayName: "asc" }] }),
     prisma.operatingCalendar.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }] }),
     prisma.propertyRiskPolicy.findMany({ include: { property: true }, orderBy: [{ property: { code: "asc" } }] }),
-    prisma.unit.findMany({ include: { property: true, floorPlanRecord: true }, orderBy: [{ property: { code: "asc" } }, { number: "asc" }] }),
+    prisma.unit.findMany({ include: { property: true, floorPlanRecord: true, accessCodes: true }, orderBy: [{ property: { code: "asc" } }, { number: "asc" }] }),
     prisma.makeReadyItem.findMany({ include: { property: true, customFieldValues: true, finalWalkReportDraft: true }, orderBy: { createdAt: "asc" } }),
     prisma.customField.findMany({ where: { deletedAt: null }, include: { options: true }, orderBy: [{ module: "asc" }, { sortOrder: "asc" }] }),
     prisma.savedView.findMany({ where: { isShared: true }, orderBy: { name: "asc" } }),
@@ -1734,6 +1735,7 @@ async function buildExport(): Promise<NativeBackup> {
         propertyCode: unit.property.code,
         number: unit.number,
         mailboxNumber: unit.mailboxNumber,
+        accessCodes: unit.accessCodes ? { doorCode: unit.accessCodes.doorCode, accessCode: unit.accessCodes.accessCode, keyCode: unit.accessCodes.keyCode } : null,
         floorPlanCode: unit.floorPlanRecord?.code ?? null,
         floorPlanName: unit.floorPlanRecord?.name ?? null,
         floorPlan: unit.floorPlan,
@@ -3206,10 +3208,11 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
       } else {
         summary.units.created += 1;
         if (!dryRun && propertyId) {
-          const { propertyCode: _propertyCode, floorPlanCode, floorPlanName, ...unitData } = unit;
+          const { propertyCode: _propertyCode, floorPlanCode, floorPlanName, accessCodes, ...unitData } = unit;
           const unitFloorPlanRef = floorPlanCode ?? floorPlanName;
           const floorPlanId = unitFloorPlanRef ? floorPlanMap.get(floorPlanKey(unit.propertyCode, unitFloorPlanRef)) ?? null : null;
           const created = await tx.unit.create({ data: { ...unitData, propertyId, floorPlanId } });
+          if (accessCodes) await tx.unitAccessCode.create({ data: { unitId: created.id, ...accessCodes } });
           unitMap.set(`${unit.propertyCode}|${unit.number}`, created.id);
         }
       }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getFinalReport, isApiError, previewFinalReport, saveFinalReportDraft, saveFinalReportSettings, type FinalReportData, type FinalReportDraft, type FinalReportResult, type FinalReportSettings } from "../lib/api";
+import { getFinalReport, isApiError, previewFinalReport, returnFinalWalkToTech, saveFinalReportDraft, saveFinalReportSettings, type FinalReportData, type FinalReportDraft, type FinalReportResult, type FinalReportSettings } from "../lib/api";
 import { Modal } from "./Modal";
 import "./finalWalkReportEditor.css";
 
@@ -18,12 +18,12 @@ export function FinalWalkReportEditor({ propertyId, propertyName, itemId, onClos
   return <Modal open title={`Final-walk report / ${propertyName}`} testId="final-report-editor" onClose={() => { if (!busy && (!dirty || window.confirm("Discard unsaved report changes?"))) onClose(); }}>
     {query.isPending ? <p>Loading report settings...</p> : !query.data || accessRejected ? <p role="alert">Could not load report settings. <button type="button" onClick={() => void query.refetch()}>Retry</button></p> : <>
       {query.isError ? <p role="alert" data-testid="report-refresh-warning">Saved report data could not refresh. Your current form is preserved; it may differ from the latest saved record. <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>Retry report refresh</button></p> : null}
-      <ReportEditor initial={query.data} onDirty={setDirty} onBusy={setBusy} />
+      <ReportEditor initial={query.data} onDirty={setDirty} onBusy={setBusy} onReturned={() => { setDirty(false); onClose(); }} />
     </>}
   </Modal>;
 }
 
-function ReportEditor({ initial, onDirty, onBusy }: { initial: FinalReportData; onDirty: (dirty: boolean) => void; onBusy: (busy: boolean) => void }) {
+function ReportEditor({ initial, onDirty, onBusy, onReturned }: { initial: FinalReportData; onDirty: (dirty: boolean) => void; onBusy: (busy: boolean) => void; onReturned: () => void }) {
   const client = useQueryClient();
   const [savedSettings, setSavedSettings] = useState(initial.settings);
   const [settings, setSettings] = useState(initial.settings.value);
@@ -94,24 +94,39 @@ function ReportEditor({ initial, onDirty, onBusy }: { initial: FinalReportData; 
         <p className="helper-copy">Assigned tech: {item.technician || "Unassigned"}. Assigned final reviewer: {item.reviewer || "Unassigned"}. These names are not signatures.</p>
         <label>Inspection date<input data-testid="final-report-date" type="date" value={draft.inspectionDate} onChange={event => updateDraft({ inspectionDate: event.target.value })} /></label>
         <details><summary>Existing turn checklist records (reference only)</summary><p>Existing completion flags are shown for reference, not automatically copied as verified inspection results.</p>{item.checklists.length ? item.checklists.map(list => <section key={list.id}><h4>{list.name}</h4><ul>{list.items.map(check => <li key={check.id}>{check.title}: {check.completed ? "Recorded complete" : "Not complete"}{check.completedAt ? ` / ${check.completedAt.slice(0,10)}` : ""}</li>)}</ul></section>) : <p>No checklist records on this turn.</p>}</details>
-        <p className="helper-copy">Each grouped check covers all applicable bedrooms or bathrooms. Add a reason for Needs attention or Not applicable. Do not record technical tests you cannot verify.</p>
-        {initial.sections.map(section => <details key={section.id}><summary>{section.title}<small>{initial.checks.filter(check => check.section === section.id && result(check.id).status !== "NOT_CHECKED").length} / {initial.checks.filter(check => check.section === section.id).length} recorded</small></summary>
+        <p className="helper-copy">A short presentation walk: cleanliness, freshness, comfort and resident handoff. Technical preparation belongs to the technician in Work. Only exceptions need a written reason.</p>
+        <details><summary>Technician preparation (read-only reference)</summary>{initial.technicianChecks.map(check => <p key={check.id}>{check.label}: <strong>{draft.technicianResults[check.id]?.status ?? "NOT_CHECKED"}</strong>{draft.technicianResults[check.id]?.note ? ` / ${draft.technicianResults[check.id].note}` : ""}</p>)}</details>
+        {initial.sections.map(section => <details open key={section.id}><summary>{section.title}<small>{initial.checks.filter(check => check.section === section.id && result(check.id).status !== "NOT_CHECKED").length} / {initial.checks.filter(check => check.section === section.id).length} recorded</small></summary>
           {initial.checks.filter(check => check.section === section.id).map(check => <div key={check.id} className="final-report-check">
             <label>{check.label}<select data-testid={`final-report-result-${check.id}`} value={result(check.id).status} onChange={event => updateResult(check.id, { status: event.target.value as FinalReportResult["status"] })}><option value="NOT_CHECKED">Not checked</option><option value="CHECKED">Checked</option><option value="ATTENTION">Needs attention</option><option value="NA">Not applicable</option></select></label>
-            <label>Reason / detail{["ATTENTION", "NA"].includes(result(check.id).status) ? " (required)" : ""}<input maxLength={100} value={result(check.id).note} data-testid={`final-report-note-${check.id}`} onChange={event => updateResult(check.id, { note: event.target.value })} /></label>
+            {["ATTENTION", "NA"].includes(result(check.id).status) || result(check.id).note ? <label>Reason / detail{["ATTENTION", "NA"].includes(result(check.id).status) ? " (required)" : ""}<input maxLength={100} value={result(check.id).note} data-testid={`final-report-note-${check.id}`} onChange={event => updateResult(check.id, { note: event.target.value })} /></label> : null}
           </div>)}
         </details>)}
         <details open><summary>Mailbox & resident handoff details</summary>
           <label>Mailbox source<select value={draft.mailboxSource ?? "CUSTOM"} onChange={event => updateDraft({ mailboxSource: event.target.value as "DIRECTORY" | "CUSTOM", ...(event.target.value === "DIRECTORY" ? { mailbox: item.directoryMailbox ?? "" } : {}) })}><option value="DIRECTORY">Unit mailbox directory (automatic)</option><option value="CUSTOM">Override for this report only</option></select></label>
           <label>Mailbox number<input data-testid="report-mailbox" maxLength={40} value={draft.mailbox} readOnly={draft.mailboxSource === "DIRECTORY"} onChange={event => updateDraft({ mailbox: event.target.value })}/></label>
           <p>{draft.mailboxSource === "DIRECTORY" ? "Uses the latest saved unit mailbox when previewing or printing. Manage assignments in Turn Details or Setup > Units > Mailbox directory." : "This override does not change the unit directory."}</p>
-          {([['homeKeys','Home key count',20],['mailboxKeys','Mailbox key count',20],['fobs','Access fob count',20],['remotes','Garage remote count',20],['parking','Parking / garage assignment',60]] as const).map(([key,label,maxLength]) => <label key={key}>{label}<input maxLength={maxLength} value={draft[key]} onChange={event => updateDraft({ [key]: event.target.value })}/></label>)}
-          <p>Codes must be unique to this resident/turn. Never enter shared gate, staff, vendor or master codes. New turns start with no codes; protected backups contain saved codes.</p>
+          <p>Counts below come from technician preparation. Count the actual items, correct any discrepancy, then confirm. Use 0 for none.</p>
+          {([['homeKeys','Home key count',20],['mailboxKeys','Mailbox key count',20],['fobs','Access fob count',20],['remotes','Garage remote count',20],['parking','Parking / garage assignment',60]] as const).map(([key,label,maxLength]) => <label key={key}>{label}<input maxLength={maxLength} value={draft[key]} onChange={event => updateDraft({ [key]: event.target.value, handoffConfirmed: false })}/></label>)}
+          <label><input type="checkbox" style={{ width: "auto" }} checked={draft.handoffConfirmed} onChange={event => updateDraft({ handoffConfirmed: event.target.checked })} />I counted and confirmed the home/mailbox keys, fobs and remotes for handoff</label>
+          <p>Door/unit codes must be resident-specific. Gate/pedestrian codes may be resident-issued community codes. Never enter staff, vendor or master codes. No access codes are copied from the property access wiki.</p>
           <label>Resident-only door code<input data-testid="report-door-code" type="password" autoComplete="new-password" maxLength={60} value={draft.residentDoorCode} onChange={event => updateDraft({ residentDoorCode: event.target.value })}/></label>
           <label>Resident-only access code<input type="password" autoComplete="new-password" maxLength={60} value={draft.residentAccessCode} onChange={event => updateDraft({ residentAccessCode: event.target.value })}/></label>
-          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input style={{ width: "auto" }} type="checkbox" checked={draft.includeResidentCodes} onChange={event => updateDraft({ includeResidentCodes: event.target.checked })}/>I confirm these are resident-specific codes; include them on this report</label>
+          <label>Resident gate code<input type="password" autoComplete="new-password" maxLength={60} value={draft.gateCode} onChange={event => updateDraft({ gateCode: event.target.value })} /></label>
+          <label>Resident pedestrian access code<input type="password" autoComplete="new-password" maxLength={60} value={draft.pedestrianCode} onChange={event => updateDraft({ pedestrianCode: event.target.value })} /></label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input style={{ width: "auto" }} type="checkbox" checked={draft.includeResidentCodes} onChange={event => updateDraft({ includeResidentCodes: event.target.checked })}/>I confirm all codes here may be issued to this resident; include them on this report</label>
         </details>
-        <label>Resident-facing follow-up<textarea rows={3} maxLength={400} value={draft.followUp} onChange={event => updateDraft({ followUp: event.target.value })}/></label>
+        <label>Internal follow-up for technician<textarea rows={3} maxLength={1000} value={draft.technicianFollowUp} onChange={event => updateDraft({ technicianFollowUp: event.target.value })}/></label>
+        <p>Not printed on the resident report. Send corrections to reopen the technician's work and notify them; painting and cleaning stay unchanged. The final walk must be rechecked afterward.</p>
+        {draft.technicianResolution ? <p><strong>Technician resolution:</strong> {draft.technicianResolution}</p> : null}
+        <button type="button" disabled={!draft.technicianFollowUp.trim() && !initial.checks.some(check => result(check.id).status === "ATTENTION")} onClick={() => void run(async () => {
+          validateDraft();
+          const saved = await saveFinalReportDraft(initial.property.id, item.id, { version: savedDraft.version, value: draft });
+          setSavedDraft(saved); setDraft(saved.value);
+          await returnFinalWalkToTech(initial.property.id, item.id, saved.version);
+          await client.invalidateQueries();
+          onReturned();
+        })}>Save and send corrections to technician</button>
         <button type="button" className="button button-primary" data-testid="final-report-save-draft" disabled={!draftDirty} onClick={() => void run(async () => { validateDraft(); const saved = await saveFinalReportDraft(initial.property.id, item.id, { version: savedDraft.version, value: draft }); setSavedDraft(saved); setDraft(saved.value); void client.invalidateQueries({ queryKey: ["final-walk", item.id] }); void client.invalidateQueries({ queryKey: ["resident-codes", item.id] }); setMessage("Inspection draft saved. Unit status and sign-offs were not changed."); })}>Save inspection draft</button>
         <small>{savedDraft.updatedAt ? `Saved ${new Date(savedDraft.updatedAt).toLocaleString()} / revision ${savedDraft.version}` : "No saved inspection draft yet."}</small>
         </fieldset>

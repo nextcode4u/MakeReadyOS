@@ -36,7 +36,7 @@ export async function assignedStaffUserId(assignedTech: string | null | undefine
     where: {
       fullName: assignedTech,
       isActive: true,
-      role: { in: [UserRole.ADMIN, UserRole.MANAGER, UserRole.TECH, UserRole.CLEANER] },
+      role: { in: [UserRole.ADMIN, UserRole.MANAGER, UserRole.TECH, UserRole.CLEANER, UserRole.PAINTER] },
       OR: [{ role: UserRole.ADMIN }, { propertyAccess: { some: { propertyId } } }],
     },
     select: { id: true },

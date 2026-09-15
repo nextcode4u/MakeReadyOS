@@ -476,7 +476,7 @@ export function LeaseCompliancePanel({ properties, units, userRole, language, se
   }, [isMobileLayout]);
 
   const permissions = {
-    view: ["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "VIEWER"].includes(userRole),
+    view: ["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "PAINTER", "VIEWER"].includes(userRole),
     edit: ["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER"].includes(userRole),
     notice: ["ADMIN", "MANAGER", "LEASING"].includes(userRole),
     admin: userRole === "ADMIN",

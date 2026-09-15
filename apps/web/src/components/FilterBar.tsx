@@ -18,8 +18,8 @@ type Props = {
   search: string;
   onPropertyChange: (value: string) => void;
   onSearchChange: (value: string) => void;
-  activeView: "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "fields" | "automations" | "activity" | "admin";
-  onViewChange: (value: "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "fields" | "automations" | "activity" | "admin") => void;
+  activeView: "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "accesscodes" | "fields" | "automations" | "activity" | "admin";
+  onViewChange: (value: "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "accesscodes" | "fields" | "automations" | "activity" | "admin") => void;
   showAdmin: boolean;
   showFieldManager: boolean;
   showAutomations: boolean;
@@ -153,6 +153,7 @@ export function FilterBar({
       case "fields": return t(language, "nav.fields");
       case "admin": return t(language, "nav.admin");
       case "oncall": return "On-call";
+      case "accesscodes": return "Keys & Access";
       default: return t(language, "nav.workspace");
     }
   }

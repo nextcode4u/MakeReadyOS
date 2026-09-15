@@ -26,6 +26,7 @@ const usernameSchema = z
 const optionalEmailSchema = z.union([z.string().trim().email(), z.literal(""), z.null()]).optional();
 
 export const adminCreateUserSchema = z.object({
+  keycodeAccess: z.boolean().default(false),
   fullName: z.string().trim().min(2).max(120),
   username: usernameSchema,
   email: optionalEmailSchema,
@@ -38,6 +39,7 @@ export const adminCreateUserSchema = z.object({
 });
 
 export const adminUpdateUserSchema = z.object({
+  keycodeAccess: z.boolean().optional(),
   fullName: z.string().trim().min(2).max(120).optional(),
   username: z.string().trim().min(3).max(254).optional(),
   email: optionalEmailSchema,
@@ -168,6 +170,7 @@ function serializePropertyStorage(property: { id: string; code: string; name: st
 }
 
 function serializeUser(user: {
+  keycodeAccess: boolean;
   id: string;
   username: string;
   email: string | null;
@@ -185,6 +188,7 @@ function serializeUser(user: {
     email: user.email,
     fullName: user.fullName,
     role: user.role,
+    keycodeAccess: user.keycodeAccess,
     language: user.language,
     isActive: user.isActive,
     createdAt: user.createdAt,
@@ -454,6 +458,7 @@ export async function adminRoutes(app: FastifyInstance) {
         email,
         fullName: payload.fullName,
         role: payload.role,
+        keycodeAccess: ["PAINTER", "CLEANER"].includes(payload.role) && payload.keycodeAccess,
         language: payload.language,
         isActive: payload.isActive,
         passwordHash,
@@ -523,6 +528,7 @@ export async function adminRoutes(app: FastifyInstance) {
         username: created.username,
         email: created.email,
         role: created.role,
+        keycodeAccess: created.keycodeAccess,
         language: created.language,
         isActive: created.isActive,
         propertyIds: payload.propertyIds,
@@ -600,11 +606,14 @@ export async function adminRoutes(app: FastifyInstance) {
     }
 
     const roleChanged = payload.role && payload.role !== existing.role;
+    const keycodeAccess = ["PAINTER", "CLEANER"].includes(payload.role ?? existing.role)
+      ? payload.keycodeAccess ?? (roleChanged ? false : existing.keycodeAccess) : false;
     const updated = await prisma.user.update({
       where: { id: existing.id },
       data: {
         fullName: payload.fullName,
         username: nextUsername,
+        keycodeAccess,
         email: nextEmail,
         ...((nextEmail !== undefined && nextEmail !== existing.email) || payload.isActive === false
           ? { passwordResetHash: null, passwordResetExpiresAt: null } : {}),
@@ -638,6 +647,8 @@ export async function adminRoutes(app: FastifyInstance) {
         username: updated.username,
         email: updated.email,
         previousRole: existing.role,
+        previousKeycodeAccess: existing.keycodeAccess,
+        keycodeAccess: updated.keycodeAccess,
         nextRole: updated.role,
         language: updated.language,
         isActive: updated.isActive,

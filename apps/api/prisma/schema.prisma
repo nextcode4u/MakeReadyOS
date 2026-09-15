@@ -13,6 +13,7 @@ enum UserRole {
   TECH
   LEASING
   CLEANER
+  PAINTER
   VIEWER
 }
 
@@ -152,6 +153,7 @@ model FinalWalkReportDraft {
 }
 
 model Unit {
+  accessCodes     UnitAccessCode?
   id              String            @id @default(cuid())
   propertyId      String
   property        Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
@@ -181,6 +183,16 @@ model Unit {
   @@index([floorPlanId])
   @@index([propertyId, occupancyStatus])
   @@index([propertyId, building])
+}
+
+model UnitAccessCode {
+  unitId String @id
+  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  doorCode String @default("")
+  accessCode String @default("")
+  keyCode String @default("")
+  version Int @default(1)
+  updatedAt DateTime @updatedAt
 }
 
 model FloorPlan {
@@ -291,6 +303,7 @@ model MakeReadyItem {
 }
 
 model User {
+  keycodeAccess                Boolean                               @default(false)
   id                           String                                @id @default(cuid())
   username                     String                                @unique
   email                        String?                               @unique

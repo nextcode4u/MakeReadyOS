@@ -2,6 +2,15 @@
 
 Current reliability-first work and acceptance checks: [Reliability And Polish Queue](RELIABILITY_POLISH.md).
 
+## Partial Native Unit Restores
+
+- [ ] Resolve parent property IDs on apply as well as preview when a hand-edited
+  native backup contains units but omits its existing property record. A focused
+  test found that such a partial payload can report applied without creating the
+  unit because the apply property map only includes supplied property records.
+  Normal full native exports include those records; keep them with unit-only
+  restores until this is corrected. Add a preview/apply parity regression test.
+
 ## Database Migration Strategy
 
 The project now has an initial versioned Prisma migration and package scripts for `db:migrate` and `db:deploy`.

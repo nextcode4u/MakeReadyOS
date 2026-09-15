@@ -23,7 +23,7 @@ import { projectBudgetSummary } from "../lib/projectBudget.js";
 const projectRecordTypes = ["Recommendation", "Project"] as const;
 const projectExecutionTypes = ["In-House", "Vendor", "Hybrid", "Undecided"] as const;
 const projectPriorities = ["Low", "Normal", "High", "Critical"] as const;
-const projectAssigneeRoles: UserRole[] = [UserRole.ADMIN, UserRole.MANAGER, UserRole.TECH, UserRole.LEASING, UserRole.CLEANER];
+const projectAssigneeRoles: UserRole[] = [UserRole.ADMIN, UserRole.MANAGER, UserRole.TECH, UserRole.LEASING, UserRole.CLEANER, UserRole.PAINTER];
 const projectTaskStatuses = ["Open", "In Progress", "Completed", "Skipped"] as const;
 const projectAttachmentTypes = ["GENERAL", "BEFORE", "PROGRESS", "AFTER", "BID", "LOCATION"] as const;
 const projectRecommendationStatuses = ["Open", "Needs Bid", "Got Bid", "Approved", "Denied", "Converted To Project", "Archived"] as const;
@@ -99,7 +99,7 @@ export const projectRecordSchema = z.object({
   bidStatus: z.enum(bidStatuses).nullable().optional(),
   bidNotes: z.string().trim().max(2000).nullable().optional(),
   assignedUserId: z.string().trim().min(1).nullable().optional(),
-  assignedRole: z.enum(["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "VIEWER"]).nullable().optional(),
+  assignedRole: z.enum(["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "PAINTER", "VIEWER"]).nullable().optional(),
   assignedTeam: z.string().trim().max(120).nullable().optional(),
   scheduledDate: z.coerce.date().nullable().optional(),
   startDate: z.coerce.date().nullable().optional(),
@@ -173,7 +173,7 @@ function projectRoleAccess(role: UserRole) {
   if (role === UserRole.ADMIN) return { view: true, edit: true, admin: true };
   if (role === UserRole.MANAGER) return { view: true, edit: true, admin: false };
   if (role === UserRole.TECH) return { view: true, edit: true, admin: false };
-  if (role === UserRole.LEASING || role === UserRole.VIEWER) return { view: true, edit: false, admin: false };
+  if (role === UserRole.LEASING || role === UserRole.VIEWER || role === UserRole.PAINTER) return { view: true, edit: false, admin: false };
   return { view: false, edit: false, admin: false };
 }
 

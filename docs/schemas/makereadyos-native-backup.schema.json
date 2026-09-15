@@ -217,6 +217,7 @@
         "propertyCode": { "type": "string" },
         "number": { "type": "string" },
         "mailboxNumber": { "$ref": "#/$defs/nullableString" },
+        "accessCodes": { "type": ["object", "null"], "properties": { "doorCode": { "type": "string", "maxLength": 60 }, "accessCode": { "type": "string", "maxLength": 60 }, "keyCode": { "type": "string", "maxLength": 60 } }, "required": ["doorCode", "accessCode", "keyCode"], "additionalProperties": false },
         "floorPlan": { "$ref": "#/$defs/nullableString" },
         "building": { "$ref": "#/$defs/nullableString" },
         "area": { "$ref": "#/$defs/nullableString" },

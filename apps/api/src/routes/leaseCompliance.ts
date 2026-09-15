@@ -129,7 +129,7 @@ function leaseComplianceRoleAccess(role: UserRole) {
   if (role === UserRole.MANAGER) return { view: true, edit: true, notice: true, admin: false };
   if (role === UserRole.LEASING) return { view: true, edit: true, notice: true, admin: false };
   if (role === UserRole.TECH || role === UserRole.CLEANER) return { view: true, edit: true, notice: false, admin: false };
-  if (role === UserRole.VIEWER) return { view: true, edit: false, notice: false, admin: false };
+  if (role === UserRole.VIEWER || role === UserRole.PAINTER) return { view: true, edit: false, notice: false, admin: false };
   return { view: false, edit: false, notice: false, admin: false };
 }
 

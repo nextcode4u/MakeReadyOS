@@ -6,7 +6,7 @@ export { addDays, dateKey, defaultPlanningWindow, startOfDay } from "./planningD
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export const planningStaffRoles = [UserRole.ADMIN, UserRole.MANAGER, UserRole.TECH, UserRole.CLEANER] as const;
+export const planningStaffRoles = [UserRole.ADMIN, UserRole.MANAGER, UserRole.TECH, UserRole.CLEANER, UserRole.PAINTER] as const;
 export const activePlanningStatuses = ["PLANNED", "IN_PROGRESS"] as const;
 
 export async function planningSummary(where: Prisma.WorkAssignmentBlockWhereInput, itemWhere: Prisma.MakeReadyItemWhereInput, propertyId: Prisma.StringFilter<"VendorAssignment"> | string | undefined) {
