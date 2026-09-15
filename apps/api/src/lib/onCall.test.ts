@@ -10,10 +10,12 @@ function fixture() {
 }
 test("public on-call payload excludes all protected property fields", () => {
   const data = onCallSchema.parse(fixture());
+  data.properties[0].mapFile = { id: randomUUID(), name: "PRIVATE-map.pdf", mime: "application/pdf", size: 100 };
   const visible = publicOnCall(data);
   assert.deepEqual(visible.properties, [{ id: data.properties[0].id, name: data.properties[0].name }]);
   assert.ok(!JSON.stringify(visible).includes("PRIVATE"));
   assert.ok(!JSON.stringify(visible).includes("example.com"));
+  assert.ok(!JSON.stringify(visible).includes("mapFile"));
   assert.equal(visible.shifts[0].notes, "Public handoff");
 });
 test("on-call validates time ranges, references, links, timezone and duplicate IDs", () => {

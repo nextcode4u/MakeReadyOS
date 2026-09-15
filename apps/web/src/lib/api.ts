@@ -3,6 +3,10 @@ import { acceptVerifiedSession, clearVerifiedSession, getVerifiedSession, isCurr
 
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api";
 export const getOnCall = (expectedUserId: string) => request<import("./onCall").OnCallState>("/on-call", { expectedUserId, cache: "no-store" });
+export const uploadOnCallMap = (expectedUserId: string, propertyId: string, version: number, file: File) => {
+  const body = new FormData(); body.append("file", file);
+  return request<{ ok: boolean }>(`/on-call/properties/${encodeURIComponent(propertyId)}/map?version=${version}`, { expectedUserId, method: "POST", body });
+};
 export const saveOnCall = (expectedUserId: string, input: { version: number; data: import("./onCall").OnCallData; externalEnabled: boolean; accessCode?: string; revokeAccess?: boolean }) => request<import("./onCall").OnCallState>("/on-call", { expectedUserId, method: "PUT", body: JSON.stringify(input) });
 export type DevicePushState = { configured: boolean; publicKey: string | null; endpoints: string[] };
 export const getDevicePush = (expectedUserId: string) => request<DevicePushState>("/push", { expectedUserId });

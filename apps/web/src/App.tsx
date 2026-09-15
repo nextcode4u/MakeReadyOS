@@ -3891,7 +3891,7 @@ function App() {
             <span className="module-rail-icon" style={moduleRailMask("/icons/fontawesome/wiki.svg")} aria-hidden="true" />
           </button>
           <button className={activeView === "oncall" ? "module-rail-button active" : "module-rail-button"} type="button" aria-label="On-call" title="On-call" data-testid="module-rail-oncall" onClick={() => setActiveView("oncall")}>
-            <span aria-hidden="true">OC</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="M6 3H3v3c0 8.3 6.7 15 15 15h3v-5l-5-2-2 2a12 12 0 0 1-6-6l2-2-2-5H6Z"/><path d="M15 3a6 6 0 0 1 6 6M15 7a2 2 0 0 1 2 2"/></svg>
           </button>
           {activeFilterChips.length ? (
             <button className="module-rail-button rail-filter-count" type="button" onClick={() => clearBoardFilters(true)} aria-label="Clear active filters">{activeFilterChips.length}</button>

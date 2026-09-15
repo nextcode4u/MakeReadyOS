@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { getOnCall, saveOnCall } from "../lib/api";
-import { sharedOnCall, type OnCallData, type OnCallState, type OnCallShift } from "../lib/onCall";
+import { getOnCall, saveOnCall, uploadOnCallMap } from "../lib/api";
+import { onCallMapUrl, sharedOnCall, type OnCallData, type OnCallState, type OnCallShift } from "../lib/onCall";
 import { createMaterialId } from "../lib/materialDraft";
 import "./onCall.css";
+import { OnCallMap } from "./OnCallMap";
+import { OnCallRotationEditor } from "./OnCallRotationEditor";
+import { OnCallCalendar } from "./OnCallCalendar";
+import { OnCallDateTimeInput } from "./OnCallTimeInput";
 
 const newId = () => String(createMaterialId());
 const localInput = (iso: string) => {
@@ -29,6 +33,13 @@ export function OnCallPanel({ external = false, userId = "" }: { external?: bool
   const current = draft ?? saved;
   const data = current?.data;
   const unlocked = !external || !locallyLocked && Boolean(saved?.unlocked && (saved.expiresAt ?? 0) > now);
+  const effectiveShifts = saved?.schedule?.shifts ?? data?.shifts ?? [];
+  useEffect(() => {
+    const next = effectiveShifts.flatMap(shift => [Date.parse(shift.start), Date.parse(shift.end)]).filter(time => time > now).sort((a, b) => a - b)[0];
+    if (!next) return;
+    const timer = setTimeout(() => setNow(Date.now()), Math.min(next - now + 20, 2147483647));
+    return () => clearTimeout(timer);
+  }, [effectiveShifts, now]);
   async function reload() {
     const request = ++generation.current;
     try {
@@ -72,11 +83,11 @@ export function OnCallPanel({ external = false, userId = "" }: { external?: bool
   }
   const person = (id: string) => data?.people.find(value => value.id === id);
   const date = (value: string) => {
-    try { return new Intl.DateTimeFormat(undefined, { timeZone: data?.timeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(value)); }
+    try { return new Intl.DateTimeFormat("en-US", { timeZone: data?.timeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: "short" }).format(new Date(value)); }
     catch { return new Date(value).toISOString(); }
   };
-  const shifts = data?.shifts.filter(shift => (!filter || shift.propertyIds.includes(filter)) && (history ? Date.parse(shift.end) <= now : Date.parse(shift.end) > now)).sort((a, b) => a.start.localeCompare(b.start)) ?? [];
-  const active = data?.shifts.filter(shift => Date.parse(shift.start) <= now && Date.parse(shift.end) > now && (!filter || shift.propertyIds.includes(filter))) ?? [];
+  const shifts = effectiveShifts.filter(shift => (!filter || shift.propertyIds.includes(filter)) && (history ? Date.parse(shift.end) <= now : Date.parse(shift.end) > now)).sort((a, b) => a.start.localeCompare(b.start));
+  const active = effectiveShifts.filter(shift => Date.parse(shift.start) <= now && Date.parse(shift.end) > now && (!filter || shift.propertyIds.includes(filter)));
   const contact = (id: string) => { const member = person(id); return <>{member?.name ?? "Unassigned"}{member?.publicPhone ? <> · <a href={`tel:${member.publicPhone.replace(/[^+\d]/g, "")}`}>{member.publicPhone}</a></> : null}</>; };
   return <section className={`on-call ${external ? "on-call-external" : ""}`} data-testid="on-call-panel">
     <header className="on-call-header"><div><span className="eyebrow">MakeReadyOS / On-call</span><h1>{data?.title ?? "On-call"}</h1><p>{external ? "Shared schedule. Property access instructions require the access code." : "Shared coverage directory, independent of property filters and regular user accounts."}</p></div>
@@ -109,13 +120,29 @@ export function OnCallPanel({ external = false, userId = "" }: { external?: bool
           </details>
           <details><summary>Properties &amp; protected access guides ({data.properties.length})</summary><p>Add each covered property, even if it is not managed in MakeReadyOS. Only the property name is public. Do not put codes in names or public shift notes.</p>
             {data.properties.map(property => <section className="on-call-edit-property" key={property.id}><h3>{property.name || "New property"}</h3><div className="on-call-fields">{([['name','Property name (public)',100],['address','Address',500],['shopLocation','Shop location / access route',1000],['accessCodes','Shop / gate access codes',2000],['instructions','Property access guide / emergency instructions',12000],['mapUrl','Map link (HTTPS)',2000],['guideUrl','Additional guide link (HTTPS)',2000]] as const).map(([key, label, max]) => <label key={key}>{label}{["instructions", "accessCodes", "shopLocation"].includes(key) ? <textarea rows={3} maxLength={max} value={property[key]} onChange={event => change({ properties: data.properties.map(row => row.id === property.id ? { ...row, [key]: event.target.value } : row) })}/> : <input required={key === "name"} type={key.endsWith("Url") ? "url" : "text"} maxLength={max} value={property[key]} onChange={event => change({ properties: data.properties.map(row => row.id === property.id ? { ...row, [key]: event.target.value } : row) })}/>}</label>)}</div><button type="button" onClick={() => { if (window.confirm(`Remove ${property.name || "this property"} and its guide from the draft? Remove associated shifts first.`)) change({ properties: data.properties.filter(row => row.id !== property.id) }); }}>Remove property</button></section>)}
-            <p className="helper-copy">Linked maps/documents must have their own appropriate access controls. This module protects the link, not the destination. Links open in a separate tab without sending the page address.</p>
+            <h3>Uploaded property maps</h3>
+            <p className="helper-copy">Upload a PDF, PNG or JPEG up to 10 MB. Save property changes first; uploads save immediately. Staff can download maps here, and external viewers must unlock the property guides. Downloaded copies cannot be revoked.</p>
+            {data.properties.map(property => <div className="on-call-edit-property" key={`map-${property.id}`}>
+              <label>Upload map for {property.name || "new property"}<input type="file" accept="application/pdf,image/png,image/jpeg" disabled={Boolean(draft || newCode || revoke)} onChange={async event => {
+                const file = event.target.files?.[0]; event.target.value = "";
+                if (!file || busy) return;
+                if (file.size > 10 * 1024 * 1024) { setError("Choose a map no larger than 10 MB."); return; }
+                setBusy(true); setError(""); setMessage(""); generation.current++;
+                try { await uploadOnCallMap(userId, property.id, current.version, file); generation.current++; await reload(); setMessage("Property map uploaded and saved."); }
+                catch (cause) { setError(cause instanceof Error ? cause.message : "Could not upload map. Your existing map is unchanged."); }
+                finally { setBusy(false); }
+              }}/></label>
+              {property.mapFile ? <><div className="on-call-actions"><a href={onCallMapUrl(property.id, false)} target="_blank" rel="noopener noreferrer">Download map: {property.mapFile.name}</a><button type="button" onClick={() => change({ properties: data.properties.map(row => row.id === property.id ? { ...row, mapFile: null, markers: [] } : row) })}>Remove uploaded map for {property.name}</button></div><OnCallMap property={property} external={false} onChange={markers => change({ properties: data.properties.map(row => row.id === property.id ? { ...row, markers } : row) })}/></> : <p>No map uploaded.</p>}
+            </div>)}
+            {draft || newCode || revoke ? <p>Save on-call below to enable map uploads or apply map removals.</p> : null}
+            <p className="helper-copy">Optional linked maps/documents must have their own access controls. Uploaded maps are protected by this module; external links protect only the link, not the destination.</p>
             <button type="button" onClick={() => change({ properties: [...data.properties, { id: newId(), name: "", address: "", shopLocation: "", accessCodes: "", instructions: "", mapUrl: "", guideUrl: "" }] })}>Add on-call property</button>
           </details>
-          <details open><summary>Shifts ({data.shifts.length})</summary><p>Enter times in your device time zone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Coverage below is displayed in {data.timeZone}. End time is the handoff to the next shift.</p>
+          <OnCallRotationEditor data={data} schedule={saved?.schedule} change={change}/>
+          <details><summary>Manual shifts ({data.shifts.length})</summary><p>Use these for additional coverage or to override rotation coverage for specific properties. Enter times in your device time zone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Coverage below is displayed in {data.timeZone}. End time is the handoff to the next shift.</p>
             {data.shifts.map(shift => { const update = (patch: Partial<OnCallShift>) => change({ shifts: data.shifts.map(row => row.id === shift.id ? { ...row, ...patch } : row) }); return <section className="on-call-edit-shift" key={shift.id}>
               <div className="on-call-fields"><label>Primary<select required value={shift.personId} onChange={event => update({ personId: event.target.value })}><option value="">Choose person</option>{data.people.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><label>Backup<select value={shift.backupId} onChange={event => update({ backupId: event.target.value })}><option value="">No backup</option>{data.people.filter(member => member.id !== shift.personId).map(member => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
-                <label>Starts<input required type="datetime-local" value={localInput(shift.start)} onChange={event => { if (event.target.value) update({ start: new Date(event.target.value).toISOString() }); }}/></label><label>Ends<input required type="datetime-local" value={localInput(shift.end)} onChange={event => { if (event.target.value) update({ end: new Date(event.target.value).toISOString() }); }}/></label></div>
+                <OnCallDateTimeInput label="Starts" value={localInput(shift.start)} onChange={value => update({ start: new Date(value).toISOString() })}/><OnCallDateTimeInput label="Ends" value={localInput(shift.end)} onChange={value => update({ end: new Date(value).toISOString() })}/></div>
               <fieldset><legend>Covered properties</legend>{data.properties.map(property => <label className="on-call-check" key={property.id}><input type="checkbox" checked={shift.propertyIds.includes(property.id)} onChange={event => update({ propertyIds: event.target.checked ? [...shift.propertyIds, property.id] : shift.propertyIds.filter(id => id !== property.id) })}/>{property.name}</label>)}</fieldset>
               <label>Shift note (public; no codes)<input maxLength={1000} value={shift.notes} onChange={event => update({ notes: event.target.value })}/></label>
               {overlap(shift, data.shifts) ? <p role="status">Overlapping coverage for at least one property. Confirm this is intentional.</p> : null}
@@ -127,9 +154,14 @@ export function OnCallPanel({ external = false, userId = "" }: { external?: bool
         </fieldset>
       </form> : <>
         <label className="on-call-filter">Coverage for<select value={filter} onChange={event => setFilter(event.target.value)}><option value="">All on-call properties</option>{data.properties.map(property => <option key={property.id} value={property.id}>{property.name}</option>)}</select></label>
+        <OnCallCalendar data={data} schedule={saved?.schedule} filter={filter}/>
         <section className="on-call-now"><h2>On call now</h2>{active.length ? active.map(shift => <article key={shift.id}><h3>{contact(shift.personId)}</h3><p>{shift.propertyIds.map(id => data.properties.find(property => property.id === id)?.name).join(" · ")}</p><p>Until {date(shift.end)}{shift.backupId ? <> · Backup: {contact(shift.backupId)}</> : null}</p>{active.length > 1 && overlap(shift, active) ? <p>Overlapping coverage. Contact the coordinator if responsibility is unclear.</p> : null}</article>) : <p>No coverage recorded for this time. Contact your on-call coordinator; this is not confirmation that no one is on duty.</p>}</section>
+        <details><summary>Coverage list / history ({shifts.length} shifts)</summary>
         <section><div className="on-call-actions"><h2>{history ? "Past coverage" : "Current & upcoming coverage"}</h2><button type="button" onClick={() => setHistory(!history)}>{history ? "Show upcoming" : "Show history"}</button></div><p className="helper-copy">Times shown in {data.timeZone}.</p>{!shifts.length ? <p>No shifts recorded in this view.</p> : <div className="on-call-schedule">{shifts.map(shift => <article key={shift.id}><div><strong>{contact(shift.personId)}</strong><p>{date(shift.start)} → {date(shift.end)}</p></div><div><p>{shift.propertyIds.map(id => data.properties.find(property => property.id === id)?.name).join(" · ")}</p>{shift.backupId ? <p>Backup: {contact(shift.backupId)}</p> : null}{shift.notes ? <p>{shift.notes}</p> : null}</div></article>)}</div>}</section>
+        </details>
         <section className="on-call-guides"><h2>Property access guides</h2>{external && !unlocked ? <form onSubmit={async event => { event.preventDefault(); if (busy) return; setBusy(true); setError(""); try { await sharedOnCall("unlock", code); setCode(""); setLocallyLocked(false); await reload(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not unlock guides"); } finally { setBusy(false); } }}><p>Enter the shared access code from your coordinator. This unlocks only the on-call property guides, not the rest of MakeReadyOS.</p><label>Access code<input type="password" autoComplete="off" required maxLength={100} value={code} onChange={event => setCode(event.target.value)}/></label><button className="button button-primary" disabled={busy} type="submit">Unlock property guides</button></form> : <>
+          {data.properties.filter(property => (!filter || property.id === filter) && property.mapFile).map(property => <p key={`download-${property.id}`}><a href={onCallMapUrl(property.id, external)} target="_blank" rel="noopener noreferrer">Download {property.name} map: {property.mapFile!.name}</a></p>)}
+          {data.properties.filter(property => (!filter || property.id === filter) && property.mapFile).map(property => <OnCallMap key={`${property.id}-${property.mapFile!.id}`} property={property} external={external}/>)}
           {external ? <button disabled={busy} type="button" onClick={async () => { generation.current++; setLocallyLocked(true); setSaved(null); setBusy(true); try { await sharedOnCall("lock"); await reload(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not lock this session. Close this browser on shared devices."); } finally { setBusy(false); } }}>Lock property guides</button> : null}
           {!data.properties.length ? <p>No properties added yet.</p> : data.properties.filter(property => !filter || property.id === filter).map(property => <details key={property.id}><summary>{property.name}</summary><dl><dt>Address</dt><dd>{property.address || "Not provided"}</dd><dt>Shop location / access route</dt><dd>{property.shopLocation || "Not provided"}</dd><dt>Shop / gate access codes</dt><dd>{property.accessCodes || "Not provided"}</dd><dt>Access guide / emergency instructions</dt><dd>{property.instructions || "Not provided"}</dd></dl><div className="on-call-actions">{property.mapUrl ? <a href={property.mapUrl} target="_blank" rel="noopener noreferrer">Open property map</a> : null}{property.guideUrl ? <a href={property.guideUrl} target="_blank" rel="noopener noreferrer">Open additional guide</a> : null}</div></details>)}
         </>}</section>
