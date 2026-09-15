@@ -23,6 +23,8 @@ model OnCallWorkspace {
   externalEnabled Boolean @default(false)
   accessHash     String?
   accessRevision String   @default(uuid())
+  editHash       String?
+  editRevision   String   @default(uuid())
   updatedAt      DateTime @updatedAt
 }
 
