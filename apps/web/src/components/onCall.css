@@ -1,0 +1,32 @@
+.on-call { color: var(--text); padding: 20px; min-width: 0; }
+.on-call-external { max-width: 1080px; margin: 0 auto; min-height: 100svh; }
+.on-call-header { display: flex; justify-content: space-between; align-items: start; gap: 20px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+.on-call h1 { margin: 8px 0; font-size: 1.8rem; }
+.on-call h2 { font-size: 1.15rem; }
+.on-call h3 { margin: 8px 0; }
+.on-call p { margin: 8px 0; }
+.on-call-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.on-call section, .on-call footer { margin-top: 24px; }
+.on-call-filter { display: block; max-width: 420px; margin-top: 18px; }
+.on-call-now { border-left: 4px solid var(--accent); padding: 4px 18px; background: var(--panel); }
+.on-call-now article + article { border-top: 1px solid var(--border); }
+.on-call-schedule article { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; border-top: 1px solid var(--border); padding: 14px 0; }
+.on-call details { border-bottom: 1px solid var(--border); padding: 16px 0; }
+.on-call summary { cursor: pointer; font-weight: bold; }
+.on-call dd { margin: 4px 0 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.on-call dt { font-weight: bold; }
+.on-call label { display: grid; gap: 6px; margin: 10px 0; min-width: 0; }
+.on-call input, .on-call select, .on-call textarea { width: 100%; max-width: 100%; box-sizing: border-box; min-width: 0; }
+.on-call button { min-height: 36px; }
+.on-call button:not(.button-primary) { background: var(--panel-strong); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font: inherit; cursor: pointer; }
+.on-call button:disabled { opacity: .55; cursor: default; }
+.on-call a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.on-call-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.on-call .on-call-check { display: flex; align-items: center; gap: 8px; }
+.on-call .on-call-check input { width: auto; flex: 0 0 auto; }
+.on-call fieldset { min-width: 0; border: 0; padding: 0; }
+.on-call-editor { border-bottom: 1px solid var(--border); padding-bottom: 20px; }
+.on-call-edit-property, .on-call-edit-shift { border-top: 1px solid var(--border); padding-top: 12px; }
+.on-call [role="alert"] { color: var(--danger); }
+.on-call a, .on-call p { overflow-wrap: anywhere; }
+@media (max-width: 650px) { .on-call { padding: 14px; } .on-call-header { flex-direction: column; gap: 8px; } .on-call-fields, .on-call-schedule article { grid-template-columns: 1fr; gap: 6px; } }

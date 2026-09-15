@@ -2,6 +2,8 @@ import { localDateStamp } from "./dateTime";
 import { acceptVerifiedSession, clearVerifiedSession, getVerifiedSession, isCurrentSession } from "./verifiedSession";
 
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api";
+export const getOnCall = (expectedUserId: string) => request<import("./onCall").OnCallState>("/on-call", { expectedUserId, cache: "no-store" });
+export const saveOnCall = (expectedUserId: string, input: { version: number; data: import("./onCall").OnCallData; externalEnabled: boolean; accessCode?: string; revokeAccess?: boolean }) => request<import("./onCall").OnCallState>("/on-call", { expectedUserId, method: "PUT", body: JSON.stringify(input) });
 export type DevicePushState = { configured: boolean; publicKey: string | null; endpoints: string[] };
 export const getDevicePush = (expectedUserId: string) => request<DevicePushState>("/push", { expectedUserId });
 export const saveDevicePush = (expectedUserId: string, subscription: PushSubscriptionJSON) => request<{ ok: boolean }>("/push", { expectedUserId, method: "POST", body: JSON.stringify(subscription) });

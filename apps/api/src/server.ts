@@ -48,6 +48,7 @@ import { refrigerantRoutes } from "./routes/refrigerant.js";
 import { riskRoutes } from "./routes/risk.js";
 import { savedViewRoutes } from "./routes/savedViews.js";
 import { vendorRoutes } from "./routes/vendors.js";
+import { onCallRoutes, publicOnCallRoutes } from "./routes/onCall.js";
 
 const app = Fastify({
   logger: false,
@@ -142,6 +143,8 @@ app.register(async (api) => {
   await authRoutes(api);
 }, { prefix: "/api/auth" });
 
+app.register(publicOnCallRoutes, { prefix: "/api/on-call" });
+
 app.register(async (api) => {
   api.addHook("preHandler", requireAuthenticated);
   api.addHook("preHandler", requireExpectedSessionUser);
@@ -149,6 +152,7 @@ app.register(async (api) => {
   api.addHook("preHandler", requireApiTokenScope);
   api.addHook("preHandler", requireCsrf);
   await activityRoutes(api);
+  await onCallRoutes(api);
   await propertyBrandingRoutes(api);
   await finalWalkReportRoutes(api);
   await mailboxRoutes(api);

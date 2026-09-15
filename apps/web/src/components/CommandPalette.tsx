@@ -25,7 +25,8 @@ export type CommandPaletteView =
   | "lease"
   | "pm"
   | "projects"
-  | "wiki";
+  | "wiki"
+  | "oncall";
 
 export type CommandPaletteWorkspaceAction = {
   id: string;

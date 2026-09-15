@@ -16,6 +16,24 @@ enum UserRole {
   VIEWER
 }
 
+model OnCallWorkspace {
+  id             String   @id
+  version        Int      @default(0)
+  payload        Json
+  externalEnabled Boolean @default(false)
+  accessHash     String?
+  accessRevision String   @default(uuid())
+  updatedAt      DateTime @updatedAt
+}
+
+model OnCallAccessAttempt {
+  id        String   @id
+  count     Int      @default(1)
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
 enum CustomFieldType {
   TEXT
   LONG_TEXT

@@ -48,6 +48,16 @@ function worker(extras = {}) {
   };
 }
 
+test("on-call schedules and protected guides never use offline API caching", async () => {
+  const instance = worker();
+  for (const path of ["/api/on-call", "/api/on-call/share"]) {
+    instance.network(async () => Response.json({ privateGuide: "Secret" }));
+    assert.equal((await instance.request(path)).status, 200);
+    instance.network(async () => { throw new Error("Offline"); });
+    await assert.rejects(instance.request(path), /Offline/);
+  }
+});
+
 test("logout removes cached API data and late responses cannot repopulate it", async () => {
   const sw = worker();
   await sw.request("/api/meta");

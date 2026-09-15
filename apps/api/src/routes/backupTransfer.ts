@@ -1,6 +1,7 @@
 import { CustomFieldType, Prisma } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { onCallSchema } from "../lib/onCall.js";
 import { clientIpAddress, requireAdmin } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { prisma } from "../lib/prisma.js";
@@ -968,6 +969,7 @@ const backupSchema = z.object({
     schemaVersion: z.string().optional(),
   }),
   data: z.object({
+    onCallWorkspaces: z.array(onCallSchema).max(1).optional().default([]),
     properties: z.array(propertySchema),
     managementCompanies: z.array(z.object({ name: z.string().trim().min(2).max(120), logo: brandingLogoSchema })).optional().default([]),
     propertyBranding: z.array(z.object({ propertyCode: z.string(), companyName: z.string().nullable(), logo: brandingLogoSchema, finalWalkReportSettings: savedReportSettingsSchema.nullable().optional().default(null) })).optional().default([]),
@@ -1072,6 +1074,7 @@ function emptySummary(): ImportSummary {
   return {
     properties: bucket(),
     managementCompanies: bucket(),
+    onCallWorkspaces: bucket(),
     propertyBranding: bucket(),
     floorPlans: bucket(),
     boardOptions: bucket(),
@@ -1293,6 +1296,7 @@ async function ensureAdmin(request: FastifyRequest, reply: FastifyReply) {
 }
 
 async function buildExport(): Promise<NativeBackup> {
+  const onCall = await prisma.onCallWorkspace.findUnique({ where: { id: "shared" } });
   const managementCompanies = await prisma.managementCompany.findMany({ orderBy: { name: "asc" } });
   const propertyBranding = await prisma.propertyBranding.findMany({ include: { property: true, managementCompany: true }, orderBy: { propertyId: "asc" } });
   const [properties, floorPlans, boardOptions, boardColumns, boardSections, scheduleTracks, operatingCalendars, riskPolicies, units, items, fields, savedViews, rules, templates, chargePriceSheetItems, comments, vendors, vendorAssignments, propertyMaps, propertyMapAreas, propertyMapPins, propertyMapPinAttachments, unitMapLocations, checklistInstances, notes, propertyTemplates, refrigerantTypes, refrigerantCylinders, refrigerantTransactions, refrigerantLeakFlags, poolFacilities, poolChemicals, poolChemistryTargets, poolLogEntries, poolSafetyChecks, poolChemicalAdditions, propertyWikiReferences, preventiveMaintenanceTemplates, preventiveMaintenanceTasks, preventiveMaintenanceWikiReferences, wikiEntries, wikiVendors, wikiAssets, projectCategories, projectRecords, pestVendors, pestIssues, leaseComplianceIssueTypes, leaseComplianceSettings, leaseComplianceIssues] = await Promise.all([
@@ -1631,6 +1635,7 @@ async function buildExport(): Promise<NativeBackup> {
     exportedAt: new Date().toISOString(),
     source: { app: "MakeReadyOS", schemaVersion: "prisma-v1" },
     data: {
+      onCallWorkspaces: onCall ? [onCallSchema.parse(onCall.payload)] : [],
       managementCompanies: managementCompanies.map(company => ({ name: company.name, logo: company.logo })),
       propertyBranding: propertyBranding.map(branding => ({ propertyCode: branding.property.code, companyName: branding.managementCompany?.name ?? null, logo: branding.logo, finalWalkReportSettings: savedReportSettingsSchema.nullable().parse(branding.finalWalkReportSettings) })),
       properties: properties.map((property) => ({
@@ -3070,6 +3075,16 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
   if (Object.values(summary).some((bucket) => bucket.errors.length > 0)) return { summary, applied: false };
 
   const run = async (tx: Prisma.TransactionClient | typeof prisma) => {
+    for (const payload of backup.data.onCallWorkspaces) {
+      if (!dryRun) await tx.$queryRaw`SELECT pg_advisory_xact_lock(824030)::text`;
+      const existing = await tx.onCallWorkspace.findUnique({ where: { id: "shared" } });
+      if (existing) summary.onCallWorkspaces.skipped++;
+      else {
+        summary.onCallWorkspaces.created++;
+        // Restoring content never restores access credentials or publishes the schedule.
+        if (!dryRun) await tx.onCallWorkspace.create({ data: { id: "shared", version: 1, payload, externalEnabled: false } });
+      }
+    }
     const companyMap = new Map<string, string>();
     for (const company of backup.data.managementCompanies) {
       const existing = await tx.managementCompany.findUnique({ where: { name: company.name } });
