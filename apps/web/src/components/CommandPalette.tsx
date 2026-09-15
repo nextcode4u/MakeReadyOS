@@ -26,7 +26,8 @@ export type CommandPaletteView =
   | "pm"
   | "projects"
   | "wiki"
-  | "oncall";
+  | "oncall"
+  | "accesscodes";
 
 export type CommandPaletteWorkspaceAction = {
   id: string;

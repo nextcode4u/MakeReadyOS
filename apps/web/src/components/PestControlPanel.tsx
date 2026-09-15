@@ -444,7 +444,7 @@ export function PestControlPanel({ properties, units, userRole, language, select
   });
   const canEdit = ["ADMIN", "MANAGER", "TECH", "LEASING"].includes(userRole);
   const canAdmin = userRole === "ADMIN";
-  const canView = ["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "VIEWER"].includes(userRole);
+  const canView = ["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "PAINTER", "VIEWER"].includes(userRole);
 
   useEffect(() => {
     if (!propertyId && properties.length) {

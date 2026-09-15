@@ -1615,6 +1615,7 @@ const translations = {
     "role.TECH": "Tech",
     "role.LEASING": "Leasing",
     "role.CLEANER": "Cleaner",
+    "role.PAINTER": "Painter",
     "role.VIEWER": "Viewer",
   },
   es: {
@@ -3226,6 +3227,7 @@ const translations = {
     "role.TECH": "Técnico",
     "role.LEASING": "Arrendamiento",
     "role.CLEANER": "Limpieza",
+    "role.PAINTER": "Pintor",
     "role.VIEWER": "Consulta",
   },
 } satisfies Record<UserLanguage, Record<string, string>>;

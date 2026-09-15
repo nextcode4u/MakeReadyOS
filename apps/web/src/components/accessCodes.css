@@ -1,0 +1,20 @@
+.access-codes-panel { padding: var(--workspace-pad, 16px); min-width: 0; display: grid; gap: 14px; }
+.access-codes-panel :is(h2,h3,p) { margin: 0; overflow-wrap: anywhere; }
+.access-codes-panel p { color: var(--muted); line-height: 1.5; }
+.access-codes-panel label { display: grid; gap: 6px; min-width: 0; font-size: .85rem; }
+.access-codes-panel label:has(input[type="checkbox"]) { display: flex; gap: 8px; align-items: center; }
+.access-codes-panel :is(input,select,textarea) { min-width: 0; width: 100%; box-sizing: border-box; }
+.access-codes-panel input[type="checkbox"] { width: auto; flex: 0 0 auto; }
+.access-codes-panel textarea { resize: vertical; }
+.access-code-directory { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; min-width: 0; }
+.access-code-directory > :is(h3,p,fieldset,details) { grid-column: 1 / -1; }
+.access-codes-panel fieldset { display: grid; gap: 12px; min-width: 0; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.access-codes-panel legend { padding: 0 6px; font-weight: 700; }
+.access-codes-panel details { border-top: 1px solid var(--border); padding-top: 16px; min-width: 0; }
+.access-codes-panel details > :not(summary) { margin-top: 12px; }
+.access-codes-panel summary { cursor: pointer; font-weight: 700; }
+.access-codes-panel button { justify-self: start; border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; background: var(--panel-strong); color: var(--text); font: inherit; cursor: pointer; }
+.access-codes-panel button:hover { border-color: var(--accent); }
+.access-codes-panel button:disabled { opacity: .55; cursor: not-allowed; }
+.access-codes-panel [role="alert"] { color: var(--danger); }
+@media(max-width:700px) { .access-code-directory { grid-template-columns: minmax(0,1fr); } .access-codes-panel button { min-height: 44px; } }

@@ -1030,8 +1030,12 @@ mkdir -p "$LOG_DIR"
       curl -fsS -b "$COOKIE_JAR" -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PATCH \
         -d '{"makeReadyStatus":"DONE","paintStatus":"DONE","cleaningStatus":"DONE"}' \
         "http://localhost:${API_PORT:-4000}/api/make-ready-items/$READY_ITEM_ID" >/dev/null
+      curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/make-ready-items/$READY_ITEM_ID/resident-codes" \
+        | node -e 'let s=""; process.stdin.on("data", c=>s+=c); process.stdin.on("end",()=>{const prep=JSON.parse(s); for(const check of prep.technicianChecks) prep.value.technicianResults[check.id]={status:"CHECKED",note:"Test preparation"}; Object.assign(prep.value,{homeKeys:"0",mailboxKeys:"0",fobs:"0",remotes:"0"}); process.stdout.write(JSON.stringify({version:prep.version,value:prep.value}));});' \
+        | curl -fsS -b "$COOKIE_JAR" -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PUT --data-binary @- \
+          "http://localhost:${API_PORT:-4000}/api/make-ready-items/$READY_ITEM_ID/resident-codes" >/dev/null
       curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/final-walk-reports/$TEST_PROPERTY_ID?itemId=$READY_ITEM_ID" \
-        | node -e 'let s=""; process.stdin.on("data", c=>s+=c); process.stdin.on("end",()=>{const report=JSON.parse(s); const value=report.draft.value; value.inspectionDate=new Date().toISOString().slice(0,10); for(const check of report.checks) value.results[check.id]={status:"CHECKED",note:"Isolated test inspection"}; process.stdout.write(JSON.stringify({version:report.draft.version,value}));});' \
+        | node -e 'let s=""; process.stdin.on("data", c=>s+=c); process.stdin.on("end",()=>{const report=JSON.parse(s); const value=report.draft.value; value.inspectionDate=new Date().toISOString().slice(0,10); value.handoffConfirmed=true; for(const check of report.checks) value.results[check.id]={status:"CHECKED",note:"Isolated test inspection"}; process.stdout.write(JSON.stringify({version:report.draft.version,value}));});' \
         | curl -fsS -b "$COOKIE_JAR" -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X PUT --data-binary @- \
           "http://localhost:${API_PORT:-4000}/api/final-walk-reports/$TEST_PROPERTY_ID/items/$READY_ITEM_ID" >/dev/null
       curl -fsS -b "$COOKIE_JAR" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" -X POST \

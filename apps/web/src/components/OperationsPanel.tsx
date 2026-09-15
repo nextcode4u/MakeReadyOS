@@ -10,6 +10,7 @@ import { HistoryCoverageNotice } from "./HistoryCoverageNotice";
 import { UnitSearchSelect } from "./UnitSearchSelect";
 import { PropertyBrandingPanel } from "./PropertyBrandingPanel";
 import { MailboxDirectoryPanel } from "./MailboxDirectoryPanel";
+import { AccessCodesPanel } from "./AccessCodesPanel";
 import { statusDisplayName } from "../lib/statusDisplayName";
 
 function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
@@ -2158,7 +2159,7 @@ export function OperationsPanel({
             <button data-testid="unit-import-submit" className="button button-secondary" disabled={loading || !properties.length || !selectedPropertyId || !unitImportText.trim()} onClick={() => void importUnitDirectory()}>{isSpanish ? "Importar / actualizar directorio" : "Import / Update Directory"}</button>
           </div>
           <div className="editor-block unit-import-block">
-            {selectedProperty?.isActive ? <MailboxDirectoryPanel key={`mailbox-${selectedProperty.id}`} propertyId={selectedProperty.id} /> : <p className="helper-copy">{isSpanish ? "Seleccione una propiedad activa arriba para importar el directorio de buzones." : "Select an active property above to import its mailbox directory."}</p>}
+            {selectedProperty?.isActive ? <><MailboxDirectoryPanel key={`mailbox-${selectedProperty.id}`} propertyId={selectedProperty.id} /><details style={{ gridColumn: "1 / -1", minWidth: 0 }}><summary>Keys &amp; Access / unit code directory</summary><AccessCodesPanel key={`codes-${selectedProperty.id}`} properties={[selectedProperty]} selectedPropertyId={selectedProperty.id} role={role} /></details></> : <p className="helper-copy">{isSpanish ? "Seleccione una propiedad activa arriba para importar el directorio de buzones." : "Select an active property above to import its mailbox directory."}</p>}
           </div>
         </article>
       </section>

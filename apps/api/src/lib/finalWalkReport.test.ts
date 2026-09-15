@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, reportDraftSchema, reportSettingsSchema } from "./finalWalkReport.js";
+import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, technicianChecks, reportDraftSchema, reportSettingsSchema } from "./finalWalkReport.js";
 
-test("final-walk report keeps 45 grouped checks and separate service checks", () => {
-  assert.equal(reportChecks.length, 45);
-  assert.equal(new Set(reportChecks.map(check => check.id)).size, 45);
+test("final-walk separates nine presentation checks from eight technician checks", () => {
+  assert.equal(reportChecks.length, 9);
+  assert.equal(technicianChecks.length, 8);
+  assert.equal(new Set(reportChecks.map(check => check.id)).size, 9);
+  assert.ok(!reportChecks.some(check => /condensate|GFCI|coils/.test(check.label)));
+  assert.ok(technicianChecks.some(check => /condensate/.test(check.label)));
   assert.ok(reportChecks.some(check => check.label.includes("internet")));
   assert.ok(reportChecks.some(check => check.label.includes("Valet trash")));
   assert.ok(!reportChecks.some(check => /Bathroom 1|Bedroom 1/.test(check.label)));
@@ -21,13 +24,14 @@ test("inspection draft validation preserves unknowns and requires exception reas
   assert.equal(reportSettingsSchema.safeParse({ ...defaultReportSettings, accent: "red; background:url(https://evil.test)" }).success, false);
 });
 test("report HTML escapes content, rejects remote logos and never fabricates sign-offs", () => {
-  const html = finalWalkReportHtml({ propertyName: "<script>bad</script>", propertyCode: "P", companyName: "A & B", propertyLogo: "https://evil.test/logo.png", companyLogo: null, unitNumber: "101", technician: "Tech", reviewer: "Reviewer" }, defaultReportSettings, { ...emptyReportDraft(), followUp: "<img src=x onerror=alert(1)>" });
+  const html = finalWalkReportHtml({ propertyName: "<script>bad</script>", propertyCode: "P", companyName: "A & B", propertyLogo: "https://evil.test/logo.png", companyLogo: null, unitNumber: "101", technician: "Tech", reviewer: "Reviewer" }, defaultReportSettings, { ...emptyReportDraft(), followUp: "legacy private note", technicianFollowUp: "internal deficiency", technicianResolution: "internal resolution" });
+  for (const note of ["legacy private note", "internal deficiency", "internal resolution"]) assert.ok(!html.includes(note));
   assert.ok(html.includes("&lt;script&gt;bad&lt;/script&gt;"));
   assert.ok(html.includes("A &amp; B"));
   assert.ok(!html.includes("https://evil.test"));
   assert.ok(!html.includes("<script>"));
   assert.ok(html.includes("NOT FOR RESIDENT ISSUE"));
-  assert.equal((html.match(/class="NOT_CHECKED"/g) ?? []).length, 45);
+  assert.equal((html.match(/class="NOT_CHECKED"/g) ?? []).length, 17);
   assert.ok(html.includes("Independent sign-off: not recorded"));
 });
 
@@ -46,7 +50,7 @@ test("report endpoints reject out-of-scope staff and API tokens before database 
   try {
     for (const value of ["MANAGER", "LEASING", "TECH", "CLEANER", "VIEWER", "ADMIN"]) {
       role = value; token = value === "ADMIN";
-      for (const [method, suffix] of [["GET", ""], ["PUT", "/settings"], ["PUT", "/items/item"], ["POST", "/preview"]] as const) {
+      for (const [method, suffix] of [["GET", ""], ["PUT", "/settings"], ["PUT", "/items/item"], ["POST", "/preview"], ["POST", "/items/item/return-to-tech"]] as const) {
         const response = await app.inject({ method, url: `/final-walk-reports/outside${suffix}` });
         assert.equal(response.statusCode, 403, response.body);
       }

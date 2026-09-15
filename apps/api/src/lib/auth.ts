@@ -13,6 +13,7 @@ let lastApiTokenRateLimitCleanupAt = 0;
 const API_TOKEN_RATE_LIMIT_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
 
 type SessionUser = Pick<User, "id" | "email" | "fullName" | "role" | "language" | "isActive"> & {
+  keycodeAccess?: boolean;
   username: string;
   propertyAccess: Array<Pick<UserPropertyAccess, "propertyId" | "role">>;
 };
@@ -200,6 +201,7 @@ export async function loadSessionUser(request: FastifyRequest) {
       email: token.createdBy.email,
       fullName: token.createdBy.fullName,
       role: token.createdBy.role,
+      keycodeAccess: token.createdBy.keycodeAccess,
       language: token.createdBy.language,
       isActive: token.createdBy.isActive,
       propertyAccess: token.createdBy.propertyAccess.map((access) => ({
@@ -268,6 +270,7 @@ export async function loadSessionUser(request: FastifyRequest) {
     email: session.user.email,
     fullName: session.user.fullName,
     role: session.user.role,
+    keycodeAccess: session.user.keycodeAccess,
     language: session.user.language,
     isActive: session.user.isActive,
     propertyAccess: session.user.propertyAccess.map((access) => ({
@@ -547,6 +550,19 @@ export const rolePermissionMatrix = {
     viewActivity: false,
     useMyWork: true,
   },
+  PAINTER: {
+    manageUsers: false,
+    manageProperties: false,
+    manageFields: false,
+    manageAutomations: false,
+    manageOperationalLibrary: false,
+    batchBoardChanges: false,
+    commentAndUpload: true,
+    completeChecklists: true,
+    viewDashboard: true,
+    viewActivity: false,
+    useMyWork: true,
+  },
   VIEWER: {
     manageUsers: false,
     manageProperties: false,
@@ -605,9 +621,10 @@ const editableFieldsByRole: Partial<Record<UserRole, Set<string>>> = {
   TECH: techEditableFields,
   LEASING: leasingEditableFields,
   CLEANER: cleanerEditableFields,
+  PAINTER: new Set(["paintStatus", "notes"]),
 };
 
-export const assignableStaffRoles: UserRole[] = ["ADMIN", "MANAGER", "TECH", "CLEANER"];
+export const assignableStaffRoles: UserRole[] = ["ADMIN", "MANAGER", "TECH", "CLEANER", "PAINTER"];
 
 export function canManageOperationalLibrary(user: SessionUser) {
   return rolePermissionMatrix[user.role].manageOperationalLibrary;
@@ -633,6 +650,7 @@ export function sanitizeUser(user: SessionUser) {
     email: user.email,
     fullName: user.fullName,
     role: user.role,
+    keycodeAccess: Boolean(user.keycodeAccess),
     language: user.language,
     propertyAccess: user.propertyAccess,
   };

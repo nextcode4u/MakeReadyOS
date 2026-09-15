@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { getTurnReadiness, readinessBlockers } from "./turnReadiness.js";
-import { emptyReportDraft, reportChecks } from "./finalWalkReport.js";
+import { emptyReportDraft, reportChecks, technicianChecks } from "./finalWalkReport.js";
 const base = { isArchived: false, propertyActive: true, assignedTech: "Tech", reviewerName: "Reviewer", materials: [], tasks: [] };
 test("inspection history cannot be erased by changing the current status label", async () => {
   const item = { isArchived: false, assignedTech: "Tech", materials: [], property: { isActive: true }, checklistInstances: [], finalWalkReportDraft: null, workAssignmentBlocks: [] };
@@ -38,12 +38,16 @@ test("final walk requires a dated complete inspection with no unresolved finding
   const input = { ...base, inspectionRequired: true };
   assert.equal(readinessBlockers(input).length, 1);
   const inspection = { version: 1, updatedAt: new Date().toISOString(), value: emptyReportDraft() };
-  assert.equal(readinessBlockers({ ...input, inspection }).length, 2);
+  assert.equal(readinessBlockers({ ...input, inspection }).length, 4);
   inspection.value.inspectionDate = "2026-09-08";
   for (const check of reportChecks) inspection.value.results[check.id] = { status: "CHECKED", note: "" };
+  for (const check of technicianChecks) inspection.value.technicianResults[check.id] = { status: "CHECKED", note: "" };
+  inspection.value.handoffConfirmed = true;
   assert.deepEqual(readinessBlockers({ ...input, inspection }), []);
-  inspection.value.results["general-1"] = { status: "ATTENTION", note: "Repair needed" };
+  inspection.value.results["presentation-v2-1"] = { status: "ATTENTION", note: "Repair needed" };
   assert.equal(readinessBlockers({ ...input, inspection }).length, 1);
-  inspection.value.results["general-1"] = { status: "NA", note: "Not installed" };
+  inspection.value.results["presentation-v2-1"] = { status: "NA", note: "Not installed" };
   assert.deepEqual(readinessBlockers({ ...input, inspection }), []);
+  inspection.value.correctionPending = true;
+  assert.match(readinessBlockers({ ...input, inspection }).join(";"), /corrections are still outstanding/);
 });

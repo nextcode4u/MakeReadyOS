@@ -19,7 +19,7 @@ const builtInOperators: AutomationCondition["operator"][] = ["equals", "notEqual
 const noValueOperators: AutomationCondition["operator"][] = ["isEmpty", "notEmpty", "dateBeforeToday", "dateAfterToday", "dateMissing", "dateOnWeekend", "dateOnMondayOrFriday"];
 const settableFields = ["vacancyStatus", "completionStatus", "scopeLevel", "pestTreated", "makeReadyStatus", "cleaningStatus", "paintStatus", "doorsStatus", "notes"];
 const dateActionFields = ["moveOutDate", "vacatedDate", "makeReadyDate", "flooringDate", "moveInDate"];
-const assignableRoles = ["ADMIN", "MANAGER", "TECH", "CLEANER"] as const;
+const assignableRoles = ["ADMIN", "MANAGER", "TECH", "CLEANER", "PAINTER"] as const;
 
 type DraftCondition = { field: string; operator: AutomationCondition["operator"]; value: string };
 type DraftAction = {
@@ -199,7 +199,7 @@ function draftPayload(draft: Draft, customFields: CustomField[]) {
     if (action.type === "assignLeastLoadedStaff") {
       return {
         type: "assignLeastLoadedStaff",
-        eligibleRoles: action.eligibleRoles.filter(Boolean) as Array<"ADMIN" | "MANAGER" | "TECH" | "CLEANER">,
+        eligibleRoles: action.eligibleRoles.filter(Boolean) as Array<"ADMIN" | "MANAGER" | "TECH" | "CLEANER" | "PAINTER">,
         eligibleUserIds: action.eligibleUserIds.split(",").map((entry) => entry.trim()).filter(Boolean),
         excludedUserIds: action.excludedUserIds.split(",").map((entry) => entry.trim()).filter(Boolean),
         lookAheadDays: Number(action.lookAheadDays || 0),

@@ -8,7 +8,7 @@ import { IntegrationsPanel } from "./IntegrationsPanel";
 import { StatusState } from "./StatusState";
 import { StorageSettingsPanel } from "./StorageSettingsPanel";
 
-const roles: UserRole[] = ["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "VIEWER"];
+const roles: UserRole[] = ["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "PAINTER", "VIEWER"];
 const roleFilterOptions = ["ALL", ...roles] as const;
 const statusFilterOptions = ["ALL", "ACTIVE", "INACTIVE"] as const;
 
@@ -22,6 +22,7 @@ type Props = {
   successMessage?: string;
   errorMessage?: string;
   onCreateUser: (input: {
+    keycodeAccess?: boolean;
     fullName: string;
     username: string;
     email?: string | null;
@@ -33,6 +34,7 @@ type Props = {
     sendInviteEmail?: boolean;
   }) => Promise<void>;
   onUpdateUser: (id: string, input: {
+    keycodeAccess?: boolean;
     fullName?: string;
     username?: string;
     email?: string | null;
@@ -89,8 +91,10 @@ export function AdminPanel({
     isActive: true,
     propertyIds: [] as string[],
     sendInviteEmail: false,
+    keycodeAccess: false,
   });
   const [editState, setEditState] = useState({
+    keycodeAccess: false,
     fullName: "",
     username: "",
     email: "",
@@ -148,6 +152,7 @@ export function AdminPanel({
     }
 
     setEditState({
+      keycodeAccess: Boolean(selectedUser.keycodeAccess),
       fullName: selectedUser.fullName,
       username: selectedUser.username,
       email: selectedUser.email ?? "",
@@ -360,6 +365,7 @@ export function AdminPanel({
               {t(language, "admin.activeAccount")}
             </label>
 
+            {["PAINTER", "CLEANER"].includes(createState.role) ? <label className="toggle-row"><input data-testid="admin-create-keycode-access" type="checkbox" checked={createState.keycodeAccess} onChange={event => setCreateState(current => ({ ...current, keycodeAccess: event.target.checked }))} />Allow keycode viewing (assigned properties only; no import/export)</label> : null}
             <label className="toggle-row" title={t(language, "admin.sendInviteEmailHelp")}>
               <input
                 data-testid="admin-create-send-invite"
@@ -418,6 +424,7 @@ export function AdminPanel({
                   isActive: true,
                   propertyIds: [],
                   sendInviteEmail: false,
+                  keycodeAccess: false,
                 });
                 } catch (error) {
                   setCreateError(error instanceof Error ? error.message : t(language, "admin.createFailed"));
@@ -564,6 +571,8 @@ export function AdminPanel({
               </label>
             </div>
 
+            {["PAINTER", "CLEANER"].includes(editState.role) ? <label className="toggle-row"><input data-testid="admin-edit-keycode-access" type="checkbox" checked={editState.keycodeAccess} onChange={event => setEditState(current => ({ ...current, keycodeAccess: event.target.checked }))} />Allow keycode viewing (assigned properties only; no import/export)</label> : null}
+            {editState.role === "VIEWER" ? <p className="helper-copy">Viewers cannot access keycodes. This cannot be enabled for the Viewer role.</p> : null}
             {editError ? <p className="admin-message error" role="alert">{editError}</p> : null}
             <div className="admin-actions">
               <button
@@ -584,6 +593,7 @@ export function AdminPanel({
                     role: editState.role,
                     language: editState.language,
                     isActive: editState.isActive,
+                    keycodeAccess: editState.keycodeAccess,
                     });
                   } catch (error) {
                     setEditError(error instanceof Error ? error.message : "Could not save account changes.");
@@ -836,6 +846,7 @@ export function AdminPanel({
             role: editState.role,
             language: editState.language,
             isActive: editState.isActive,
+            keycodeAccess: editState.keycodeAccess,
           });
           setConfirmAction(null);
         }}

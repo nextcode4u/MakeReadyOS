@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { turnMaterialsSchema } from "./turnMaterials.js";
-import { reportChecks, savedReportDraftSchema } from "./finalWalkReport.js";
+import { reportChecks, technicianChecks, savedReportDraftSchema } from "./finalWalkReport.js";
 import { repairsDone, pendingTurnStages, turnApproved } from "./turnStatus.js";
 
 export function readinessBlockers(input: { isArchived: boolean; propertyActive: boolean; assignedTech: string | null; reviewerName: string; materials: unknown; tasks: Array<{ title: string; required: boolean; completed: boolean }>; inspectionRequired?: boolean; inspection?: unknown }) {
@@ -16,6 +16,10 @@ export function readinessBlockers(input: { isArchived: boolean; propertyActive: 
     if (!inspection.success) blockers.push("Save the detailed final-walk inspection report before marking ready.");
     else {
       if (!inspection.data.value.inspectionDate) blockers.push("Record the final-walk inspection date.");
+      const preparation = technicianChecks.filter(check => !["CHECKED", "NA"].includes(inspection.data.value.technicianResults[check.id]?.status ?? ""));
+      if (preparation.length) blockers.push(`${preparation.length} technician preparation checks need completion by the technician in Work, not the final-walk inspector.`);
+      if (!inspection.data.value.handoffConfirmed) blockers.push("Final-walk inspector must confirm the home/mailbox key, fob and remote counts.");
+      if (inspection.data.value.correctionPending) blockers.push("Technician corrections are still outstanding. Record the resolution in Work, then recheck the final walk.");
       const unanswered = reportChecks.filter(check => !inspection.data.value.results[check.id] || inspection.data.value.results[check.id].status === "NOT_CHECKED");
       const attention = reportChecks.filter(check => inspection.data.value.results[check.id]?.status === "ATTENTION");
       if (unanswered.length) blockers.push(`${unanswered.length} final-walk checks are not recorded. Inspect each item or record why it is not applicable.`);

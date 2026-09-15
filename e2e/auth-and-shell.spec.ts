@@ -1548,8 +1548,7 @@ test("admin final-walk report editor saves drafts, uses real branding and produc
   await expect(modal.getByRole("status")).toContainText("Report settings saved");
   await modal.getByTestId("final-report-unit").selectOption(item.id);
   await modal.getByTestId("final-report-date").fill("2026-09-07");
-  await modal.locator("summary").filter({ hasText: "General preparation & HVAC" }).click();
-  await modal.getByTestId("final-report-result-general-1").selectOption("CHECKED");
+  await modal.getByTestId("final-report-result-presentation-v2-1").selectOption("CHECKED");
   await modal.getByTestId("final-report-save-draft").click();
   await expect(modal.getByRole("status")).toContainText("Inspection draft saved");
   await modal.getByTestId("final-report-preview").click();
@@ -1560,7 +1559,7 @@ test("admin final-walk report editor saves drafts, uses real branding and produc
   await expect(preview.locator("img")).toHaveCount(2);
   expect(await preview.locator("img").evaluateAll(images => images.every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0))).toBeTruthy();
   await expect(preview.locator(".CHECKED")).toHaveCount(1);
-  await expect(preview.locator(".NOT_CHECKED")).toHaveCount(44);
+  await expect(preview.locator(".NOT_CHECKED")).toHaveCount(16);
   await expect(preview.locator(".draft")).toContainText("NOT FOR RESIDENT ISSUE");
   await modal.screenshot({ path: "/tmp/mros-final-report-desktop.png" });
   const download = page.waitForEvent("download");
@@ -1579,8 +1578,7 @@ test("admin final-walk report editor saves drafts, uses real branding and produc
   await page.getByTestId("open-final-report-editor").click();
   await expect(modal.getByTestId("final-report-title")).toHaveValue("Your Home / <Report & Preview>");
   await modal.getByTestId("final-report-unit").selectOption(item.id);
-  await modal.locator("summary").filter({ hasText: "General preparation & HVAC" }).click();
-  await expect(modal.getByTestId("final-report-result-general-1")).toHaveValue("CHECKED");
+  await expect(modal.getByTestId("final-report-result-presentation-v2-1")).toHaveValue("CHECKED");
   const data = await (await page.request.get(`${root}?itemId=${item.id}`)).json();
   const draftInput = { version: data.draft.version, value: data.draft.value };
   const races = await Promise.all([page.request.put(`${root}/items/${item.id}`, { headers, data: draftInput }), page.request.put(`${root}/items/${item.id}`, { headers, data: draftInput })]);
@@ -1590,14 +1588,15 @@ test("admin final-walk report editor saves drafts, uses real branding and produc
   expect((await page.request.post(`${root}/preview`, { headers, data: { itemId: other.id, settings: data.settings.value, draft: data.draft.value, format: "html" } })).status()).toBe(404);
   const hugeDraft = { ...data.draft.value, results: Object.fromEntries(data.checks.map((check: { id: string }) => [check.id, { status: "ATTENTION", note: "Detailed unresolved inspection concern requiring additional repairs and review. ".repeat(2).slice(0,100) }])) };
   const oversized = await page.request.post(`${root}/preview`, { headers, data: { itemId: item.id, settings: data.settings.value, draft: hugeDraft, format: "pdf" } });
-  expect(oversized.status(), await oversized.text()).toBe(422);
+  expect(oversized.status()).toBe(200);
+  expect((Buffer.from((await oversized.json()).pdfBase64, "base64").toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
   const unchanged = await (await page.request.get(`/api/make-ready-items/${item.id}`)).json();
   expect(unchanged.completionStatus).toBe(item.completionStatus);
   expect(unchanged.makeReadyStatus).toBe(item.makeReadyStatus);
   expect(unchanged.finalWalkReportDraft).toBeUndefined();
   const backup = await (await page.request.get("/api/admin/export")).json();
   const savedItem = backup.data.makeReadyItems.find((turn: { propertyCode: string; unitNumber: string }) => turn.propertyCode === property.code && turn.unitNumber === item.unitNumber);
-  expect(savedItem.finalWalkReportDraft.value.results["general-1"].status).toBe("CHECKED");
+  expect(savedItem.finalWalkReportDraft.value.results["presentation-v2-1"].status).toBe("CHECKED");
   const savedBranding = backup.data.propertyBranding.find((entry: { propertyCode: string }) => entry.propertyCode === property.code);
   expect(savedBranding.finalWalkReportSettings.value.title).toBe("Your Home / <Report & Preview>");
   const restoreCode = `REPORT${Date.now()}`;
@@ -1605,7 +1604,7 @@ test("admin final-walk report editor saves drafts, uses real branding and produc
   const restored = await page.request.post("/api/admin/import", { headers, data: { dryRun: false, backup: portable } });
   expect(restored.ok(), await restored.text()).toBeTruthy();
   const exported = await (await page.request.get("/api/admin/export")).json();
-  expect(exported.data.makeReadyItems.find((turn: { propertyCode: string }) => turn.propertyCode === restoreCode).finalWalkReportDraft.value.results["general-1"].status).toBe("CHECKED");
+  expect(exported.data.makeReadyItems.find((turn: { propertyCode: string }) => turn.propertyCode === restoreCode).finalWalkReportDraft.value.results["presentation-v2-1"].status).toBe("CHECKED");
 });
 
 test("pond field guide detailed art covers every wildlife and secret", async ({ page }) => {
@@ -3248,7 +3247,7 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
     await codes.getByRole("button", { name: "Save resident codes", exact: true }).click();
     await expect(codes.getByRole("status")).toContainText("saved and logged for the Final-Walk Report");
     const codeState = await (await techContext.request.get(codesUrl)).json();
-    expect(codeState.value).toEqual({ residentDoorCode: "0482#", residentAccessCode: "UNIT-0482", includeResidentCodes: true, mailbox: "MB-42", mailboxSource: "CUSTOM", mailboxKeys: "2" });
+    expect(codeState.value).toMatchObject({ residentDoorCode: "0482#", residentAccessCode: "UNIT-0482", includeResidentCodes: true, mailbox: "MB-42", mailboxSource: "CUSTOM", mailboxKeys: "2" });
     const savedReport = await (await page.request.get(`${reportRoot}?itemId=${item.id}`)).json();
     expect(savedReport.draft.value.homeKeys).toBe("2");
     expect(savedReport.draft.value.residentDoorCode).toBe("0482#");
@@ -3306,6 +3305,10 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
       expect((await saved).ok()).toBeTruthy();
       await expect(techPage.getByTestId(`drawer-field-${field}`)).toHaveValue("DONE");
     }
+    const preparation = await (await techContext.request.get(codesUrl)).json();
+    for (const check of preparation.technicianChecks) preparation.value.technicianResults[check.id] = { status: "CHECKED", note: "" };
+    Object.assign(preparation.value, { homeKeys: "2", fobs: "1", remotes: "0" });
+    expect((await techContext.request.put(codesUrl, { headers: techHeaders, data: { version: preparation.version, value: preparation.value } })).ok()).toBe(true);
     const completeResponse = techPage.waitForResponse(result => result.url().endsWith(`/make-ready-items/${item.id}`) && result.request().method() === "PATCH");
     await techPage.getByTestId("drawer-field-makeReadyStatus").selectOption("DONE");
     const complete = await completeResponse;
@@ -3437,8 +3440,7 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
         await expect(report.getByTestId("report-mailbox")).toHaveValue("MB-42");
         await expect(report.getByLabel("Mailbox key count", { exact: true })).toHaveValue("2");
         await report.getByTestId("final-report-date").fill("2026-09-08");
-        await report.locator("summary").filter({ hasText: "General preparation & HVAC" }).click();
-        await report.getByTestId("final-report-result-general-1").selectOption("CHECKED");
+        await report.getByTestId("final-report-result-presentation-v2-1").selectOption("CHECKED");
         await report.getByTestId("final-report-save-draft").click();
         await expect(report.getByRole("status")).toContainText("Inspection draft saved");
         const root = `${origin}/api/final-walk-reports/${property.id}`;
@@ -3470,6 +3472,7 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
           if ((await details.getAttribute("open")) === null) await details.locator("summary").first().click();
           for (const check of saved.checks.filter((entry: any) => entry.section === section.id)) await report.getByTestId(`final-report-result-${check.id}`).selectOption("CHECKED");
         }
+        await report.getByRole("checkbox", { name: /I counted and confirmed/ }).check();
         await report.getByTestId("final-report-save-draft").click();
         await expect(report.getByRole("status")).toContainText("Inspection draft saved");
         await report.getByRole("button", { name: "Close dialog" }).click();
@@ -3492,7 +3495,7 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
         expect(exportAfter.ok(), await exportAfter.text()).toBeTruthy();
         const exportedHtml = (await exportAfter.json()).html;
         expect(exportedHtml).not.toContain("Unauthorized branding override");
-        expect((exportedHtml.match(/class="CHECKED"/g) ?? []).length).toBe(45);
+        expect((exportedHtml.match(/class="CHECKED"/g) ?? []).length).toBe(17);
         const finalPdf = await context.request.post(`${root}/preview`, { headers: staffHeaders, data: { itemId: item.id, settings: finalData.settings.value, draft: finalData.draft.value, format: "pdf" } });
         expect(finalPdf.ok(), await finalPdf.text()).toBeTruthy();
         const finalBytes = Buffer.from((await finalPdf.json()).pdfBase64, "base64");

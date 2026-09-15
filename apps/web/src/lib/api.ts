@@ -2,6 +2,7 @@ import { localDateStamp } from "./dateTime";
 import { acceptVerifiedSession, clearVerifiedSession, getVerifiedSession, isCurrentSession } from "./verifiedSession";
 
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api";
+export const accessCodeRequest = <T,>(propertyId: string, suffix = "", method = "GET", data?: unknown) => request<T>(`/access-codes/${encodeURIComponent(propertyId)}${suffix}`, { method, cache: "no-store", ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
 export const getOnCall = (expectedUserId: string) => request<import("./onCall").OnCallState>("/on-call", { expectedUserId, cache: "no-store" });
 export const uploadOnCallMap = (expectedUserId: string, propertyId: string, version: number, file: File) => {
   const body = new FormData(); body.append("file", file);
@@ -22,8 +23,8 @@ export const getPropertyBranding = (id: string) => request<{ property: { id: str
 export const savePropertyBranding = (id: string, input: { managementCompanyId: string | null; logo: string | null }) => request<{ branding: PropertyBranding }>(`/property-branding/${id}`, { method: "PUT", body: JSON.stringify(input) });
 export type FinalReportSettings = { title: string; introduction: string; footer: string; accent: string };
 export type FinalReportResult = { status: "NOT_CHECKED" | "CHECKED" | "ATTENTION" | "NA"; note: string };
-export type FinalReportDraft = { inspectionDate: string; results: Record<string, FinalReportResult>; mailbox: string; mailboxSource?: "DIRECTORY" | "CUSTOM"; homeKeys: string; mailboxKeys: string; fobs: string; remotes: string; parking: string; followUp: string; residentDoorCode: string; residentAccessCode: string; includeResidentCodes: boolean };
-export type ResidentCodes = { version: number; value: Pick<FinalReportDraft, "residentDoorCode" | "residentAccessCode" | "includeResidentCodes" | "mailbox" | "mailboxSource" | "mailboxKeys">; updatedAt: string | null; readOnly: boolean };
+export type FinalReportDraft = { inspectionDate: string; results: Record<string, FinalReportResult>; technicianResults: Record<string, FinalReportResult>; handoffConfirmed: boolean; gateCode: string; pedestrianCode: string; technicianFollowUp: string; technicianResolution: string; correctionPending: boolean; mailbox: string; mailboxSource?: "DIRECTORY" | "CUSTOM"; homeKeys: string; mailboxKeys: string; fobs: string; remotes: string; parking: string; followUp: string; residentDoorCode: string; residentAccessCode: string; includeResidentCodes: boolean };
+export type ResidentCodes = { version: number; value: Pick<FinalReportDraft, "residentDoorCode" | "residentAccessCode" | "includeResidentCodes" | "mailbox" | "mailboxSource" | "mailboxKeys" | "homeKeys" | "fobs" | "remotes" | "technicianResults" | "technicianResolution">; technicianChecks: { id: string; label: string }[]; technicianFollowUp: string; correctionPending: boolean; updatedAt: string | null; readOnly: boolean };
 export const getResidentCodes = (itemId: string) => request<ResidentCodes>(`/make-ready-items/${itemId}/resident-codes`);
 export const saveResidentCodes = (itemId: string, input: Pick<ResidentCodes, "version" | "value">) => request<ResidentCodes>(`/make-ready-items/${itemId}/resident-codes`, { method: "PUT", body: JSON.stringify(input) });
 export type FinalReportData = {
@@ -34,12 +35,14 @@ export type FinalReportData = {
   draft: { version: number; value: FinalReportDraft; updatedAt: string | null };
   sections: { id: string; title: string }[];
   checks: { id: string; section: string; label: string }[];
+  technicianChecks: { id: string; label: string }[];
   items: { id: string; unitNumber: string; boardGroup: string }[];
   item: { id: string; unitNumber: string; directoryMailbox: string | null; technician: string | null; reviewer: string | null; checklists: { id: string; name: string; items: { id: string; title: string; completed: boolean; completedAt: string | null }[] }[] } | null;
 };
 export const getFinalReport = (propertyId: string, itemId?: string) => request<FinalReportData>(`/final-walk-reports/${propertyId}${itemId ? `?itemId=${encodeURIComponent(itemId)}` : ""}`);
 export const saveFinalReportSettings = (propertyId: string, input: FinalReportData["settings"]) => request<FinalReportData["settings"]>(`/final-walk-reports/${propertyId}/settings`, { method: "PUT", body: JSON.stringify(input) });
 export const saveFinalReportDraft = (propertyId: string, itemId: string, input: { version: number; value: FinalReportDraft }) => request<FinalReportData["draft"]>(`/final-walk-reports/${propertyId}/items/${itemId}`, { method: "PUT", body: JSON.stringify(input) });
+export const returnFinalWalkToTech = (propertyId: string, itemId: string, version: number) => request<{ returned: boolean }>(`/final-walk-reports/${propertyId}/items/${itemId}/return-to-tech`, { method: "POST", body: JSON.stringify({ version }) });
 export const previewFinalReport = (propertyId: string, input: { itemId?: string; settings: FinalReportSettings; draft: FinalReportDraft; format: "html" | "pdf" }) => request<{ html?: string; pdfBase64?: string }>(`/final-walk-reports/${propertyId}/preview`, { method: "POST", body: JSON.stringify(input) });
 export type MailboxDirectory = { property: { id: string; code: string; name: string }; units: { id: string; number: string; mailboxNumber: string | null }[] };
 export type MailboxPlan = { token: string; applied: boolean; errors: string[]; changes: { id: string; number: string; before: string | null; after: string; action: "UPDATE" | "KEEP" | "UNCHANGED" | "SKIP" }[] };
@@ -69,11 +72,13 @@ export class ApiError extends Error {
   }
 }
 
-export type UserRole = "ADMIN" | "MANAGER" | "TECH" | "LEASING" | "CLEANER" | "VIEWER";
+export type UserRole = "ADMIN" | "MANAGER" | "TECH" | "LEASING" | "CLEANER" | "PAINTER" | "VIEWER";
+export const canViewKeycodes = (user: { role: UserRole; keycodeAccess?: boolean }) => ["ADMIN", "MANAGER", "TECH", "LEASING"].includes(user.role) || ["PAINTER", "CLEANER"].includes(user.role) && user.keycodeAccess === true;
 export type UserLanguage = "en" | "es";
 export type CustomFieldType = "TEXT" | "LONG_TEXT" | "NUMBER" | "DATE" | "SINGLE_SELECT" | "MULTI_SELECT" | "BOOLEAN" | "USER";
 
 export type CurrentUser = {
+  keycodeAccess?: boolean;
   id: string;
   username: string;
   email: string | null;
@@ -89,7 +94,7 @@ export type CurrentUser = {
 export type StaffOption = {
   id: string;
   fullName: string;
-  role: "ADMIN" | "MANAGER" | "TECH" | "LEASING" | "CLEANER";
+  role: "ADMIN" | "MANAGER" | "TECH" | "LEASING" | "CLEANER" | "PAINTER";
 };
 
 export type BoardColumnDefinition = {
@@ -135,6 +140,7 @@ export type OperatingCalendar = {
 };
 
 export type ManagedUser = {
+  keycodeAccess?: boolean;
   id: string;
   username: string;
   email: string | null;
@@ -1987,7 +1993,7 @@ export type AutomationAction =
   | { type: "addAuditNote"; value: string }
   | { type: "setDateFromField"; sourceField: string; targetField: string; offsetDays: number; respectOperatingCalendar?: boolean }
   | { type: "setCustomDateFromField"; sourceField: string; fieldId: string; offsetDays: number; respectOperatingCalendar?: boolean }
-  | { type: "assignLeastLoadedStaff"; eligibleRoles: Array<"ADMIN" | "MANAGER" | "TECH" | "CLEANER">; eligibleUserIds?: string[]; excludedUserIds?: string[]; lookAheadDays: number; includePlannedWork?: boolean; onlyWhenUnassigned?: boolean; dailyAssignmentCap?: number | null; targetDateField: "makeReadyDate" | "moveInDate" | "vacatedDate" }
+  | { type: "assignLeastLoadedStaff"; eligibleRoles: Array<"ADMIN" | "MANAGER" | "TECH" | "CLEANER" | "PAINTER">; eligibleUserIds?: string[]; excludedUserIds?: string[]; lookAheadDays: number; includePlannedWork?: boolean; onlyWhenUnassigned?: boolean; dailyAssignmentCap?: number | null; targetDateField: "makeReadyDate" | "moveInDate" | "vacatedDate" }
   | { type: "setPriority"; value: number }
   | { type: "appendNote"; value: string };
 export type AutomationRule = {
@@ -3449,6 +3455,7 @@ export function updatePropertyStorageRouting(input: {
 }
 
 export function createAdminUser(input: {
+  keycodeAccess?: boolean;
   fullName: string;
   username: string;
   email?: string | null;
@@ -3466,6 +3473,7 @@ export function createAdminUser(input: {
 }
 
 export function updateAdminUser(id: string, input: {
+  keycodeAccess?: boolean;
   fullName?: string;
   username?: string;
   email?: string | null;

@@ -33,10 +33,13 @@ export async function syncFinalWalks(propertyId: string, itemId?: string) {
         continue;
       }
       let block = blocks[0];
-      if (!block && policy?.enabled && ready) {
-        const assignee = nextInspector(policy.inspectors, null, independentInspectors(staff, item.assignedTech).map(user => user.id));
+      const correction = !block && ready ? await db.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: "FINAL_WALK_CORRECTION" }, orderBy: { createdAt: "desc" } }) : null;
+      const previousInspector = correction ? await db.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory, status: "CANCELED" }, orderBy: { createdAt: "desc" } }) : null;
+      if (!block && (policy?.enabled || previousInspector) && ready) {
+        const eligible = independentInspectors(staff, item.assignedTech).map(user => user.id);
+        const assignee = previousInspector && eligible.includes(previousInspector.assignedUserId) ? previousInspector.assignedUserId : nextInspector(policy?.inspectors ?? [], null, eligible);
         if (!assignee) continue;
-        block = await db.workAssignmentBlock.create({ data: { propertyId, itemId: item.id, assignedUserId: assignee, category: finalWalkCategory, inspectorQueue: policy.inspectors, plannedDate: item.makeReadyDate ?? new Date(), estimatedHours: .5, notes: "Final walk inspection; separate from repair assignment." } });
+        block = await db.workAssignmentBlock.create({ data: { propertyId, itemId: item.id, assignedUserId: assignee, category: finalWalkCategory, inspectorQueue: previousInspector?.inspectorQueue ?? policy?.inspectors ?? [assignee], plannedDate: item.makeReadyDate ?? new Date(), estimatedHours: .5, notes: "Final walk inspection; separate from repair assignment." } });
         assigned++;
         await db.auditLog.create({ data: { propertyId, entityType: "MAKE_READY_ITEM", entityId: item.id, action: "FINAL_WALK_ASSIGNED", message: "Assigned final walk inspector", metadata: { blockId: block.id, assignedUserId: assignee } } });
       }

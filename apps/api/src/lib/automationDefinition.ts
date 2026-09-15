@@ -81,7 +81,7 @@ export const actionSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("assignLeastLoadedStaff"),
-    eligibleRoles: z.array(z.enum(["ADMIN", "MANAGER", "TECH", "CLEANER"])).min(1).max(assignableStaffRoles.length).default(["TECH"]),
+    eligibleRoles: z.array(z.enum(["ADMIN", "MANAGER", "TECH", "CLEANER", "PAINTER"])).min(1).max(assignableStaffRoles.length).default(["TECH"]),
     eligibleUserIds: z.array(z.string().min(1)).max(25).optional(),
     excludedUserIds: z.array(z.string().min(1)).max(25).optional(),
     lookAheadDays: z.number().int().min(0).max(30).default(7),

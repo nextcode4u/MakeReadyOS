@@ -18,6 +18,8 @@ import { FinalWalkControls } from "./FinalWalkControls";
 import { TurnReportPanel } from "./TurnReportPanel";
 import { TurnMaterialsPanel } from "./TurnMaterialsPanel";
 import { ResidentCodesPanel } from "./ResidentCodesPanel";
+import { AccessCodesPanel } from "./AccessCodesPanel";
+import { canViewKeycodes } from "../lib/api";
 import { awaitingFinalWalk, isTurnReady, tradeDone, turnStageLabel } from "../lib/turnStatus";
 import { uploadBatch, type UploadOutcome } from "../lib/uploadBatch";
 import { matchesTurnStep, turnNextStep } from "../lib/turnNextAction";
@@ -878,6 +880,7 @@ export function ItemDrawer({
         </section> : null}
 
         {["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? <ResidentCodesPanel key={`codes-${currentUser.id}-${item.id}`} itemId={item.id} status={`${item.makeReadyStatus}|${inspectionReady}|${approved}`}/> : null}
+        {canViewKeycodes(currentUser) ? <details className="drawer-section"><summary>Look up unit keys &amp; access codes</summary><AccessCodesPanel key={`lookup-${currentUser.id}-${item.id}`} properties={[item.property]} selectedPropertyId={item.propertyId} role={currentUser.role} keycodeAccess={currentUser.keycodeAccess} initialUnit={item.unitNumber} /></details> : null}
         <TurnMaterialsPanel key={`materials-${currentUser.id}-${item.id}`} userId={currentUser.id} itemId={item.id} title={displayUnitNumber(item.property.code, item.unitNumber)} canEdit={["ADMIN", "MANAGER", "TECH", "CLEANER"].includes(currentUser.role)} />
         <section className="drawer-section">
           <h3>{t(language, "drawer.customFields")}</h3>

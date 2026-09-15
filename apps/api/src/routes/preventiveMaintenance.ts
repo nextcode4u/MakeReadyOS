@@ -19,7 +19,7 @@ import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, 
 
 const pmCategories = ["Pool", "Gate", "HVAC", "Electrical", "Fire Safety", "Irrigation", "Roof", "Grounds", "Building", "Clubhouse", "General", "Other"] as const;
 const pmFrequencies = ["Daily", "Weekly", "Biweekly", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"] as const;
-const pmAssignedRoles = ["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "VIEWER"] as const;
+const pmAssignedRoles = ["ADMIN", "MANAGER", "TECH", "LEASING", "CLEANER", "PAINTER", "VIEWER"] as const;
 const pmStatuses = ["UPCOMING", "DUE", "COMPLETED", "OVERDUE", "SKIPPED"] as const;
 const pmPriorities = ["Low", "Normal", "High", "Critical"] as const;
 const completionOutcomes = ["PASS", "FAIL", "COMPLETE", "SKIPPED"] as const;
@@ -74,7 +74,7 @@ export const preventiveMaintenanceTaskSkipSchema = z.object({
 
 function roleAccess(role: string) {
   if (role === "ADMIN") return { view: true, edit: true, admin: true };
-  if (role === "MANAGER" || role === "TECH" || role === "CLEANER") return { view: true, edit: true, admin: false };
+  if (role === "MANAGER" || role === "TECH" || role === "CLEANER" || role === "PAINTER") return { view: true, edit: true, admin: false };
   return { view: true, edit: false, admin: false };
 }
 
@@ -328,7 +328,7 @@ async function createTaskFromTemplate(template: {
     }
     await notifyPropertyRoles({
       propertyId: task.propertyId,
-      roles: [UserRole.MANAGER, UserRole.TECH, UserRole.CLEANER],
+      roles: [UserRole.MANAGER, UserRole.TECH, UserRole.CLEANER, UserRole.PAINTER],
       category: "PM",
       title: task.dueDate < startOfDay() ? "PM task overdue" : task.dueDate <= endOfDay() ? "PM task due today" : "PM task upcoming",
       message: `${task.taskName} is due ${task.dueDate.toLocaleDateString()}.`,

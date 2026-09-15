@@ -1,4 +1,5 @@
 import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { canViewKeycodes } from "./lib/api";
 import { getVerifiedSession, isCurrentSession, requireVerifiedUserId, verifiedSessionEventName } from "./lib/verifiedSession";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isReadyLikeOccupancy } from "./lib/availabilityStatus";
@@ -220,12 +221,13 @@ const PestControlPanel = lazy(() => import("./components/PestControlPanel").then
 const LeaseCompliancePanel = lazy(() => import("./components/LeaseCompliancePanel").then((module) => ({ default: module.LeaseCompliancePanel })));
 const PropertyWikiPanel = lazy(() => import("./components/PropertyWikiPanel").then((module) => ({ default: module.PropertyWikiPanel })));
 const OnCallPanel = lazy(() => import("./components/OnCallPanel").then((module) => ({ default: module.OnCallPanel })));
+const AccessCodesPanel = lazy(() => import("./components/AccessCodesPanel").then((module) => ({ default: module.AccessCodesPanel })));
 const PropertyMapsPanel = lazy(() => import("./components/PropertyMapsPanel").then((module) => ({ default: module.PropertyMapsPanel })));
 const ProjectsPanel = lazy(() => import("./components/ProjectsPanel").then((module) => ({ default: module.ProjectsPanel })));
 const RefrigerantPanel = lazy(() => import("./components/RefrigerantPanel").then((module) => ({ default: module.RefrigerantPanel })));
 const VendorsPanel = lazy(() => import("./components/VendorsPanel").then((module) => ({ default: module.VendorsPanel })));
 
-type AppView = "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "fields" | "automations" | "activity" | "admin";
+type AppView = "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "accesscodes" | "fields" | "automations" | "activity" | "admin";
 type KanbanGroupKey = string;
 type NavigationHistoryState = { view?: AppView; selectedItemId?: string | null };
 type DashboardDrilldownContext = {
@@ -382,7 +384,7 @@ function moduleRailMask(path: string) {
 function isAppView(value: unknown): value is AppView {
   return typeof value === "string" && [
     "dashboard", "mywork", "planning", "table", "kanban", "calendar", "maps", "pond", "operations", "vendors",
-    "refrigerant", "pool", "pest", "lease", "pm", "projects", "wiki", "oncall", "fields", "automations", "activity", "admin",
+    "refrigerant", "pool", "pest", "lease", "pm", "projects", "wiki", "oncall", "accesscodes", "fields", "automations", "activity", "admin",
   ].includes(value);
 }
 
@@ -677,10 +679,10 @@ function App() {
   const [sessionMessage, setSessionMessage] = useState("");
   const [forceLoggedOut, setForceLoggedOut] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const [compactMode, setCompactMode] = useState(() => readStorageFlag(compactModeStorageKey));
+  const [compactMode, setCompactMode] = useState(() => readStorageValue(compactModeStorageKey) !== "false");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const stored = readStorageValue(themeModeStorageKey);
-    return stored === "dark" || stored === "light" ? stored : "default";
+    return stored === "dark" || stored === "light" || stored === "default" ? stored : "light";
   });
   const [eyeStrainMode, setEyeStrainMode] = useState(() => readStorageFlag(eyeStrainModeStorageKey));
   const [dyslexiaMode, setDyslexiaMode] = useState(() => readStorageFlag(dyslexiaModeStorageKey));
@@ -3370,7 +3372,7 @@ function App() {
           { id: "oncall", label: "On-call", description: "Shared schedule and protected property access guides", view: "oncall" as const },
         ].filter((action) => {
           if (action.view === "refrigerant") {
-            return currentUser.role !== "CLEANER" && currentUser.role !== "LEASING";
+            return currentUser.role !== "CLEANER" && currentUser.role !== "LEASING" && currentUser.role !== "PAINTER";
           }
           if (action.view === "projects") {
             return currentUser.role !== "CLEANER";
@@ -3382,8 +3384,10 @@ function App() {
 
     const managementActions: CommandPaletteWorkspaceGroup["actions"] = [
       { id: "vendors", label: t(currentUser.language, "nav.vendors"), description: t(currentUser.language, "command.vendorsCopy"), view: "vendors" as const },
+      { id: "accesscodes", label: "Keys & Access", description: "Look up unit door codes and key references", view: "accesscodes" as const },
       { id: "automations", label: t(currentUser.language, "nav.automations"), description: t(currentUser.language, "command.automationsCopy"), view: "automations" as const },
     ].filter((action) => {
+      if (action.view === "accesscodes") return canViewKeycodes(currentUser);
       if (action.view === "vendors") {
         return currentUser.role !== "VIEWER" && currentUser.role !== "CLEANER";
       }
@@ -3421,7 +3425,7 @@ function App() {
       return;
     }
     setDefaultWorkspaceAppliedForUser(currentUser.id);
-    if (currentUser.role === "TECH" || currentUser.role === "CLEANER") {
+    if (currentUser.role === "TECH" || currentUser.role === "CLEANER" || currentUser.role === "PAINTER") {
       setActiveView("mywork");
     }
   }, [currentUser, defaultWorkspaceAppliedForUser]);
@@ -3442,6 +3446,7 @@ function App() {
     if (user.role === "CLEANER") {
       return cleanerEditableFields.has(key);
     }
+    if (user.role === "PAINTER") return key === "paintStatus" || key === "notes";
     return false;
   };
 
@@ -3808,7 +3813,7 @@ function App() {
       <main className="workspace module-rail-layout">
         <aside className="module-rail" aria-label="MakeReadyOS modules">
           <button
-            className={activeView === "refrigerant" || activeView === "pool" || activeView === "pest" || activeView === "lease" || activeView === "pm" || activeView === "projects" || activeView === "wiki" || activeView === "oncall" ? "module-rail-button" : "module-rail-button active"}
+            className={activeView === "refrigerant" || activeView === "pool" || activeView === "pest" || activeView === "lease" || activeView === "pm" || activeView === "projects" || activeView === "wiki" || activeView === "oncall" || activeView === "accesscodes" ? "module-rail-button" : "module-rail-button active"}
             type="button"
             title="MakeReadyOS board"
             aria-label="MakeReadyOS board"
@@ -3816,7 +3821,7 @@ function App() {
           >
             <span className="module-rail-icon" style={moduleRailMask("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5h6v14H4V5Zm9 0h7v4h-7V5Zm0 7h7v7h-7v-7Z'/%3E%3C/svg%3E")} aria-hidden="true" />
           </button>
-          {currentUser.role !== "CLEANER" && currentUser.role !== "LEASING" ? (
+          {currentUser.role !== "CLEANER" && currentUser.role !== "LEASING" && currentUser.role !== "PAINTER" ? (
             <button
               className={activeView === "refrigerant" ? "module-rail-button active" : "module-rail-button"}
               type="button"
@@ -3896,6 +3901,7 @@ function App() {
           {activeFilterChips.length ? (
             <button className="module-rail-button rail-filter-count" type="button" onClick={() => clearBoardFilters(true)} aria-label="Clear active filters">{activeFilterChips.length}</button>
           ) : null}
+          {canViewKeycodes(currentUser) ? <button type="button" className={activeView === "accesscodes" ? "module-rail-button active" : "module-rail-button"} title="Keys & Access" aria-label="Keys & Access" onClick={() => setActiveView("accesscodes")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="8" cy="8" r="5"/><path d="m12 12 9 9m-3-3 3-3m-6 0 3-3"/></svg></button> : null}
         </aside>
 
         <section className="primary-panel">
@@ -4204,7 +4210,7 @@ function App() {
               onCreateAssignment={async (input) => { await vendorAssignmentCreateMutation.mutateAsync(input); }}
               onUpdateAssignment={async (id, input) => { await vendorAssignmentUpdateMutation.mutateAsync({ id, data: input }); }}
             />
-          ) : activeView === "refrigerant" && currentUser.role !== "CLEANER" && currentUser.role !== "LEASING" ? (
+          ) : activeView === "refrigerant" && currentUser.role !== "CLEANER" && currentUser.role !== "LEASING" && currentUser.role !== "PAINTER" ? (
             <RefrigerantPanel
               properties={metaQuery.data?.properties ?? []}
               units={metaQuery.data?.units ?? []}
@@ -4255,6 +4261,8 @@ function App() {
               openRecordRequest={projectRecordRequest}
               openCreateRequest={projectCreateRequest}
             />
+          ) : activeView === "accesscodes" ? (
+            <AccessCodesPanel key={`${currentUser.id}-${propertyId}`} properties={metaQuery.data?.properties ?? []} selectedPropertyId={propertyId} role={currentUser.role} keycodeAccess={currentUser.keycodeAccess} />
           ) : activeView === "oncall" ? (
             <OnCallPanel key={currentUser.id} userId={currentUser.id} />
           ) : activeView === "wiki" ? (
