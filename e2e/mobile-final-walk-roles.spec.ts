@@ -131,6 +131,19 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     await inspector.getByRole("button", { name: /View:/ }).click();
     await inspector.getByTestId("tab-table").click();
     await inspector.getByTestId("mobile-details-split-1").click();
+    for (const width of [320, 390, 1280]) {
+      await inspector.setViewportSize({ width, height: 844 });
+      const drawer = inspector.getByTestId("item-drawer");
+      const badges = await drawer.locator(".drawer-pills").boundingBox();
+      const action = await inspector.getByTestId("completed-unit-report").boundingBox();
+      const close = await inspector.getByTestId("item-drawer-close").boundingBox();
+      expect(badges).not.toBeNull(); expect(action).not.toBeNull(); expect(close).not.toBeNull();
+      expect(action!.y - (badges!.y + badges!.height)).toBeGreaterThanOrEqual(8);
+      expect(action!.x + action!.width).toBeLessThanOrEqual(close!.x);
+      expect(await drawer.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    }
+    await inspector.setViewportSize({ width: 390, height: 844 });
+    await inspector.screenshot({ path: testInfo.outputPath("completed-unit-header-mobile.png") });
     await inspector.getByTestId("completed-unit-report").click();
     await expect(report.getByTestId("final-report-resident-pdf")).toBeVisible();
     await inspector.screenshot({ path: testInfo.outputPath("final-walk-mobile.png") });
