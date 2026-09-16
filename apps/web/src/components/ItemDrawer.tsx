@@ -731,15 +731,15 @@ export function ItemDrawer({
       <div className="item-drawer-backdrop" onClick={onClose} aria-hidden="true" />
       <aside className="item-drawer" data-testid="item-drawer" data-focus-pane={pane} aria-label={tWithVars(language, "drawer.detailsForUnit", { unit: item.unitNumber })}>
         <header className="item-drawer-header">
-          <div>
+          <div className="drawer-heading">
             <span className="drawer-kicker">{item.property.code} / {boardGroupLabel(item.boardGroup, item.propertyId, boardSections)}</span>
             <h2>{item.unitNumber}</h2>
-            {approved && !item.isArchived && ["ADMIN", "MANAGER", "LEASING"].includes(currentUser.role) ? <button type="button" className="button button-primary" data-testid="completed-unit-report" onClick={() => setCompletedReportOpen(true)}>{language === "es" ? "Editar / descargar informe final" : "Edit / download final-walk report"}</button> : null}
             <div className="drawer-pills">
               <LabelPill value={item.vacancyStatus} label={item.vacancyStatus ? labelsByField.vacancyStatus?.[item.vacancyStatus] : undefined} />
               <LabelPill value={item.makeReadyStatus} label={item.makeReadyStatus ? labelsByField.makeReadyStatus?.[item.makeReadyStatus] : undefined} />
               {item.riskLevel && item.riskLevel !== "NONE" ? <span className={`risk-level-badge ${item.riskLevel.toLowerCase()}`}>{item.riskLevel} risk / {item.riskScore}</span> : null}
             </div>
+            {approved && !item.isArchived && ["ADMIN", "MANAGER", "LEASING"].includes(currentUser.role) ? <div className="drawer-header-actions"><button type="button" className="button button-primary" data-testid="completed-unit-report" onClick={() => setCompletedReportOpen(true)}>{language === "es" ? "Editar / descargar informe final" : "Edit / download final-walk report"}</button></div> : null}
           </div>
           <button type="button" className="drawer-close" data-testid="item-drawer-close" onClick={onClose} aria-label={t(language, "drawer.closeDetails")}>×</button>
           {focused ? <nav className="drawer-work-nav" aria-label={language === "es" ? "Secciones de la unidad" : "Unit work sections"}>

@@ -4409,6 +4409,11 @@ textarea {
   font-size: 1.45rem;
 }
 
+.drawer-heading { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.drawer-header-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .7rem; }
+.drawer-header-actions .button { max-width: 100%; white-space: normal; text-align: left; min-height: 2.75rem; }
+.item-drawer-header .drawer-close { flex-shrink: 0; }
+
 .item-drawer-header:has(.drawer-work-nav) { flex-wrap: wrap; }
 .drawer-work-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .3rem; flex-basis: 100%; }
 .drawer-work-nav button { min-width: 0; min-height: 2.5rem; padding: .35rem .2rem; white-space: normal; font-size: .75rem; }
