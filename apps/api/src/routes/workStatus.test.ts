@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-test("work views refresh stale turn warnings without writing records", async t => {
+test("work views exclude ready and down turns while retaining unfinished repairs and final walks without writing records", async t => {
   process.env.DATABASE_URL = "postgresql://unused:unused@127.0.0.1:1/unused";
   process.env.ADMIN_USERNAME = "work-status-test";
   process.env.ADMIN_PASSWORD = "Test-Only-Password!123";
@@ -16,12 +16,17 @@ test("work views refresh stale turn warnings without writing records", async t =
   const old = new Date(2020, 0, 1);
   const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
   const property = { id: "p", code: "P", name: "Property", operatingCalendar: null };
-  const base = { propertyId: "p", property, assignedTech: "Tech", boardGroup: "WORK", isArchived: false,
+  const base = { propertyId: "p", property, assignedTech: "Tech", boardGroup: "WORK", isArchived: false, overdue: false, moveInSoon: false,
     makeReadyStatus: "DONE", completionStatus: "NO", makeReadyDate: old, vacatedDate: old,
     moveInDate: tomorrow, updatedAt: old, lastAutomationAt: old, workAssignmentBlocks: [], customFieldValues: [], checklistInstances: [] };
   const stored = [
     { ...base, id: "ready", unitNumber: "101", vacancyStatus: "VACANT_LEASED_READY", overdue: true, moveInSoon: true },
     { ...base, id: "pending", unitNumber: "102", vacancyStatus: "VACANT_NOT_LEASED_NOT_READY", overdue: false, moveInSoon: false },
+    { ...base, id: "model", unitNumber: "262", boardGroup: "DOWN_AND_MODELS", vacancyStatus: "VACANT NOT LEASED NOT READY" },
+    { ...base, id: "down-status", unitNumber: "263", vacancyStatus: "DOWN" },
+    { ...base, id: "custom-down", unitNumber: "264", boardGroup: "custom", property: { ...property, boardSections: [{ key: "custom", sectionType: "DOWN" }] }, vacancyStatus: "VACANT NOT LEASED NOT READY" },
+    { ...base, id: "approved", unitNumber: "163", completionStatus: "YES", vacancyStatus: "VACANT LEASED NOT READY" },
+    { ...base, id: "inspection", unitNumber: "200", makeReadyStatus: "FINAL WALK", vacancyStatus: "VACANT LEASED READY", makeReadyDate: tomorrow, moveInDate: null },
   ];
   stub(prisma.makeReadyItem, "findMany", async () => stored);
   for (const delegate of [prisma.projectRecord, prisma.preventiveMaintenanceTask, prisma.pestIssue, prisma.leaseComplianceIssue, prisma.workSession, prisma.property]) stub(delegate, "findMany", async () => []);
@@ -35,7 +40,7 @@ test("work views refresh stale turn warnings without writing records", async t =
   const response = await app.inject("/my-work");
   assert.equal(response.statusCode, 200, response.body);
   const result = response.json();
-  assert.equal(result.items.find((item: any) => item.id === "ready").overdue, false);
+  assert.deepEqual(result.items.map((item: any) => item.id).sort(), ["inspection", "pending"]);
   assert.equal(result.items.find((item: any) => item.id === "pending").overdue, true);
   assert.equal(result.stats.overdue, 1);
   assert.equal(result.stats.dueSoon, 1);
@@ -44,7 +49,9 @@ test("work views refresh stale turn warnings without writing records", async t =
   const assignedResponse = await app.inject("/assigned-work?propertyId=p");
   assert.equal(assignedResponse.statusCode, 200, assignedResponse.body);
   const assigned = assignedResponse.json();
-  assert.equal(assigned.entries.find((item: any) => item.sourceId === "ready").overdue, false);
+  assert.equal(assigned.entries.length, 2);
+  assert.ok(!assigned.upcoming.some((item: any) => ["model", "down-status", "custom-down"].includes(item.sourceId)));
+  assert.deepEqual(assigned.entries.map((item: any) => item.sourceId).sort(), ["inspection", "pending"]);
   assert.equal(assigned.entries.find((item: any) => item.sourceId === "pending").overdue, true);
   assert.equal(assigned.summary.overdueAssignments, 1);
   assert.equal(assigned.entries[0].sourceId, "pending");

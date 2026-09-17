@@ -27,6 +27,10 @@ test("assignment eligibility preserves existing work and rejects unsafe staff ch
   const { isAssignableTurn, validateTurnStaff } = await import("./turnAssignments.js");
   const item = { isArchived: false, completionStatus: "NO", assignedTech: null, vacancyStatus: "VACANT NOT LEASED NOT READY", vacatedDate: new Date("2020-01-01") };
   assert.equal(isAssignableTurn(item), true);
+  assert.equal(isAssignableTurn({ ...item, boardGroup: "DOWN_AND_MODELS" }), false);
+  const { isDownTurn } = await import("./downTurn.js");
+  assert.equal(isDownTurn({ ...item, boardGroup: "custom" }, [{ key: "custom", sectionType: "DOWN" }]), true);
+  assert.equal(isDownTurn({ ...item, vacancyStatus: "MODEL" }), true);
   for (const vacancyStatus of ["VACANT LEASED READY", "VACANT NOT LEASED READY", "NTV LEASED", "NTV NOT LEASED", "OCCUPIED", "UNKNOWN", null]) assert.equal(isAssignableTurn({ ...item, vacancyStatus }), false);
   assert.equal(isAssignableTurn({ ...item, assignedTech: "Someone" }), false);
   assert.equal(isAssignableTurn({ ...item, isArchived: true }), false);

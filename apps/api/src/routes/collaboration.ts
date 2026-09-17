@@ -22,6 +22,8 @@ import { queueWebhookEvent } from "../lib/webhookQueue.js";
 import { lockTurnProperty } from "../lib/turnMutationGuard.js";
 import { checklistMutation } from "../lib/checklistMutation.js";
 import { withLiveTurnFields } from "../lib/board.js";
+import { isDownTurn } from "../lib/downTurn.js";
+import { isTurnReady } from "../lib/turnStatus.js";
 
 const maxUploadMb = Number(process.env.MAX_UPLOAD_MB ?? 0);
 const maxUploadBytes = maxUploadMb > 0 ? maxUploadMb * 1024 * 1024 : null;
@@ -1461,11 +1463,11 @@ export async function collaborationRoutes(app: FastifyInstance) {
 
     const makeReadyItems = await prisma.makeReadyItem.findMany({
       where: { isArchived: false, ...propertyWhere, OR: [{ assignedTech: { not: null } }, { workAssignmentBlocks: { some: { status: { in: ["PLANNED", "IN_PROGRESS"] } } } }] },
-      include: { property: { select: { id: true, code: true, name: true } }, workAssignmentBlocks: { where: { status: { in: ["PLANNED", "IN_PROGRESS"] } }, include: { assignedUser: { select: { id: true, fullName: true, role: true } } }, orderBy: { plannedDate: "asc" } } },
+      include: { property: { select: { id: true, code: true, name: true, boardSections: true } }, workAssignmentBlocks: { where: { status: { in: ["PLANNED", "IN_PROGRESS"] } }, include: { assignedUser: { select: { id: true, fullName: true, role: true } } }, orderBy: { plannedDate: "asc" } } },
       orderBy: [{ overdue: "desc" }, { moveInDate: "asc" }, { updatedAt: "desc" }],
     });
     const statusNow = new Date();
-    const liveMakeReadyItems = makeReadyItems.map(item => withLiveTurnFields(item, statusNow))
+    const liveMakeReadyItems = makeReadyItems.filter(item => !isDownTurn(item) && !isTurnReady(item)).map(item => withLiveTurnFields(item, statusNow))
       .sort((left, right) => Number(right.overdue) - Number(left.overdue));
     for (const item of liveMakeReadyItems) {
       if (item.workAssignmentBlocks.length) {
@@ -1518,7 +1520,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
     const planningItems = await prisma.makeReadyItem.findMany({
       where: { isArchived: false, ...propertyWhere },
       include: {
-        property: { select: { id: true, code: true, name: true, operatingCalendar: true } },
+        property: { select: { id: true, code: true, name: true, operatingCalendar: true, boardSections: true } },
         customFieldValues: { where: { customField: { fieldKey: "turnMaintenanceDate", isArchived: false } } },
         workAssignmentBlocks: { where: { status: { in: ["PLANNED", "IN_PROGRESS"] } }, include: { assignedUser: { select: { id: true, fullName: true, role: true } } } },
       },
@@ -1528,6 +1530,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
     const canReviewAll = [UserRole.ADMIN, UserRole.MANAGER, UserRole.LEASING].some(role => role === user.role);
     const planningUserId = query.userId || (canReviewAll ? null : user.id);
     const upcoming = planningItems.flatMap(item => {
+      if (isDownTurn(item)) return [];
       const start = plannedTurnStart(item, item.customFieldValues[0]?.value, item.property.operatingCalendar);
       if (!start || start.date.slice(0, 10) < today) return [];
       const people = item.workAssignmentBlocks.length
@@ -1615,7 +1618,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
         ],
       },
       include: {
-        property: { include: { operatingCalendar: true } },
+        property: { include: { operatingCalendar: true, boardSections: true } },
         customFieldValues: { where: { customField: { fieldKey: "turnMaintenanceDate", isArchived: false } } },
         checklistInstances: { include: { items: true } },
         workAssignmentBlocks: { where: { assignedUserId: target.id, status: { in: ["PLANNED", "IN_PROGRESS"] } }, orderBy: { plannedDate: "asc" } },
@@ -1623,7 +1626,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
       orderBy: [{ overdue: "desc" }, { moveInDate: "asc" }, { updatedAt: "desc" }],
     });
     const statusNow = new Date();
-    const items = storedItems.map(item => withLiveTurnFields(item, statusNow))
+    const items = storedItems.filter(item => !isDownTurn(item) && !isTurnReady(item)).map(item => withLiveTurnFields(item, statusNow))
       .sort((left, right) => Number(right.overdue) - Number(left.overdue));
     const projectItems = await prisma.projectRecord.findMany({
       where: {
