@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma.js";
+import { isDownTurn } from "./downTurn.js";
 import { plannedTurnStart } from "./turnStartProjection.js";
 import { nextTurnAssignee, turnAssignmentStaff, turnSharesSchema, validateTurnStaff, type TurnShare } from "./turnAssignments.js";
 
@@ -17,7 +18,7 @@ export async function myWorkForecast(targetId: string, scopedProperties: string[
   return prisma.$transaction(async tx => {
     const properties = await tx.property.findMany({
       where: { isActive: true, ...(scopedProperties ? { id: { in: scopedProperties } } : {}) },
-      select: { id: true, code: true, name: true, operatingCalendar: true, turnAssignmentPolicy: true },
+      select: { id: true, code: true, name: true, operatingCalendar: true, turnAssignmentPolicy: true, boardSections: true },
     });
     const result: Array<{ id: string; title: string; propertyName: string; expectedStartDate: string; projectedStart: boolean; percent: number }> = [];
     const warnings: string[] = [];
@@ -36,6 +37,7 @@ export async function myWorkForecast(targetId: string, scopedProperties: string[
         include: { customFieldValues: { where: { customField: { fieldKey: "turnMaintenanceDate", isArchived: false } } }, workAssignmentBlocks: { where: { status: { in: ["PLANNED", "IN_PROGRESS"] } }, select: { id: true } } },
       });
       const candidates = items.flatMap(item => {
+        if (isDownTurn(item, property.boardSections)) return [];
         if (item.assignedTech?.trim() || item.workAssignmentBlocks.length) return [];
         const start = plannedTurnStart(item, item.customFieldValues[0]?.value, property.operatingCalendar);
         const notice = (item.vacancyStatus ?? "").trim().toUpperCase().startsWith("NTV");

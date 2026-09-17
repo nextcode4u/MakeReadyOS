@@ -3,6 +3,7 @@ import { z } from "zod";
 import { assignableStaffRoles } from "./auth.js";
 import { prisma } from "./prisma.js";
 import { createNotification } from "./notifications.js";
+import { isDownTurn } from "./downTurn.js";
 
 export const turnSharesSchema = z.array(z.object({ userId: z.string().min(1), percent: z.number().int().min(1).max(100) })).min(1).max(100)
   .refine(shares => shares.reduce((sum, share) => sum + share.percent, 0) === 100, "Percentages must total 100%")
@@ -32,7 +33,8 @@ export function validateTurnStaff(shares: TurnShare[], staff: Array<{ id: string
   return null;
 }
 
-export function isAssignableTurn(item: { isArchived: boolean; completionStatus: string | null; assignedTech: string | null; vacancyStatus: string | null; vacatedDate: Date | null }, now = new Date()) {
+export function isAssignableTurn(item: { isArchived: boolean; completionStatus: string | null; assignedTech: string | null; vacancyStatus: string | null; vacatedDate: Date | null; boardGroup?: string }, now = new Date()) {
+  if (isDownTurn(item)) return false;
   if (item.isArchived || item.assignedTech?.trim() || !item.vacatedDate || item.vacatedDate > now) return false;
   if (["DONE", "YES", "GOOD", "COMPLETE", "COMPLETED"].includes((item.completionStatus ?? "").trim().toUpperCase())) return false;
   const vacancy = (item.vacancyStatus ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
@@ -45,18 +47,18 @@ export async function runTurnAssignments(propertyId: string) {
   for (let index = 0; index < 200; index++) {
     const result = await prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${propertyId}), 824017)::text`;
-      const policy = await tx.turnAssignmentPolicy.findUnique({ where: { propertyId }, include: { property: { select: { isActive: true } } } });
+      const policy = await tx.turnAssignmentPolicy.findUnique({ where: { propertyId }, include: { property: { select: { isActive: true, boardSections: true } } } });
       if (!policy?.enabled || !policy.property.isActive) return { done: true };
       const shares = turnSharesSchema.parse(policy.shares);
       const staff = await turnAssignmentStaff(tx, propertyId);
       const warning = validateTurnStaff(shares, staff);
       if (warning) return { done: true, warning };
       const items = await tx.makeReadyItem.findMany({ where: { propertyId, isArchived: false, vacatedDate: { lte: new Date() } }, orderBy: [{ vacatedDate: "asc" }, { id: "asc" }] });
-      const candidate = items.find(item => isAssignableTurn(item));
+      const candidate = items.find(item => !isDownTurn(item, policy.property.boardSections) && isAssignableTurn(item));
       if (!candidate) return { done: true };
       await tx.$queryRaw`SELECT id FROM "MakeReadyItem" WHERE id = ${candidate.id} FOR UPDATE`;
       const item = await tx.makeReadyItem.findUnique({ where: { id: candidate.id } });
-      if (!item || item.propertyId !== propertyId || !isAssignableTurn(item)) return { done: false };
+      if (!item || item.propertyId !== propertyId || isDownTurn(item, policy.property.boardSections) || !isAssignableTurn(item)) return { done: false };
       const next = nextTurnAssignee(shares, policy.credits as Record<string, number>);
       const user = staff.find(user => user.id === next.userId)!;
       await tx.makeReadyItem.update({ where: { id: item.id }, data: { assignedTech: user.fullName } });
