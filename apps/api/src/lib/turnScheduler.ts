@@ -1,5 +1,5 @@
 import { prisma } from "./prisma.js";
-import { executeScheduledAutomationRules } from "./scheduledAutomations.js";
+import { executeNtvPreWalkLifecycle, executeScheduledAutomationRules } from "./scheduledAutomations.js";
 import { turnSetupPrefix } from "./turnSetup.js";
 import { runEnabledTurnAssignments } from "./turnAssignments.js";
 import { syncEnabledFinalWalks } from "./finalWalks.js";
@@ -12,6 +12,8 @@ export function startTurnScheduler() {
   const tick = () => {
     if (stopped || running) return;
     running = (async () => {
+      const lifecycle = await executeNtvPreWalkLifecycle({});
+      if (lifecycle.errors.length) console.error("Automatic vacancy transition reported errors", lifecycle.errors);
       await ensureAllDefaultTurnSchedules();
       const rules = await prisma.automationRule.findMany({ where: { templateId: { startsWith: turnSetupPrefix }, enabled: true, isArchived: false, property: { isActive: true } }, select: { id: true }, orderBy: { name: "asc" } });
       for (const rule of rules) {

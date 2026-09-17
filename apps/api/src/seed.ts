@@ -70,6 +70,7 @@ const labelSeed = {
     ["REPAIR CARPET", "#bf8dff", "#1e0a35"],
   ],
   makeReadyStatus: [
+    ["TO WALK", "#58a6de", "#041f31"],
     ["DONE", "#46d39c", "#06291c"],
     ["FINAL WALK", "#ffcc80", "#371900"],
     ["EASY", "#58a6de", "#041f31"],

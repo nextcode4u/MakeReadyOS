@@ -97,6 +97,9 @@ test("guided scheduler checks enabled guided rules every five minutes and stops 
   const { startTurnScheduler } = await import("./turnScheduler.js");
   const original = prisma.automationRule.findMany;
   const originalProperties = prisma.property.findMany;
+  const originalItems = prisma.makeReadyItem.findMany;
+  let vacancyChecks = 0;
+  prisma.makeReadyItem.findMany = (async () => { vacancyChecks++; return []; }) as any;
   prisma.property.findMany = (async () => []) as any;
   let calls = 0;
   prisma.automationRule.findMany = (async (query: any) => {
@@ -104,7 +107,7 @@ test("guided scheduler checks enabled guided rules every five minutes and stops 
     assert.deepEqual(query.where, { templateId: { startsWith: "guided-turn:" }, enabled: true, isArchived: false, property: { isActive: true } });
     return [];
   }) as any;
-  t.after(() => { prisma.automationRule.findMany = original; prisma.property.findMany = originalProperties; });
+  t.after(() => { prisma.automationRule.findMany = original; prisma.property.findMany = originalProperties; prisma.makeReadyItem.findMany = originalItems; });
   t.mock.timers.enable({ apis: ["setInterval"] });
   const stop = startTurnScheduler();
   t.mock.timers.tick(299999);
@@ -112,6 +115,7 @@ test("guided scheduler checks enabled guided rules every five minutes and stops 
   t.mock.timers.tick(1);
   await stop();
   assert.equal(calls, 1);
+  assert.equal(vacancyChecks, 1);
   t.mock.timers.tick(300000);
   assert.equal(calls, 1);
 });

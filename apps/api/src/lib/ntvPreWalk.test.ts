@@ -54,17 +54,29 @@ test("NTV pre-walk rechecks eligibility and records its transition under the lif
   }
   assert.equal(writes, 0);
   assert.equal(audits, 0);
-  current = snapshot; prior = { id: "previous-trigger" };
-  assert.equal((await run()).actionCount, 0);
-  current = snapshot; prior = null;
+  current = snapshot; prior = { id: "previous-tenancy-trigger" };
   assert.equal((await run()).actionCount, 1);
-  assert.equal(current.vacancyStatus, "TO PRE-WALK");
+  assert.equal(current.vacancyStatus, "VACANT LEASED NOT READY");
+  assert.equal(current.makeReadyStatus, "TO WALK");
+  assert.equal(current.vacatedDate, stamp);
+  const { isAssignableTurn } = await import("./turnAssignments.js");
+  assert.equal(isAssignableTurn(current), true);
   assert.equal(prior.action, "NTV_PREWALK_TRIGGERED");
   assert.equal(prior.metadata.previousVacancyStatus, "NTV LEASED");
   assert.equal(writes, 1);
   assert.equal(audits, 1);
   assert.equal((await run()).actionCount, 0);
   assert.equal(writes, 1);
+  for (const vacancyStatus of ["NTV", "NTV NOT LEASED", "NTV_NOT_LEASED", "NTV_LEASED"]) {
+    current = { ...snapshot, vacancyStatus };
+    assert.equal((await run()).actionCount, 1);
+    assert.equal(current.vacancyStatus, vacancyStatus === "NTV_LEASED" ? "VACANT LEASED NOT READY" : "VACANT NOT LEASED NOT READY");
+    assert.equal(isAssignableTurn(current), true);
+  }
+  current = { ...snapshot, makeReadyStatus: "MEDIUM", assignedTech: "", vacatedDate: new Date("2025-12-31") };
+  assert.equal((await run()).actionCount, 1);
+  assert.equal(current.makeReadyStatus, "MEDIUM");
+  assert.equal(current.vacatedDate.toISOString().slice(0, 10), "2025-12-31");
   current = snapshot; prior = null;
   stub(prisma.user, "findMany", async () => { throw new Error("Notification lookup unavailable"); });
   const partial = await run();
