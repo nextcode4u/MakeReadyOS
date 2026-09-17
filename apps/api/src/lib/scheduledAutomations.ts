@@ -22,8 +22,7 @@ function noteActionKey(value: string) {
   return `note:${createHash("sha256").update(value).digest("hex").slice(0, 20)}`;
 }
 
-const ntvPreWalkSourceStatuses = ["NTV NOT LEASED", "NTV LEASED"];
-const ntvPreWalkTargetStatus = "TO PRE-WALK";
+const ntvPreWalkSourceStatuses = ["NTV", "NTV NOT LEASED", "NTV LEASED", "NTV_NOT_LEASED", "NTV_LEASED"];
 const ntvPreWalkAuditAction = "NTV_PREWALK_TRIGGERED";
 
 function endOfToday(now = new Date()) {
@@ -35,7 +34,12 @@ async function notifyPreWalkStakeholders(item: {
   propertyId: string;
   unitNumber: string;
   moveOutDate: Date | null;
+  assignedTech?: string | null;
 }) {
+  await notifyAssignedStaff({ assignedTech: item.assignedTech, propertyId: item.propertyId, itemId: item.id,
+    category: "ASSIGNMENT", title: "Initial walk needed",
+    message: `${item.unitNumber} is now vacant. Record initial condition photos and scope before starting repairs.`,
+    dedupeKey: `vacancy-walk:${item.id}:${item.moveOutDate?.toISOString()}` });
   const recipients = await prisma.user.findMany({
     where: {
       isActive: true,
@@ -55,12 +59,12 @@ async function notifyPreWalkStakeholders(item: {
     itemId: item.id,
     category: "SCHEDULE",
     title: "Pre-walk needed",
-    message: `${item.unitNumber} reached its NTV / expected vacate date and was moved to ${ntvPreWalkTargetStatus}. Pre-walk the unit.`,
-    dedupeKey: `ntv-prewalk:${item.id}`,
+    message: `${item.unitNumber} reached its expected vacate date and is now vacant. The technician should complete the initial walk before repairs.`,
+    dedupeKey: `ntv-prewalk:${item.id}:${item.moveOutDate?.toISOString()}`,
   })));
 }
 
-async function executeNtvPreWalkLifecycle(options: {
+export async function executeNtvPreWalkLifecycle(options: {
   actorUserId?: string | null;
   allowedPropertyIds?: string[] | null;
 }) {
@@ -77,22 +81,11 @@ async function executeNtvPreWalkLifecycle(options: {
       vacancyStatus: { in: ntvPreWalkSourceStatuses },
     },
   });
-  const priorTriggers = candidates.length === 0
-    ? []
-    : await prisma.auditLog.findMany({
-      where: {
-        action: ntvPreWalkAuditAction,
-        entityType: "MAKE_READY_ITEM",
-        entityId: { in: candidates.map((item) => item.id) },
-      },
-      select: { entityId: true },
-    });
-  const alreadyTriggered = new Set(priorTriggers.map((entry) => entry.entityId).filter((id): id is string => Boolean(id)));
 
   let actionCount = 0;
   const warnings: string[] = [];
   const errors: string[] = [];
-  const eligibleItems = candidates.filter((item) => !alreadyTriggered.has(item.id));
+  const eligibleItems = candidates;
   for (const item of eligibleItems) {
     try {
       const updated = await prisma.$transaction(async tx => {
@@ -102,18 +95,25 @@ async function executeNtvPreWalkLifecycle(options: {
           || current.updatedAt.getTime() !== item.updatedAt.getTime()
           || !ntvPreWalkSourceStatuses.includes(current.vacancyStatus ?? "")
           || !current.moveOutDate || current.moveOutDate > cutoff) return null;
-        const prior = await tx.auditLog.findFirst({ where: { action: ntvPreWalkAuditAction, entityType: "MAKE_READY_ITEM", entityId: current.id }, select: { id: true } });
-        if (prior) return null;
-        const next = { ...current, vacancyStatus: ntvPreWalkTargetStatus };
-        const changed = await tx.makeReadyItem.update({ where: { id: current.id }, data: { vacancyStatus: ntvPreWalkTargetStatus, ...computeDerivedFields(next) } });
+        // The locked NTV status is the idempotency guard, not a lifetime audit flag:
+        // the same unit can have another notice/turn in a later tenancy.
+        const vacancyStatus = current.vacancyStatus?.replaceAll("_", " ") === "NTV LEASED"
+          ? "VACANT LEASED NOT READY" : "VACANT NOT LEASED NOT READY";
+        const patch = {
+          vacancyStatus,
+          vacatedDate: current.vacatedDate ?? current.moveOutDate,
+          makeReadyStatus: current.makeReadyStatus?.trim() || "TO WALK",
+        };
+        const next = { ...current, ...patch };
+        const changed = await tx.makeReadyItem.update({ where: { id: current.id }, data: { ...patch, ...computeDerivedFields(next) } });
         await tx.auditLog.create({ data: {
           actorUserId: options.actorUserId ?? null,
           propertyId: current.propertyId,
           entityType: "MAKE_READY_ITEM",
           entityId: current.id,
           action: ntvPreWalkAuditAction,
-          message: `${current.unitNumber} reached NTV / expected vacate date and was moved to ${ntvPreWalkTargetStatus}.`,
-          metadata: { previousVacancyStatus: current.vacancyStatus, vacancyStatus: ntvPreWalkTargetStatus, moveOutDate: current.moveOutDate.toISOString() },
+          message: `${current.unitNumber} reached its expected vacate date and became ${vacancyStatus}; initial technician walk is needed.`,
+          metadata: { previousVacancyStatus: current.vacancyStatus, ...patch, vacatedDate: patch.vacatedDate.toISOString(), moveOutDate: current.moveOutDate.toISOString() },
         } });
         return changed;
       });

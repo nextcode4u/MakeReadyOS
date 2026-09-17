@@ -31,6 +31,7 @@ export function turnStageLabel(item: TurnStatus, downSection = false) {
   if (["NTV", "NTV_LEASED", "NTV_NOT_LEASED"].includes(vacancy)) return "Upcoming turn - awaiting vacancy";
   if (isTurnReady(item)) return "Unit ready";
   if (awaitingFinalWalk(item)) return "Ready for final walk";
+  if (normalizeTurnStatus(item.makeReadyStatus) === "TO_WALK") return "Initial walk needed - photos and scope before repairs";
   if (normalizeTurnStatus(item.makeReadyStatus) !== "DONE") return "Repairs pending completion";
   return tradeDone(item.paintStatus) ? "Waiting for cleaning" : "Waiting for painting";
 }
