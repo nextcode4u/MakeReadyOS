@@ -1549,6 +1549,7 @@ function App() {
   }, [metaQuery.data]);
 
   const itemServerFilters = useMemo(() => ({
+    archiveState: structuredFilters.archiveState === "archived" ? "archived" as const : structuredFilters.archiveState === "all" ? "all" as const : undefined,
     propertyId: propertyId || undefined,
     q: deferredSearch || undefined,
     includeArchived: structuredFilters.archiveState !== "active" || activeView === "operations",

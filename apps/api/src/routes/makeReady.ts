@@ -1,6 +1,7 @@
 import { stringify } from "csv-stringify/sync";
 import { customExportHeaders } from "../lib/exportHeaders.js";
 import { readyVacancyStatus } from "../lib/readyVacancyStatus.js";
+import { archiveOccupiedTurn } from "../lib/archiveOccupiedTurn.js";
 import { projectedTurnStart } from "../lib/turnStartProjection.js";
 import { Prisma, UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -49,6 +50,7 @@ const itemSortFields = [
 ] as const;
 
 export const makeReadyQuerySchema = z.object({
+  archiveState: z.enum(["active", "archived", "all"]).optional(),
   propertyId: z.string().optional(),
   boardGroup: z.string().optional(),
   section: z.string().optional(),
@@ -360,7 +362,7 @@ async function buildMakeReadyExportWhere(
   const where: Prisma.MakeReadyItemWhereInput = {
     propertyId: query.propertyId ?? (propertyIds === null ? undefined : { in: propertyIds }),
     boardGroup: query.boardSection?.startsWith("type:") ? undefined : boardGroupFilter,
-    isArchived: query.archiveState === "archived" ? true : query.archiveState === "all" || query.includeArchived ? undefined : false,
+    isArchived: query.archiveState === "archived" ? true : query.archiveState === "active" ? false : query.archiveState === "all" || query.includeArchived ? undefined : false,
     property: query.archiveState === "all" || query.archiveState === "archived" || query.includeArchived ? undefined : { isActive: true },
     AND: andFilters.length ? andFilters : undefined,
   };
@@ -904,8 +906,8 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     const where: Prisma.MakeReadyItemWhereInput = {
       propertyId: query.propertyId ?? (propertyIds === null ? undefined : { in: propertyIds }),
       boardGroup: query.boardSection?.startsWith("type:") ? undefined : boardGroupFilter,
-      isArchived: query.includeArchived ? undefined : false,
-      property: query.includeArchived ? undefined : { isActive: true },
+      isArchived: query.archiveState === "archived" ? true : query.archiveState === "active" ? false : query.archiveState === "all" || query.includeArchived ? undefined : false,
+      property: query.archiveState === "archived" || query.archiveState === "all" || query.includeArchived ? undefined : { isActive: true },
       updatedAt: query.updatedSince ? { gte: query.updatedSince } : undefined,
       AND: andFilters.length ? andFilters : undefined,
     };
@@ -1202,6 +1204,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
           const next = { ...data };
           normalizeRepairCompletion(current, next);
           await guardReadyMutation(db, current, next, user.fullName);
+          await archiveOccupiedTurn(db, current, next);
           await db.makeReadyItem.update({ where: { id: current.id }, data: next });
         }
         return { count: currentItems.length };
@@ -1292,6 +1295,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       const data = normalizeItemPatch(payload);
       normalizeRepairCompletion(current, data);
       await guardReadyMutation(db, current, data, user.fullName);
+      await archiveOccupiedTurn(db, current, data);
       const requested = requestsInspection(current, data);
       await db.makeReadyItem.update({ where: { id }, data });
       return requested;
