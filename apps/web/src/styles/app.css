@@ -4423,6 +4423,7 @@ textarea {
 .drawer-work-facts dd { margin: .2rem 0 0; overflow-wrap: anywhere; font-size: .85rem; }
 /* Keep editors mounted when switching sections so in-progress inputs survive. */
 .item-drawer:where([data-focus-pane]:not([data-focus-pane="all"])) > .drawer-section { display: none; }
+.item-drawer[data-focus-pane] > [data-testid="reopen-final-walk"] { display: block; }
 .item-drawer[data-focus-pane="work"] > :is([data-testid="drawer-work-summary"], [data-testid="drawer-turn-details"], [data-testid="drawer-checklists"], [data-testid="turn-materials"], [data-testid="resident-codes-panel"]),
 .item-drawer[data-focus-pane="photos"] > [data-testid="drawer-attachments"],
 .item-drawer[data-focus-pane="notes"] > [data-testid="drawer-notes-section"],
