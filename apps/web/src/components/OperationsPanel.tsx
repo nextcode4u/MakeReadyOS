@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { joinDelimitedLine, splitDelimitedLine } from "../lib/delimitedRows";
 import { availabilityReportDate as detectAvailabilityReportDate } from "../lib/availabilityReportDate";
 import { isPhysicallyOccupiedStatus, isReadyLikeOccupancy, normalizeOccupancy } from "../lib/availabilityStatus";
 import { useQuery } from "@tanstack/react-query";
@@ -423,33 +424,6 @@ function normalizeImportSourceText(input: string, mode: "availability" | "unitDi
   return convertUnitDirectoryXmlToCsv(trimmed) ?? input;
 }
 
-function splitDelimitedLine(line: string, delimiter: "," | "\t" | ";") {
-  const cells: string[] = [];
-  let current = "";
-  let quoted = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    const next = line[index + 1];
-    if (char === "\"" && quoted && next === "\"") {
-      current += "\"";
-      index += 1;
-      continue;
-    }
-    if (char === "\"") {
-      quoted = !quoted;
-      continue;
-    }
-    if (char === delimiter && !quoted) {
-      cells.push(current.trim());
-      current = "";
-      continue;
-    }
-    current += char;
-  }
-  cells.push(current.trim());
-  return cells;
-}
-
 function normalizeHeader(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -575,7 +549,7 @@ function mergeAvailabilityContinuationRows(
     }
     merged.push(cells);
   }
-  return merged.map((cells) => cells.join(delimiter));
+  return merged.map((cells) => joinDelimitedLine(cells, delimiter));
 }
 
 function looksLikeAvailabilityNoiseRow(value: string) {
