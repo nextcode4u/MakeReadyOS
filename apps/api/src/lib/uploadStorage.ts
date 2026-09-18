@@ -29,6 +29,13 @@ export function routedStoredName(property: UploadRoutedProperty, filename: strin
   return subdir ? `${subdir}/${filename}` : filename;
 }
 
+export function unitTurnStoredName(item: { id: string; unitNumber: string; createdAt: Date; property: UploadRoutedProperty }, filename: string, stage = "GENERAL") {
+  const segment = (value: string) => sanitizeUploadSegment(value.replace(/[\\/]/g, "-")) || "unknown";
+  const root = propertyUploadSubdir(item.property) || segment(item.property.code);
+  // Creation date and turn ID stay stable when scheduling dates change or a unit turns again.
+  return `${root}/units/${segment(item.unitNumber)}/turn-${item.createdAt.toISOString().slice(0, 10)}-${segment(item.id)}/${segment(stage.toLowerCase().replaceAll("_", "-"))}/${segment(filename)}`;
+}
+
 export function resolveStoredUploadPath(storedName: string) {
   const path = resolve(uploadDir, storedName);
   const root = uploadDir.endsWith(sep) ? uploadDir : `${uploadDir}${sep}`;

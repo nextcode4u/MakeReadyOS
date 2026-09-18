@@ -1,7 +1,7 @@
 import { access, mkdir, rename } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { prisma } from "./lib/prisma.js";
-import { resolveStoredUploadPath, routedStoredName, uploadDir } from "./lib/uploadStorage.js";
+import { resolveStoredUploadPath, routedStoredName, unitTurnStoredName, uploadDir } from "./lib/uploadStorage.js";
 
 type UploadRecord = {
   type: "attachment" | "propertyMap";
@@ -55,6 +55,7 @@ async function buildRecords(propertyId?: string) {
     where: { propertyId },
     include: {
       property: { select: { id: true, code: true, uploadStorageMode: true, uploadSubdir: true } },
+      item: { select: { id: true, unitNumber: true, createdAt: true } },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -66,7 +67,7 @@ async function buildRecords(propertyId?: string) {
       propertyId: attachment.propertyId,
       propertyCode: attachment.property.code,
       storedName: attachment.storedName,
-      targetStoredName: routedStoredName(attachment.property, basename(attachment.storedName)),
+      targetStoredName: unitTurnStoredName({ ...attachment.item, property: attachment.property }, basename(attachment.storedName), attachment.inspectionStage),
     });
   }
 

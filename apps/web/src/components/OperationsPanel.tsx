@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { availabilityReportDate as detectAvailabilityReportDate } from "../lib/availabilityReportDate";
 import { isPhysicallyOccupiedStatus, isReadyLikeOccupancy, normalizeOccupancy } from "../lib/availabilityStatus";
 import { useQuery } from "@tanstack/react-query";
 import { getUnitHistory, isApiError, previewAvailabilityArchives, type AvailabilityReconciliationInput, type AvailabilityImportConflict, type AvailabilityImportConflictResponse, type AvailabilityImportInput, type AvailabilityImportResult, type BoardSection, type FloorPlan, type LabelDefinition, type MakeReadyItem, type OperatingCalendar, type OperatingCalendarInput, type Property, type RiskPolicy, type StaffOption, type Unit, type UserRole } from "../lib/api";
@@ -1341,6 +1342,14 @@ export function OperationsPanel({
     return { rows: parsedRows, ignoredRows };
   };
 
+  const availabilityDateInfo = (() => {
+    if (!availabilityImportText.trim()) return { date: "", error: "" };
+    try {
+      return detectAvailabilityReportDate(buildAvailabilityImportPreviewRows().rows);
+    } catch { return { date: "", error: "" }; }
+  })();
+  const effectiveAvailabilityReportDate = availabilityDateInfo.date || availabilityReportDate;
+
   const unitImportPreview = useMemo(() => {
     if (!unitImportText.trim()) return null;
     try {
@@ -1496,7 +1505,7 @@ export function OperationsPanel({
       if (lines.length) lines.push("");
       lines.push(isSpanish ? `Todas las ${availabilityImportPreview.parityAlerts.length} alertas de paridad listo/no listo:` : `All ${availabilityImportPreview.parityAlerts.length} ready-status parity alerts:`);
       for (const alert of availabilityImportPreview.parityAlerts) {
-        lines.push(`${alert.unit}: ${alert.type === "LOCAL_AHEAD" ? "LOCAL_AHEAD" : "REPORT_AHEAD"} | Local ${alert.localVacancyStatus} / ${alert.localMakeReadyStatus || "unset"} | Report ${alert.reportVacancyStatus} / ${alert.reportMakeReadyStatus || "unset"} | Updated ${formatDateTime(alert.updatedAt)} | Report date ${formatDateTime(alert.reportDate)}`);
+        lines.push(`${alert.unit}: ${alert.type === "LOCAL_AHEAD" ? "LOCAL_AHEAD" : "REPORT_AHEAD"} | Local ${alert.localVacancyStatus} / ${alert.localMakeReadyStatus || "unset"} | Report ${alert.reportVacancyStatus} / ${alert.reportMakeReadyStatus || "unset"} | Updated ${formatDateTime(alert.updatedAt)} | Report date ${normalizePreviewDate(alert.reportDate) || "Unknown"}`);
       }
     }
     return lines.join("\n");
@@ -1507,7 +1516,7 @@ export function OperationsPanel({
     return availabilityImportConflicts
       .slice()
       .sort((left, right) => compareUnitLike(left.unitNumber, right.unitNumber))
-      .map((conflict) => `${conflict.unitNumber}: ${conflict.reason} | ${conflict.recommendedAction} | ${conflict.fieldChanges.join("; ")} | Updated ${formatDateTime(conflict.updatedAt)} | Report date ${formatDateTime(conflict.reportDate)}`)
+      .map((conflict) => `${conflict.unitNumber}: ${conflict.reason} | ${conflict.recommendedAction} | ${conflict.fieldChanges.join("; ")} | Updated ${formatDateTime(conflict.updatedAt)} | Report date ${normalizePreviewDate(conflict.reportDate) || "Unknown"}`)
       .join("\n");
   }, [availabilityImportConflicts]);
 
@@ -1564,12 +1573,13 @@ export function OperationsPanel({
       setAvailabilityImportError("");
       if (!overrideConflicts) setAvailabilityImportConflicts(null);
       const parsedRows = parseAvailabilityRows();
-      const archivePreview = availabilityFullReport ? await previewAvailabilityArchives({ propertyId: selectedPropertyId, rows: parsedRows, reportDate: availabilityReportDate }) : null;
-      if (archivePreview && !window.confirm(`Full report reconciliation for ${selectedProperty.code} (${availabilityReportDate}):\n${archivePreview.candidates.length ? archivePreview.candidates.map(item => `${item.unitNumber}: move-in ${item.moveInDate.slice(0, 10)} -> Occupied / Archive`).join("\n") : "No missing ready units qualify for archive."}\n\nConfirm this report includes ALL available units for this property, not a filtered or partial list.`)) return;
+      if (availabilityFullReport && availabilityDateInfo.error) throw new Error(availabilityDateInfo.error);
+      const archivePreview = availabilityFullReport ? await previewAvailabilityArchives({ propertyId: selectedPropertyId, rows: parsedRows, reportDate: effectiveAvailabilityReportDate }) : null;
+      if (archivePreview && !window.confirm(`Full report reconciliation for ${selectedProperty.code} (${effectiveAvailabilityReportDate}):\n${archivePreview.candidates.length ? archivePreview.candidates.map(item => `${item.unitNumber}: move-in ${item.moveInDate.slice(0, 10)} -> Occupied / Archive`).join("\n") : "No missing ready units qualify for archive."}\n\nConfirm this report includes ALL available units for this property, not a filtered or partial list.`)) return;
       if (!window.confirm(isSpanish
         ? `Importar ${parsedRows.length} filas de disponibilidad a ${selectedProperty.code} - ${selectedProperty.name}? Se actualizaran la ocupacion y el tablero de esta propiedad.${overrideConflicts ? " Se sobrescribiran los conflictos locales." : ""}`
         : `Import ${parsedRows.length} availability rows into ${selectedProperty.code} - ${selectedProperty.name}? This will update occupancy and board records for this property.${overrideConflicts ? " Local conflicts will be overwritten." : ""}`)) return;
-      const result = await onImportAvailability({ propertyId: selectedPropertyId, rows: parsedRows, updateExisting: true, createTurns: true, overrideConflicts, fullReport: availabilityFullReport, reportDate: availabilityReportDate, archivePreviewToken: archivePreview?.token });
+      const result = await onImportAvailability({ propertyId: selectedPropertyId, rows: parsedRows, updateExisting: true, createTurns: true, overrideConflicts, fullReport: availabilityFullReport, reportDate: effectiveAvailabilityReportDate, archivePreviewToken: archivePreview?.token });
       setLastAvailabilityImport(result);
       setAvailabilityImportText("");
       setAvailabilityFullReport(false);
@@ -1981,7 +1991,7 @@ export function OperationsPanel({
                       {isSpanish ? "Local" : "Local"}: {occupancyLabel(alert.localVacancyStatus, language)} / {(alert.localMakeReadyStatus || (isSpanish ? "sin estado" : "unset"))}.{" "}
                       {isSpanish ? "Reporte" : "Report"}: {occupancyLabel(alert.reportVacancyStatus, language)} / {(alert.reportMakeReadyStatus || (isSpanish ? "sin estado" : "unset"))}.{" "}
                       {isSpanish ? "Último cambio local" : "Last local change"}: {formatDateTime(alert.updatedAt)}.{" "}
-                      {isSpanish ? "Fecha del reporte" : "Report date"}: {formatDateTime(alert.reportDate)}.
+                      {isSpanish ? "Fecha del reporte" : "Report date"}: {normalizePreviewDate(alert.reportDate) || "Unknown"}.
                     </li>
                   ))}
                 </ul>
@@ -2012,7 +2022,7 @@ export function OperationsPanel({
                             : "Recommended action: compare the newer local edits before allowing the report to replace them." )}{" "}
                       {conflict.recommendedAction}{" "}
                       {isSpanish ? "Último cambio local" : "Last local change"}: {formatDateTime(conflict.updatedAt)}.{" "}
-                      {isSpanish ? "Fecha del reporte" : "Report date"}: {formatDateTime(conflict.reportDate)}.{" "}
+                      {isSpanish ? "Fecha del reporte" : "Report date"}: {normalizePreviewDate(conflict.reportDate) || "Unknown"}.{" "}
                       {conflict.fieldChanges.join("; ")}
                     </li>
                   ))}
@@ -2037,10 +2047,10 @@ export function OperationsPanel({
               </div>
             ) : null}
             <label><input type="checkbox" data-testid="availability-full-report" checked={availabilityFullReport} onChange={event => setAvailabilityFullReport(event.target.checked)} /> Full property report: reconcile missing ready units after move-in</label>
-            {availabilityFullReport ? <label>Report date<input type="date" data-testid="availability-report-date" value={availabilityReportDate} onChange={event => setAvailabilityReportDate(event.target.value)} /><small>Use only a complete, unfiltered report. Missing ready units with move-in dates before this date will be previewed, marked occupied, and archived. Partial imports never archive omitted units.</small></label> : null}
+            {availabilityFullReport ? <div>{availabilityDateInfo.error ? <p role="alert">{availabilityDateInfo.error}</p> : availabilityDateInfo.date ? <p data-testid="availability-report-date-detected">Report date: <strong>{availabilityDateInfo.date}</strong> (from your file)</p> : <label>Report date (not supplied in file)<input type="date" data-testid="availability-report-date" value={availabilityReportDate} onChange={event => setAvailabilityReportDate(event.target.value)} /></label>}<small>Use only a complete, unfiltered report. Missing ready units with move-in dates before this date will be previewed, marked occupied, and archived. Partial imports never archive omitted units.</small></div> : null}
             {lastAvailabilityImport?.summary.turnsArchived ? <p>{lastAvailabilityImport.summary.turnsArchived} missing ready units marked occupied and archived.</p> : null}
             {lastAvailabilityImport?.warnings?.map(warning => <p key={warning} role="alert" className="admin-message warning">{warning}</p>)}
-            <button data-testid="availability-import-submit" className="button button-primary" disabled={loading || !properties.length || !selectedPropertyId || !availabilityImportText.trim() || (availabilityFullReport && !availabilityReportDate)} onClick={() => void importAvailabilityReport()}>{isSpanish ? "Importar disponibilidad y llenar tablero" : "Import Availability & Populate Board"}</button>
+            <button data-testid="availability-import-submit" className="button button-primary" disabled={loading || !properties.length || !selectedPropertyId || !availabilityImportText.trim() || (availabilityFullReport && (!effectiveAvailabilityReportDate || Boolean(availabilityDateInfo.error)))} onClick={() => void importAvailabilityReport()}>{isSpanish ? "Importar disponibilidad y llenar tablero" : "Import Availability & Populate Board"}</button>
           </div>
           <div className="editor-block unit-import-block">
             <h4>{isSpanish ? "Pegar CSV/XML del directorio de unidades" : "Paste Unit Directory CSV / XML"}</h4>
