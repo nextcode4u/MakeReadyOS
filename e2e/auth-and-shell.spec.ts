@@ -101,7 +101,7 @@ test("device push controls enable test and disable without automatic permission 
     let subscribed = false;
     const subscription = { endpoint: "https://fcm.googleapis.com/browser-test", toJSON: () => ({ endpoint: "https://fcm.googleapis.com/browser-test", keys: { p256dh: "test", auth: "test" } }), unsubscribe: async () => { subscribed = false; return true; } };
     Object.defineProperty(window, "PushManager", { value: class {}, configurable: true });
-    Object.defineProperty(window, "Notification", { value: { permission: "default", requestPermission: async () => { (window as any).permissionPrompts = ((window as any).permissionPrompts || 0) + 1; return "granted"; } }, configurable: true });
+    Object.defineProperty(window, "Notification", { value: { permission: "default", requestPermission: async () => { (window as any).permissionPrompts = ((window as any).permissionPrompts || 0) + 1; (window as any).Notification.permission = "granted"; return "granted"; } }, configurable: true });
     Object.defineProperty(navigator.serviceWorker, "getRegistration", { value: async () => ({ active: {}, pushManager: { getSubscription: async () => subscribed ? subscription : null, subscribe: async () => { subscribed = true; return subscription; } } }), configurable: true });
   });
   let endpoints: string[] = [], saves = 0, tests = 0;
@@ -112,11 +112,15 @@ test("device push controls enable test and disable without automatic permission 
   });
   await page.route("**/api/push/test", async route => { tests++; await route.fulfill({ json: { ok: true } }); });
   await login(page, adminEmail, adminPassword);
+  const prompt = page.getByTestId("device-push-onboarding");
+  await expect(prompt).toBeVisible();
+  expect(await page.evaluate(() => (window as any).permissionPrompts || 0)).toBe(0);
+  await prompt.getByRole("button", { name: "Enable notifications", exact: true }).click();
+  await expect(prompt).toBeHidden();
+  expect(saves).toBe(1);
+  expect(await page.evaluate(() => (window as any).permissionPrompts)).toBe(1);
   await page.getByTestId("notifications-button").click();
   const controls = page.getByTestId("device-push-settings");
-  await expect(controls.getByRole("button", { name: "Enable on this device" })).toBeVisible();
-  expect(await page.evaluate(() => (window as any).permissionPrompts || 0)).toBe(0);
-  await controls.getByRole("button", { name: "Enable on this device" }).click();
   await expect(controls.getByRole("button", { name: "Disable on this device" })).toBeVisible();
   expect(saves).toBe(1);
   await controls.getByRole("button", { name: "Send test notification" }).click();
@@ -125,6 +129,35 @@ test("device push controls enable test and disable without automatic permission 
   await expect(controls.getByRole("button", { name: "Disable on this device" })).toBeInViewport();
   await controls.getByRole("button", { name: "Disable on this device" }).click();
   await expect(controls.getByRole("button", { name: "Enable on this device" })).toBeVisible();
+  await expect(prompt).toBeHidden();
+  await page.reload();
+  await expect(page.getByTestId("property-filter")).toBeVisible();
+  await expect(prompt).toHaveCount(0);
+});
+
+test("device push onboarding remembers dismissal and respects blocked permissions", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "PushManager", { value: class {}, configurable: true });
+    Object.defineProperty(window, "Notification", { value: { permission: localStorage.getItem("test-push-denied") ? "denied" : "default", requestPermission: async () => { throw new Error("Must not request permission automatically"); } }, configurable: true });
+    Object.defineProperty(navigator.serviceWorker, "getRegistration", { value: async () => ({ active: {}, pushManager: { getSubscription: async () => null } }), configurable: true });
+  });
+  await page.route("**/api/push", route => route.fulfill({ json: { configured: true, publicKey: "B".repeat(87), endpoints: [] } }));
+  await login(page, adminEmail, adminPassword);
+  const prompt = page.getByTestId("device-push-onboarding");
+  await expect(prompt).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(prompt.getByRole("button", { name: "Enable notifications" })).toBeInViewport();
+  await prompt.getByRole("button", { name: "Not now" }).click();
+  await page.reload();
+  await expect(page.getByTestId("property-filter")).toBeVisible();
+  await expect(prompt).toHaveCount(0);
+  await page.evaluate(() => {
+    for (const key of Object.keys(localStorage)) if (key.startsWith("makereadyos.pushPromptDismissed:")) localStorage.removeItem(key);
+    localStorage.setItem("test-push-denied", "true");
+  });
+  await page.reload();
+  await expect(page.getByTestId("property-filter")).toBeVisible();
+  await expect(prompt).toHaveCount(0);
 });
 
 test("concurrent project category initialization and edits preserve unique scoped definitions", async ({ page }) => {

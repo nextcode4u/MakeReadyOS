@@ -14,6 +14,7 @@ import { FilterBar, type ThemeMode } from "./components/FilterBar";
 import { LoginScreen } from "./components/LoginScreen";
 import { Modal } from "./components/Modal";
 import { NotificationDrawer } from "./components/NotificationDrawer";
+import { DevicePushSettings } from "./components/DevicePushSettings";
 import { OnboardingPanel } from "./components/OnboardingPanel";
 import { PWAInstallPrompt } from "./components/PWAInstallPrompt";
 import { StatusState } from "./components/StatusState";
@@ -3906,6 +3907,7 @@ function App() {
         </aside>
 
         <section className="primary-panel">
+          <DevicePushSettings key={currentUser.id} userId={currentUser.id} language={currentUser.language} onboarding />
           <ConnectionStatus
             unattributedWork={unattributedOfflineWork}
             queueError={offlineQueueError}
