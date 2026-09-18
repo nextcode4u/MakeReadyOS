@@ -42,6 +42,9 @@ test("availability import preserves committed success when screen refresh fails"
   await page.reload();
   await page.getByTestId("tab-operations").click();
   await page.getByTestId("availability-import-property").selectOption(property.id);
+  await expect(page.getByTestId("unit-import-csv")).not.toBeVisible();
+  await expect(page.getByTestId("availability-import-csv")).toBeVisible();
+  await page.getByTestId("unit-directory-import").locator("summary").click();
   await page.getByTestId("unit-import-csv").fill("unit,floorPlan\nUnsent-directory-unit,B1");
   await page.getByTestId("availability-import-csv").fill("unit,availabilityStatus,reportDate\n101,Vacant Not Leased Ready,2026-09-13");
   let committed = false;
@@ -5799,6 +5802,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect((await calendarResponse).status()).toBe(200);
 
     const importedUnit = `IMP${Date.now()}`;
+    await page.getByTestId("unit-directory-import").locator("summary").click();
     await page.getByTestId("unit-import-csv").fill(`Unit Number\tBuilding Number\tFloor Plan\tBeds\tBaths\tSq Ft\tAvailability Status\tBudgeted\n${importedUnit}\t26\tQA \"B2\"\t2\t2\t1,246\tNTV Leased\tyes`);
     await expect(page.getByTestId("unit-import-preview")).toContainText("1 rows");
     await expect(page.getByTestId("unit-import-property").locator("option:checked")).toHaveText(`${code} - ${propertyName}`);

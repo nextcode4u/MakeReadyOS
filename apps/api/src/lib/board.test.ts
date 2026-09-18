@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { calendarDayDifference, computeDerivedFields, withLiveTurnFields } from "./board.js";
+import { calendarDayDifference, computeDerivedFields, withLiveTurnFields, normalizeItemPatch, evaluateRuleConditions } from "./board.js";
+
+test("legacy Good trades normalize to Done without changing condition checks or overall approval", () => {
+  assert.deepEqual(normalizeItemPatch({ paintStatus: " good ", cleaningStatus: "GOOD", doorsStatus: "GOOD", completionStatus: "NO" }),
+    { paintStatus: "DONE", cleaningStatus: "DONE", doorsStatus: "GOOD", completionStatus: "NO" });
+  for (const field of ["paintStatus", "cleaningStatus"] as const) {
+    assert.equal(evaluateRuleConditions({ [field]: "DONE" }, { all: [{ field, operator: "equals", value: "GOOD" }] }, {}).matched, true);
+    assert.equal(evaluateRuleConditions({ [field]: "DONE" }, { all: [{ field, operator: "notEquals", value: "GOOD" }] }, {}).matched, false);
+    assert.equal(evaluateRuleConditions({ [field]: "DONE" }, { all: [{ field, operator: "in", value: ["GOOD"] }] }, {}).matched, true);
+  }
+  assert.equal(evaluateRuleConditions({ doorsStatus: "DONE" }, { all: [{ field: "doorsStatus", operator: "equals", value: "GOOD" }] }, {}).matched, false);
+});
 
 const now = new Date(2026, 8, 8, 12);
 const dates = { makeReadyDate: new Date(2026, 8, 1), moveInDate: new Date(2026, 8, 9), vacatedDate: new Date(2026, 7, 1) };

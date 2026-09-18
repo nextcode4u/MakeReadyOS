@@ -16,7 +16,7 @@ export function isTurnReady(item: TurnStatus) {
     || ["VACANT_READY", "VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY"].includes(normalizeTurnStatus(item.vacancyStatus));
 }
 
-export const tradeDone = (value?: string | null) => ["DONE", "COMPLETE", "COMPLETED", "NOT_NEEDED", "N/A"].includes(normalizeTurnStatus(value));
+export const tradeDone = (value?: string | null) => ["DONE", "GOOD", "COMPLETE", "COMPLETED", "NOT_NEEDED", "N/A"].includes(normalizeTurnStatus(value));
 
 export function awaitingFinalWalk(item: TurnStatus) {
   return normalizeTurnStatus(item.makeReadyStatus) === "FINAL_WALK"

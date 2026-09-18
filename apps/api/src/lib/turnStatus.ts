@@ -12,7 +12,7 @@ export function isTurnReady(item: TurnStages) {
 }
 export const repairsDone = (item: TurnStages) => status(item.makeReadyStatus) === "DONE" || isFinalWalkStatus(item.makeReadyStatus);
 export const turnApproved = (item: TurnStages) => !isFinalWalkStatus(item.makeReadyStatus) && ["YES", "DONE", "COMPLETE", "COMPLETED"].includes(status(item.completionStatus));
-export const tradeDone = (value?: string | null) => ["DONE", "COMPLETE", "COMPLETED", "NOT_NEEDED", "N/A"].includes(status(value));
+export const tradeDone = (value?: string | null) => ["DONE", "GOOD", "COMPLETE", "COMPLETED", "NOT_NEEDED", "N/A"].includes(status(value));
 export function awaitingFinalWalk(item: TurnStages) {
   // Retain existing explicit inspection handoffs; new turns use independent stage facts.
   return isFinalWalkStatus(item.makeReadyStatus) || (!isTurnReady(item) && repairsDone(item) && tradeDone(item.paintStatus) && tradeDone(item.cleaningStatus));

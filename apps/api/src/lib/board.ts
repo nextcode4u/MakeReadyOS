@@ -198,15 +198,16 @@ function isValueEmpty(value: unknown) {
 }
 
 function isConditionMatch(item: Partial<MakeReadyItem>, condition: RuleCondition, customValues: CustomFieldValueMap) {
-  const rawValue = valueForCondition(item, condition, customValues);
+  const legacyTradeValue = (value: unknown) => !condition.customFieldId && ["paintStatus", "cleaningStatus"].includes(condition.field ?? "") && typeof value === "string" && value.trim().toUpperCase() === "GOOD" ? "DONE" : value;
+  const rawValue = legacyTradeValue(valueForCondition(item, condition, customValues));
 
   switch (condition.operator) {
     case "equals":
-      return rawValue === condition.value;
+      return rawValue === legacyTradeValue(condition.value);
     case "notEquals":
-      return rawValue !== condition.value;
+      return rawValue !== legacyTradeValue(condition.value);
     case "in":
-      return Array.isArray(condition.value) ? condition.value.includes(String(rawValue ?? "")) : false;
+      return Array.isArray(condition.value) ? condition.value.map(legacyTradeValue).includes(String(rawValue ?? "")) : false;
     case "contains":
       return Array.isArray(rawValue) && typeof condition.value === "string" && rawValue.includes(condition.value);
     case "isEmpty":
@@ -363,7 +364,7 @@ export function normalizeItemPatch(payload: Record<string, unknown>) {
     }
 
     if (typeof value === "string") {
-      data[field] = value.trim();
+      data[field] = ["paintStatus", "cleaningStatus"].includes(field) && value.trim().toUpperCase() === "GOOD" ? "DONE" : value.trim();
       continue;
     }
 

@@ -1,5 +1,5 @@
 import type { BoardSection, CustomField, CustomFieldType, MakeReadyItem, StaffOption } from "./api";
-import { isTurnReady } from "./turnStatus";
+import { isTurnReady, tradeDone } from "./turnStatus";
 
 export type MoveInWindowFilter = "" | "week" | "7" | "14";
 export type ArchiveFilter = "active" | "archived" | "occupied" | "all";
@@ -235,7 +235,7 @@ export function itemMatchesStructuredFilters(
   if (filters.missingDatesOnly && item.makeReadyDate && item.vacatedDate) return false;
   if (filters.pestIssuesOnly && (!item.pestStatus || ["NONE", "TREATED"].includes(item.pestStatus))) return false;
   if (filters.flooringNeededOnly && item.floorsStatus !== "REPLACE CARPET") return false;
-  if (filters.paintNeededOnly && (!item.paintStatus || item.paintStatus === "GOOD")) return false;
+  if (filters.paintNeededOnly && (!item.paintStatus?.trim() || tradeDone(item.paintStatus))) return false;
 
   if (filters.moveInWindow === "week") {
     const weekStart = startOfWeek(now);

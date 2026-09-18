@@ -339,7 +339,7 @@ const templates: TemplateDefinition[] = [
       { field: "completionStatus", operator: "notEquals", value: "YES" },
     ], any: [
       { field: "trashOutStatus", operator: "equals", value: "DONE" },
-      { field: "paintStatus", operator: "equals", value: "GOOD" },
+      { field: "paintStatus", operator: "equals", value: "DONE" },
       { field: "doorsStatus", operator: "equals", value: "GOOD" },
       { field: "floorsStatus", operator: "equals", value: "GOOD" },
     ] },
@@ -442,7 +442,7 @@ const templates: TemplateDefinition[] = [
       { field: "completionStatus", operator: "notEquals", value: "YES" },
     ], any: [
       { field: "trashOutStatus", operator: "equals", value: "DONE" },
-      { field: "paintStatus", operator: "equals", value: "GOOD" },
+      { field: "paintStatus", operator: "equals", value: "DONE" },
       { field: "doorsStatus", operator: "equals", value: "GOOD" },
       { field: "floorsStatus", operator: "equals", value: "GOOD" },
     ] },

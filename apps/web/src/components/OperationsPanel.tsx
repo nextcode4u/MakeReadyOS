@@ -2026,8 +2026,9 @@ export function OperationsPanel({
             {lastAvailabilityImport?.warnings?.map(warning => <p key={warning} role="alert" className="admin-message warning">{warning}</p>)}
             <button data-testid="availability-import-submit" className="button button-primary" disabled={loading || !properties.length || !selectedPropertyId || !availabilityImportText.trim() || (availabilityFullReport && (!effectiveAvailabilityReportDate || Boolean(availabilityDateInfo.error)))} onClick={() => void importAvailabilityReport()}>{isSpanish ? "Importar disponibilidad y llenar tablero" : "Import Availability & Populate Board"}</button>
           </div>
+          <details data-testid="unit-directory-import" style={{ gridColumn: "1 / -1", minWidth: 0 }}>
+            <summary>{isSpanish ? "Directorio de unidades / importar inventario permanente" : "Unit directory / import permanent inventory"}</summary>
           <div className="editor-block unit-import-block">
-            <h4>{isSpanish ? "Pegar CSV/XML del directorio de unidades" : "Paste Unit Directory CSV / XML"}</h4>
             {importPropertySelector("unit")}
             <p className="helper-copy">{isSpanish ? "Use esto solo para inventario permanente. Puede pegar CSV o cargar XML compatibles. Actualiza el estado ocupado/vacante del directorio, pero no crea filas activas de make-ready. Para poblar el tablero, use la importación de disponibilidad de arriba." : "Use this for permanent inventory only. You can paste CSV or upload supported XML exports here. It updates occupied/vacant directory status but does not create active make-ready table rows. For board population, use Availability import above."}</p>
             <div className="unit-import-actions">
@@ -2142,6 +2143,7 @@ export function OperationsPanel({
             ) : null}
             <button data-testid="unit-import-submit" className="button button-secondary" disabled={loading || !properties.length || !selectedPropertyId || !unitImportText.trim()} onClick={() => void importUnitDirectory()}>{isSpanish ? "Importar / actualizar directorio" : "Import / Update Directory"}</button>
           </div>
+          </details>
           <div className="editor-block unit-import-block">
             {selectedProperty?.isActive ? <><MailboxDirectoryPanel key={`mailbox-${selectedProperty.id}`} propertyId={selectedProperty.id} /><details style={{ gridColumn: "1 / -1", minWidth: 0 }}><summary>Keys &amp; Access / unit code directory</summary><AccessCodesPanel key={`codes-${selectedProperty.id}`} properties={[selectedProperty]} selectedPropertyId={selectedProperty.id} role={role} /></details></> : <p className="helper-copy">{isSpanish ? "Seleccione una propiedad activa arriba para importar el directorio de buzones." : "Select an active property above to import its mailbox directory."}</p>}
           </div>

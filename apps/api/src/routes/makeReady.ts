@@ -337,7 +337,7 @@ async function buildMakeReadyExportWhere(
   if (query.missingDatesOnly) andFilters.push({ OR: [{ makeReadyDate: null }, { vacatedDate: null }] });
   if (query.pestIssuesOnly) andFilters.push({ pestStatus: { notIn: ["NONE", "TREATED"] } });
   if (query.flooringNeededOnly) andFilters.push({ floorsStatus: "REPLACE CARPET" });
-  if (query.paintNeededOnly) andFilters.push({ paintStatus: { not: null }, NOT: { paintStatus: "GOOD" } });
+  if (query.paintNeededOnly) andFilters.push({ paintStatus: { notIn: ["", "GOOD", "DONE", "COMPLETE", "COMPLETED", "NOT NEEDED", "NOT_NEEDED", "NOT-NEEDED", "N/A"], mode: "insensitive" } });
   if (query.moveInRiskOnly) {
     andFilters.push(moveInRiskWhere());
   }
@@ -878,7 +878,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     if (query.missingDatesOnly) andFilters.push({ OR: [{ makeReadyDate: null }, { vacatedDate: null }] });
     if (query.pestIssuesOnly) andFilters.push({ pestStatus: { notIn: ["NONE", "TREATED"] } });
     if (query.flooringNeededOnly) andFilters.push({ floorsStatus: "REPLACE CARPET" });
-    if (query.paintNeededOnly) andFilters.push({ paintStatus: { not: null }, NOT: { paintStatus: "GOOD" } });
+    if (query.paintNeededOnly) andFilters.push({ paintStatus: { notIn: ["", "GOOD", "DONE", "COMPLETE", "COMPLETED", "NOT NEEDED", "NOT_NEEDED", "NOT-NEEDED", "N/A"], mode: "insensitive" } });
     if (query.moveInRiskOnly) {
       andFilters.push(moveInRiskWhere());
     }

@@ -5,7 +5,7 @@ import { guardReadyMutation, normalizeRepairCompletion, readyStatusIntent, reque
 import { pendingTurnStages, awaitingFinalWalk } from "./turnStatus.js";
 
 test("trade status spelling variants agree with the board before inspection handoff", () => {
-  for (const value of ["Not needed", "NOT_NEEDED", "not-needed", " not   needed ", "N/A", "Done", "COMPLETE", "completed"]) {
+  for (const value of ["Not needed", "NOT_NEEDED", "not-needed", " not   needed ", "N/A", "Done", "GOOD", " good ", "COMPLETE", "completed"]) {
     const item = { makeReadyStatus: "DONE", completionStatus: "NO", paintStatus: value, cleaningStatus: value };
     assert.equal(awaitingFinalWalk(item), true, value);
     assert.deepEqual(pendingTurnStages(item), [], value);
