@@ -191,7 +191,7 @@ export function StorageSettingsPanel({ language }: { language: UserLanguage }) {
           <div className="storage-routing-panel" data-testid="storage-property-routing">
             <div>
               <h4>{isSpanish ? "Carpetas de carga por propiedad" : "Property upload folders"}</h4>
-              <p className="subtitle">{isSpanish ? "Dirija nuevas fotos, adjuntos y archivos de mapa a subcarpetas por propiedad dentro del volumen de carga activo. Esto funciona con volumenes Docker y rutas host/NAS montadas; los archivos existentes se quedan donde estan." : "Route new photos, attachments, and map files into property subfolders inside the active upload volume. This works with Docker volumes and host/NAS-mounted paths; existing files stay where they are."}</p>
+              <p className="subtitle">{isSpanish ? "Los adjuntos de unidades siempre se organizan por propiedad, unidad, turno y etapa. Estas opciones controlan la carpeta base y las otras cargas. Los archivos existentes conservan su ubicacion." : "Unit attachments are always organized by property, unit, turn, and upload stage. These settings control the base folder and other uploads. Existing files keep their current paths until migrated."}</p>
             </div>
             <div className="storage-routing-list">
               {settings.propertyRouting.map((property) => (
@@ -199,7 +199,7 @@ export function StorageSettingsPanel({ language }: { language: UserLanguage }) {
                   <div>
                     <strong>{property.code}</strong>
                     <span>{property.name}</span>
-                    <small>{property.effectiveSubdir ? (isSpanish ? `Las nuevas cargas van a /${property.effectiveSubdir}` : `New uploads route to /${property.effectiveSubdir}`) : (isSpanish ? "Las nuevas cargas usan la raiz compartida" : "New uploads use the shared upload root")}</small>
+                    <small>{property.effectiveSubdir ? (isSpanish ? `Las nuevas cargas van a /${property.effectiveSubdir}` : `New uploads route to /${property.effectiveSubdir}`) : (isSpanish ? "Adjuntos de unidades en carpetas por propiedad; otras cargas en la raiz compartida" : "Unit attachments use property folders; other uploads use the shared root")}</small>
                   </div>
                   <select
                     value={property.uploadStorageMode}

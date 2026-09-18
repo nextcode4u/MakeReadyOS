@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { isReadyAvailabilityStatus } from "./availabilityStatus.js";
 import { isFinalWalkStatus } from "./turnStatus.js";
+import { resolveReportDay } from "./reportDate.js";
 
 const day = (date: Date) => date.toISOString().slice(0, 10);
 const unitKey = (value: string) => value.trim().toUpperCase().replace(/\d+/g, digits => digits.replace(/^0+(?=\d)/, ""));
@@ -29,8 +30,7 @@ export function missingReadyTurns(items: Candidate[], sections: Array<{ key: str
 }
 
 export async function availabilityArchivePlan(db: Prisma.TransactionClient, input: { propertyId: string; rows: Array<{ number: string; reportDate?: string | null }>; reportDate?: string }) {
-  const reportDate = reconciliationDate(input.reportDate);
-  if (input.rows.some(row => row.reportDate && row.reportDate.slice(0, 10) !== reportDate)) throw Object.assign(new Error("Row report dates must match the full report date."), { statusCode: 400 });
+  const reportDate = reconciliationDate(resolveReportDay(input.rows, input.reportDate));
   const sections = await db.boardSection.findMany({ where: { propertyId: input.propertyId, isActive: true } });
   const items = await db.makeReadyItem.findMany({ where: { propertyId: input.propertyId, isArchived: false }, include: { unit: { select: { isActive: true, occupancyStatus: true } } } });
   const candidates = missingReadyTurns(items, sections, input.rows.map(row => row.number), reportDate);

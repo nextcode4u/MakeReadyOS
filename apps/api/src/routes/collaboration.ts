@@ -17,7 +17,7 @@ import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
 import { plannedTurnStart } from "../lib/turnStartProjection.js";
 import { myWorkForecast } from "../lib/myWorkForecast.js";
-import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, routedStoredName } from "../lib/uploadStorage.js";
+import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, unitTurnStoredName } from "../lib/uploadStorage.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 import { lockTurnProperty } from "../lib/turnMutationGuard.js";
 import { checklistMutation } from "../lib/checklistMutation.js";
@@ -1018,7 +1018,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
       file.file.resume();
       return reply.code(415).send({ message: "Unsupported attachment type. Upload JPG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF, PDF, text/CSV, Word, or Excel files." });
     }
-    const storedName = routedStoredName(item.property, `${randomUUID()}${extension}`);
+    const storedName = unitTurnStoredName(item, `${randomUUID()}-${safeName}`, inspectionStage);
     await ensureStoredUploadParent(storedName);
     const path = resolveStoredUploadPath(storedName);
     await pipeline(file.file, (await import("node:fs")).createWriteStream(path));
