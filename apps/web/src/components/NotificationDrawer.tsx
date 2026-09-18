@@ -5,6 +5,7 @@ import { t, tWithVars } from "../lib/i18n";
 import { DevicePushSettings } from "./DevicePushSettings";
 
 type Props = {
+  focusId?: string;
   userId: string;
   open: boolean;
   data?: NotificationResponse;
@@ -48,7 +49,7 @@ function inputToMinutes(value: string) {
   return (Number.isFinite(hour) ? hour : 0) * 60 + (Number.isFinite(minute) ? minute : 0);
 }
 
-export function NotificationDrawer({ userId, open, data, loading, onClose, onRead, onReadAll, onDismiss, onOpenItem, onPreferenceChange, onSettingsChange, language }: Props) {
+export function NotificationDrawer({ focusId, userId, open, data, loading, onClose, onRead, onReadAll, onDismiss, onOpenItem, onPreferenceChange, onSettingsChange, language }: Props) {
   const isSpanish = language === "es";
   const [selectedPropertyId, setSelectedPropertyId] = useState("");
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(false);
@@ -75,6 +76,13 @@ export function NotificationDrawer({ userId, open, data, loading, onClose, onRea
     setQuietEnd(minutesToInput(data?.settings.quietHoursEndMinute ?? 420));
   }, [data?.settings]);
 
+  useEffect(() => {
+    if (!open || !focusId || loading) return;
+    const alert = document.getElementById(`notification-${focusId}`);
+    alert?.scrollIntoView({ block: "nearest" });
+    alert?.focus({ preventScroll: true });
+  }, [open, focusId, loading, data]);
+
   if (!open) return null;
   return (
     <>
@@ -93,6 +101,8 @@ export function NotificationDrawer({ userId, open, data, loading, onClose, onRea
             {data.notifications.map((notification) => (
               <article
                 key={notification.id}
+                id={`notification-${notification.id}`}
+                tabIndex={-1}
                 className={notification.isRead ? "notification-item" : "notification-item unread"}
               >
                 <button type="button" className="notification-open" onClick={async () => {

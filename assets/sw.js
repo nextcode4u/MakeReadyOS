@@ -138,12 +138,13 @@ self.addEventListener("fetch", (event) => {
 });
 
 self.addEventListener("push", event => {
-  // Never render arbitrary payload text or private work details on a lock screen.
-  let tag = "mros-work";
-  try { const data = event.data?.json(); if (typeof data?.tag === "string") tag = data.tag.slice(0, 100); } catch { /* Use a generic notification for malformed data. */ }
-  event.waitUntil(self.registration.showNotification("MakeReadyOS", {
-    body: "You have a new work notification. Open MakeReadyOS to view it.",
-    icon: "/icons/pwa/makereadyos.svg", tag,
+  let data = {};
+  try { data = event.data?.json() || {}; } catch { /* Use a generic notification for malformed data. */ }
+  const text = (value, fallback, limit) => typeof value === "string" ? value.slice(0, limit) : fallback;
+  event.waitUntil(self.registration.showNotification(text(data.title, "MakeReadyOS", 100), {
+    body: text(data.body, "New work alert. Tap to view details.", 220),
+    icon: "/icons/pwa/makereadyos.svg", tag: text(data.tag, "mros-work", 100),
+    data: { notificationId: text(data.notificationId, "", 100), itemId: text(data.itemId, "", 100) },
   }));
 });
 
@@ -151,8 +152,24 @@ self.addEventListener("notificationclick", event => {
   event.notification.close();
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    const existing = windows.find(client => new URL(client.url).origin === self.location.origin);
-    if (existing) { existing.postMessage({ type: "OPEN_NOTIFICATIONS" }); await existing.focus(); }
-    else await self.clients.openWindow("/?notifications=1");
+    const target = event.notification.data || {};
+    const url = new URL("/?notifications=1", self.location.origin);
+    for (const key of ["notificationId", "itemId"]) if (typeof target[key] === "string" && target[key]) url.searchParams.set(key, target[key].slice(0, 100));
+    const existing = windows.find(client => { const location = new URL(client.url); return location.origin === self.location.origin && location.pathname === "/"; });
+    if (existing) {
+      try {
+        await existing.focus();
+        const handled = await new Promise(resolve => {
+          const channel = new MessageChannel();
+          const finish = value => { clearTimeout(timer); channel.port1.close(); channel.port2.close(); resolve(value); };
+          const timer = setTimeout(() => finish(false), 1200);
+          channel.port1.onmessage = event => finish(event.data === "NOTIFICATION_OPENED");
+          existing.postMessage({ type: "OPEN_NOTIFICATIONS", notificationId: target.notificationId, itemId: target.itemId }, [channel.port2]);
+        });
+        if (handled) return;
+      } catch { /* Open a routed window if a suspended or old client cannot handle the tap. */ }
+    }
+    const opened = await self.clients.openWindow(url.pathname + url.search);
+    if (opened?.focus) await opened.focus();
   })());
 });

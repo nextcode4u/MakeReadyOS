@@ -12,7 +12,10 @@ test("push endpoints reject local, credentialed, and deceptive destinations", ()
   assert.equal(retryPush(429, 4), true);
   assert.equal(retryPush(503, 5), false);
   assert.equal(retryPush(undefined, 1), true);
-  assert.deepEqual(JSON.parse(pushPayload("notice")), { title: "MakeReadyOS", body: "You have a new work notification. Open MakeReadyOS to view it.", tag: "mros-notice" });
+  const note = { id: "notice", title: "Final walk ready for inspection", itemId: "unit-id", property: { code: "VAB" }, item: { unitNumber: "2907P" }, message: "Private resident note and door code" };
+  const payload = JSON.parse(pushPayload(note));
+  assert.deepEqual(payload, { title: "MakeReadyOS - VAB 2907P", body: "Final walk ready for inspection. Tap to view details.", tag: "mros-notice", notificationId: "notice", itemId: "unit-id" });
+  assert.ok(!JSON.stringify(payload).includes("door code"));
 });
 
 test("push worker respects current access, unread state, sessions, quiet hours and retries", async t => {
@@ -41,7 +44,7 @@ test("push worker respects current access, unread state, sessions, quiet hours a
   stub(prisma.pushSubscription, "deleteMany", async () => { removed++; return { count: 1 }; });
   stub(prisma.notificationPreference, "findMany", async () => preferences);
   stub(prisma.userNotificationSettings, "findUnique", async () => settings);
-  const transport = (async (_device: unknown, payload: string) => { sent++; assert.equal(payload, pushPayload("notice")); }) as any;
+  const transport = (async (_device: unknown, payload: string) => { sent++; assert.equal(payload, pushPayload(fresh.notification)); }) as any;
   await deliverPushBatch(transport); assert.equal(sent, 1); assert.equal(updates.at(-1).status, "SENT");
   const skip = async (change: (value: ReturnType<typeof base>) => void) => {
     fresh = base(); change(fresh); updates = []; const before = sent;

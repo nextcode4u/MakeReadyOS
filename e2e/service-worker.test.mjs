@@ -28,7 +28,7 @@ function worker(extras = {}) {
   };
   vm.runInNewContext(readFileSync("assets/sw.js", "utf8"), {
     self: { location: { origin: "http://localhost:8080" }, addEventListener: (name, callback) => listeners.set(name, callback), ...extras },
-    caches, URL, Response, fetch: request => network(request),
+    caches, URL, Response, MessageChannel, setTimeout, clearTimeout, fetch: request => network(request),
   });
   return {
     dispatch: async (name, data) => {
@@ -136,24 +136,33 @@ test("failed cache deletion does not block logout or expose old data offline", a
   assert.equal((await sw.request("/api/meta")).status, 0);
 });
 
-test("push displays only generic text and clicks open authenticated Alerts without discarding drafts", async () => {
+test("push displays event context and routes cold and warm clicks without discarding drafts", async () => {
   const displayed = [], opened = [], messages = [];
   let focused = 0, closed = 0, windows = [];
   const sw = worker({
     registration: { showNotification: async (title, options) => displayed.push({ title, ...options }) },
     clients: { matchAll: async () => windows, openWindow: async url => opened.push(url) },
   });
-  await sw.dispatch("push", { data: { json: () => ({ title: "Private resident", body: "Door code", tag: "mros-event", url: "https://evil.test" }) } });
-  assert.equal(displayed[0].title, "MakeReadyOS");
-  assert.ok(!JSON.stringify(displayed).includes("Private"));
-  assert.ok(!JSON.stringify(displayed).includes("Door code"));
+  await sw.dispatch("push", { data: { json: () => ({ title: "MakeReadyOS - VAB 2907P", body: "Final walk ready for inspection", tag: "mros-event", itemId: "unit", notificationId: "notice", url: "https://evil.test" }) } });
+  assert.equal(displayed[0].title, "MakeReadyOS - VAB 2907P");
+  assert.equal(displayed[0].body, "Final walk ready for inspection");
+  assert.equal(displayed[0].data.itemId, "unit");
   assert.equal(displayed[0].tag, "mros-event");
   await sw.dispatch("push", { data: { json: () => { throw new Error("Malformed"); } } });
   assert.equal(displayed[1].tag, "mros-work");
   const notification = { close: () => { closed++; }, data: { url: "https://evil.test" } };
   await sw.dispatch("notificationclick", { notification });
   assert.deepEqual(opened, ["/?notifications=1"]);
-  windows = [{ url: "http://localhost:8080/", postMessage: value => messages.push(value.type), focus: async () => { focused++; }, navigate: () => { throw new Error("Must preserve open drafts"); } }];
+  windows = [{ url: "http://localhost:8080/", postMessage: (value, ports) => { messages.push(value.type); ports[0].postMessage("NOTIFICATION_OPENED"); }, focus: async () => { focused++; }, navigate: () => { throw new Error("Must preserve open drafts"); } }];
   await sw.dispatch("notificationclick", { notification });
   assert.deepEqual(messages, ["OPEN_NOTIFICATIONS"]); assert.equal(focused, 1); assert.equal(closed, 2); assert.equal(opened.length, 1);
+  windows = [];
+  await sw.dispatch("notificationclick", { notification: { close() {}, data: displayed[0].data } });
+  assert.equal(opened.at(-1), "/?notifications=1&notificationId=notice&itemId=unit");
+  windows = [{ url: "http://localhost:8080/", postMessage() {}, focus: async () => {} }];
+  await sw.dispatch("notificationclick", { notification: { close() {}, data: displayed[0].data } });
+  assert.equal(opened.length, 3);
+  windows = [{ url: "http://localhost:8080/on-call/", postMessage() { throw new Error("Shared module cannot handle app alerts"); } }];
+  await sw.dispatch("notificationclick", { notification });
+  assert.equal(opened.length, 4);
 });

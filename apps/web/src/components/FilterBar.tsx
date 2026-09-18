@@ -294,6 +294,9 @@ export function FilterBar({
             <button type="button" data-testid="mobile-tools-toggle" aria-expanded={mobileToolsOpen} aria-controls="mobile-workspace-tools" className={mobileToolsOpen ? "button mobile-filter-toggle mobile-tools-toggle active" : "button button-secondary mobile-filter-toggle mobile-tools-toggle"} onClick={toggleMobileTools}>
               {t(language, "nav.tools")}
             </button>
+            <button type="button" data-testid="notifications-button" className="button button-secondary notification-button mobile-alerts-button" onClick={() => { setMobileToolsOpen(false); setMobileViewsOpen(false); onOpenNotifications(); }} aria-label={`${t(language, "nav.alerts")}: ${notificationUnreadCount} ${t(language, "nav.notificationsUnread")}`}>
+              {t(language, "nav.alerts")}{notificationUnreadCount > 0 ? <strong>{notificationUnreadCount}</strong> : null}
+            </button>
         </div>
 
         {mobileViewsOpen ? (
@@ -390,9 +393,6 @@ export function FilterBar({
             <a data-testid="export-pdf" className="button button-secondary export-button" href={makeReadyPdfReportUrl(makeReadyExportFilters)} target="_blank" rel="noreferrer">
               {t(language, "nav.pdf")}
             </a>
-            <button data-testid="notifications-button" className="button button-secondary notification-button" onClick={onOpenNotifications} aria-label={`${notificationUnreadCount} ${t(language, "nav.notificationsUnread")}`}>
-              {t(language, "nav.alerts")}{notificationUnreadCount > 0 ? <strong>{notificationUnreadCount}</strong> : null}
-            </button>
           </div>
         ) : null}
       </header>

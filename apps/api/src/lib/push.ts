@@ -20,8 +20,10 @@ export function pushConfiguration() {
   return { publicKey };
 }
 
-export function pushPayload(id: string) {
-  return JSON.stringify({ title: "MakeReadyOS", body: "You have a new work notification. Open MakeReadyOS to view it.", tag: `mros-${id}` });
+export function pushPayload(note: { id: string; title?: string; itemId?: string | null; property?: { code: string } | null; item?: { unitNumber: string } | null }) {
+  const context = [note.property?.code, note.item?.unitNumber].filter(Boolean).join(" ");
+  // Send event headings and unit identity, never free-form messages, notes or access codes.
+  return JSON.stringify({ title: context ? `MakeReadyOS - ${context}`.slice(0, 100) : "MakeReadyOS", body: `${note.title?.slice(0, 160) || "New work alert"}. Tap to view details.`, tag: `mros-${note.id}`, notificationId: note.id, itemId: note.itemId ?? null });
 }
 
 export function retryPush(statusCode: number | undefined, attempts: number) {
@@ -50,7 +52,7 @@ export async function deliverPushBatch(send: Transport = webpush.sendNotificatio
     const lease = new Date(Date.now() + 120000);
     const claim = await prisma.pushDelivery.updateMany({ where: { id: job.id, status: "PENDING", nextAttemptAt: job.nextAttemptAt }, data: { nextAttemptAt: lease, attempts: { increment: 1 } } });
     if (!claim.count) continue;
-    const fresh = await prisma.pushDelivery.findUnique({ where: { id: job.id }, include: { notification: true, subscription: { include: { session: { include: { user: { include: { propertyAccess: true } } } } } } } });
+    const fresh = await prisma.pushDelivery.findUnique({ where: { id: job.id }, include: { notification: { include: { property: { select: { code: true } }, item: { select: { unitNumber: true } } } }, subscription: { include: { session: { include: { user: { include: { propertyAccess: true } } } } } } } });
     if (!fresh) continue;
     if (fresh.attempts > 5) {
       await prisma.pushDelivery.updateMany({ where: { id: job.id, nextAttemptAt: lease }, data: { status: "FAILED" } });
@@ -74,7 +76,7 @@ export async function deliverPushBatch(send: Transport = webpush.sendNotificatio
       continue;
     }
     try {
-      await send({ endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } }, pushPayload(note.id), { TTL: 300, timeout: 5000, urgency: "normal" });
+      await send({ endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } }, pushPayload(note), { TTL: 300, timeout: 5000, urgency: "normal" });
       await prisma.pushDelivery.updateMany({ where: { id: job.id, nextAttemptAt: lease }, data: { status: "SENT" } });
     } catch (error) {
       const code = (error as { statusCode?: number }).statusCode;

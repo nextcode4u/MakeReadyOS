@@ -96,6 +96,45 @@ test("device push database queue and session ownership integration", async () =>
   expect(output).toContain("Push database/API integration passed");
 });
 
+test("mobile alerts are visible and push taps open the target after launch or login", async ({ page, browser }) => {
+  await login(page, adminEmail, adminPassword);
+  const response = await page.request.get("/api/make-ready-items?limit=1");
+  expect(response.ok(), await response.text()).toBe(true);
+  const rows = await response.json();
+  const item = (Array.isArray(rows) ? rows : rows.items)[0];
+  expect(item?.id).toBeTruthy();
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(page.getByTestId("notifications-button")).toBeInViewport();
+    await expect(page.getByTestId("notifications-button")).toHaveCount(1);
+    await page.getByTestId("notifications-button").click();
+    await expect(page.getByTestId("notification-drawer")).toBeVisible();
+    await page.getByRole("button", { name: "Close notifications" }).click();
+  }
+  await page.goto(`/?notifications=1&itemId=${item.id}`);
+  await expect(page.getByTestId("item-drawer")).toBeVisible();
+  await expect(page.getByTestId("item-drawer").locator("h2").first()).toHaveText(item.unitNumber);
+  await page.getByTestId("item-drawer-close").click();
+  const acknowledgement = await page.evaluate(async itemId => {
+    const channel = new MessageChannel();
+    const reply = new Promise(resolve => { channel.port1.onmessage = event => { channel.port1.close(); channel.port2.close(); resolve(event.data); }; });
+    navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "OPEN_NOTIFICATIONS", itemId }, ports: [channel.port2] }));
+    return reply;
+  }, item.id);
+  expect(acknowledgement).toBe("NOTIFICATION_OPENED");
+  await expect(page.getByTestId("item-drawer")).toBeVisible();
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  try {
+    const cold = await context.newPage();
+    await cold.goto(new URL(`/?notifications=1&itemId=${item.id}`, page.url()).href);
+    await cold.getByTestId("login-email").fill(adminEmail);
+    await cold.getByTestId("login-password").fill(adminPassword);
+    await cold.getByTestId("login-submit").click();
+    await expect(cold.getByTestId("item-drawer")).toBeVisible();
+    await expect(cold.getByTestId("item-drawer").locator("h2").first()).toHaveText(item.unitNumber);
+  } finally { await context.close(); }
+});
+
 test("device push controls enable test and disable without automatic permission prompts", async ({ page }) => {
   await page.addInitScript(() => {
     let subscribed = false;

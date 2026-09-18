@@ -696,6 +696,11 @@ function App() {
   });
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(() => new URLSearchParams(window.location.search).get("notifications") === "1");
+  const [focusedNotificationId, setFocusedNotificationId] = useState(() => new URLSearchParams(window.location.search).get("notificationId") || "");
+  const [pushTarget, setPushTarget] = useState<{ itemId?: string; notificationId?: string } | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("notifications") === "1" ? { itemId: params.get("itemId") || undefined, notificationId: params.get("notificationId") || undefined } : null;
+  });
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingSkipped, setOnboardingSkipped] = useState(() => readStorageFlag(onboardingSkippedStorageKey));
@@ -736,8 +741,11 @@ function App() {
   useEffect(() => {
     const listener = (event: MessageEvent) => {
       if (event.data?.type !== "OPEN_NOTIFICATIONS") return;
+      setFocusedNotificationId(typeof event.data.notificationId === "string" ? event.data.notificationId : "");
+      setPushTarget({ itemId: typeof event.data.itemId === "string" ? event.data.itemId : undefined, notificationId: typeof event.data.notificationId === "string" ? event.data.notificationId : undefined });
       setNotificationsOpen(true);
       void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      event.ports?.[0]?.postMessage("NOTIFICATION_OPENED");
     };
     navigator.serviceWorker?.addEventListener("message", listener);
     return () => navigator.serviceWorker?.removeEventListener("message", listener);
@@ -3305,6 +3313,18 @@ function App() {
     .map(source => scheduleFieldOptions.find(track => track.sourceField === source)?.id)
     .filter((id): id is string => Boolean(id));
   const currentUser = forceLoggedOut ? undefined : meQuery.data?.user;
+  useEffect(() => {
+    if (!currentUser || !pushTarget) return;
+    // Preserve an already-open editor; the Alerts drawer still provides the target link.
+    if (pushTarget.itemId && (!selectedItemId || selectedItemId === pushTarget.itemId)) {
+      setSelectedItemId(pushTarget.itemId);
+      setNotificationsOpen(false);
+    } else setNotificationsOpen(true);
+    setPushTarget(null);
+    const url = new URL(window.location.href);
+    for (const key of ["notifications", "notificationId", "itemId"]) url.searchParams.delete(key);
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+  }, [currentUser, pushTarget, selectedItemId]);
   const basicBoardColumns = useMemo(
     () => normalizeVisibleColumns(
       tableColumnPresets.find((preset) => preset.key === "basic")?.columns ?? ["unitNumber"],
@@ -4933,6 +4953,7 @@ function App() {
         </Suspense>
       ) : null}
       <NotificationDrawer
+        focusId={focusedNotificationId}
         userId={currentUser.id}
         open={notificationsOpen}
         language={currentUser.language}

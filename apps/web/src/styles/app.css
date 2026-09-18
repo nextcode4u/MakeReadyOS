@@ -8498,7 +8498,7 @@ textarea {
   .mobile-filterbar-main {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(6rem, 35%);
-    grid-template-areas: "property view" "search tools";
+    grid-template-areas: "property view" "search tools" "alerts alerts";
     gap: 0.55rem;
     grid-column: 1 / -1;
     grid-area: auto;
@@ -8516,6 +8516,7 @@ textarea {
   .mobile-filterbar-main > input { grid-area: search; }
   .mobile-filterbar-main > .mobile-view-toggle { grid-area: view; }
   .mobile-filterbar-main > .mobile-tools-toggle { grid-area: tools; }
+  .mobile-filterbar-main > .mobile-alerts-button { grid-area: alerts; justify-content: center; }
 
   .mobile-filterbar-main .mobile-filter-toggle {
     overflow: hidden;
