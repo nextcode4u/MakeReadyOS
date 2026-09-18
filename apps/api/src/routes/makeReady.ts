@@ -14,7 +14,7 @@ import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
 import { finalWalkCategory, pendingWalkStatuses, syncFinalWalks } from "../lib/finalWalks.js";
 import { getTurnReadiness } from "../lib/turnReadiness.js";
-import { awaitingFinalWalk } from "../lib/turnStatus.js";
+import { awaitingFinalWalk, isTurnReady, repairsDone, tradeDone } from "../lib/turnStatus.js";
 import { guardReadyMutation, lockTurnProperty, normalizeRepairCompletion, requestsInspection } from "../lib/turnMutationGuard.js";
 import { notifyAssignedStaff, notifyPropertyRoles } from "../lib/notifications.js";
 import { computeDerivedFields, editableFields, normalizeItemPatch, startOfDay, withLiveTurnFields, type AutomationDefinition } from "../lib/board.js";
@@ -1393,6 +1393,46 @@ export async function makeReadyRoutes(app: FastifyInstance) {
 
     await syncFinalWalks(updated.propertyId, updated.id);
     return updated;
+  });
+
+  app.post("/make-ready-items/:id/reopen-final-walk", async (request, reply) => {
+    const user = request.currentUser!;
+    if (![UserRole.ADMIN, UserRole.MANAGER].some(role => role === user.role)) return reply.code(403).send({ message: "Manager or admin access required" });
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const { reason } = z.object({ reason: z.string().trim().min(10).max(1000) }).strict().parse(request.body);
+    const existing = await prisma.makeReadyItem.findUnique({ where: { id } });
+    if (!existing) return reply.code(404).send({ message: "Item not found" });
+    const propertyIds = scopedAllowedPropertyIds(request);
+    if (propertyIds !== null && !propertyIds.includes(existing.propertyId)) return reply.code(403).send({ message: "Property access denied" });
+    const section = await lifecycleSection(existing.propertyId, "MAKE_READY");
+    if (!section) return reply.code(409).send({ message: "Make Ready section is not configured for this property" });
+    await prisma.$transaction(async db => {
+      await lockTurnProperty(db, existing.propertyId);
+      const current = await db.makeReadyItem.findUniqueOrThrow({ where: { id } });
+      const property = await db.property.findUnique({ where: { id: current.propertyId } });
+      const downSection = await db.boardSection.findFirst({ where: { propertyId: current.propertyId, key: current.boardGroup, sectionType: "DOWN" } });
+      const vacancy = String(current.vacancyStatus ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+      if (current.isArchived || downSection || !property?.isActive || !["VACANT_READY", "VACANT_NOT_READY", "VACANT_LEASED_READY", "VACANT_NOT_LEASED_READY", "VACANT_LEASED_NOT_READY", "VACANT_NOT_LEASED_NOT_READY"].includes(vacancy)) {
+        throw Object.assign(new Error("Only active vacant units can be reopened for final walk. Occupied, model, down and archived units cannot be reopened here."), { statusCode: 409 });
+      }
+      if (!isTurnReady(current)) throw Object.assign(new Error("This unit is already pending completion. Refresh to see its current final-walk status."), { statusCode: 409 });
+      if (!repairsDone(current) || !tradeDone(current.paintStatus) || !tradeDone(current.cleaningStatus)) throw Object.assign(new Error("Finish repairs, painting and cleaning before reopening for final walk. Use Done or Not needed for trades."), { statusCode: 409 });
+      await db.makeReadyItem.update({ where: { id }, data: {
+        completionStatus: "NO", boardGroup: section.key,
+        vacancyStatus: vacancy.includes("NOT_LEASED") ? "VACANT NOT LEASED NOT READY" : vacancy.includes("LEASED") ? "VACANT LEASED NOT READY" : "VACANT NOT READY",
+      } });
+      await db.auditLog.create({ data: {
+        actorUserId: user.id, propertyId: current.propertyId, entityType: "MAKE_READY_ITEM", entityId: id,
+        action: "BOARD_ITEM_REOPENED_FOR_FINAL_WALK", message: `${current.unitNumber} reopened for final walk: ${reason}`,
+        metadata: { reason, previous: { completionStatus: current.completionStatus, vacancyStatus: current.vacancyStatus, boardGroup: current.boardGroup } },
+      } });
+    });
+    await syncFinalWalks(existing.propertyId, id);
+    const assigned = await prisma.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, status: { in: pendingWalkStatuses } } });
+    if (!assigned) await notifyPropertyRoles({ propertyId: existing.propertyId, itemId: id, roles: [UserRole.ADMIN, UserRole.MANAGER], category: "ITEM_LIFECYCLE", title: "Final walk needs an inspector", message: `${existing.unitNumber} was reopened for final walk. Configure an eligible independent inspector in the property's final-walk team.` });
+    await evaluateAndPersistItemRisk(id, { notify: true });
+    await queueWebhookEvent({ eventType: "item.updated", propertyId: existing.propertyId, itemId: id, actorUserId: user.id, data: { id, action: "reopened-for-final-walk" } });
+    return { assigned: Boolean(assigned) };
   });
 
   app.post("/make-ready-items/:id/mark-ready", async (request, reply) => {

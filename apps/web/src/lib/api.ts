@@ -4380,6 +4380,10 @@ export function markMakeReadyItemReady(id: string, overrideReason?: string) {
   return request<MakeReadyItem>(`/make-ready-items/${id}/mark-ready`, { method: "POST", ...(overrideReason ? { body: JSON.stringify({ overrideReason }) } : {}) });
 }
 
+export function reopenMakeReadyFinalWalk(id: string, reason: string) {
+  return request<{ assigned: boolean }>(`/make-ready-items/${id}/reopen-final-walk`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
 export function getCalendar(field: string, propertyId?: string) {
   const params = new URLSearchParams({ field });
   if (propertyId) params.set("propertyId", propertyId);

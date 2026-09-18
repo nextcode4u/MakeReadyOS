@@ -20,7 +20,7 @@ import { TurnReportPanel } from "./TurnReportPanel";
 import { TurnMaterialsPanel } from "./TurnMaterialsPanel";
 import { ResidentCodesPanel } from "./ResidentCodesPanel";
 import { AccessCodesPanel } from "./AccessCodesPanel";
-import { canViewKeycodes } from "../lib/api";
+import { canViewKeycodes, reopenMakeReadyFinalWalk } from "../lib/api";
 import { awaitingFinalWalk, isTurnReady, tradeDone, turnStageLabel } from "../lib/turnStatus";
 import { uploadBatch, type UploadOutcome } from "../lib/uploadBatch";
 import { matchesTurnStep, turnNextStep } from "../lib/turnNextAction";
@@ -222,6 +222,8 @@ export function ItemDrawer({
   const [saving, setSaving] = useState<string | null>(null);
   const [completedReportOpen, setCompletedReportOpen] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
+  const [reopenReason, setReopenReason] = useState("");
+  const [reopenMessage, setReopenMessage] = useState("");
   const [overrideConfirmed, setOverrideConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [commentText, setCommentText] = useState("");
@@ -747,6 +749,20 @@ export function ItemDrawer({
           </nav> : null}
         </header>
         {completedReportOpen ? <FinalWalkReportEditor key={item.id} propertyId={item.propertyId} propertyName={item.property.name} itemId={item.id} onClose={() => setCompletedReportOpen(false)} /> : null}
+
+        {canManageItems && approved && !item.isArchived ? <details className="drawer-section" data-testid="reopen-final-walk">
+          <summary>Reopen for final walk</summary>
+          <p>This unit is currently treated as fully complete, so it will not appear in an inspector's My Work. Reopen it to clear overall approval and request another final walk. Completed repairs, painting, cleaning and report evidence are preserved.</p>
+          <label className="drawer-field"><span>Reason for reopening</span><textarea value={reopenReason} maxLength={1000} onChange={event => setReopenReason(event.target.value)} disabled={saving !== null} /><small>At least 10 characters. Your name and reason are recorded in history.</small></label>
+          <button type="button" className="button button-primary" disabled={saving !== null || reopenReason.trim().length < 10} onClick={() => void operation("reopenFinalWalk", async () => {
+            const result = await reopenMakeReadyFinalWalk(item.id, reopenReason.trim());
+            setReopenReason("");
+            setReopenMessage(result.assigned ? "Reopened for final walk. The inspector has been assigned and notified." : "Reopened, but no eligible inspector is configured. Set up the property's final-walk team; managers have been notified.");
+            for (const key of ["make-ready-items", "final-walk", "my-work", "assigned-work", "planning", "activity", "notifications", "calendar"]) await queryClient.invalidateQueries({ queryKey: [key] });
+            onRefreshItem();
+          })}>{saving === "reopenFinalWalk" ? "Reopening..." : "Reopen and request final walk"}</button>
+        </details> : null}
+        {reopenMessage ? <p role="status" className="drawer-empty">{reopenMessage}</p> : null}
 
         {error ? <p className="drawer-error" role="alert">{error}</p> : null}
         {itemRefreshFailed ? <p className="drawer-error" role="alert">{language === "es" ? "No se pudo actualizar la unidad. Los datos visibles pueden estar desactualizados; tus entradas no guardadas siguen aqui." : "Could not refresh the unit. Displayed data may be stale; your unsaved input is still here."} <button type="button" onClick={onRefreshItem}>{language === "es" ? "Reintentar unidad" : "Retry unit"}</button></p> : null}

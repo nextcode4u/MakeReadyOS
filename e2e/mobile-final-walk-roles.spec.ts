@@ -147,6 +147,33 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     await inspector.getByTestId("completed-unit-report").click();
     await expect(report.getByTestId("final-report-resident-pdf")).toBeVisible();
     await inspector.screenshot({ path: testInfo.outputPath("final-walk-mobile.png") });
+    // Reopening is an audited management action, not another technician status edit.
+    for (const [target, headers] of [[tech, techHeaders], [inspector, inspectorHeaders]] as const) {
+      expect((await target.request.post(`${origin}/api${itemPath}/reopen-final-walk`, { headers, data: { reason: "Final walk still required" } })).status()).toBe(403);
+    }
+    expect((await page.request.post(`${origin}/api${itemPath}/reopen-final-walk`, { headers: admin, data: { reason: "short" } })).status()).toBe(400);
+    expect((await page.request.post(`${origin}/api/make-ready-items/${imported.id}/reopen-final-walk`, { headers: admin, data: { reason: "Trades not yet completed" } })).status()).toBe(409);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await page.getByTestId("property-filter").selectOption(property.id);
+    await page.getByRole("button", { name: /View:/ }).click();
+    await page.getByTestId("tab-table").click();
+    await page.getByTestId("mobile-details-split-1").click();
+    const reopen = page.getByTestId("reopen-final-walk");
+    await reopen.locator("summary").click();
+    await expect(reopen.getByRole("button")).toBeDisabled();
+    await reopen.getByLabel("Reason for reopening").fill("Completion recorded before independent final walk");
+    await reopen.getByRole("button", { name: "Reopen and request final walk", exact: true }).click();
+    await expect(page.getByText("Reopened for final walk. The inspector has been assigned and notified.", { exact: true })).toBeVisible();
+    await expect(reopen).toBeHidden();
+    const reopened = await (await page.request.get(`${origin}/api${itemPath}`)).json();
+    expect(reopened).toMatchObject({ completionStatus: "NO", makeReadyStatus: "DONE", paintStatus: "DONE", cleaningStatus: "DONE", boardGroup: group, vacancyStatus: "VACANT NOT LEASED NOT READY" });
+    const reassigned = await (await inspector.request.get(`${origin}/api${itemPath}/final-walk`)).json();
+    expect(reassigned.block.assignedUserId).toBe(staff[1].id);
+    expect(reassigned.block.id).not.toBe(assignment.block.id);
+    expect((await (await inspector.request.get(`${origin}/api/my-work`)).json()).items.some((row: any) => row.id === item.id)).toBe(true);
+    expect((await (await inspector.request.get(`${origin}/api${reportPath}?itemId=${item.id}`)).json()).draft.value.parking).toBe("Space 12");
+    expect((await page.request.post(`${origin}/api${itemPath}/reopen-final-walk`, { headers: admin, data: { reason: "Duplicate reopen should fail" } })).status()).toBe(409);
     await page.evaluate(() => { localStorage.setItem("makereadyos.themeMode", "dark"); localStorage.setItem("makereadyos.compactMode", "false"); });
     await page.reload();
     await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "dark");
