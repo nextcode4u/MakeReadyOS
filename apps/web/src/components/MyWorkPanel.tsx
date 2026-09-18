@@ -8,6 +8,7 @@ import { openPestWorkspace } from "../lib/pestNavigation";
 import { openProjectRecord } from "../lib/projectNavigation";
 import { LabelPill } from "./LabelPill";
 import { statusDisplayName } from "../lib/statusDisplayName";
+import { awaitingFinalWalk, normalizeTurnStatus } from "../lib/turnStatus";
 import { StatusState } from "./StatusState";
 
 type Props = {
@@ -106,6 +107,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
           {workItems.map(({ item, tasks, done }) => {
             const activeSession = activeSessionBySourceKey.get(`MAKE_READY_ITEM:${item.id}`) ?? null;
             const isInspection = item.workAssignmentBlocks?.some(block => block.category === "FINAL_WALK_INSPECTION");
+            const pendingFinalWalk = awaitingFinalWalk(item);
             return (
               <article key={item.id} className={item.overdue ? "my-work-card overdue" : "my-work-card"} data-testid={`my-work-item-${item.id}`}>
                 <div>
@@ -116,34 +118,35 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                   {item.overdue ? <b>{t(language, "myWork.overdue").toUpperCase()}</b> : null}
                   {item.moveInSoon ? <b className="warning">{t(language, "myWork.moveInSoon")}</b> : null}
                   {item.riskLevel && item.riskLevel !== "NONE" ? <b className={item.riskLevel === "CRITICAL" || item.riskLevel === "HIGH" ? "risk" : "warning"}>{item.riskLevel} {t(language, "myWork.riskSuffix")}</b> : null}
-                  <span>{item.makeReadyStatus ?? t(language, "myWork.statusUnset")}</span>
+                  <span>{pendingFinalWalk ? (language === "es" ? "Inspeccion final pendiente" : "Pending final walk") : normalizeTurnStatus(item.makeReadyStatus) === "DONE" ? (language === "es" ? "Reparaciones terminadas" : "Repairs done") : item.makeReadyStatus ?? t(language, "myWork.statusUnset")}</span>
                   {!isInspection && item.expectedStart ? <span>{language === "es" ? "Inicio previsto" : "Expected start"}: {item.expectedStart.date.slice(0, 10)}{item.expectedStart.projected ? (language === "es" ? " (proyectado)" : " (projected)") : ""}</span> : null}
                   {item.workAssignmentBlocks?.map(block => <span key={block.id}>{tWithVars(language, "myWork.planned", { date: block.plannedDate.slice(0, 10), category: block.category === "FINAL_WALK_INSPECTION" ? "Final walk inspection" : block.category })}</span>)}
                 </div>
+                {pendingFinalWalk && !isInspection ? <p className="helper-copy" data-testid={`my-work-final-walk-pending-${item.id}`}>{language === "es" ? "Tu trabajo de reparacion esta terminado. La unidad espera la inspeccion final; aun no esta totalmente lista." : "Your repair work is complete. The unit is waiting for final inspection and is not fully ready yet."}</p> : null}
                 {(!isInspection && tasks.length) || activeSession ? <div className="my-work-progress">
                   <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${startedLabel(activeSession.startedAt)}` : tWithVars(language, "myWork.checklist", { done: done.toString(), total: tasks.length.toString() })}</span>
                   {!isInspection && tasks.length ? <progress value={done} max={tasks.length} /> : null}
                 </div> : null}
                 <div className="my-work-actions">
                   <button className="button button-primary" type="button" onClick={() => onOpenItem(item.id)}>{isInspection ? (language === "es" ? "Inspeccionar o delegar" : "Inspect or hand off") : t(language, "myWork.openWorkItem")}</button>
-                  {!activeSession ? <button className="button button-secondary" type="button" onClick={() => void onStartWork({ sourceType: "MAKE_READY_ITEM", sourceId: item.id })}>{language === "es" ? "Iniciar trabajo" : "Start Work"}</button> : null}
+                  {!activeSession && (!pendingFinalWalk || isInspection) ? <button className="button button-secondary" type="button" onClick={() => void onStartWork({ sourceType: "MAKE_READY_ITEM", sourceId: item.id })}>{language === "es" ? "Iniciar trabajo" : "Start Work"}</button> : null}
                   {activeSession && (activeSession.userId === currentUser.id || canManageSessions) ? <button className="button button-secondary" type="button" onClick={() => void onEndWork(activeSession.id)}>{language === "es" ? "Finalizar trabajo" : "End Work"}</button> : null}
                   {canQuickUpdate ? (
                     <label className="my-work-quick-status">
-                      <span>{t(language, "myWork.quickStatus")}</span>
+                      <span>{language === "es" ? "Estado de reparaciones" : "Repair status"}</span>
                       <select
                         data-testid={`my-work-status-${item.id}`}
                         value={item.makeReadyStatus ?? ""}
                         onChange={(event) => void onQuickStatusChange(item.id, event.target.value || null)}
-                        aria-label={`${t(language, "myWork.quickStatus")} ${item.unitNumber}`}
+                        aria-label={`${language === "es" ? "Estado de reparaciones" : "Repair status"} ${item.unitNumber}`}
                       >
                         <option value="">{t(language, "myWork.unset")}</option>
-                        {makeReadyOptions.map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}
+                        {makeReadyOptions.map((option) => <option key={option.id} value={option.value}>{normalizeTurnStatus(option.value) === "DONE" ? (language === "es" ? "Reparaciones terminadas" : "Repairs done") : statusDisplayName(option)}</option>)}
                       </select>
                     </label>
-                  ) : (
+                  ) : !pendingFinalWalk ? (
                     <LabelPill value={item.makeReadyStatus} label={item.makeReadyStatus ? labelsByField.makeReadyStatus?.[item.makeReadyStatus] : undefined} muted />
-                  )}
+                  ) : null}
                 </div>
               </article>
             );
