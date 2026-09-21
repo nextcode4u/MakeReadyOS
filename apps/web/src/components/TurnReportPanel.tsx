@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getMailboxDirectory, saveUnitMailbox, type MakeReadyItem } from "../lib/api";
 import { FinalWalkReportEditor } from "./FinalWalkReportEditor";
+import { confirmMailboxChange, mailboxWarning } from "../lib/mailboxConfirmation";
 
 export function TurnReportPanel({ item, isAdmin }: { item: MakeReadyItem; isAdmin: boolean }) {
   const query = useQuery({ queryKey: ["mailbox-directory", item.propertyId], queryFn: () => getMailboxDirectory(item.propertyId) });
@@ -16,9 +17,11 @@ export function TurnReportPanel({ item, isAdmin }: { item: MakeReadyItem; isAdmi
   return <section data-testid="turn-report-panel"><h3>Final-Walk Report / resident handoff</h3>
     {query.isPending ? <p>Loading unit mailbox...</p> : query.isError ? <p role="alert">Could not load mailbox. <button type="button" onClick={() => void query.refetch()}>Retry</button></p> : unit ? <fieldset disabled={busy}>
       <legend>Unit mailbox / {query.data?.property.code} {unit.number}</legend>
+      <p>{mailboxWarning}</p>
       <label>Mailbox number<input data-testid="turn-mailbox-number" maxLength={40} value={value ?? unit.mailboxNumber ?? ""} onChange={event => setValue(event.target.value)}/></label>
       <button type="button" className="button" onClick={() => setValue(unit.number)}>Same as unit number</button>
       <button type="button" className="button" disabled={value === null || value === (unit.mailboxNumber ?? "")} onClick={async () => {
+        if (!confirmMailboxChange(`${query.data?.property.code} / Unit ${unit.number}`, edit!.expected, value?.trim() || null)) return;
         setBusy(true); setError(""); setMessage("");
         try { await saveUnitMailbox(item.propertyId, unit.id, { mailboxNumber: value, expected: edit!.expected }); await query.refetch(); setValue(null); setMessage("Unit mailbox saved. Directory-based reports use this assignment."); }
         catch (error) { setError(error instanceof Error ? error.message : "Could not save mailbox"); }

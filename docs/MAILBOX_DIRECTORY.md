@@ -1,5 +1,9 @@
 # Unit Mailbox Directory
 
+## Keys & Access (local change)
+
+Selecting a unit in Keys & Access now shows its permanent mailbox assignment without revealing sensitive codes. Admins/managers can explicitly add or change the assignment; other authorized directory users have read-only access. Saving requires a mail-provider warning and confirmation popup showing the old and new assignments, including removal. Leading zeros are preserved and stale saves are rejected. The existing turn-report mailbox editor uses the same confirmation. No database migration is needed.
+
 ## Setup
 
 Under Setup > Units, choose **Unit directory property**, then open **Mailbox directory / import** alongside the availability and unit-directory imports. The property code/name stays visible above the preview and Apply button. Admins and property-scoped managers may import; API tokens and other roles cannot. This relocation and conversion prompt were deployed in web release `33b7b63` on 2026-09-07.

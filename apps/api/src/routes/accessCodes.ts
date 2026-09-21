@@ -22,7 +22,7 @@ export async function accessCodeRoutes(app: FastifyInstance) {
   app.get("/access-codes/:propertyId", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
     const property = await access(request);
-    const units = await prisma.unit.findMany({ where: { propertyId: property.id, isActive: true }, select: { id: true, number: true, accessCodes: { select: { version: true, updatedAt: true } } }, orderBy: { number: "asc" } });
+    const units = await prisma.unit.findMany({ where: { propertyId: property.id, isActive: true }, select: { id: true, number: true, mailboxNumber: true, accessCodes: { select: { version: true, updatedAt: true } } }, orderBy: { number: "asc" } });
     return { property, units, canManage: ["ADMIN", "MANAGER"].includes(request.currentUser!.role) };
   });
   app.get("/access-codes/:propertyId/units/:unitId", async (request, reply) => {

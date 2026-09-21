@@ -35,6 +35,38 @@ test("unit access directory imports safely, syncs turn codes and restricts paint
   const metadata = await send("GET", root);
   expect(JSON.stringify(metadata)).not.toContain("0042#");
   await panel.getByLabel("Unit for code lookup").selectOption(unit.id);
+  const mailbox = panel.getByTestId("access-mailbox");
+  await expect(mailbox).toContainText("Not recorded");
+  await mailbox.getByRole("button", { name: "Add mailbox assignment" }).click();
+  await mailbox.getByLabel("Mailbox number", { exact: true }).fill("001-A");
+  page.once("dialog", async dialog => {
+    expect(dialog.message()).toContain("mail provider");
+    expect(dialog.message()).toContain("New mailbox: 001-A");
+    await dialog.dismiss();
+  });
+  await mailbox.getByRole("button", { name: "Save mailbox assignment" }).click();
+  expect((await send("GET", root)).units.find((entry: any) => entry.id === unit.id).mailboxNumber).toBeNull();
+  page.once("dialog", dialog => dialog.accept());
+  await mailbox.getByRole("button", { name: "Save mailbox assignment" }).click();
+  await expect(mailbox.getByRole("status")).toHaveText("Unit mailbox assignment saved.");
+  expect((await send("GET", `/mailboxes/${property.id}`)).units.find((entry: any) => entry.id === unit.id).mailboxNumber).toBe("001-A");
+  await mailbox.getByRole("button", { name: "Change mailbox assignment" }).click();
+  await mailbox.getByLabel("Mailbox number", { exact: true }).fill("002-B");
+  await send("PATCH", `/mailboxes/${property.id}/${unit.id}`, { expected: "001-A", mailboxNumber: "003-C" });
+  page.once("dialog", dialog => dialog.accept());
+  await mailbox.getByRole("button", { name: "Save mailbox assignment" }).click();
+  await expect(mailbox.getByRole("alert")).toContainText("Reload before saving");
+  await mailbox.getByRole("button", { name: "Cancel / reload mailbox" }).click();
+  await expect(mailbox.locator("strong")).toHaveText("003-C");
+  await mailbox.getByRole("button", { name: "Change mailbox assignment" }).click();
+  await mailbox.getByLabel("Mailbox number", { exact: true }).fill("");
+  page.once("dialog", async dialog => {
+    expect(dialog.message()).toContain("Current mailbox: 003-C");
+    expect(dialog.message()).toContain("remove assignment");
+    await dialog.accept();
+  });
+  await mailbox.getByRole("button", { name: "Save mailbox assignment" }).click();
+  await expect(mailbox.locator("strong")).toHaveText("Not recorded");
   await panel.getByRole("button", { name: "Reveal unit codes" }).click();
   await expect(panel.getByLabel("Door code", { exact: true })).toHaveValue("0042#");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -78,6 +110,12 @@ test("unit access directory imports safely, syncs turn codes and restricts paint
       const staffHeaders = { "x-csrf-token": (await login.json()).csrfToken };
       const allowed = ["MANAGER", "TECH", "LEASING"].includes(role);
       expect((await context.request.get(`${origin}/api${root}/units/${unit.id}`)).status()).toBe(allowed ? 200 : 403);
+      if (allowed) {
+        const directory = await (await context.request.get(`${origin}/api${root}`)).json();
+        expect(directory.units.find((entry: any) => entry.id === unit.id)).toHaveProperty("mailboxNumber", null);
+        expect(directory.canManage).toBe(role === "MANAGER");
+      }
+      if (role !== "MANAGER") expect((await context.request.patch(`${origin}/api/mailboxes/${property.id}/${unit.id}`, { headers: staffHeaders, data: { expected: null, mailboxNumber: "999" } })).status()).toBe(403);
       expect((await context.request.get(`${origin}/api/access-codes/${other.id}`)).status()).toBe(403);
       expect((await context.request.post(`${origin}/api${root}/export`, { headers: staffHeaders, data: {} })).status()).toBe(role === "MANAGER" ? 200 : 403);
       if (role !== "MANAGER") expect((await context.request.post(`${origin}/api${root}/import`, { headers: staffHeaders, data: { text: JSON.stringify(exported) } })).status()).toBe(403);

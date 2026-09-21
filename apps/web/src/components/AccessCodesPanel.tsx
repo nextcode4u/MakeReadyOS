@@ -2,17 +2,18 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { accessCodeRequest, canViewKeycodes, type UserRole } from "../lib/api";
 import "./accessCodes.css";
+import { UnitMailboxEditor } from "./UnitMailboxEditor";
 
 type Values = { doorCode: string; accessCode: string; keyCode: string };
 type Codes = { version: number; value: Values };
-type Directory = { property: { code: string; name: string }; canManage: boolean; units: { id: string; number: string; accessCodes: { updatedAt: string } | null }[] };
+type Directory = { property: { code: string; name: string }; canManage: boolean; units: { id: string; number: string; mailboxNumber: string | null; accessCodes: { updatedAt: string } | null }[] };
 type Plan = { token: string; units: string[]; errors: string[]; applied: boolean };
 
 export function AccessCodesPanel({ properties, selectedPropertyId, role, keycodeAccess = false, initialUnit = "" }: { properties: { id: string; code: string; name: string }[]; selectedPropertyId: string; role: UserRole; keycodeAccess?: boolean; initialUnit?: string }) {
   const [chosen, setChosen] = useState(selectedPropertyId);
   const propertyId = properties.some(property => property.id === chosen) ? chosen : "";
   if (!canViewKeycodes({ role, keycodeAccess })) return null;
-  return <section className="panel access-codes-panel" data-testid="access-codes-panel"><h2>Keys &amp; Access</h2><p>Look up a unit's current door code, resident access code or key cutting reference. Not a directory for staff/master codes.</p>
+  return <section className="panel access-codes-panel" data-testid="access-codes-panel"><h2>Keys &amp; Access</h2><p>Look up a unit's mailbox number, current door code, resident access code or key cutting reference. Not a directory for staff/master codes.</p>
     <label>Property for code lookup<select value={propertyId} onChange={event => setChosen(event.target.value)}><option value="">Choose a property</option>{properties.map(property => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}</select></label>
     {propertyId ? <DirectoryEditor key={propertyId} propertyId={propertyId} initialUnit={initialUnit} /> : <p>Select a property to view its directory.</p>}
   </section>;
@@ -47,12 +48,14 @@ function DirectoryEditor({ propertyId, initialUnit }: { propertyId: string; init
     if (result.applied) { setCodes(null); setText(""); refreshReports(); await query.refetch(); setMessage("Access-code directory updated."); }
   }
   const units = (query.data?.units ?? []).filter(unit => unit.number.toLowerCase().includes(search.toLowerCase()));
+  const selectedUnit = query.data?.units.find(unit => unit.id === selected);
   return <div className="access-code-directory">
     <h3>{query.data ? `${query.data.property.code} / ${query.data.property.name}` : "Loading directory..."}</h3>
     <p>Codes stay hidden until you select a unit and reveal them. Reveals and exports are logged without recording code values. Keep downloaded files private.</p>
     {query.isError ? <p role="alert">Could not load directory. <button onClick={() => void query.refetch()}>Retry</button></p> : null}
     <label>Search unit<input disabled={busy} value={search} onChange={event => { setSearch(event.target.value); setSelected(""); setCodes(null); }} /></label>
     <label>Unit for code lookup<select disabled={busy} value={selected} onChange={event => { setSelected(event.target.value); setCodes(null); }}><option value="">Choose a unit ({units.length})</option>{units.map(unit => <option key={unit.id} value={unit.id}>{unit.number}{unit.accessCodes ? " / codes recorded" : " / not recorded"}</option>)}</select></label>
+    {selectedUnit && query.data ? <UnitMailboxEditor key={selectedUnit.id} propertyId={propertyId} propertyCode={query.data.property.code} unit={selectedUnit} canManage={query.data.canManage} /> : null}
     <button type="button" disabled={!selected || busy} onClick={() => codes ? setCodes(null) : void run(async () => setCodes(await accessCodeRequest<Codes>(propertyId, `/units/${selected}`)))}>{codes ? "Hide codes" : "Reveal unit codes"}</button>
     {codes ? <fieldset disabled={busy}><legend>Unit {query.data?.units.find(unit => unit.id === selected)?.number}</legend>
       <p>Last code update: {query.data?.units.find(unit => unit.id === selected)?.accessCodes?.updatedAt ? new Date(query.data.units.find(unit => unit.id === selected)!.accessCodes!.updatedAt).toLocaleString() : "Not recorded"}. Confirm older codes before relying on them.</p>
