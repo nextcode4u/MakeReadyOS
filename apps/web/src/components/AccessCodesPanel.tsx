@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { accessCodeRequest, canViewKeycodes, type UserRole } from "../lib/api";
 import "./accessCodes.css";
 import { UnitMailboxEditor } from "./UnitMailboxEditor";
+import { SearchSelect } from "./SearchSelect";
 
 type Values = { doorCode: string; accessCode: string; keyCode: string };
 type Codes = { version: number; value: Values };
@@ -22,8 +23,8 @@ export function AccessCodesPanel({ properties, selectedPropertyId, role, keycode
 function DirectoryEditor({ propertyId, initialUnit }: { propertyId: string; initialUnit: string }) {
   const client = useQueryClient();
   const query = useQuery({ queryKey: ["access-code-directory", propertyId], queryFn: () => accessCodeRequest<Directory>(propertyId), gcTime: 0 });
-  const [search, setSearch] = useState(initialUnit);
-  const [selected, setSelected] = useState("");
+  const [selectedOverride, setSelected] = useState<string | null>(null);
+  const selected = selectedOverride ?? query.data?.units.find(unit => unit.number === initialUnit)?.id ?? "";
   const [codes, setCodes] = useState<Codes | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -47,14 +48,22 @@ function DirectoryEditor({ propertyId, initialUnit }: { propertyId: string; init
     setPlan(result);
     if (result.applied) { setCodes(null); setText(""); refreshReports(); await query.refetch(); setMessage("Access-code directory updated."); }
   }
-  const units = (query.data?.units ?? []).filter(unit => unit.number.toLowerCase().includes(search.toLowerCase()));
+  const units = query.data?.units ?? [];
   const selectedUnit = query.data?.units.find(unit => unit.id === selected);
   return <div className="access-code-directory">
     <h3>{query.data ? `${query.data.property.code} / ${query.data.property.name}` : "Loading directory..."}</h3>
     <p>Codes stay hidden until you select a unit and reveal them. Reveals and exports are logged without recording code values. Keep downloaded files private.</p>
     {query.isError ? <p role="alert">Could not load directory. <button onClick={() => void query.refetch()}>Retry</button></p> : null}
-    <label>Search unit<input disabled={busy} value={search} onChange={event => { setSearch(event.target.value); setSelected(""); setCodes(null); }} /></label>
-    <label>Unit for code lookup<select disabled={busy} value={selected} onChange={event => { setSelected(event.target.value); setCodes(null); }}><option value="">Choose a unit ({units.length})</option>{units.map(unit => <option key={unit.id} value={unit.id}>{unit.number}{unit.accessCodes ? " / codes recorded" : " / not recorded"}</option>)}</select></label>
+    <label style={{ gridColumn: "1 / -1" }}>Unit for code lookup<SearchSelect
+      options={units.map(unit => ({ value: unit.id, label: `${unit.number}${unit.accessCodes ? " / codes recorded" : " / not recorded"}`, keywords: [unit.number] }))}
+      value={selected}
+      onChange={value => { setSelected(value); setCodes(null); }}
+      placeholder="Search and select a unit..."
+      emptyLabel="Choose a unit"
+      noMatchesLabel="No matching units"
+      clearLabel="Clear selected unit"
+      disabled={busy || query.isPending || query.isError}
+    /></label>
     {selectedUnit && query.data ? <UnitMailboxEditor key={selectedUnit.id} propertyId={propertyId} propertyCode={query.data.property.code} unit={selectedUnit} canManage={query.data.canManage} /> : null}
     <button type="button" disabled={!selected || busy} onClick={() => codes ? setCodes(null) : void run(async () => setCodes(await accessCodeRequest<Codes>(propertyId, `/units/${selected}`)))}>{codes ? "Hide codes" : "Reveal unit codes"}</button>
     {codes ? <fieldset disabled={busy}><legend>Unit {query.data?.units.find(unit => unit.id === selected)?.number}</legend>

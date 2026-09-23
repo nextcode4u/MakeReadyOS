@@ -1,5 +1,7 @@
 # Admin Final-Walk Report Editor
 
+Local follow-up: the eight technician preparation checks remain editable by the assigned technician or management after handoff and approval. Archived turns and inactive properties remain read-only. Resident codes and handoff details retain their separate post-handoff restrictions. Preparation changes invalidate handoff confirmation, requiring inspector reconfirmation before a resident PDF can be issued; they do not silently reopen the turn or alter inspection results. Show/Hide codes now sits beside the resident-code heading above the inputs.
+
 ## Where To Open It
 
 Admin: Setup > Properties > select a property > Branding > **Edit / Preview Final-Walk Report**. Save property/company logo changes before opening.

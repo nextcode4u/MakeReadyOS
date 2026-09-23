@@ -68,7 +68,8 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     const parsed = savedReportDraftSchema.safeParse(item.finalWalkReportDraft?.payload);
     if (item.finalWalkReportDraft && !parsed.success) throw Object.assign(new Error("Saved report could not be read. Ask an admin to review it before editing codes."), { statusCode: 409 });
     const mailbox = await directoryMailbox(item);
-    return { version: parsed.success ? parsed.data.version : 0, value: residentCodesSchema.parse(resolveReportMailbox(parsed.success ? parsed.data.value : await initialReportDraft(item), mailbox)), technicianChecks, technicianFollowUp: parsed.success ? parsed.data.value.technicianFollowUp : "", correctionPending: parsed.success && parsed.data.value.correctionPending, updatedAt: parsed.success ? parsed.data.updatedAt : null, readOnly: codesReadOnly(item, request.currentUser!.role) || request.currentUser!.role === "TECH" && item.assignedTech?.trim().toLowerCase() !== request.currentUser!.fullName.trim().toLowerCase() };
+    const preparationReadOnly = item.isArchived || !item.property.isActive || request.currentUser!.role === "TECH" && item.assignedTech?.trim().toLowerCase() !== request.currentUser!.fullName.trim().toLowerCase();
+    return { version: parsed.success ? parsed.data.version : 0, value: residentCodesSchema.parse(resolveReportMailbox(parsed.success ? parsed.data.value : await initialReportDraft(item), mailbox)), technicianChecks, technicianFollowUp: parsed.success ? parsed.data.value.technicianFollowUp : "", correctionPending: parsed.success && parsed.data.value.correctionPending, updatedAt: parsed.success ? parsed.data.updatedAt : null, preparationReadOnly, readOnly: preparationReadOnly || codesReadOnly(item, request.currentUser!.role) };
   });
   app.put("/make-ready-items/:itemId/resident-codes", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
@@ -79,18 +80,20 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
       await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${initial.id}), 824020)::text`;
       const item = await codeContext(request, db);
       if (request.currentUser!.role === "TECH" && item.assignedTech?.trim().toLowerCase() !== request.currentUser!.fullName.trim().toLowerCase()) throw Object.assign(new Error("Only the assigned technician or a manager can update preparation"), { statusCode: 403 });
-      if (codesReadOnly(item, request.currentUser!.role)) throw Object.assign(new Error("This turn is read-only here. During final walk, the inspector or an admin must update codes through the report editor."), { statusCode: 409 });
+      if (item.isArchived || !item.property.isActive) throw Object.assign(new Error("Archived turns and inactive properties are read-only."), { statusCode: 409 });
+      if (codesReadOnly(item, request.currentUser!.role) && Object.keys(input.value).some(key => key !== "technicianResults")) throw Object.assign(new Error("Preparation checks can still be revised. During final walk or after approval, an inspector or admin must update resident handoff details."), { statusCode: 409 });
       const current = savedReportDraftSchema.safeParse(item.finalWalkReportDraft?.payload);
       if (item.finalWalkReportDraft && !current.success || (current.success ? current.data.version : 0) !== input.version) throw Object.assign(new Error("Report or codes changed in another session. Reload saved codes before saving."), { statusCode: 409 });
       const previous = current.success ? current.data.value : await initialReportDraft(item);
       const changedHandoff = ["homeKeys", "mailboxKeys", "fobs", "remotes", "mailbox", "residentDoorCode", "residentAccessCode"].some(key => key in input.value && input.value[key as keyof typeof input.value] !== previous[key as keyof typeof previous]);
+      const changedPreparation = input.value.technicianResults !== undefined && JSON.stringify(input.value.technicianResults) !== JSON.stringify(previous.technicianResults);
       const resolved = previous.correctionPending && Boolean(input.value.technicianResolution?.trim());
-      const draft = { version: input.version + 1, updatedAt: new Date().toISOString(), value: { ...previous, ...input.value, ...(changedHandoff ? { handoffConfirmed: false } : {}), ...(resolved ? { correctionPending: false } : {}) } };
+      const draft = { version: input.version + 1, updatedAt: new Date().toISOString(), value: { ...previous, ...input.value, ...(changedHandoff || changedPreparation ? { handoffConfirmed: false } : {}), ...(resolved ? { correctionPending: false } : {}) } };
       await db.finalWalkReportDraft.upsert({ where: { itemId: item.id }, create: { itemId: item.id, payload: draft }, update: { payload: draft } });
       await syncTurnCodes(db, item, input.value);
       if (resolved) await db.workAssignmentBlock.updateMany({ where: { itemId: item.id, category: "FINAL_WALK_CORRECTION", status: { in: ["PLANNED", "IN_PROGRESS"] } }, data: { status: "DONE" } });
       await db.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: item.propertyId, entityType: "MAKE_READY_ITEM", entityId: item.id, action: "RESIDENT_CODES_UPDATED", message: "Updated resident handoff codes, mailbox details and report inclusion. Code values are hidden from activity history.", metadata: { version: draft.version, includeResidentCodes: input.value.includeResidentCodes } } });
-      return { version: draft.version, value: residentCodesSchema.parse(resolveReportMailbox(draft.value, await directoryMailbox(item))), technicianChecks, technicianFollowUp: draft.value.technicianFollowUp, correctionPending: draft.value.correctionPending, updatedAt: draft.updatedAt, readOnly: false };
+      return { version: draft.version, value: residentCodesSchema.parse(resolveReportMailbox(draft.value, await directoryMailbox(item))), technicianChecks, technicianFollowUp: draft.value.technicianFollowUp, correctionPending: draft.value.correctionPending, updatedAt: draft.updatedAt, preparationReadOnly: false, readOnly: codesReadOnly(item, request.currentUser!.role) };
     });
   });
   app.get("/final-walk-reports/:propertyId", async (request, reply) => {

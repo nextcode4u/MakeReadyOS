@@ -41,6 +41,12 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     const techHeaders = await login(tech, staff[0].username, password);
     await tech.getByTestId(`my-work-item-${item.id}`).getByRole("button", { name: "Open work item", exact: true }).click();
     const prep = tech.getByTestId("resident-codes-panel");
+    const showCodes = prep.getByRole("button", { name: "Show codes", exact: true });
+    await showCodes.click();
+    await expect(prep.getByLabel("New resident door code", { exact: true })).toHaveAttribute("type", "text");
+    expect(await showCodes.count()).toBe(0);
+    await prep.getByRole("button", { name: "Hide codes", exact: true }).click();
+    expect(await prep.getByRole("button", { name: "Show codes", exact: true }).evaluate(button => Boolean(button.compareDocumentPosition(document.querySelector('[autocomplete="new-password"]')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
     await expect(prep.locator('[data-testid^="tech-check-"]')).toHaveCount(8);
     for (const input of await prep.locator('[data-testid^="tech-check-"]').all()) await input.selectOption("CHECKED");
     await prep.getByLabel("Home keys made", { exact: true }).fill("2");
@@ -61,6 +67,17 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     await expect(techCard.getByTestId(`my-work-final-walk-pending-${item.id}`)).toContainText("Your repair work is complete");
     await expect(techCard.getByRole("button", { name: "Start Work", exact: true })).toHaveCount(0);
     await expect(techCard.getByLabel(`Repair status ${unit.number}`)).toHaveValue("DONE");
+    await tech.getByTestId("drawer-pane-work").click();
+    const reopenedPrep = tech.getByTestId("resident-codes-panel");
+    const firstCheck = reopenedPrep.locator('[data-testid^="tech-check-"]').first();
+    await expect(firstCheck).toBeEnabled();
+    await expect(reopenedPrep.getByLabel("New resident door code", { exact: true })).toBeDisabled();
+    await firstCheck.selectOption("NOT_CHECKED");
+    await reopenedPrep.getByRole("button", { name: "Save preparation checks", exact: true }).click();
+    await expect(reopenedPrep.getByRole("status")).toContainText("Preparation and resident details saved");
+    await firstCheck.selectOption("CHECKED");
+    await reopenedPrep.getByRole("button", { name: "Save preparation checks", exact: true }).click();
+    await expect(reopenedPrep.getByRole("status")).toContainText("Preparation and resident details saved");
     const inspector = await leasingContext.newPage();
     const inspectorHeaders = await login(inspector, staff[1].username, password);
     await inspector.getByRole("button", { name: /View:/ }).click();
@@ -126,6 +143,19 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     expect((Buffer.from(resident.pdfBase64, "base64").toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
     expect((await inspector.request.post(`${origin}/api${reportPath}/items/${item.id}/resident-pdf`, { headers: inspectorHeaders, data: { version: completed.version - 1 } })).status()).toBe(409);
     expect((await tech.request.get(`${origin}/api${reportPath}?itemId=${item.id}`)).status()).toBe(403);
+    const readyPrep = await (await tech.request.get(`${origin}/api${itemPath}/resident-codes`)).json();
+    expect(readyPrep.preparationReadOnly).toBe(false);
+    expect(readyPrep.readOnly).toBe(true);
+    const checkId = Object.keys(readyPrep.value.technicianResults)[0];
+    const revised = await send(tech, techHeaders, "PUT", `${itemPath}/resident-codes`, { version: readyPrep.version, value: { technicianResults: { ...readyPrep.value.technicianResults, [checkId]: { status: "NOT_CHECKED", note: "" } } } });
+    const revisedReport = await (await inspector.request.get(`${origin}/api${reportPath}?itemId=${item.id}`)).json();
+    expect(revisedReport.draft.value.handoffConfirmed).toBe(false);
+    expect((await (await page.request.get(`${origin}/api${itemPath}`)).json()).completionStatus).toBe("YES");
+    expect((await inspector.request.post(`${origin}/api${reportPath}/items/${item.id}/resident-pdf`, { headers: inspectorHeaders, data: { version: revised.version } })).status()).toBe(409);
+    expect((await tech.request.put(`${origin}/api${itemPath}/resident-codes`, { headers: techHeaders, data: { version: revised.version, value: { residentDoorCode: "BLOCKED" } } })).status()).toBe(409);
+    await send(tech, techHeaders, "PUT", `${itemPath}/resident-codes`, { version: revised.version, value: { technicianResults: readyPrep.value.technicianResults } });
+    const recheck = await (await inspector.request.get(`${origin}/api${reportPath}?itemId=${item.id}`)).json();
+    await send(inspector, inspectorHeaders, "PUT", `${reportPath}/items/${item.id}`, { version: recheck.draft.version, value: { ...recheck.draft.value, handoffConfirmed: true } });
     // Ready units imported without an inspection assignment remain editable by leasing,
     // but cannot produce a resident copy without recorded checks.
     const imported = await send(page, admin, "POST", "/make-ready-items", { propertyId: property.id, unitNumber: "READY-2", itemName: "READY-2", boardGroup: group, vacancyStatus: "VACANT LEASED READY" });

@@ -13,8 +13,8 @@
 .access-codes-panel details { border-top: 1px solid var(--border); padding-top: 16px; min-width: 0; }
 .access-codes-panel details > :not(summary) { margin-top: 12px; }
 .access-codes-panel summary { cursor: pointer; font-weight: 700; }
-.access-codes-panel button { justify-self: start; border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; background: var(--panel-strong); color: var(--text); font: inherit; cursor: pointer; }
+.access-codes-panel button:not(.search-select-option):not(.search-select-clear) { justify-self: start; border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; background: var(--panel-strong); color: var(--text); font: inherit; cursor: pointer; }
 .access-codes-panel button:hover { border-color: var(--accent); }
 .access-codes-panel button:disabled { opacity: .55; cursor: not-allowed; }
 .access-codes-panel [role="alert"] { color: var(--danger); }
-@media(max-width:700px) { .access-code-directory { grid-template-columns: minmax(0,1fr); } .access-codes-panel button { min-height: 44px; } }
+@media(max-width:700px) { .access-code-directory { grid-template-columns: minmax(0,1fr); } .access-codes-panel button:not(.search-select-clear) { min-height: 44px; } }
