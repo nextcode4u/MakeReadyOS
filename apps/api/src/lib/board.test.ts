@@ -14,6 +14,18 @@ test("legacy Good trades normalize to Done without changing condition checks or 
 });
 
 const now = new Date(2026, 8, 8, 12);
+test("repair scope is entered once and retained when progress advances", () => {
+  for (const scope of ["EASY", "LITE", "MEDIUM", "MAJOR"]) {
+    assert.equal(normalizeItemPatch({ makeReadyStatus: ` ${scope.toLowerCase()} ` }).scopeLevel, scope);
+    assert.equal(normalizeItemPatch({ makeReadyStatus: scope, scopeLevel: "conflicting" }).scopeLevel, scope);
+  }
+  for (const status of ["DONE", "FINAL WALK", "TO WALK", "CUSTOM", null]) {
+    const patch = normalizeItemPatch({ makeReadyStatus: status });
+    assert.equal(Object.hasOwn(patch, "scopeLevel"), false);
+    assert.equal({ scopeLevel: "MAJOR", ...patch }.scopeLevel, "MAJOR");
+  }
+  assert.equal(normalizeItemPatch({ scopeLevel: "Legacy scope" }).scopeLevel, "Legacy scope");
+});
 const dates = { makeReadyDate: new Date(2026, 8, 1), moveInDate: new Date(2026, 8, 9), vacatedDate: new Date(2026, 7, 1) };
 
 test("live read fields refresh stale flags without inventing an automation or edit timestamp", () => {

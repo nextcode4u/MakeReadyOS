@@ -1262,6 +1262,7 @@ export type NotificationResponse = {
   };
   properties: Array<Pick<Property, "id" | "code" | "name">>;
   categories: string[];
+  categoryDefaults?: Record<string, boolean>;
   pagination: {
     total: number;
     limit: number;
@@ -2633,6 +2634,10 @@ export function markAllNotificationsRead() {
 
 export function dismissNotification(id: string) {
   return request<{ ok: true }>(`/notifications/${id}`, { method: "DELETE" });
+}
+
+export function applyNeedToKnowNotifications() {
+  return request<{ ok: boolean }>("/notifications/need-to-know", { method: "POST" });
 }
 
 export function updateNotificationPreference(category: string, enabled: boolean, propertyId?: string | null) {

@@ -42,7 +42,7 @@ export async function turnMaterialRoutes(app: FastifyInstance) {
         ] }, select: { id: true } });
         const summary = requests.slice(0, 5).map(row => `${row.name} (${row.quantity} ${row.unit})`).join(", ");
         for (const recipient of recipients) await createNotification({
-          userId: recipient.id, propertyId: item.propertyId, itemId: item.id, category: "STATUS_CHANGE",
+          userId: recipient.id, propertyId: item.propertyId, itemId: item.id, category: "MATERIALS_REQUEST",
           title: `Parts need ordering: ${current.property.code} ${current.unitNumber}`,
           message: `${request.currentUser!.fullName} requested: ${summary}${requests.length > 5 ? `, plus ${requests.length - 5} more` : ""}. Open the unit's Parts & materials list to review and mark On order after purchasing.`,
           dedupeKey: `parts-order-request:${item.id}:${input.version + 1}`,

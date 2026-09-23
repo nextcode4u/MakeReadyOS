@@ -1,5 +1,6 @@
 import { UserRole, type Prisma } from "@prisma/client";
 import { prisma } from "./prisma.js";
+import { notificationEnabledByDefault } from "./notificationPolicy.js";
 
 export const notificationCategories = [
   "ASSIGNMENT",
@@ -10,6 +11,7 @@ export const notificationCategories = [
   "ITEM_LIFECYCLE",
   "BATCH_CHANGE",
   "STATUS_CHANGE",
+  "MATERIALS_REQUEST",
   "COMMENT",
   "CHECKLIST",
   "RISK",
@@ -76,7 +78,7 @@ export async function createNotification(input: {
   const preference = input.propertyId
     ? preferences.find((entry) => entry.propertyId === input.propertyId) ?? preferences.find((entry) => entry.scopeKey === "GLOBAL")
     : preferences.find((entry) => entry.scopeKey === "GLOBAL");
-  if (preference && !preference.enabled) return null;
+  if (!(preference?.enabled ?? notificationEnabledByDefault(input.category))) return null;
 
   const data = {
     userId: input.userId,

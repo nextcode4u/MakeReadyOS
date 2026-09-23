@@ -60,6 +60,9 @@ test("push worker respects current access, unread state, sessions, quiet hours a
   preferences = [{ scopeKey: "GLOBAL", enabled: false }]; await skip(() => {});
   preferences.push({ scopeKey: "PROPERTY:property", enabled: true }); fresh = base(); await deliverPushBatch(transport); assert.equal(sent, 2);
   preferences = [];
+  await skip(value => { value.notification.category = "STATUS_CHANGE"; });
+  await skip(value => { value.notification.category = "CHECKLIST"; });
+  await skip(value => { value.notification.category = "BATCH_CHANGE"; });
   const minute = new Date().getHours() * 60 + new Date().getMinutes();
   settings = { quietHoursEnabled: true, quietHoursStartMinute: minute, quietHoursEndMinute: (minute + 2) % 1440 };
   await skip(() => {}); settings = null; fresh = base();

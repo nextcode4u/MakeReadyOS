@@ -3,6 +3,7 @@ import { UserRole } from "@prisma/client";
 import { z } from "zod";
 import { notificationCategories } from "../lib/notifications.js";
 import { prisma } from "../lib/prisma.js";
+import { notificationEnabledByDefault, routineNotificationCategories } from "../lib/notificationPolicy.js";
 
 export const notificationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30),
@@ -46,8 +47,19 @@ export async function notificationRoutes(app: FastifyInstance) {
       settings: settings ?? { quietHoursEnabled: false, quietHoursStartMinute: 1320, quietHoursEndMinute: 420 },
       properties,
       categories: notificationCategories,
+      categoryDefaults: Object.fromEntries(notificationCategories.map(category => [category, notificationEnabledByDefault(category)])),
       pagination: { total, limit: query.limit, offset: query.offset, hasMore: query.offset + notifications.length < total },
     };
+  });
+
+  app.post("/notifications/need-to-know", async (request) => {
+    const userId = request.currentUser!.id;
+    await prisma.$transaction(async db => {
+      // Clear routine per-property overrides too, without changing important-alert opt-outs.
+      await db.notificationPreference.deleteMany({ where: { userId, category: { in: [...routineNotificationCategories] } } });
+      await db.notificationPreference.createMany({ data: routineNotificationCategories.map(category => ({ userId, category, scopeKey: "GLOBAL", enabled: false })) });
+    });
+    return { ok: true };
   });
 
   app.post("/notifications/:id/read", async (request, reply) => {

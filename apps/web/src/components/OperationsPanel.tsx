@@ -58,7 +58,7 @@ type Props = {
     completionStatus: string | null;
     makeReadyDate: string | null;
     moveInDate: string | null;
-    scopeLevel: string | null;
+    scopeLevel?: string | null;
     assignedTech: string | null;
   }) => Promise<void>;
   onArchiveItem: (id: string, restore: boolean) => Promise<void>;
@@ -766,7 +766,6 @@ export function OperationsPanel({
     completionStatus: "NO",
     makeReadyDate: "",
     moveInDate: "",
-    scopeLevel: "",
     assignedTech: "",
   });
   const [calendarDraft, setCalendarDraft] = useState<OperatingCalendarInput>({
@@ -1180,10 +1179,9 @@ export function OperationsPanel({
       completionStatus: newItem.completionStatus || null,
       makeReadyDate: newItem.makeReadyDate || null,
       moveInDate: newItem.moveInDate || null,
-      scopeLevel: newItem.scopeLevel || null,
       assignedTech: newItem.assignedTech || null,
     });
-    setNewItem((current) => ({ ...current, unitId: "", makeReadyDate: "", moveInDate: "", scopeLevel: "", assignedTech: "" }));
+    setNewItem((current) => ({ ...current, unitId: "", makeReadyDate: "", moveInDate: "", assignedTech: "" }));
   };
 
   const buildUnitDirectoryPreviewRows = () => {
@@ -2171,7 +2169,7 @@ export function OperationsPanel({
             <label>{isSpanish ? "Sección" : "Section"}<select data-testid="item-create-group" value={newItem.boardGroup} onChange={(event) => setNewItem((current) => ({ ...current, boardGroup: event.target.value }))}>{sectionsForNewItem.map((section) => <option key={section.id} value={section.key}>{section.displayName}</option>)}</select></label>
             <label>{isSpanish ? "Vacancia" : "Vacancy"}<select data-testid="item-create-vacancy" value={newItem.vacancyStatus} onChange={(event) => setNewItem((current) => ({ ...current, vacancyStatus: event.target.value }))}>{labelOptions("vacancyStatus").map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}</select></label>
             <label>{isSpanish ? "Estado de make-ready" : "Make-ready status"}<select data-testid="item-create-status" value={newItem.makeReadyStatus} onChange={(event) => setNewItem((current) => ({ ...current, makeReadyStatus: event.target.value }))}><option value="">{isSpanish ? "Sin definir" : "Unset"}</option>{labelOptions("makeReadyStatus").map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}</select></label>
-            <label>{isSpanish ? "Alcance" : "Scope"}<select data-testid="item-create-scope" value={newItem.scopeLevel} onChange={(event) => setNewItem((current) => ({ ...current, scopeLevel: event.target.value }))}><option value="">{isSpanish ? "Sin definir" : "Unset"}</option>{labelOptions("scopeLevel").map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}</option>)}</select></label>
+            <p className="helper-copy">{isSpanish ? "EASY, LITE, MEDIUM o MAJOR guarda el alcance automaticamente; no es necesario ingresarlo dos veces." : "EASY, LITE, MEDIUM or MAJOR automatically saves the scope; no second entry is needed."}</p>
             <label>{isSpanish ? "Técnico asignado" : "Assigned tech"}
               <SearchSelect
                 options={staffOptions}

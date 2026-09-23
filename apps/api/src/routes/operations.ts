@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { allowedPropertyIds } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
-import { computeDerivedFields } from "../lib/board.js";
+import { computeDerivedFields, scopeFromMakeReadyStatus } from "../lib/board.js";
 import { prisma } from "../lib/prisma.js";
 import { evaluateAndPersistItemRisk } from "../lib/risk.js";
 import { isReadyAvailabilityStatus } from "../lib/availabilityStatus.js";
@@ -1441,7 +1441,7 @@ export async function operationsRoutes(app: FastifyInstance) {
           makeReadyDate: parseOptionalDate(row.makeReadyDate),
           moveInDate: parseOptionalDate(row.moveInDate),
           makeReadyStatus: row.makeReadyStatus ?? (status === "VACANT_READY" || status === "VACANT NOT LEASED READY" || status === "VACANT LEASED READY" ? "DONE" : null),
-          scopeLevel: row.scopeLevel ?? null,
+          scopeLevel: scopeFromMakeReadyStatus(row.makeReadyStatus) ?? row.scopeLevel ?? null,
           notes: null,
         };
         const createDerived = {
@@ -1471,7 +1471,7 @@ export async function operationsRoutes(app: FastifyInstance) {
             makeReadyStatus: row.makeReadyStatus !== undefined
               ? row.makeReadyStatus
               : existingTurn.makeReadyStatus ?? (status === "VACANT_READY" || status === "VACANT NOT LEASED READY" || status === "VACANT LEASED READY" ? "DONE" : null),
-            scopeLevel: row.scopeLevel !== undefined ? row.scopeLevel : existingTurn.scopeLevel,
+            scopeLevel: scopeFromMakeReadyStatus(row.makeReadyStatus) ?? (row.scopeLevel !== undefined ? row.scopeLevel : existingTurn.scopeLevel),
             notes: cleanedNotes,
           };
           const updateDerived = {

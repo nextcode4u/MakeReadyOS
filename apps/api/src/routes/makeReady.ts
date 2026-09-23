@@ -17,7 +17,7 @@ import { getTurnReadiness } from "../lib/turnReadiness.js";
 import { awaitingFinalWalk, isTurnReady, repairsDone, tradeDone } from "../lib/turnStatus.js";
 import { guardReadyMutation, lockTurnProperty, normalizeRepairCompletion, requestsInspection } from "../lib/turnMutationGuard.js";
 import { notifyAssignedStaff, notifyPropertyRoles } from "../lib/notifications.js";
-import { computeDerivedFields, editableFields, normalizeItemPatch, startOfDay, withLiveTurnFields, type AutomationDefinition } from "../lib/board.js";
+import { computeDerivedFields, editableFields, normalizeItemPatch, scopeFromMakeReadyStatus, startOfDay, withLiveTurnFields, type AutomationDefinition } from "../lib/board.js";
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { evaluateAndPersistItemRisk, riskCategories } from "../lib/risk.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
@@ -1055,7 +1055,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
         moveInDate: payload.moveInDate ? new Date(payload.moveInDate) : null,
         applicant: payload.applicant ?? null,
         assignedTech: payload.assignedTech ?? null,
-        scopeLevel: payload.scopeLevel ?? null,
+        scopeLevel: scopeFromMakeReadyStatus(payload.makeReadyStatus) ?? payload.scopeLevel ?? null,
         makeReadyStatus: payload.makeReadyStatus ?? null,
         completionStatus: payload.completionStatus ?? null,
         cleaningStatus: payload.cleaningStatus ?? null,
@@ -1564,7 +1564,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     });
     await notifyAssignedStaff({
       assignedTech: item.assignedTech, propertyId: item.propertyId, itemId: item.id,
-      category: "ITEM_LIFECYCLE", title: "Item archived", message: `${item.unitNumber} moved to Archive.`,
+      category: "BATCH_CHANGE", title: "Item archived", message: `${item.unitNumber} moved to Archive.`,
     });
     await writeAuditLog({
       request,
@@ -1619,7 +1619,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     });
     await notifyAssignedStaff({
       assignedTech: item.assignedTech, propertyId: item.propertyId, itemId: item.id,
-      category: "ITEM_LIFECYCLE", title: "Item restored", message: `${item.unitNumber} returned to Make Ready.`,
+      category: "BATCH_CHANGE", title: "Item restored", message: `${item.unitNumber} returned to Make Ready.`,
     });
     await writeAuditLog({
       request,

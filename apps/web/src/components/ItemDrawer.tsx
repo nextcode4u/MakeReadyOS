@@ -252,7 +252,7 @@ export function ItemDrawer({
   const [uploading, setUploading] = useState(false);
   const [pendingChecklistItemIds, setPendingChecklistItemIds] = useState<string[]>([]);
   const columns = useMemo(() => configuredBoardColumns(columnDefinitions), [columnDefinitions]);
-  const drawerColumns = useMemo(() => columns.filter((column) => column.key !== "unitNumber" && column.key !== "notes" && column.key !== "completionStatus"), [columns]);
+  const drawerColumns = useMemo(() => columns.filter((column) => column.key !== "unitNumber" && column.key !== "notes" && column.key !== "completionStatus" && column.key !== "scopeLevel"), [columns]);
   const readinessBlockers = useMemo(() => completionBlockers(item), [item]);
   const activityQuery = useQuery({
     queryKey: ["activity", "item", item.id],
@@ -843,7 +843,7 @@ export function ItemDrawer({
                       <option value="">{t(language, "drawer.unset")}</option>
                       {options.map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}{option.isArchived ? " (archived)" : ""}</option>)}
                     </select>
-                    {column.key === "makeReadyStatus" ? <small>{language === "es" ? "DONE termina solo las reparaciones. Pintura y limpieza deben terminar antes de la inspeccion final." : "DONE finishes repairs only. Painting and cleaning must finish before final walk."}</small> : null}
+                    {column.key === "makeReadyStatus" ? <small>{language === "es" ? "EASY, LITE, MEDIUM o MAJOR guarda el alcance automaticamente. DONE termina solo las reparaciones y conserva el alcance. Pintura y limpieza deben terminar antes de la inspeccion final." : "EASY, LITE, MEDIUM or MAJOR automatically saves the scope. DONE finishes repairs only and keeps the saved scope. Painting and cleaning must finish before final walk."}</small> : null}
                   </label>
                 );
               }

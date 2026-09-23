@@ -348,6 +348,11 @@ export function applyRules(
   return { next, logs, customFieldUpdates, auditNotes };
 }
 
+export function scopeFromMakeReadyStatus(value: unknown): string | null {
+  const scope = typeof value === "string" ? value.trim().toUpperCase() : "";
+  return ["EASY", "LITE", "MEDIUM", "MAJOR"].includes(scope) ? scope : null;
+}
+
 export function normalizeItemPatch(payload: Record<string, unknown>) {
   const data: Record<string, unknown> = {};
 
@@ -377,5 +382,8 @@ export function normalizeItemPatch(payload: Record<string, unknown>) {
     data.pestTreated = null;
   }
 
+  // Remember the work scope when progress later advances to DONE or FINAL WALK.
+  const scope = scopeFromMakeReadyStatus(data.makeReadyStatus);
+  if (scope) data.scopeLevel = scope;
   return data as Prisma.MakeReadyItemUncheckedUpdateInput;
 }

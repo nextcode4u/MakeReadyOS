@@ -9,7 +9,7 @@ export const boardColumns = [
   { key: "vacatedDate", label: "Vacated", type: "date" },
   { key: "daysVacant", label: "Days Vacant", type: "readonly" },
   { key: "assignedTech", label: "Assigned", type: "assignee" },
-  { key: "scopeLevel", label: "Scope", type: "label" },
+  { key: "scopeLevel", label: "Scope (saved)", type: "readonly" },
   { key: "makeReadyDate", label: "Expected Finish", type: "date" },
   { key: "moveInDate", label: "Move-In", type: "date" },
   { key: "paintStatus", label: "Paint", type: "label" },

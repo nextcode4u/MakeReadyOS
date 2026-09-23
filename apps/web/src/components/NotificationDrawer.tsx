@@ -3,6 +3,8 @@ import type { NotificationResponse, UserLanguage } from "../lib/api";
 import { formatDateTime } from "../lib/dateTime";
 import { t, tWithVars } from "../lib/i18n";
 import { DevicePushSettings } from "./DevicePushSettings";
+import { useQueryClient } from "@tanstack/react-query";
+import { applyNeedToKnowNotifications } from "../lib/api";
 
 type Props = {
   focusId?: string;
@@ -26,9 +28,10 @@ const categoryLabels: Record<string, { en: string; es: string }> = {
   MOVE_IN_SOON: { en: "Move-in approaching", es: "Move-in próximo" },
   OVERDUE: { en: "Overdue work", es: "Trabajo vencido" },
   AUTOMATION_WARNING: { en: "Automation warnings", es: "Alertas de automatización" },
-  ITEM_LIFECYCLE: { en: "Item archived/restored", es: "Elemento archivado/restaurado" },
+  ITEM_LIFECYCLE: { en: "Final walk and unit readiness", es: "Inspeccion final y unidad lista" },
   BATCH_CHANGE: { en: "Section and batch changes", es: "Cambios de sección y lote" },
   STATUS_CHANGE: { en: "Status changes", es: "Cambios de estado" },
+  MATERIALS_REQUEST: { en: "Parts need ordering", es: "Materiales por pedir" },
   COMMENT: { en: "Comments", es: "Comentarios" },
   CHECKLIST: { en: "Checklist completion", es: "Checklist completado" },
   RISK: { en: "Risk alerts", es: "Alertas de riesgo" },
@@ -51,6 +54,11 @@ function inputToMinutes(value: string) {
 
 export function NotificationDrawer({ focusId, userId, open, data, loading, onClose, onRead, onReadAll, onDismiss, onOpenItem, onPreferenceChange, onSettingsChange, language }: Props) {
   const isSpanish = language === "es";
+  const client = useQueryClient();
+  const [presetBusy, setPresetBusy] = useState(false);
+  const [presetMessage, setPresetMessage] = useState("");
+  const [presetError, setPresetError] = useState("");
+  const globalEnabled = (category: string) => data?.preferences.find(preference => preference.category === category && preference.propertyId === null)?.enabled ?? data?.categoryDefaults?.[category] ?? true;
   const [selectedPropertyId, setSelectedPropertyId] = useState("");
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(false);
   const [quietStart, setQuietStart] = useState("22:00");
@@ -93,6 +101,20 @@ export function NotificationDrawer({ focusId, userId, open, data, loading, onClo
           <button className="button button-ghost" onClick={onClose} aria-label={t(language, "notifications.closeAria")}>{t(language, "wiki.close")}</button>
         </header>
         <DevicePushSettings key={userId} userId={userId} language={language} />
+        <div className="notification-pref-block">
+          <button type="button" className="button button-secondary" disabled={presetBusy || loading || !data} onClick={async () => {
+            setPresetBusy(true); setPresetError(""); setPresetMessage("");
+            try {
+              await applyNeedToKnowNotifications();
+              await client.invalidateQueries({ queryKey: ["notifications"] });
+              setPresetMessage(isSpanish ? "Actualizaciones rutinarias silenciadas. Las preferencias de alertas importantes se conservaron." : "Routine updates muted across all properties. Important-alert preferences were preserved.");
+            } catch (error) { setPresetError(error instanceof Error ? error.message : "Could not save notification preferences"); }
+            finally { setPresetBusy(false); }
+          }}>{isSpanish ? "Solo lo necesario" : "Need-to-know only"}</button>
+          <small>{isSpanish ? "Silencia cambios de estado, listas completadas y cambios de archivo/seccion. No borra alertas anteriores." : "Mutes routine status, checklist completion, and archive/section updates, including property overrides. Keeps your settings for assignments, schedules, deadlines, risks, parts requests and final walks. Previous alerts stay in your inbox."}</small>
+          {presetMessage ? <p role="status">{presetMessage}</p> : null}
+          {presetError ? <p role="alert">{presetError}</p> : null}
+        </div>
         <div className="notification-toolbar">
           <button data-testid="notifications-read-all" className="button button-secondary" disabled={!data?.unreadCount} onClick={() => void onReadAll()}>{t(language, "notifications.markAllRead")}</button>
         </div>
@@ -129,7 +151,8 @@ export function NotificationDrawer({ focusId, userId, open, data, loading, onClo
             <label key={category}>
               <input
                 type="checkbox"
-                checked={data?.preferences.find((preference) => preference.category === category && preference.propertyId === null)?.enabled !== false}
+                checked={globalEnabled(category)}
+                disabled={presetBusy}
                 onChange={(event) => void onPreferenceChange(category, event.target.checked, null)}
               />
               {categoryLabels[category]?.[isSpanish ? "es" : "en"] ?? category.replace(/_/g, " ").toLowerCase()}
@@ -146,7 +169,8 @@ export function NotificationDrawer({ focusId, userId, open, data, loading, onClo
                 <label key={`${selectedPropertyId}-${category}`}>
                   <input
                     type="checkbox"
-                    checked={propertyPreferences.find((preference) => preference.category === category)?.enabled ?? data?.preferences.find((preference) => preference.category === category && preference.propertyId === null)?.enabled !== false}
+                    checked={propertyPreferences.find((preference) => preference.category === category)?.enabled ?? globalEnabled(category)}
+                    disabled={presetBusy}
                     onChange={(event) => void onPreferenceChange(category, event.target.checked, selectedPropertyId)}
                   />
                   {categoryLabels[category]?.[isSpanish ? "es" : "en"] ?? category.replace(/_/g, " ").toLowerCase()}

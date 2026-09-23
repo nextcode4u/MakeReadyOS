@@ -1,5 +1,6 @@
 import webpush from "web-push";
 import { prisma } from "./prisma.js";
+import { notificationEnabledByDefault } from "./notificationPolicy.js";
 
 export function validPushEndpoint(endpoint: string) {
   try {
@@ -70,7 +71,7 @@ export async function deliverPushBatch(send: Transport = webpush.sendNotificatio
     const allowed = user.isActive && user.id === note.userId && device.session.expiresAt > current && !note.isRead
       && note.createdAt.getTime() === fresh.eventAt.getTime() && current.getTime() - fresh.eventAt.getTime() < 86400000
       && (!note.propertyId || user.role === "ADMIN" || user.propertyAccess.some(access => access.propertyId === note.propertyId))
-      && pref?.enabled !== false && !quiet && validPushEndpoint(device.endpoint);
+      && (pref?.enabled ?? notificationEnabledByDefault(note.category)) && !quiet && validPushEndpoint(device.endpoint);
     if (!allowed) {
       await prisma.pushDelivery.updateMany({ where: { id: job.id, nextAttemptAt: lease }, data: { status: "SKIPPED" } });
       continue;
