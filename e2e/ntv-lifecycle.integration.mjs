@@ -39,7 +39,10 @@ try {
   assert.equal(runs.reduce((sum, run) => sum + run.actionCount, 0), 1);
   assert.deepEqual(runs.flatMap(run => run.lifecycle.errors), []);
   assert.equal(await prisma.auditLog.count({ where: { action: "NTV_PREWALK_TRIGGERED", entityId: due.id } }), 1);
-  assert.equal((await prisma.makeReadyItem.findUniqueOrThrow({ where: { id: due.id } })).vacancyStatus, "TO PRE-WALK");
+  const transitioned = await prisma.makeReadyItem.findUniqueOrThrow({ where: { id: due.id } });
+  assert.equal(transitioned.vacancyStatus, "VACANT LEASED NOT READY");
+  assert.equal(transitioned.makeReadyStatus, "TO WALK");
+  assert.equal(transitioned.vacatedDate.toISOString(), due.moveOutDate.toISOString());
   for (const item of [later, archivedTurn, inactive]) {
     assert.equal((await prisma.makeReadyItem.findUniqueOrThrow({ where: { id: item.id } })).vacancyStatus, "NTV LEASED");
   }

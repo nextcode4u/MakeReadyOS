@@ -88,6 +88,7 @@ mkdir -p "$LOG_DIR"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/leaseReferences.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/backupOutcome.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/backupProjectMap.test.ts"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/backupPartialUnit.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/projectAccess.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/projectReferences.test.ts"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/pmTemplateScope.test.ts"
@@ -389,6 +390,9 @@ mkdir -p "$LOG_DIR"
 
     echo "Checking live overdue parity in the isolated database"
     docker compose exec -T -e MROS_INTEGRATION_TEST=1 api node --input-type=module < "$ROOT_DIR/e2e/overdue-parity.integration.mjs"
+
+    echo "Checking partial unit restore and rollback in the isolated database"
+    docker compose exec -T -e MROS_INTEGRATION_TEST=1 api node --input-type=module < "$ROOT_DIR/e2e/partial-unit-restore.integration.mjs"
 
     echo "Checking trusted-origin CORS edit methods"
     TEST_API_URL="http://localhost:${API_PORT:-4000}" TEST_ORIGIN="${APP_URL:-http://localhost:8080}" node --input-type=module -e '
@@ -1315,7 +1319,13 @@ mkdir -p "$LOG_DIR"
       exit 1
     fi
     node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!body.blocks?.length || body.summary?.plannedBlocks < 1 || body.summary?.moveInsNotCovered === undefined) process.exit(1);' /tmp/makereadyos-planning-after.json
-    node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!body.items?.some((item) => item.workAssignmentBlocks?.length)) process.exit(1);' /tmp/makereadyos-my-work-planning.json
+    node -e 'const assert=require("node:assert/strict"), fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); assert.ok(!body.items?.some(item => item.id === process.argv[2]), "Down/model turns must stay out of My Work even with a planned assignment");' /tmp/makereadyos-my-work-planning.json "$TURN_ITEM_ID"
+    curl -fsS -o /tmp/makereadyos-planning-reactivate.json -b "$COOKIE_JAR" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"action\":\"MOVE_GROUP\",\"ids\":[\"$TURN_ITEM_ID\"],\"boardGroup\":\"$TEST_MAKE_READY_GROUP\"}" \
+      "http://localhost:${API_PORT:-4000}/api/make-ready-items/batch"
+    curl -fsS -o /tmp/makereadyos-my-work-planning.json -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/my-work"
+    node -e 'const assert=require("node:assert/strict"), fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); assert.ok(body.items?.some(item => item.id === process.argv[2] && item.workAssignmentBlocks?.some(block => block.id === process.argv[3])), "Active turn must show its saved work assignment in My Work");' /tmp/makereadyos-my-work-planning.json "$TURN_ITEM_ID" "$WORK_BLOCK_ID"
     node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (typeof body.kpis?.plannedWorkBlocks !== "number" || typeof body.kpis?.unplannedMoveIns !== "number") process.exit(1);' /tmp/makereadyos-dashboard-planning.json
 
     echo "Checking vendor directory and assignment lifecycle"

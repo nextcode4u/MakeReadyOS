@@ -24,12 +24,12 @@ test("operational reports preserve matching rows, spreadsheet text, and complete
   const property = { id: "a", code: "QA", name: "Report fixtures" };
   const rows = Array.from({ length: 251 }, (_, index) => ({
     id: `record-${index + 1}`, propertyId: "a", property,
-    unit: { number: `RECORD${index + 1}` }, facility: { name: `RECORD${index + 1}` },
+    unit: { number: `RECORD${index + 1}` }, facility: { name: `RECORD${index + 1}`, type: "POOL" },
     issueTypeName: "Broken Blinds", pestType: "Ants", tags: [], photos: [], notes: [],
     attachments: [], safetyChecks: [], chemicalAdditions: [], status: "Open",
     noticeStage: "None", priority: "Normal", source: "Inspection", persistenceCount: 0,
     description: "=1+1",
-    createdAt: new Date("2026-09-06"), requestDate: new Date("2026-09-06"), logDate: new Date("2026-09-06"),
+    createdAt: new Date("2026-09-06"), updatedAt: new Date("2026-09-06"), requestDate: new Date("2026-09-06"), logDate: new Date("2026-09-06"),
   }));
   const stub = (delegate: any, method: string, fn: (...args: any[]) => unknown) => {
     const original = delegate[method];

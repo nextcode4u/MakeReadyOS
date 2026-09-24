@@ -10,7 +10,7 @@ mkdir -p "$LOG_DIR"
 
 validate_container_upload_dir() {
   local upload_dir="$1"
-  if [[ "$upload_dir" != /* ]] || [[ "$upload_dir" == "/" ]] || [[ "$upload_dir" == "/app" ]] || [[ "$upload_dir" == *"'"* ]]; then
+  if [[ "$upload_dir" != /* ]] || [[ "$upload_dir" == "/" ]] || [[ "$upload_dir" == "/app" ]] || [[ "$upload_dir" == */ ]] || [[ "$upload_dir" == *//* ]] || [[ "$upload_dir" =~ (^|/)\.\.?(/|$) ]] || [[ "$upload_dir" == *"'"* ]]; then
     echo "ERROR: refusing unsafe container upload path: $upload_dir"
     echo "Use UPLOAD_DIR=/app/uploads unless you have also reviewed the backup/restore scripts."
     return 1
@@ -67,7 +67,7 @@ run_restore() {
   docker compose up -d api
 
   echo "Clearing upload directory"
-  docker compose exec -T api sh -c "rm -rf '$upload_dir'/* '$upload_dir'/.??* 2>/dev/null || true; mkdir -p '$upload_dir'"
+  docker compose exec -T api sh -eu -c 'mkdir -p -- "$1"; find "$1" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +' sh "$upload_dir"
 
   echo "Restoring upload archive"
   docker compose exec -T api tar -C "$upload_dir" -xzf - < "$backup_file"

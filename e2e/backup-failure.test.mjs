@@ -21,16 +21,20 @@ if [[ "$FAIL_STAGE" == "restore_payload" ]]; then
   if [[ "$*" == *pg_restore* && "$*" != *--list* ]]; then exit 23; fi
 elif [[ -n "$FAIL_STAGE" && "$*" == *"$FAIL_STAGE"* ]]; then exit 23
 fi
+if [[ "$RUN_UPLOAD_CLEANUP" == "1" && "$*" == *"compose exec -T api sh -eu"* ]]; then
+  shift 4
+  exec "$@"
+fi
 exit 0
 `, { mode: 0o755 });
   await writeFile(join(root, "bin", "tar"), "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 });
-  const run = async (script, failStage, args = []) => {
+  const run = async (script, failStage, args = [], extraEnv = {}) => {
     const log = join(root, "calls.txt");
     await writeFile(log, "");
     const result = spawnSync("bash", [join(root, script), ...args], {
       cwd: root, encoding: "utf8", timeout: 10000, input: script === "restore-uploads.sh" ? "RESTORE_UPLOADS\n" : "RESTORE\nRESTORE_UPLOADS\n",
       env: { ...process.env, PATH: `${join(root, "bin")}:${process.env.PATH}`, CALL_LOG: log, FAIL_STAGE: failStage,
-        POSTGRES_DB: "fixture", POSTGRES_USER: "fixture", UPLOAD_DIR: "/app/uploads", BACKUP_RETENTION_DAYS: "" },
+        POSTGRES_DB: "fixture", POSTGRES_USER: "fixture", UPLOAD_DIR: "/app/uploads", BACKUP_RETENTION_DAYS: "", ...extraEnv },
     });
     return { ...result, calls: await readFile(log, "utf8") };
   };
@@ -75,6 +79,53 @@ test("successful workers remain successful and failed log writes return a failur
   await writeFile(join(root, "bin", "tee"), '#!/usr/bin/env bash\n/usr/bin/tee "$@"\nexit 31\n', { mode: 0o755 });
   assert.equal((await run("backup-db.sh", "")).status, 31);
   assert.equal((await run("backup-db.sh", "compose config")).status, 23, "worker failure takes precedence over log failure");
+});
+
+test("upload cleanup errors stop extraction and never report restore success", async t => {
+  const { run } = await fixture(t);
+  const result = await run("restore-uploads.sh", "find", ["sample.tgz"]);
+  assert.equal(result.status, 23, result.stdout + result.stderr);
+  assert.doesNotMatch(result.calls, /tar -C/);
+  assert.doesNotMatch(result.stdout, /Upload restore completed/);
+});
+
+test("upload cleanup removes short dotfiles without following directory symlinks", async t => {
+  const { root, run } = await fixture(t);
+  const uploads = join(root, "uploads");
+  const outside = join(root, "outside");
+  await mkdir(uploads);
+  await mkdir(outside);
+  await writeFile(join(outside, "keep"), "outside upload directory");
+  const { symlink, readdir } = await import("node:fs/promises");
+  await symlink(outside, join(uploads, "linked-directory"));
+  for (const name of [".a", "..a", ".hidden", "photo.jpg"]) await writeFile(join(uploads, name), "old");
+  const result = await run("restore-uploads.sh", "", ["sample.tgz"], { UPLOAD_DIR: uploads, RUN_UPLOAD_CLEANUP: "1" });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.deepEqual(await readdir(uploads), []);
+  assert.equal(await readFile(join(outside, "keep"), "utf8"), "outside upload directory");
+});
+
+test("a failed file deletion propagates through find and prevents extraction", async t => {
+  const { root, run } = await fixture(t);
+  const uploads = join(root, "uploads");
+  await mkdir(uploads);
+  await writeFile(join(uploads, "keep"), "old data");
+  await writeFile(join(root, "bin", "rm"), "#!/usr/bin/env bash\nexit 23\n", { mode: 0o755 });
+  const result = await run("restore-uploads.sh", "", ["sample.tgz"], { UPLOAD_DIR: uploads, RUN_UPLOAD_CLEANUP: "1" });
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.doesNotMatch(result.calls, /tar -C/);
+  assert.doesNotMatch(result.stdout, /Upload restore completed/);
+  assert.equal(await readFile(join(uploads, "keep"), "utf8"), "old data");
+});
+
+test("upload restore rejects noncanonical paths before Docker or deletion", async t => {
+  const { run } = await fixture(t);
+  for (const path of ["/", "/app", "/app/", "/app/uploads/..", "/app/./uploads", "//app/uploads"]) {
+    const result = await run("restore-uploads.sh", "", ["sample.tgz"], { UPLOAD_DIR: path });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout, /refusing unsafe/);
+    assert.equal(result.calls, "");
+  }
 });
 
 test("failed retention discovery never deletes partially enumerated backup files", async t => {

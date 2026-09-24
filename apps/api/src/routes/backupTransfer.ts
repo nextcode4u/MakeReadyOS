@@ -3200,17 +3200,29 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
 
     const unitMap = new Map<string, string>();
     for (const unit of backup.data.units) {
-      const propertyId = propertyMap.get(unit.propertyCode);
+      const propertyId = propertyMap.get(unit.propertyCode)
+        ?? (await tx.property.findUnique({ where: { code: unit.propertyCode }, select: { id: true } }))?.id;
+      if (propertyId) propertyMap.set(unit.propertyCode, propertyId);
+      if (!dryRun && !propertyId) {
+        throw Object.assign(new Error(`Unit property changed or could not be resolved for ${unit.number}; no import changes were committed`), { statusCode: 409 });
+      }
       const existing = propertyId ? await tx.unit.findUnique({ where: { propertyId_number: { propertyId, number: unit.number } } }) : null;
       if (existing) {
         unitMap.set(`${unit.propertyCode}|${unit.number}`, existing.id);
         summary.units.skipped += 1;
       } else {
+        const unitFloorPlanRef = unit.floorPlanCode ?? unit.floorPlanName;
+        const floorPlanId = unitFloorPlanRef
+          ? floorPlanMap.get(floorPlanKey(unit.propertyCode, unitFloorPlanRef))
+            ?? (propertyId ? (await tx.floorPlan.findFirst({ where: { propertyId, OR: [{ code: unitFloorPlanRef }, { name: unitFloorPlanRef }] }, select: { id: true } }))?.id : null)
+            ?? null
+          : null;
+        if (!dryRun && unitFloorPlanRef && !floorPlanId) {
+          throw Object.assign(new Error(`Unit floor plan changed or could not be resolved for ${unit.number}; no import changes were committed`), { statusCode: 409 });
+        }
         summary.units.created += 1;
         if (!dryRun && propertyId) {
           const { propertyCode: _propertyCode, floorPlanCode, floorPlanName, accessCodes, ...unitData } = unit;
-          const unitFloorPlanRef = floorPlanCode ?? floorPlanName;
-          const floorPlanId = unitFloorPlanRef ? floorPlanMap.get(floorPlanKey(unit.propertyCode, unitFloorPlanRef)) ?? null : null;
           const created = await tx.unit.create({ data: { ...unitData, propertyId, floorPlanId } });
           if (accessCodes) await tx.unitAccessCode.create({ data: { unitId: created.id, ...accessCodes } });
           unitMap.set(`${unit.propertyCode}|${unit.number}`, created.id);

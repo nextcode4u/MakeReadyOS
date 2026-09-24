@@ -1,5 +1,7 @@
 # Paper-to-Digital Turn Workflow Audit
 
+Status reconciliation (2026-09-23): use [Roadmap](ROADMAP.md) for the current release baseline. Local/deployment notes below retain historical evidence. Release `85b4164` allows authorized preparation-check revisions after handoff/approval on active turns, clearing handoff confirmation without automatically changing unit status; archived/inactive turns remain locked. Older blanket read-only checklist descriptions are superseded. Immutable signed report issuance remains incomplete.
+
 2026-09-08. Tested against an isolated database, not live resident/unit records.
 
 ## Readiness Decision

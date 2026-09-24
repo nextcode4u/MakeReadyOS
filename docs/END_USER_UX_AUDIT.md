@@ -1,5 +1,7 @@
 # End-User Interaction And Ease-Of-Use Audit
 
+Status reconciliation (2026-09-23): use [Roadmap](ROADMAP.md) for the current release baseline and remaining priorities. Dated local/deployment notes below are historical checkpoints, not a statement that those changes are still unreleased. Supported offline queues and account ownership are implemented; remaining recovery and signed-report gaps stay open.
+
 Started 2026-09-07. Deployment authorized by the user after the audit batch.
 Preserve the existing visual language; prioritize orientation, safe saves, and fewer unnecessary steps over new modules.
 

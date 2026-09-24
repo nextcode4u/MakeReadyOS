@@ -150,6 +150,16 @@ Or restore the pieces separately:
 ./restore-uploads.sh backups/makereadyos-uploads-YYYYMMDD-HHMMSS.tgz
 ```
 
+Upload restore clears all existing entries, including short hidden filenames,
+before extraction. A directory-creation, listing, or deletion failure stops the
+restore rather than mixing old files with restored files or reporting success.
+Use a canonical absolute `UPLOAD_DIR` without trailing slashes or `.`/`..`
+components. This is destructive replacement, not an atomic restore: a cleanup
+failure may leave some old files removed, so retain the backup and resolve the
+failure before retrying. Coordinated database/uploads maintenance remains a
+separate follow-up; the combined helper does not yet keep the API stopped across
+both phases.
+
 Inspection-gallery ZIP exports are for per-unit evidence packets. They are not full storage backups.
 
 ## Optional Off-Host Backup Examples

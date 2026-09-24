@@ -18,6 +18,7 @@ const overlap = (shift: OnCallShift, others: OnCallShift[]) => others.some(other
 export function OnCallPanel({ external = false, userId = "" }: { external?: boolean; userId?: string }) {
   const [saved, setSaved] = useState<OnCallState | null>(null);
   const [draft, setDraft] = useState<OnCallState | null>(null);
+  const [removedPeople, setRemovedPeople] = useState<Array<{ person: OnCallData["people"][number]; index: number; version: number }>>([]);
   const [editing, setEditing] = useState(false);
   const [mapsOpen, setMapsOpen] = useState(false);
   const mapsRef = useRef<HTMLDetailsElement>(null);
@@ -139,7 +140,28 @@ export function OnCallPanel({ external = false, userId = "" }: { external?: bool
           <p className="helper-copy">Use a different passphrase of at least 10 characters. This code permits changes to On-call, including schedules, contacts, guides and maps, but no other modules. Shared-code editors are not individually identified. Editing sessions last one hour. Changing this code revokes existing editors; leave it blank to keep the current setting.</p>
           <label className="on-call-check"><input type="checkbox" checked={disableEditing} onChange={event => { setDisableEditing(event.target.checked); if (event.target.checked) setNewEditCode(""); }}/>Disable external editing and revoke editing sessions on save</label></> : null}
           <details open><summary>People ({data.people.length})</summary><p>External participants do not need accounts. Names and phone numbers below are public when sharing is enabled; use approved on-call contact numbers.</p>
-            {data.people.map(member => <div className="on-call-fields" key={member.id}><label>Name<input required maxLength={100} value={member.name} onChange={event => change({ people: data.people.map(row => row.id === member.id ? { ...row, name: event.target.value } : row) })}/></label><label>Public on-call phone<input type="tel" maxLength={40} value={member.publicPhone} onChange={event => change({ people: data.people.map(row => row.id === member.id ? { ...row, publicPhone: event.target.value } : row) })}/></label><button type="button" onClick={() => change({ people: data.people.filter(row => row.id !== member.id) })}>Remove {member.name || "person"}</button></div>)}
+            <p>Removing a person requires typing their name. People assigned to a rotation, shift, backup or coverage change must be reassigned first. Removals are not permanent until you save.</p>
+            {data.people.map((member, index) => {
+              const inUse = data.rotation?.personIds.includes(member.id) || data.rotation?.startPersonId === member.id || data.shifts.some(shift => shift.personId === member.id || shift.backupId === member.id) || data.coverageChanges?.some(change => change.personId === member.id);
+              return <div className="on-call-fields" key={member.id} data-testid={`on-call-person-${member.id}`}>
+                <label>Name<input required maxLength={100} value={member.name} onChange={event => change({ people: data.people.map(row => row.id === member.id ? { ...row, name: event.target.value } : row) })}/></label>
+                <label>Public on-call phone<input type="tel" maxLength={40} value={member.publicPhone} onChange={event => change({ people: data.people.map(row => row.id === member.id ? { ...row, publicPhone: event.target.value } : row) })}/></label>
+                <button type="button" disabled={Boolean(inUse)} onClick={() => {
+                  const name = member.name.trim() || "REMOVE";
+                  if (window.prompt(`Remove ${member.name || "this person"} from the on-call roster? This does not delete their staff account.\n\nType ${name} to confirm. You can undo this before saving.`) !== name) return;
+                  setRemovedPeople(rows => [...rows.filter(row => row.person.id !== member.id), { person: { ...member }, index, version: current.version }]);
+                  change({ people: data.people.filter(row => row.id !== member.id) });
+                }}>Remove {member.name || "person"}</button>
+                {inUse ? <small>Assigned to on-call coverage. Reassign or remove their rotation, shifts and coverage changes before removing this person.</small> : null}
+              </div>;
+            })}
+            {removedPeople.filter(row => row.version === current.version && !data.people.some(person => person.id === row.person.id)).map(row => <div className="on-call-actions" key={row.person.id}>
+              <span>{row.person.name || "Person"} removed from draft only.</span>
+              <button type="button" onClick={() => {
+                const people = [...data.people]; people.splice(Math.min(row.index, people.length), 0, row.person);
+                change({ people }); setRemovedPeople(rows => rows.filter(other => other.person.id !== row.person.id));
+              }}>Undo removal of {row.person.name || "person"}</button>
+            </div>)}
             <button type="button" onClick={() => change({ people: [...data.people, { id: newId(), name: "", publicPhone: "" }] })}>Add person</button>
           </details>
           <details><summary>Properties &amp; protected access guides ({data.properties.length})</summary><p>Add each covered property, even if it is not managed in MakeReadyOS. Only the property name is public. Do not put codes in names or public shift notes.</p>

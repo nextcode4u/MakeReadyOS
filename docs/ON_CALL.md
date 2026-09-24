@@ -1,5 +1,7 @@
 # Shared On-Call Workspace
 
+Local removal safeguards: People removal requires typing the person's name, and is disabled while referenced by rotation, shifts (primary or backup), or coverage changes. A removed draft person can be restored with Undo without discarding other edits. Save commits the removal; Reload saved workspace discards the entire unsaved draft. These safeguards apply to signed-in and shared-code editors. Existing server validation continues to reject dangling schedule references.
+
 ## Access Model
 
 - Signed-in staff of every role can open the On-call module without a shared code. Managers and admins can manage it. API tokens cannot access its internal endpoints.

@@ -4,12 +4,20 @@ Current reliability-first work and acceptance checks: [Reliability And Polish Qu
 
 ## Partial Native Unit Restores
 
-- [ ] Resolve parent property IDs on apply as well as preview when a hand-edited
-  native backup contains units but omits its existing property record. A focused
-  test found that such a partial payload can report applied without creating the
-  unit because the apply property map only includes supplied property records.
-  Normal full native exports include those records; keep them with unit-only
-  restores until this is corrected. Add a preview/apply parity regression test.
+- [x] Local implementation, 2026-09-23: resolve existing unit parent properties
+  during preview and apply even when omitted from the backup. Preserve existing
+  floor-plan references by code or legacy name. Apply rejects unresolved parents
+  with a conflict instead of silently skipping creation or dropping the link.
+  Route regressions cover preview/apply parity, repeated imports, mailbox/access
+  details, optional floor plans and references disappearing before apply.
+  Added `backupPartialUnit.test.ts` to the standard test runner.
+- [x] Disposable PostgreSQL verification, 2026-09-23:
+  `e2e/partial-unit-restore.integration.mjs` confirms preview/apply parity,
+  persisted property/floor-plan links, mailbox/access codes, repeated-import
+  safety and audit behavior. An injected failure after real unit/code writes
+  confirms PostgreSQL rolls both back. Added to `test.sh`; evidence is in
+  `logs/test-20260923-190752.txt` (completed standard test run).
+- [ ] Release the verified fix. No production restore or deployment was performed.
 
 ## Database Migration Strategy
 
@@ -29,9 +37,9 @@ Until that gate is passed, additive schema work should continue using the curren
 
 ## Vite Bundle Growth
 
-Heavy operational workspaces, Kanban, Schedule, Fields, Setup, and the item drawer are lazy-loaded from the main app shell. The web build also separates React, React Query, and vendor code into explicit chunks, which removed the previous Vite main chunk-size warning.
+Heavy operational workspaces, Kanban, Schedule, Fields, Setup, and the item drawer are lazy-loaded from the main app shell. The web build also separates React, React Query, and vendor code into explicit chunks. The main chunk-size advisory has returned in the September 23 build; code splitting is implemented, not a permanent resolution of bundle growth.
 
-Remaining work: inspect production bundle composition after more growth and split shared chart/editor utilities if Vite warnings return.
+Remaining work: inspect current production bundle composition and split appropriate shared dependencies without merely increasing the warning threshold.
 
 ## Client-Side Filtering Limits
 
@@ -71,7 +79,7 @@ Remaining work: keep internet-facing deployments behind a trusted reverse proxy 
 
 ## Offline Sync Gaps
 
-The app is now self-host friendly and weak-signal tolerant for supported mobile workflows through cached GET data plus an IndexedDB-backed mutation/upload queue. Remaining debt is deeper conflict handling, per-record pending-sync affordances, and queue coverage for comments/checklists/secondary edit paths.
+The app is now self-host friendly and weak-signal tolerant for supported mobile workflows through cached GET data plus an account-owned IndexedDB mutation/upload queue. Supported comment and checklist paths already have queue coverage. Remaining debt is deeper conflict handling, per-record pending-sync affordances, unsupported secondary edit paths, legacy ownerless-job recovery and duplicate-safe replay after lost success responses. See [Roadmap](ROADMAP.md).
 
 ## Importer Boundaries
 
