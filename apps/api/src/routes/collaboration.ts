@@ -1451,6 +1451,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
       property: { id: string; code: string; name: string };
       title: string;
       subtitle: string;
+      workCategory?: string;
       status: string;
       priority?: string | null;
       dueDate?: Date | null;
@@ -1472,7 +1473,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
     for (const item of liveMakeReadyItems) {
       if (item.workAssignmentBlocks.length) {
         for (const block of item.workAssignmentBlocks) {
-          addEntry({ userId: block.assignedUser.id, assignedUserName: block.assignedUser.fullName, role: block.assignedUser.role, sourceType: "MAKE_READY_ITEM", sourceId: item.id, property: item.property, title: `${item.property.code} ${item.unitNumber}`, subtitle: `Make Ready / ${item.boardGroup.replace(/_/g, " ")} / ${block.category}`, status: item.makeReadyStatus ?? "Unstarted", scheduledDate: block.plannedDate, dueDate: item.moveInDate, overdue: item.overdue });
+          addEntry({ userId: block.assignedUser.id, assignedUserName: block.assignedUser.fullName, role: block.assignedUser.role, sourceType: "MAKE_READY_ITEM", sourceId: item.id, property: item.property, title: `${item.property.code} ${item.unitNumber}`, subtitle: `Make Ready / ${item.boardGroup.replace(/_/g, " ")} / ${block.category}`, workCategory: block.category, status: item.makeReadyStatus ?? "Unstarted", scheduledDate: block.plannedDate, dueDate: item.moveInDate, overdue: item.overdue });
         }
       } else if (item.assignedTech?.trim()) {
         const mapped = usersByName.get(item.assignedTech.trim()) ?? null;

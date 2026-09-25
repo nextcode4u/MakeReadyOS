@@ -53,7 +53,7 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     await prep.getByLabel("Mailbox key count", { exact: true }).fill("2");
     await prep.getByLabel("Access fobs prepared", { exact: true }).fill("1");
     await prep.getByLabel("Garage remotes prepared", { exact: true }).fill("0");
-    await prep.getByRole("button", { name: "Save resident codes", exact: true }).click();
+    await prep.getByRole("button", { name: "Save preparation & resident details", exact: true }).click();
     await expect(prep.getByRole("status")).not.toContainText("Unsaved");
     await expect.poll(async () => (await (await tech.request.get(`${origin}/api${itemPath}/resident-codes`)).json()).value.homeKeys).toBe("2");
     await send(tech, techHeaders, "PATCH", itemPath, { makeReadyStatus: "DONE" });
@@ -93,6 +93,7 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     await expect(report.getByRole("combobox", { name: /condensate/ })).toHaveCount(0);
     await report.getByTestId("final-report-date").fill("2026-09-15");
     await report.getByTestId("final-report-result-presentation-v2-3").selectOption("ATTENTION");
+    await expect(report.locator('.final-report-check[data-check-status="ATTENTION"]')).toHaveCount(1);
     await report.getByTestId("final-report-note-presentation-v2-3").fill("Touch up entry trim");
     await report.getByLabel("Internal follow-up for technician", { exact: true }).fill("Internal correction request");
     await report.getByRole("button", { name: "Save and send corrections to technician", exact: true }).click();
@@ -101,6 +102,20 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     expect(returned).toMatchObject({ makeReadyStatus: "IN PROGRESS", paintStatus: "DONE", cleaningStatus: "DONE", completionStatus: "NO" });
     await tech.reload();
     await expect(tech.getByTestId(`my-work-final-walk-pending-${item.id}`)).toHaveCount(0);
+    await expect(tech.getByTestId(`my-work-item-${item.id}`)).toHaveClass(/work-correction-card/);
+    await expect(tech.getByTestId(`my-work-item-${item.id}`).locator('.work-correction-badge')).toHaveText("Final-walk corrections");
+    await expect(tech.getByTestId(`my-work-item-${item.id}`)).not.toContainText("FINAL_WALK_CORRECTION");
+    await expect(tech.getByTestId(`my-work-status-${item.id}`)).toHaveValue("IN PROGRESS");
+    await tech.getByTestId("item-drawer-close").click();
+    await expect(tech.getByTestId("item-drawer")).toBeHidden();
+    for (const theme of ["light", "dark"]) {
+      await tech.setViewportSize({ width: 390, height: 844 });
+      await tech.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+      await tech.getByTestId(`my-work-item-${item.id}`).screenshot({ path: testInfo.outputPath(`correction-${theme}.png`) });
+      expect(await tech.getByTestId(`my-work-item-${item.id}`).evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    }
+    const assigned = await (await tech.request.get(`${origin}/api/assigned-work`)).json();
+    expect(assigned.entries.some((entry: any) => entry.sourceId === item.id && entry.workCategory === "FINAL_WALK_CORRECTION")).toBe(true);
     await expect(tech.getByTestId(`my-work-item-${item.id}`).getByRole("button", { name: "Start Work", exact: true })).toBeVisible();
     expect(JSON.stringify(await (await tech.request.get(`${origin}/api/notifications`)).json())).toContain("Final walk returned for corrections");
     const work = await (await tech.request.get(`${origin}/api/my-work`)).json();
@@ -109,8 +124,16 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     expect(codes.readOnly).toBe(false);
     expect(codes.technicianFollowUp).toContain("Touch up entry trim");
     expect(codes.correctionPending).toBe(true);
-    codes = await send(tech, techHeaders, "PUT", `${itemPath}/resident-codes`, { version: codes.version, value: { ...codes.value, technicianResolution: "Entry trim touched up and dry" } });
+    await tech.getByRole("button", { name: "Open corrections", exact: true }).click();
+    await expect(prep.locator('.work-correction-panel')).toContainText("Touch up entry trim");
+    await prep.getByLabel("Technician resolution", { exact: true }).fill("Entry trim touched up and dry");
+    await prep.getByRole("button", { name: "Save preparation & resident details", exact: true }).click();
+    await expect(prep.locator('.work-correction-panel')).toHaveCount(0);
+    await expect(tech.getByTestId(`my-work-item-${item.id}`)).not.toHaveClass(/work-correction-card/);
+    codes = await (await tech.request.get(`${origin}/api${itemPath}/resident-codes`)).json();
     expect(codes.correctionPending).toBe(false);
+    await tech.reload();
+    await expect(tech.getByTestId(`my-work-item-${item.id}`)).not.toHaveClass(/work-correction-card/);
     await send(tech, techHeaders, "PATCH", itemPath, { makeReadyStatus: "DONE" });
     const assignment = await (await page.request.get(`${origin}/api${itemPath}/final-walk`)).json();
     expect(assignment.block.assignedUserId).toBe(staff[1].id);

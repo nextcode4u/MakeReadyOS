@@ -3313,13 +3313,13 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
     await codes.getByLabel("Mailbox key count", { exact: true }).fill("2");
     const codesUrl = `${origin}/api/make-ready-items/${item.id}/resident-codes`;
     await techPage.route(`**/make-ready-items/${item.id}/resident-codes`, route => route.request().method() === "PUT" ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Codes save temporarily unavailable" }) }) : route.continue());
-    await codes.getByRole("button", { name: "Save resident codes", exact: true }).click();
+    await codes.getByRole("button", { name: "Save preparation & resident details", exact: true }).click();
     await expect(codes.getByRole("alert")).toContainText("temporarily unavailable");
     await expect(codes.getByLabel("New resident door code", { exact: true })).toHaveValue("0482#");
     await expect(codes.getByLabel("Mailbox number", { exact: true })).toHaveValue("MB-42");
     await expect(codes.getByLabel("Mailbox key count", { exact: true })).toHaveValue("2");
     await techPage.unroute(`**/make-ready-items/${item.id}/resident-codes`);
-    await codes.getByRole("button", { name: "Save resident codes", exact: true }).click();
+    await codes.getByRole("button", { name: "Save preparation & resident details", exact: true }).click();
     await expect(codes.getByRole("status")).toContainText("saved and logged for the Final-Walk Report");
     const codeState = await (await techContext.request.get(codesUrl)).json();
     expect(codeState.value).toMatchObject({ residentDoorCode: "0482#", residentAccessCode: "UNIT-0482", includeResidentCodes: true, mailbox: "MB-42", mailboxSource: "CUSTOM", mailboxKeys: "2" });
@@ -3587,13 +3587,29 @@ test("connection banner clears after verified recovery but not a failed retry", 
   let fail = true;
   await page.route("**/api/auth/me?connection-check=*", route => fail ? route.abort("failed") : route.continue());
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("makereadyos:api-unreachable", { detail: { at: new Date().toISOString() } })));
-  await expect(page.getByTestId("connection-banner")).toBeVisible();
+  await expect(page.getByTestId("connection-banner")).toHaveCount(0);
+  await expect(page.getByTestId("connection-banner")).toBeVisible({ timeout: 10000 });
   await page.getByTestId("connection-retry").click();
   await expect(page.getByTestId("connection-banner")).toBeVisible();
   await page.waitForTimeout(1800);
   await expect(page.getByTestId("connection-banner")).toBeVisible();
   fail = false;
   await expect(page.getByTestId("connection-banner")).toHaveCount(0, { timeout: 20000 });
+});
+
+test("brief connection failures recover quietly without a banner or reload", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  await page.route("**/api/auth/me?connection-check=*", route => route.fulfill({ json: { user: { id: "health-check" } } }));
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("offline"));
+    window.dispatchEvent(new Event("online"));
+    window.dispatchEvent(new CustomEvent("makereadyos:api-unreachable"));
+  });
+  await expect(page.getByTestId("connection-banner")).toHaveCount(0);
+  await page.waitForTimeout(6000);
+  await expect(page.getByTestId("connection-banner")).toHaveCount(0);
+  await expect(page.locator("#app-error-notice")).toHaveCount(0);
+  await expect(page.getByText("Back online", { exact: true })).toHaveCount(0);
 });
 
 test("property turn splits assign 25/75 and 100 percent independently with safe retries", async ({ page }) => {
@@ -4972,7 +4988,7 @@ test("runtime errors preserve drafts, escape details, and allow dismissal", asyn
   const compiled = ts.transpileModule(readFileSync("apps/web/src/lib/appErrors.ts", "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  await page.addScriptTag({ content: `(function(){const exports={};${compiled}\nexports.installAppErrorHandlers();})();` });
+  await page.addScriptTag({ content: `(function(){const exports={};${compiled}\nexports.installAppErrorHandlers();window.showFatalTestError=()=>exports.showAppError(new Error('Render failure'),true);})();` });
   await page.evaluate(() => window.dispatchEvent(new ErrorEvent("error", { message: '<img src=x onerror="window.injected=true">' })));
   await expect(page.getByLabel("Draft")).toHaveValue("Keep this draft");
   await page.getByText("Error details", { exact: true }).click();
@@ -4984,6 +5000,14 @@ test("runtime errors preserve drafts, escape details, and allow dismissal", asyn
   await page.getByText("Error details", { exact: true }).click();
   await expect(page.locator("#app-error-notice pre")).toHaveText("Second failure");
   await assertNoPageHorizontalOverflow(page);
+  await expect(page.getByRole("button", { name: "Reload app" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await page.evaluate(() => {
+    window.dispatchEvent(new PromiseRejectionEvent("unhandledrejection", { promise: Promise.resolve(), reason: "Second failure" }));
+    window.dispatchEvent(new ErrorEvent("error", { error: new DOMException("Canceled", "AbortError") }));
+  });
+  await expect(page.locator("#app-error-notice")).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as { showFatalTestError: () => void }).showFatalTestError());
   page.once("dialog", dialog => dialog.dismiss());
   await page.getByRole("button", { name: "Reload app" }).click();
   await expect(page.getByLabel("Draft")).toHaveValue("Keep this draft");
@@ -5760,7 +5784,7 @@ test.describe("MakeReadyOS browser flows", () => {
       await expect(quickStatus).toBeVisible();
     }
     await page.evaluate(() => window.dispatchEvent(new Event("offline")));
-    await expect(page.getByTestId("connection-banner")).toContainText("offline");
+    await expect(page.getByTestId("connection-banner")).toContainText("offline", { timeout: 10000 });
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     await expect(page.getByTestId("connection-banner")).toHaveCount(0);
     await page.getByTestId("tab-dashboard").click();

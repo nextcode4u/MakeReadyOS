@@ -3,6 +3,7 @@ import type { AssignedWorkEntry, AssignedWorkResponse, CurrentUser } from "../li
 import { formatDateTime } from "../lib/dateTime";
 import { t, tWithVars } from "../lib/i18n";
 import { StatusState } from "./StatusState";
+import { workCategoryLabel } from "../lib/workCues";
 
 type Props = {
   data?: AssignedWorkResponse;
@@ -113,15 +114,17 @@ export function AssignedWorkPanel({ data, loading, error, currentUser, selectedU
               <div className="my-work-list">
                 {group.entries.map((entry) => {
                   const activeSession = entry.activeSession;
+                  const needsCorrection = entry.sourceType === "MAKE_READY_ITEM" && entry.workCategory === "FINAL_WALK_CORRECTION";
                   const canStart = !!entry.userId && entry.userId === currentUser.id;
                   const canEnd = !!activeSession && (activeSession.userId === currentUser.id || canManageSessions);
                   return (
-                    <article key={`${entry.sourceType}-${entry.sourceId}-${group.key}`} className={entry.overdue ? "my-work-card overdue" : "my-work-card"}>
+                    <article key={`${entry.sourceType}-${entry.sourceId}-${group.key}`} className={`my-work-card${entry.overdue ? " overdue" : ""}${needsCorrection ? " work-correction-card" : ""}`}>
                       <div>
                         <strong>{entry.title}</strong>
-                        <span>{entry.property.name} / {entry.subtitle}</span>
+                        <span>{entry.property.name} / {entry.workCategory ? entry.subtitle.replace(entry.workCategory, workCategoryLabel(entry.workCategory, language)) : entry.subtitle}</span>
                       </div>
                       <div className="my-work-tags">
+                        {needsCorrection ? <strong className="work-correction-badge">{workCategoryLabel("FINAL_WALK_CORRECTION", language)}</strong> : null}
                         {entry.overdue ? <b>{t(language, "myWork.overdue").toUpperCase()}</b> : null}
                         {entry.priority ? <span>{entry.priority}</span> : null}
                         <span>{entry.status}</span>
@@ -137,7 +140,7 @@ export function AssignedWorkPanel({ data, loading, error, currentUser, selectedU
                         )}
                       </div>
                       <div className="my-work-actions">
-                        <button className="button button-primary" type="button" onClick={() => onOpenEntry(entry)}>{language === "es" ? "Abrir" : "Open"}</button>
+                        <button className="button button-primary" type="button" onClick={() => onOpenEntry(entry)}>{needsCorrection ? (language === "es" ? "Abrir correcciones" : "Open corrections") : language === "es" ? "Abrir" : "Open"}</button>
                         {canStart && !activeSession ? <button className="button button-secondary" type="button" onClick={() => void onStartWork(entry)}>{language === "es" ? "Iniciar trabajo" : "Start Work"}</button> : null}
                         {canEnd && activeSession ? <button className="button button-secondary" type="button" onClick={() => void onEndWork(activeSession.id)}>{language === "es" ? "Finalizar trabajo" : "End Work"}</button> : null}
                       </div>

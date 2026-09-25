@@ -1435,6 +1435,7 @@ export type WorkSessionSummary = {
 };
 
 export type AssignedWorkEntry = {
+  workCategory?: string;
   userId: string | null;
   assignedUserName: string;
   role: UserRole | null;

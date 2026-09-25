@@ -1151,6 +1151,30 @@
   background: var(--panel);
 }
 .my-work-card.overdue { border-left: 3px solid var(--danger); }
+.my-work-card.work-correction-card,
+.work-correction-panel {
+  border: 1px solid var(--warning);
+  border-inline-start: 5px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, var(--panel));
+}
+.work-correction-panel { padding: 1rem; border-radius: .65rem; }
+.my-work-tags .work-correction-badge {
+  display: inline-flex;
+  padding: .35rem .6rem;
+  border: 1px solid currentColor;
+  border-radius: .35rem;
+  color: var(--warning);
+  background: var(--panel);
+  font-size: .8rem;
+}
+.work-correction-copy { margin: 0; color: var(--text); line-height: 1.5; }
+.final-report-check[data-check-status="ATTENTION"] {
+  border-inline-start: 4px solid var(--warning);
+  padding-inline-start: .75rem;
+  background: color-mix(in srgb, var(--warning) 10%, var(--panel));
+}
+.final-report-check[data-check-status="CHECKED"] { border-inline-start: 4px solid var(--success); padding-inline-start: .75rem; }
+.final-report-check[data-check-status="NOT_CHECKED"] { border-inline-start: 4px dotted var(--text-muted); padding-inline-start: .75rem; }
 .my-work-card > div:first-child { display: grid; gap: .14rem; }
 .my-work-card > div:first-child span { color: var(--text-muted); font-size: .7rem; }
 .turn-material-fields { display: grid; gap: .75rem; min-width: 0; margin: 0; padding: 0; border: 0; }

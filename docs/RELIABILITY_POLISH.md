@@ -1,7 +1,17 @@
 # Reliability And Polish Queue
 
+Local connection-noise follow-up, 2026-09-25: connection-only banners wait five seconds for the existing health probe to recover, while pending/blocked offline work remains immediately visible. Removed duplicate offline/online/retry toasts; connection copy distinguishes queued work from edits still needing a confirmed save. Nonfatal runtime errors retain drafts without offering a full reload, repeated identical errors are coalesced for 30 seconds, and canceled requests do not trigger the global error notice. Fatal render failures retain guarded reload. The board error action retries its queries instead of reloading the page. Missing connection-event details are handled safely. Live network/server outage causes remain unverified; this is not a claim that production connectivity is repaired. Not pushed or deployed.
+
+Verification: four browser regressions passed (`logs/e2e-20260925-113858.txt`) covering sustained/brief outages, runtime draft preservation/dismissal, fatal reload confirmation and workspace controls. Four focused connection-recovery tests, lint and production image builds passed. The full suite was not rerun; the existing web bundle-size advisory remains.
+
 Planning summary reconciled: 2026-09-23. See [Roadmap](ROADMAP.md) for current release status, implemented capabilities and grouped priorities. Dated release/local-only checkpoints below remain historical evidence, not current deployment claims. Prioritize existing daily workflows over new modules.
 Checked items mean implementation and verification; see the release checkpoint below for deployed coverage. Field validation remains separate.
+
+Local UI clarity work, 2026-09-25: active final-walk correction assignments have an amber border, plain-language badge and Open corrections action in My Work and Assigned Work. Unit feedback uses the same accent. Inspection/preparation rows distinguish attention, checked and unchecked states without hiding their labels. The preparation save action names both preparation and resident details, and successful saves refresh work-list cues. These are presentation changes, not new readiness rules or permissions; completed/canceled correction blocks are not highlighted. Not pushed or deployed.
+
+The My Work repair-status picker also preserves a saved value absent from the configured options (for example, correction-generated IN PROGRESS), rather than displaying Unset for a unit that has a recorded status.
+
+Verification: both targeted mobile browser regressions passed (`logs/e2e-20260925-113133.txt`), including correction resolution, immediate cue refresh and the saved-status fallback. Light/dark correction screenshots were reviewed. Two focused work-cue/status tests, production API/web image builds and lint passed; the existing web bundle-size advisory remains. The full test suite was not rerun for this UI pass.
 
 Local recovery checkpoint, 2026-09-23: partial native unit restores now have real PostgreSQL preview/apply, replay and rollback coverage; upload cleanup stops on errors and removes short hidden files. Standard `test.sh` passes under Node 24 (`logs/test-20260923-190752.txt`), including updated pool-report and lifecycle/planning fixtures. No production restore, push or deployment. Browser/device verification, coordinated full restore and off-server protection are not completed by this checkpoint.
 

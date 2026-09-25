@@ -32,5 +32,5 @@ test("resident codes keep an unsaved draft on transient refresh but hide it afte
   await expect(input).toHaveCount(0);
   await expect(panel.getByRole("button", { name: "Show codes", exact: true })).toHaveCount(0);
   await expect(panel.getByRole("button", { name: "Hide codes", exact: true })).toHaveCount(0);
-  await expect(panel.getByRole("button", { name: "Save resident codes", exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Save preparation & resident details", exact: true })).toHaveCount(0);
 });

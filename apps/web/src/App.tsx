@@ -815,7 +815,6 @@ function App() {
 
   const retryConnection = () => {
     void queryClient.invalidateQueries();
-    pushToast(t(meQuery.data?.user.language ?? "en", "connection.retrying"), t(meQuery.data?.user.language ?? "en", "connection.retryingCopy"), "info");
     void syncQueuedOfflineChanges();
   };
 
@@ -3249,7 +3248,6 @@ function App() {
     const online = () => {
       setIsOnline(true);
       setApiDegraded(true);
-      pushToast(t(meQuery.data?.user.language ?? "en", "connection.backOnline"), t(meQuery.data?.user.language ?? "en", "connection.backOnlineCopy"), "success");
       void queryClient.invalidateQueries();
       void syncQueuedOfflineChanges();
     };
@@ -3257,13 +3255,12 @@ function App() {
       connectionIssueVersion.current++;
       setIsOnline(false);
       setLastConnectionIssueAt(new Date().toISOString());
-      pushToast(t(meQuery.data?.user.language ?? "en", "connection.offlineToast"), t(meQuery.data?.user.language ?? "en", "connection.offlineToastCopy"), "error");
     };
     const unreachable = (event: Event) => {
       connectionIssueVersion.current++;
-      const detail = event instanceof CustomEvent ? event.detail as { at?: string } : {};
+      const detail = event instanceof CustomEvent ? event.detail as { at?: string } | null : null;
       setApiDegraded(true);
-      setLastConnectionIssueAt(detail.at ?? new Date().toISOString());
+      setLastConnectionIssueAt(detail?.at ?? new Date().toISOString());
     };
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
@@ -4497,7 +4494,7 @@ function App() {
                 title={t(currentUser.language, "status.boardFailed")}
                 description={t(currentUser.language, "status.boardFailedCopy")}
                 tone="error"
-                action={{ label: t(currentUser.language, "status.reload"), onClick: () => window.location.reload() }}
+                action={{ label: t(currentUser.language, "connection.retryNow"), onClick: () => { void metaQuery.refetch(); void itemsQuery.refetch(); } }}
               />
             </div>
           ) : savedViewsQuery.isLoading ? (

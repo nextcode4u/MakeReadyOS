@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { UserLanguage } from "../lib/api";
 import { formatTime } from "../lib/dateTime";
 import { t } from "../lib/i18n";
@@ -19,7 +20,15 @@ type Props = {
 };
 
 export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCount, retryingCount, blockedCount, conflictCount, syncing, unattributedWork, queueError, language, onRetry, onReviewQueue }: Props) {
-  if (online && !degraded && pendingSyncCount === 0 && !unattributedWork && !queueError) {
+  const disconnected = !online || degraded;
+  const [sustainedDisconnect, setSustainedDisconnect] = useState(false);
+  useEffect(() => {
+    if (!disconnected) { setSustainedDisconnect(false); return; }
+    // Give the existing health probe time to recover a brief network hiccup.
+    const timer = setTimeout(() => setSustainedDisconnect(true), 5_000);
+    return () => clearTimeout(timer);
+  }, [disconnected]);
+  if (!(disconnected && sustainedDisconnect) && pendingSyncCount === 0 && !unattributedWork && !queueError) {
     return null;
   }
 

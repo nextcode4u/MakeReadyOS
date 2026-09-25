@@ -10,6 +10,7 @@ import { LabelPill } from "./LabelPill";
 import { statusDisplayName } from "../lib/statusDisplayName";
 import { awaitingFinalWalk, normalizeTurnStatus } from "../lib/turnStatus";
 import { StatusState } from "./StatusState";
+import { hasActiveCorrections, workCategoryLabel } from "../lib/workCues";
 
 type Props = {
   data?: MyWorkResponse;
@@ -108,27 +109,30 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
             const activeSession = activeSessionBySourceKey.get(`MAKE_READY_ITEM:${item.id}`) ?? null;
             const isInspection = item.workAssignmentBlocks?.some(block => block.category === "FINAL_WALK_INSPECTION");
             const pendingFinalWalk = awaitingFinalWalk(item);
+            const needsCorrection = hasActiveCorrections(item.workAssignmentBlocks);
             return (
-              <article key={item.id} className={item.overdue ? "my-work-card overdue" : "my-work-card"} data-testid={`my-work-item-${item.id}`}>
+              <article key={item.id} className={`my-work-card${item.overdue ? " overdue" : ""}${needsCorrection ? " work-correction-card" : ""}`} data-testid={`my-work-item-${item.id}`}>
                 <div>
                   <strong>{displayUnitNumber(item.property.code, item.unitNumber)}</strong>
                   <span>{item.property.name} / {item.boardGroup.replace(/_/g, " ")}</span>
                 </div>
                 <div className="my-work-tags">
+                  {needsCorrection ? <strong className="work-correction-badge">{workCategoryLabel("FINAL_WALK_CORRECTION", language)}</strong> : null}
                   {item.overdue ? <b>{t(language, "myWork.overdue").toUpperCase()}</b> : null}
                   {item.moveInSoon ? <b className="warning">{t(language, "myWork.moveInSoon")}</b> : null}
                   {item.riskLevel && item.riskLevel !== "NONE" ? <b className={item.riskLevel === "CRITICAL" || item.riskLevel === "HIGH" ? "risk" : "warning"}>{item.riskLevel} {t(language, "myWork.riskSuffix")}</b> : null}
                   <span>{pendingFinalWalk ? (language === "es" ? "Inspeccion final pendiente" : "Pending final walk") : normalizeTurnStatus(item.makeReadyStatus) === "DONE" ? (language === "es" ? "Reparaciones terminadas" : "Repairs done") : item.makeReadyStatus ?? t(language, "myWork.statusUnset")}</span>
                   {!isInspection && item.expectedStart ? <span>{language === "es" ? "Inicio previsto" : "Expected start"}: {item.expectedStart.date.slice(0, 10)}{item.expectedStart.projected ? (language === "es" ? " (proyectado)" : " (projected)") : ""}</span> : null}
-                  {item.workAssignmentBlocks?.map(block => <span key={block.id}>{tWithVars(language, "myWork.planned", { date: block.plannedDate.slice(0, 10), category: block.category === "FINAL_WALK_INSPECTION" ? "Final walk inspection" : block.category })}</span>)}
+                  {item.workAssignmentBlocks?.map(block => <span key={block.id}>{tWithVars(language, "myWork.planned", { date: block.plannedDate.slice(0, 10), category: workCategoryLabel(block.category, language) })}</span>)}
                 </div>
+                {needsCorrection ? <p className="work-correction-copy">{language === "es" ? "Revisa los comentarios del inspector, corrige los pendientes y guarda tu resolucion antes de solicitar otra inspeccion." : "Review the inspector's feedback, complete the corrections, and save your resolution before requesting another final walk."}</p> : null}
                 {pendingFinalWalk && !isInspection ? <p className="helper-copy" data-testid={`my-work-final-walk-pending-${item.id}`}>{language === "es" ? "Tu trabajo de reparacion esta terminado. La unidad espera la inspeccion final; aun no esta totalmente lista." : "Your repair work is complete. The unit is waiting for final inspection and is not fully ready yet."}</p> : null}
                 {(!isInspection && tasks.length) || activeSession ? <div className="my-work-progress">
                   <span>{activeSession ? `${language === "es" ? "Iniciado" : "Started"} ${startedLabel(activeSession.startedAt)}` : tWithVars(language, "myWork.checklist", { done: done.toString(), total: tasks.length.toString() })}</span>
                   {!isInspection && tasks.length ? <progress value={done} max={tasks.length} /> : null}
                 </div> : null}
                 <div className="my-work-actions">
-                  <button className="button button-primary" type="button" onClick={() => onOpenItem(item.id)}>{isInspection ? (language === "es" ? "Inspeccionar o delegar" : "Inspect or hand off") : t(language, "myWork.openWorkItem")}</button>
+                  <button className="button button-primary" type="button" onClick={() => onOpenItem(item.id)}>{needsCorrection ? (language === "es" ? "Abrir correcciones" : "Open corrections") : isInspection ? (language === "es" ? "Inspeccionar o delegar" : "Inspect or hand off") : t(language, "myWork.openWorkItem")}</button>
                   {!activeSession && (!pendingFinalWalk || isInspection) ? <button className="button button-secondary" type="button" onClick={() => void onStartWork({ sourceType: "MAKE_READY_ITEM", sourceId: item.id })}>{language === "es" ? "Iniciar trabajo" : "Start Work"}</button> : null}
                   {activeSession && (activeSession.userId === currentUser.id || canManageSessions) ? <button className="button button-secondary" type="button" onClick={() => void onEndWork(activeSession.id)}>{language === "es" ? "Finalizar trabajo" : "End Work"}</button> : null}
                   {canQuickUpdate ? (
@@ -141,6 +145,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                         aria-label={`${language === "es" ? "Estado de reparaciones" : "Repair status"} ${item.unitNumber}`}
                       >
                         <option value="">{t(language, "myWork.unset")}</option>
+                        {item.makeReadyStatus && !makeReadyOptions.some(option => option.value === item.makeReadyStatus) ? <option value={item.makeReadyStatus}>{item.makeReadyStatus} ({language === "es" ? "actual" : "current"})</option> : null}
                         {makeReadyOptions.map((option) => <option key={option.id} value={option.value}>{normalizeTurnStatus(option.value) === "DONE" ? (language === "es" ? "Reparaciones terminadas" : "Repairs done") : statusDisplayName(option)}</option>)}
                       </select>
                     </label>

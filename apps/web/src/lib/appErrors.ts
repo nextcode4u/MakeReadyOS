@@ -40,14 +40,25 @@ export function showAppError(error: unknown, fatal = false) {
   reload.onclick = () => {
     if (window.confirm(es ? "Los cambios sin guardar pueden perderse. Recargar?" : "Unsaved changes may be lost. Reload the app?")) window.location.reload();
   };
-  actions.append(dismiss, reload);
+  actions.append(dismiss);
+  if (fatal) actions.append(reload);
   notice.append(title, message, details, actions);
   document.body.append(notice);
 }
 
 export function installAppErrorHandlers() {
-  const onError = (event: ErrorEvent) => showAppError(event.error || event.message);
-  const onRejection = (event: PromiseRejectionEvent) => showAppError(event.reason);
+  let lastDetail = "";
+  let lastShown = 0;
+  const report = (error: unknown) => {
+    if (error instanceof Error && error.name === "AbortError") return;
+    const detail = errorDetail(error);
+    if (detail === lastDetail && Date.now() - lastShown < 30_000) return;
+    lastDetail = detail;
+    lastShown = Date.now();
+    showAppError(error);
+  };
+  const onError = (event: ErrorEvent) => report(event.error || event.message);
+  const onRejection = (event: PromiseRejectionEvent) => report(event.reason);
   window.addEventListener("error", onError);
   window.addEventListener("unhandledrejection", onRejection);
   return () => {
