@@ -1,5 +1,13 @@
 # Reliability And Polish Queue
 
+Unit shop-pickup controls: each saved part has a Collected checkbox and an inline status selector, including Need to order and On order. Collection saves ON_HAND and crosses out the name; unchecking returns it to NEEDED. Used lines remain crossed out and must be changed through Status, as must cancelled lines. Saves use the existing version guard without optimistic success or automatic write replay; failures and conflicts remain visible for refresh/review. Existing order notifications, readiness rules, permissions and partial-quantity separate-line behavior are unchanged.
+
+Verification: mobile parts recovery regression passed, covering collection/reversal, persistence after reload, order statuses, failed saves, concurrent edits, and used/cancelled states. Collected-part mobile screenshot reviewed. Image builds and lint passed; full suite not rerun.
+
+My Work move-in cue: dated units show a distinct Move-in strip with the saved calendar date and API-calculated days remaining. Today, singular-day and past-date wording are explicit; missing dates do not get a countdown. The strip replaces the redundant Move-in soon tag when a date is available and preserves correction/risk cues.
+
+Verification: two work-cue tests and the mobile final-walk lifecycle regression passed, including absent-date and three-day countdown assertions. Mobile screenshot reviewed; image builds and lint passed. Full suite not rerun.
+
 Local connection-noise follow-up, 2026-09-25: connection-only banners wait five seconds for the existing health probe to recover, while pending/blocked offline work remains immediately visible. Removed duplicate offline/online/retry toasts; connection copy distinguishes queued work from edits still needing a confirmed save. Nonfatal runtime errors retain drafts without offering a full reload, repeated identical errors are coalesced for 30 seconds, and canceled requests do not trigger the global error notice. Fatal render failures retain guarded reload. The board error action retries its queries instead of reloading the page. Missing connection-event details are handled safely. Live network/server outage causes remain unverified; this is not a claim that production connectivity is repaired. Not pushed or deployed.
 
 Verification: four browser regressions passed (`logs/e2e-20260925-113858.txt`) covering sustained/brief outages, runtime draft preservation/dismissal, fatal reload confirmation and workspace controls. Four focused connection-recovery tests, lint and production image builds passed. The full suite was not rerun; the existing web bundle-size advisory remains.

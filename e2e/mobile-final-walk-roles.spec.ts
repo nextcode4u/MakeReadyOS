@@ -39,6 +39,17 @@ test("compact light defaults and split final walk correction loop", async ({ pag
   try {
     const tech = await techContext.newPage();
     const techHeaders = await login(tech, staff[0].username, password);
+    await expect(tech.getByTestId(`my-work-item-${item.id}`)).toBeVisible();
+    await expect(tech.getByTestId(`my-work-move-in-${item.id}`)).toHaveCount(0);
+    const moveIn = new Date();
+    moveIn.setUTCDate(moveIn.getUTCDate() + 3);
+    const moveInDate = moveIn.toISOString().slice(0, 10);
+    await send(page, admin, "PATCH", itemPath, { moveInDate });
+    await tech.reload();
+    const moveInCue = tech.getByTestId(`my-work-move-in-${item.id}`);
+    await expect(moveInCue.getByText("Move-in", { exact: true })).toBeVisible();
+    await expect(moveInCue).toContainText("3 days till move-in");
+    await expect(moveInCue.locator("time")).toHaveAttribute("datetime", moveInDate);
     await tech.getByTestId(`my-work-item-${item.id}`).getByRole("button", { name: "Open work item", exact: true }).click();
     const prep = tech.getByTestId("resident-codes-panel");
     const showCodes = prep.getByRole("button", { name: "Show codes", exact: true });
@@ -214,6 +225,8 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     await inspector.getByTestId("completed-unit-report").click();
     await expect(report.getByTestId("final-report-resident-pdf")).toBeVisible();
     await inspector.screenshot({ path: testInfo.outputPath("final-walk-mobile.png") });
+    // Restore the vacant fixture after move-in automation for the separate reopen checks.
+    await send(page, admin, "PATCH", itemPath, { moveInDate: null, vacancyStatus: "VACANT NOT LEASED NOT READY" });
     // Reopening is an audited management action, not another technician status edit.
     for (const [target, headers] of [[tech, techHeaders], [inspector, inspectorHeaders]] as const) {
       expect((await target.request.post(`${origin}/api${itemPath}/reopen-final-walk`, { headers, data: { reason: "Final walk still required" } })).status()).toBe(403);

@@ -1168,6 +1168,18 @@
   font-size: .8rem;
 }
 .work-correction-copy { margin: 0; color: var(--text); line-height: 1.5; }
+.my-work-move-in {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .35rem .8rem;
+  padding: .55rem .7rem;
+  border-inline-start: 4px solid var(--accent);
+  border-radius: .3rem;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  color: var(--text);
+  font-size: .85rem;
+}
 .final-report-check[data-check-status="ATTENTION"] {
   border-inline-start: 4px solid var(--warning);
   padding-inline-start: .75rem;
@@ -1178,6 +1190,10 @@
 .my-work-card > div:first-child { display: grid; gap: .14rem; }
 .my-work-card > div:first-child span { color: var(--text-muted); font-size: .7rem; }
 .turn-material-fields { display: grid; gap: .75rem; min-width: 0; margin: 0; padding: 0; border: 0; }
+.material-collected { text-decoration: line-through; color: var(--text-muted); }
+.material-pickup-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem 1rem; }
+.material-pickup-controls label { display: flex; align-items: center; gap: .5rem; min-height: 44px; }
+.material-pickup-controls input[type="checkbox"] { width: 1.2rem; height: 1.2rem; }
 .turn-material-fields label { display: grid; gap: .3rem; min-width: 0; }
 .turn-material-fields input, .turn-material-fields select, .turn-material-fields textarea { box-sizing: border-box; width: 100%; min-width: 0; }
 .material-entry-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, .7fr) minmax(0, 1fr); gap: .5rem; }

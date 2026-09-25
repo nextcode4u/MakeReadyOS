@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getTurnMaterials, isApiError, saveTurnMaterials, type TurnMaterial } from "../lib/api";
 import { createMaterialId, encodeMaterialDraft, materialDraftKey, parseMaterialDraft, reviewMaterialEdit, type MaterialEdit } from "../lib/materialDraft";
@@ -21,6 +21,9 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
   const [error, setError] = useState("");
   const [storageError, setStorageError] = useState("");
   const [quickPending, setQuickPending] = useState(false);
+  const statusSaving = useRef(false);
+  const [statusError, setStatusError] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
   const [conflict, setConflict] = useState(false);
   const [review, setReview] = useState<ReturnType<typeof reviewMaterialEdit> | null>(null);
   const persistDraft = (value: MaterialEdit) => {
@@ -48,6 +51,23 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
     removeDraft();
     setEdit(null); setDirty(false); setError(""); setConflict(false); setReview(null); void query.refetch();
   };
+  const changeStatus = async (row: TurnMaterial, status: TurnMaterial["status"]) => {
+    if (statusSaving.current || busy || quickPending || draft || edit || !canEdit || !query.data || query.data.readOnly || query.isError) return;
+    statusSaving.current = true;
+    setBusy(true); setStatusError(""); setStatusMessage("");
+    try {
+      const result = await saveTurnMaterials(itemId, { version: query.data.version, rows: query.data.rows.map(existing => existing.id === row.id ? { ...existing, status } : existing) });
+      client.setQueryData(key, result);
+      setStatusMessage(`${row.name}: ${statuses[status]} saved.`);
+      void client.invalidateQueries({ queryKey: ["final-walk", itemId] });
+      void client.invalidateQueries({ queryKey: ["my-work"] });
+      void client.invalidateQueries({ queryKey: ["make-ready-items"] });
+    } catch (cause) {
+      setStatusError(isApiError(cause) && cause.status === 409
+        ? "The parts list changed. Refresh the list, review it, then try again. Your change was not applied."
+        : "Could not confirm the part status was saved. Refresh the list to check before retrying.");
+    } finally { statusSaving.current = false; setBusy(false); }
+  };
   return <section className="drawer-section" data-testid="turn-materials">
     <h3>Parts &amp; materials</h3>
     <p className="helper-copy">Your shop pickup list for this turn: record parts here, then review it at the shop to gather supplies. Needed parts are reminders, not completion blockers. Only parts marked On order block readiness until received, used, or cancelled. This internal list is not printed on the resident Final-Walk Report.</p>
@@ -59,23 +79,30 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
     {storageError && !edit ? <p role="alert">{storageError}</p> : null}
     {query.isLoading ? <p role="status">Loading parts list...</p> : null}
     {query.isError ? <p role="alert">Could not load parts list. <button type="button" onClick={() => void query.refetch()}>Retry</button></p> : null}
+    {statusError ? <p role="alert">{statusError} <button type="button" disabled={busy} onClick={() => void query.refetch()}>Refresh parts list</button></p> : null}
+    {statusMessage ? <p role="status">{statusMessage}</p> : null}
     {query.data ? <>
       <p>{query.data.rows.filter(row => row.status === "NEEDED").length} to gather / {query.data.rows.filter(row => row.status === "ORDERED").length} on order (blocks readiness) / {query.data.rows.filter(row => row.status === "NEED_TO_ORDER").length} need to order / {query.data.rows.length} total lines</p>
       <p className="helper-copy">Mark missing shop supplies Need to order to alert this property's managers and admins in Notifications. Mark On order after purchasing. Alerts follow notification preferences; ordinary edits do not resend them.</p>
+      <p className="helper-copy">Check Collected when you have the full quantity for this unit. The name is crossed out after saving. Uncheck to put it back on the pickup list. Use separate lines for partial quantities; change Used or Cancelled through Status.</p>
       {!query.data.rows.length ? <p>No parts or materials recorded. Add repair parts, paint, filters, or other supplies here.</p> : <div className="my-work-list">
         {query.data.rows.map(row => <article key={row.id} className="my-work-card" data-testid={`material-${row.id}`}>
-          <div><strong style={{ overflowWrap: "anywhere" }}>{row.name}</strong><span>{row.quantity} {row.unit} / {statuses[row.status]}</span></div>
+          <div><strong className={row.status === "ON_HAND" || row.status === "USED" ? "material-collected" : undefined} style={{ overflowWrap: "anywhere" }}>{row.name}</strong><span>{row.quantity} {row.unit} / {statuses[row.status]}</span></div>
+          <div className="material-pickup-controls">
+            <label><input type="checkbox" aria-label={`Collected ${row.name}`} checked={row.status === "ON_HAND" || row.status === "USED"} disabled={!canEdit || query.data?.readOnly || busy || !!draft || !!edit || quickPending || query.isError || row.status === "USED" || row.status === "CANCELLED"} onChange={event => void changeStatus(row, event.target.checked ? "ON_HAND" : "NEEDED")}/>Collected</label>
+            {canEdit && !query.data?.readOnly ? <label>Status<select aria-label={`Status ${row.name}`} value={row.status} disabled={busy || !!draft || !!edit || quickPending || query.isError} onChange={event => void changeStatus(row, event.target.value as TurnMaterial["status"])}>{Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label> : null}
+          </div>
           {row.notes ? <p style={{ overflowWrap: "anywhere", whiteSpace: "pre-wrap" }}>{row.notes}</p> : null}
-          {canEdit && !query.data.readOnly ? <button type="button" className="button button-secondary" disabled={!!draft || quickPending} onClick={() => open(row)}>Edit {row.name}</button> : null}
+          {canEdit && !query.data.readOnly ? <button type="button" className="button button-secondary" disabled={busy || !!draft || quickPending} onClick={() => open(row)}>Edit {row.name}</button> : null}
         </article>)}
       </div>}
       {canEdit && !query.data.readOnly ? <>
-        <QuickMaterialsEntry itemId={itemId} userId={userId} materials={query.data} disabled={!!draft || !!edit} onPending={setQuickPending} onSaved={result => {
+        <QuickMaterialsEntry itemId={itemId} userId={userId} materials={query.data} disabled={busy || !!draft || !!edit} onPending={setQuickPending} onSaved={result => {
           client.setQueryData(key, result);
           void client.invalidateQueries({ queryKey: ["final-walk", itemId] });
         }}/>
         <p className="helper-copy">Need a supplier note or a different starting status?</p>
-        <button type="button" className="button button-secondary" disabled={!!draft || quickPending || query.data.rows.length >= 100} onClick={() => open()}>Add part / material</button>
+        <button type="button" className="button button-secondary" disabled={busy || !!draft || quickPending || query.data.rows.length >= 100} onClick={() => open()}>Add part / material</button>
       </> : <p className="helper-copy">Read-only parts list.</p>}
     </> : null}
     <Modal open={!!edit} title={`Parts & materials / ${title}`} onClose={close} testId="turn-material-editor">

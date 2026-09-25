@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { CurrentUser, LabelDefinition, MyWorkResponse, StaffOption, WorkSessionSourceType } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
-import { formatDateTime } from "../lib/dateTime";
+import { formatDateDisplay, formatDateTime } from "../lib/dateTime";
 import { t, tWithVars } from "../lib/i18n";
 import { openLeaseWorkspace } from "../lib/leaseNavigation";
 import { openPestWorkspace } from "../lib/pestNavigation";
@@ -10,7 +10,7 @@ import { LabelPill } from "./LabelPill";
 import { statusDisplayName } from "../lib/statusDisplayName";
 import { awaitingFinalWalk, normalizeTurnStatus } from "../lib/turnStatus";
 import { StatusState } from "./StatusState";
-import { hasActiveCorrections, workCategoryLabel } from "../lib/workCues";
+import { hasActiveCorrections, moveInCountdown, workCategoryLabel } from "../lib/workCues";
 
 type Props = {
   data?: MyWorkResponse;
@@ -116,10 +116,15 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                   <strong>{displayUnitNumber(item.property.code, item.unitNumber)}</strong>
                   <span>{item.property.name} / {item.boardGroup.replace(/_/g, " ")}</span>
                 </div>
+                {item.moveInDate ? <div className="my-work-move-in" data-testid={`my-work-move-in-${item.id}`}>
+                  <strong>{language === "es" ? "Mudanza" : "Move-in"}</strong>
+                  <time dateTime={item.moveInDate.slice(0, 10)}>{formatDateDisplay(item.moveInDate, undefined, language)}</time>
+                  {moveInCountdown(item.daysUntilMoveIn, language) ? <strong>{moveInCountdown(item.daysUntilMoveIn, language)}</strong> : null}
+                </div> : null}
                 <div className="my-work-tags">
                   {needsCorrection ? <strong className="work-correction-badge">{workCategoryLabel("FINAL_WALK_CORRECTION", language)}</strong> : null}
                   {item.overdue ? <b>{t(language, "myWork.overdue").toUpperCase()}</b> : null}
-                  {item.moveInSoon ? <b className="warning">{t(language, "myWork.moveInSoon")}</b> : null}
+                  {item.moveInSoon && !item.moveInDate ? <b className="warning">{t(language, "myWork.moveInSoon")}</b> : null}
                   {item.riskLevel && item.riskLevel !== "NONE" ? <b className={item.riskLevel === "CRITICAL" || item.riskLevel === "HIGH" ? "risk" : "warning"}>{item.riskLevel} {t(language, "myWork.riskSuffix")}</b> : null}
                   <span>{pendingFinalWalk ? (language === "es" ? "Inspeccion final pendiente" : "Pending final walk") : normalizeTurnStatus(item.makeReadyStatus) === "DONE" ? (language === "es" ? "Reparaciones terminadas" : "Repairs done") : item.makeReadyStatus ?? t(language, "myWork.statusUnset")}</span>
                   {!isInspection && item.expectedStart ? <span>{language === "es" ? "Inicio previsto" : "Expected start"}: {item.expectedStart.date.slice(0, 10)}{item.expectedStart.projected ? (language === "es" ? " (proyectado)" : " (projected)") : ""}</span> : null}

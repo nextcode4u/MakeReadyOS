@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("parts conflict review retains mobile additions and avoids lost-response duplicates", async ({ page }) => {
+test("parts conflict review retains mobile additions and avoids lost-response duplicates", async ({ page }, testInfo) => {
   test.setTimeout(90000);
   await page.goto("/");
   await page.getByTestId("login-email").fill(process.env.ADMIN_EMAIL || "admin@example.com");
@@ -100,5 +100,47 @@ test("parts conflict review retains mobile additions and avoids lost-response du
   const conflict = await (await page.request.get(root)).json();
   expect(conflict.version).toBe(6);
   expect(conflict.rows[1].quantity).toBe(4);
+  page.once("dialog", dialog => dialog.accept());
+  await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(editor).not.toBeVisible();
+  const part = panel.getByTestId(`material-${edited.rows[1].id}`);
+  const collected = part.getByRole("checkbox", { name: "Collected Technician filter", exact: true });
+  await collected.click();
+  await expect(part.locator(".material-collected")).toHaveText("Technician filter");
+  await expect(part.getByRole("combobox")).toHaveValue("ON_HAND");
+  expect((await (await page.request.get(root)).json()).rows[1].status).toBe("ON_HAND");
+  await page.reload();
+  await expect(collected).toBeChecked();
+  await collected.click();
+  await expect(part.getByRole("combobox")).toHaveValue("NEEDED");
+  await expect(part.locator(".material-collected")).toHaveCount(0);
+  await part.getByRole("combobox").selectOption("NEED_TO_ORDER");
+  await expect(panel.getByRole("status", { exact: false }).filter({ hasText: "Need to order saved" })).toBeVisible();
+  await part.getByRole("combobox").selectOption("ORDERED");
+  await expect(panel.getByRole("status", { exact: false }).filter({ hasText: "On order saved" })).toBeVisible();
+  await expect(collected).not.toBeChecked();
+  await page.route(`**${root}`, route => route.request().method() === "PUT" ? route.fulfill({ status: 503, json: { message: "Save failed" } }) : route.continue());
+  await collected.click();
+  await expect(panel.getByRole("alert")).toContainText("Could not confirm");
+  await expect(collected).not.toBeChecked();
+  await expect(part.locator(".material-collected")).toHaveCount(0);
+  await page.unroute(`**${root}`);
+  const latest = await (await page.request.get(root)).json();
+  expect((await page.request.put(root, { headers, data: { version: latest.version, rows: latest.rows.map((row: any) => row.id === edited.rows[1].id ? { ...row, notes: "Another technician's update" } : row) } })).ok()).toBeTruthy();
+  await collected.click();
+  await expect(panel.getByRole("alert")).toContainText("The parts list changed");
+  await expect(collected).not.toBeChecked();
+  await panel.getByRole("button", { name: "Refresh parts list", exact: true }).click();
+  await expect(part).toContainText("Another technician's update");
+  await collected.click();
+  await expect(part.locator(".material-collected")).toBeVisible();
+  await part.screenshot({ path: testInfo.outputPath("collected-part-mobile.png") });
+  await part.getByRole("combobox").selectOption("USED");
+  await expect(collected).toBeDisabled();
+  await expect(collected).toBeChecked();
+  await part.getByRole("combobox").selectOption("CANCELLED");
+  await expect(collected).toBeDisabled();
+  await expect(collected).not.toBeChecked();
+  await expect(part.locator(".material-collected")).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
 });
