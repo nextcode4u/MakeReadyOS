@@ -39,12 +39,18 @@ test("materials routes enforce role, property and archive access", async t => {
   app.addHook("onRequest", async request => { request.currentUser = { id: "u", role, propertyAccess: properties.map(propertyId => ({ propertyId })) } as any; request.authType = token ? "apiToken" : "session"; });
   await app.register(turnMaterialRoutes); t.after(() => app.close());
   const put = () => app.inject({ method: "PUT", url: "/make-ready-items/i/materials", payload: { version: 0, rows: [row] } });
-  for (const denied of ["LEASING", "VIEWER"]) { role = denied; assert.equal((await put()).statusCode, 403); }
+  const putNotes = () => app.inject({ method: "PUT", url: "/make-ready-items/i/work-notes", payload: { version: 0, notes: "Multiple cabinet faces need replacing." } });
+  for (const denied of ["LEASING", "VIEWER"]) { role = denied; assert.equal((await put()).statusCode, 403); assert.equal((await putNotes()).statusCode, 403); }
   role = "TECH"; properties = ["other"];
   assert.equal((await put()).statusCode, 403);
+  assert.equal((await putNotes()).statusCode, 403);
+  assert.equal((await app.inject("/make-ready-items/i/work-notes")).statusCode, 403);
   assert.equal((await app.inject("/make-ready-items/i/materials")).statusCode, 403);
   properties = ["p"]; archived = true; assert.equal((await put()).statusCode, 409);
+  assert.equal((await putNotes()).statusCode, 409);
   archived = false; active = false; assert.equal((await put()).statusCode, 409);
+  assert.equal((await putNotes()).statusCode, 409);
   active = true; token = true; assert.equal((await put()).statusCode, 403);
+  assert.equal((await putNotes()).statusCode, 403);
   token = false; assert.equal((await app.inject("/make-ready-items/i/materials")).statusCode, 200);
 });

@@ -9,7 +9,7 @@ async function context(request: FastifyRequest, reply: FastifyReply, write = fal
   const user = request.currentUser;
   if (!user || request.authType === "apiToken" || write && !["ADMIN", "MANAGER", "TECH", "CLEANER"].includes(user.role)) { reply.code(403).send({ message: "Maintenance staff access required" }); return null; }
   const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
-  const item = await prisma.makeReadyItem.findUnique({ where: { id }, select: { id: true, propertyId: true, isArchived: true, materials: true, materialsVersion: true, property: { select: { isActive: true } } } });
+  const item = await prisma.makeReadyItem.findUnique({ where: { id }, select: { id: true, propertyId: true, isArchived: true, materials: true, materialsVersion: true, workNotes: true, workNotesVersion: true, property: { select: { isActive: true } } } });
   if (!item) { reply.code(404).send({ message: "Turn not found" }); return null; }
   const ids = allowedPropertyIds(user);
   if (ids && !ids.includes(item.propertyId)) { reply.code(403).send({ message: "Property access denied" }); return null; }
@@ -19,6 +19,21 @@ async function context(request: FastifyRequest, reply: FastifyReply, write = fal
 }
 
 export async function turnMaterialRoutes(app: FastifyInstance) {
+  app.get("/make-ready-items/:id/work-notes", async (request, reply) => {
+    const item = await context(request, reply); if (!item) return;
+    return { notes: item.workNotes, version: item.workNotesVersion, readOnly: item.isArchived || !item.property.isActive };
+  });
+  app.put("/make-ready-items/:id/work-notes", async (request, reply) => {
+    const item = await context(request, reply, true); if (!item) return;
+    const input = z.object({ notes: z.string().max(10000), version: z.number().int().nonnegative() }).strict().parse(request.body);
+    return prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${item.propertyId}), 824018)::text`;
+      const result = await tx.makeReadyItem.updateMany({ where: { id: item.id, workNotesVersion: input.version, isArchived: false, property: { isActive: true } }, data: { workNotes: input.notes, workNotesVersion: { increment: 1 } } });
+      if (result.count !== 1) throw Object.assign(new Error("Work notes changed or became read-only. Reload saved notes before retrying; your draft has not been saved."), { statusCode: 409 });
+      await tx.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: item.propertyId, entityType: "MAKE_READY_ITEM", entityId: item.id, action: "UNIT_WORK_NOTES_UPDATED", message: "Updated unit-specific work notes.", metadata: { version: input.version + 1 } } });
+      return { notes: input.notes, version: input.version + 1, readOnly: false };
+    });
+  });
   app.get("/make-ready-items/:id/materials", async (request, reply) => {
     const item = await context(request, reply); if (!item) return;
     return { rows: turnMaterialsSchema.parse(item.materials), version: item.materialsVersion, readOnly: item.isArchived || !item.property.isActive };

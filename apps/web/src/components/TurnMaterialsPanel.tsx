@@ -4,6 +4,7 @@ import { getTurnMaterials, isApiError, saveTurnMaterials, type TurnMaterial } fr
 import { createMaterialId, encodeMaterialDraft, materialDraftKey, parseMaterialDraft, reviewMaterialEdit, type MaterialEdit } from "../lib/materialDraft";
 import { Modal } from "./Modal";
 import { QuickMaterialsEntry } from "./QuickMaterialsEntry";
+import { UnitWorkNotes } from "./UnitWorkNotes";
 
 const statuses = { NEEDED: "Needed", NEED_TO_ORDER: "Need to order", ORDERED: "On order", ON_HAND: "On hand", USED: "Used", CANCELLED: "Cancelled" };
 
@@ -70,6 +71,7 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
   };
   return <section className="drawer-section" data-testid="turn-materials">
     <h3>Parts &amp; materials</h3>
+    <UnitWorkNotes key={`${userId}-${itemId}`} itemId={itemId} canEdit={canEdit}/>
     <p className="helper-copy">Your shop pickup list for this turn: record parts here, then review it at the shop to gather supplies. Needed parts are reminders, not completion blockers. Only parts marked On order block readiness until received, used, or cancelled. This internal list is not printed on the resident Final-Walk Report.</p>
     {draft && !edit && canEdit ? <div role="status" data-testid="material-draft-recovery">
       <p>A material draft is saved on this device for your account. It is not saved to the team list and does not sync automatically.</p>

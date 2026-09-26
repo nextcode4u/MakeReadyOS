@@ -256,6 +256,8 @@ model MakeReadyItem {
   finalWalkReportDraft  FinalWalkReportDraft?
   materials            Json @default("[]")
   materialsVersion     Int @default(0)
+  workNotes            String @default("")
+  workNotesVersion     Int @default(0)
   sheetrockStatus      String?
   pestStatus           String?
   pestTreated          String?

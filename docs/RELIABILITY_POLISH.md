@@ -1,5 +1,9 @@
 # Reliability And Polish Queue
 
+Unit-specific work notes: Parts & materials includes a separate free-form notes box for unit-specific work, such as replacing damaged cabinet faces. No quantity, dimensions or order status is required. Notes save independently with optimistic concurrency protection, use existing parts permissions, and do not trigger order notifications or appear on resident reports. An additive migration introduces the notes and their version counter; native backup export/import preserves notes, with empty notes for older backups.
+
+Verification: the mobile parts workflow passed with note persistence, failed-save draft retention, stale-save rejection, explicit reload, length validation, backup export and independence from general notes and parts versions. Three focused API tests, image builds and lint passed. Full suite not rerun.
+
 Unit shop-pickup controls: each saved part has a Collected checkbox and an inline status selector, including Need to order and On order. Collection saves ON_HAND and crosses out the name; unchecking returns it to NEEDED. Used lines remain crossed out and must be changed through Status, as must cancelled lines. Saves use the existing version guard without optimistic success or automatic write replay; failures and conflicts remain visible for refresh/review. Existing order notifications, readiness rules, permissions and partial-quantity separate-line behavior are unchanged.
 
 Verification: mobile parts recovery regression passed, covering collection/reversal, persistence after reload, order statuses, failed saves, concurrent edits, and used/cancelled states. Collected-part mobile screenshot reviewed. Image builds and lint passed; full suite not rerun.

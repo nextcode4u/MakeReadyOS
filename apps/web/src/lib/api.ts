@@ -5336,6 +5336,9 @@ export function getWebhookHealth(id: string) {
 }
 
 export type TurnMaterial = { id: string; name: string; quantity: number; unit: string; status: "NEEDED" | "NEED_TO_ORDER" | "ORDERED" | "ON_HAND" | "USED" | "CANCELLED"; notes: string };
+export type UnitWorkNotes = { notes: string; version: number; readOnly: boolean };
+export function getUnitWorkNotes(id: string) { return request<UnitWorkNotes>(`/make-ready-items/${id}/work-notes`); }
+export function saveUnitWorkNotes(id: string, input: { notes: string; version: number }) { return request<UnitWorkNotes>(`/make-ready-items/${id}/work-notes`, { method: "PUT", body: JSON.stringify(input) }); }
 export type TurnMaterials = { rows: TurnMaterial[]; version: number; readOnly: boolean };
 export function getTurnMaterials(id: string) { return request<TurnMaterials>(`/make-ready-items/${id}/materials`); }
 export function saveTurnMaterials(id: string, input: { rows: TurnMaterial[]; version: number }) { return request<TurnMaterials>(`/make-ready-items/${id}/materials`, { method: "PUT", body: JSON.stringify(input) }); }
