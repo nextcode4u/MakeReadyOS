@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { NotificationResponse, UserLanguage } from "../lib/api";
 import { formatDateTime } from "../lib/dateTime";
 import { t, tWithVars } from "../lib/i18n";
@@ -56,6 +57,37 @@ function inputToMinutes(value: string) {
 
 export function NotificationDrawer({ focusId, userId, open, data, loading, onClose, onRead, onReadAll, onDismiss, onOpenItem, onOpenPond, onPreferenceChange, onSettingsChange, language }: Props) {
   const isSpanish = language === "es";
+  const panelRef = useRef<HTMLElement>(null);
+  const close = useEffectEvent(onClose);
+  useEffect(() => {
+    if (!open) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const panel = panelRef.current;
+    panel?.focus({ preventScroll: true });
+    const handleKey = (event: KeyboardEvent) => {
+      // Higher modal dialogs keep their own keyboard handling.
+      if (document.querySelector('.modal-backdrop')) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        close();
+      } else if (event.key === "Tab" && panel) {
+        const controls = [...panel.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], summary, [tabindex="0"]')]
+          .filter(element => !element.matches(':disabled') && element.getClientRects().length > 0);
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (!first || !panel.contains(document.activeElement) || (event.shiftKey ? document.activeElement === first || document.activeElement === panel : document.activeElement === last)) {
+          event.preventDefault();
+          (event.shiftKey ? last ?? panel : first ?? panel).focus();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKey, true);
+    return () => {
+      window.removeEventListener("keydown", handleKey, true);
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+    };
+  }, [open]);
   const client = useQueryClient();
   const [presetBusy, setPresetBusy] = useState(false);
   const [presetMessage, setPresetMessage] = useState("");
@@ -94,10 +126,10 @@ export function NotificationDrawer({ focusId, userId, open, data, loading, onClo
   }, [open, focusId, loading, data]);
 
   if (!open) return null;
-  return (
+  return createPortal(
     <>
       <div className="notification-backdrop" onClick={onClose} aria-hidden="true" />
-      <aside className="notification-drawer" data-testid="notification-drawer" aria-label={t(language, "notifications.title")}>
+      <aside ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" className="notification-drawer" data-testid="notification-drawer" aria-label={t(language, "notifications.title")}>
         <header>
           <div><h2>{t(language, "notifications.title")}</h2><span>{tWithVars(language, "notifications.unreadCount", { count: String(data?.unreadCount ?? 0) })}</span></div>
           <button className="button button-ghost" onClick={onClose} aria-label={t(language, "notifications.closeAria")}>{t(language, "wiki.close")}</button>
@@ -200,6 +232,6 @@ export function NotificationDrawer({ focusId, userId, open, data, loading, onClo
           <small>{t(language, "notifications.preferencesHelp")}</small>
         </details>
       </aside>
-    </>
+    </>, document.body
   );
 }

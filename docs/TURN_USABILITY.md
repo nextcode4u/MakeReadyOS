@@ -54,9 +54,9 @@ The full repository-wide browser suite was not rerun for this pass.
    layout. Respect custom column labels and retain access to every condition.
 4. Expand role-specific first-use guidance only where observation shows a gap.
    Prefer contextual help over repeated onboarding dialogs or new notifications.
-5. Reconcile overlay stacking: opening Alerts while unit details are open can
-   leave notifications behind the unit drawer. Preserve drafts and keyboard
-   behavior when addressing this; closing unit details first avoids the overlap.
+
+Alerts now opens above unit details without unmounting the work drawer. Closing
+Alerts restores focus, and Escape dismisses Alerts without closing unit details.
 
 Evaluate follow-up work against newcomer tasks: find a unit, identify who acts
 next, record a repair task, collect/order supplies, upload evidence, send a

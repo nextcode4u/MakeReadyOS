@@ -63,8 +63,8 @@
 .attention-list span { color: var(--warning); font-size: .75rem; }
 .notification-button { position: relative; }
 .notification-button strong { margin-left: .3rem; border-radius: 999px; background: var(--danger); color: #fff; padding: .02rem .34rem; }
-.notification-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 45; }
-.notification-drawer { position: fixed; top: 3.4rem; right: .65rem; z-index: 46; display: grid; gap: .55rem; width: min(390px, calc(100vw - 1rem)); max-height: calc(100vh - 4.2rem); overflow-y: auto; padding: .7rem; border: 1px solid var(--border); border-radius: .65rem; background: var(--panel-strong); box-shadow: 0 14px 40px rgba(0,0,0,.4); }
+.notification-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 1100; }
+.notification-drawer { position: fixed; top: 3.4rem; right: .65rem; z-index: 1101; display: grid; gap: .55rem; width: min(390px, calc(100vw - 1rem)); max-height: calc(100dvh - 4.2rem); overflow-y: auto; padding: .7rem; border: 1px solid var(--border); border-radius: .65rem; background: var(--panel-strong); box-shadow: 0 14px 40px rgba(0,0,0,.4); }
 .notification-drawer header { display: flex; justify-content: space-between; align-items: start; }
 .notification-drawer h2 { margin: 0; font-size: 1rem; }
 .notification-drawer header span, .notification-item p, .notification-item small { margin: 0; color: var(--muted); font-size: .73rem; }
