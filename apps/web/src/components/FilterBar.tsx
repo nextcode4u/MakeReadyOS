@@ -19,6 +19,8 @@ type Props = {
   selectedPropertyId: string;
   makeReadyExportFilters: MakeReadyItemFilters;
   search: string;
+  activeFilterCount: number;
+  onClearFilters: () => void;
   onPropertyChange: (value: string) => void;
   onSearchChange: (value: string) => void;
   activeView: "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "accesscodes" | "fields" | "automations" | "activity" | "admin";
@@ -61,6 +63,8 @@ export function FilterBar({
   selectedPropertyId,
   makeReadyExportFilters,
   search,
+  activeFilterCount,
+  onClearFilters,
   onPropertyChange,
   onSearchChange,
   activeView,
@@ -99,6 +103,12 @@ export function FilterBar({
   const workDescription = myWorkBadgeDescription(myWorkCue, myWorkUnavailable, language);
   const workAttention = !myWorkUnavailable && Boolean(myWorkCue && (myWorkCue.overdue || myWorkCue.corrections));
   const mobileWorkShortcut = activeView !== "mywork" && Boolean(myWorkCue?.total || myWorkUnavailable);
+  const clearFiltersButton = activeFilterCount > 0 ? (
+    <button type="button" className="button button-secondary toolbar-clear-filters" data-testid="toolbar-clear-filters" onClick={onClearFilters} title={language === "es" ? "Quitar todos los filtros activos, incluida la propiedad seleccionada" : "Clear all active filters, including the selected property"}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M3 4h18l-7 8v7l-4 2v-9Z" /></svg>
+      {language === "es" ? "Limpiar filtros" : "Clear filters"} ({activeFilterCount})
+    </button>
+  ) : null;
   const [isMobileLayout, setIsMobileLayout] = useState(() => isTouchMobileViewport());
   const [mobileViewsOpen, setMobileViewsOpen] = useState(false);
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
@@ -283,7 +293,8 @@ export function FilterBar({
   if (isMobileLayout) {
     return (
       <header className="filterbar mobile-filterbar">
-        <div className="mobile-filterbar-main" data-work-shortcut={mobileWorkShortcut} aria-label={t(language, "nav.boardEssentials")}>
+        <div className="mobile-filterbar-main" data-work-shortcut={mobileWorkShortcut} data-has-filters={activeFilterCount > 0} aria-label={t(language, "nav.boardEssentials")}>
+          {clearFiltersButton}
           <select data-testid="property-filter" value={selectedPropertyId} onChange={(event) => onPropertyChange(event.target.value)} aria-label={t(language, "nav.filterByProperty")}>
             <option value="">{t(language, "nav.allProperties")}</option>
             {properties.map((property) => (
@@ -444,6 +455,7 @@ export function FilterBar({
           placeholder={t(language, "nav.searchPlaceholder")}
           aria-label={t(language, "nav.searchBoardItems")}
         />
+        {clearFiltersButton}
         <button data-testid="command-palette-button" className="button button-secondary command-button" type="button" onClick={onOpenCommandPalette} aria-label={t(language, "nav.openQuickSearch")}>
           {t(language, "nav.search")} <kbd>Ctrl K</kbd>
         </button>

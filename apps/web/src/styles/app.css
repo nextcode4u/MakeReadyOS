@@ -1773,9 +1773,11 @@ a:focus-visible {
   font-weight: 800;
 }
 
-.rail-filter-count {
+.toolbar-clear-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
-  color: var(--warning);
 }
 
 .sidebar-rail-button svg {
@@ -8572,6 +8574,9 @@ textarea {
   .mobile-filterbar-main > .mobile-alerts-button { grid-area: alerts; justify-content: center; }
   .mobile-filterbar-main[data-work-shortcut="true"] { grid-template-areas: "property view" "search tools" "work alerts"; }
   .mobile-filterbar-main > .mobile-my-work-shortcut { grid-area: work; justify-content: center; }
+  .mobile-filterbar-main[data-has-filters="true"] { grid-template-areas: "property view" "search tools" "clear clear" "alerts alerts"; }
+  .mobile-filterbar-main[data-has-filters="true"][data-work-shortcut="true"] { grid-template-areas: "property view" "search tools" "clear clear" "work alerts"; }
+  .mobile-filterbar-main > .toolbar-clear-filters { grid-area: clear; justify-content: center; }
 
   .mobile-filterbar-main .mobile-filter-toggle {
     overflow: hidden;
@@ -8882,10 +8887,6 @@ textarea {
 
   .module-rail-button.active {
     box-shadow: inset 0 3px 0 rgba(86, 179, 255, 0.55);
-  }
-
-  .rail-filter-count {
-    min-width: 2.85rem;
   }
 
   .tabset {
