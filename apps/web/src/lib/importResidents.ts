@@ -1,0 +1,3 @@
+// Resident identifiers are intentionally not aliases for display names.
+export const currentResidentHeaders = ["currentresidentname", "currentresident", "currenttenantname", "currenttenant", "residentname", "resident", "tenantname"];
+export const applicantHeaders = ["applicant", "applicantname", "futureapplicant", "futureapplicantname", "futureresident", "futureresidentname", "preleased", "prelease", "preleasedname", "preleasedapplicant", "preleasedapplicantname", "preleasename", "leasedto", "leasename", "futuretenant", "futuretenantname", "prospect", "prospectname", "scheduledresident", "scheduledresidentname", "scheduledapplicant", "scheduledapplicantname"];

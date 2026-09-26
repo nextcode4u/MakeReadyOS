@@ -101,6 +101,8 @@ const operatingCalendarSchema = z.object({
 });
 
 const unitSchema = z.object({
+  currentResidentMoveInDate: z.string().datetime().nullable().optional().default(null),
+  currentResidentName: z.string().nullable().optional().default(null),
   propertyCode: z.string().min(1),
   number: z.string().min(1),
   mailboxNumber: z.string().max(40).nullable().optional().default(null),
@@ -116,6 +118,7 @@ const unitSchema = z.object({
 
 const nullableDate = z.string().datetime().nullable();
 const makeReadyItemSchema = z.object({
+  outgoingResidentName: z.string().nullable().optional().default(null),
   portableKey: z.string().min(1),
   propertyCode: z.string().min(1),
   unitNumber: z.string().nullable(),
@@ -1733,6 +1736,8 @@ async function buildExport(): Promise<NativeBackup> {
         planningNearMoveInDays: policy.planningNearMoveInDays,
       })),
       units: units.map((unit) => ({
+        currentResidentMoveInDate: unit.currentResidentMoveInDate?.toISOString() ?? null,
+        currentResidentName: unit.currentResidentName,
         propertyCode: unit.property.code,
         number: unit.number,
         mailboxNumber: unit.mailboxNumber,
@@ -1753,6 +1758,7 @@ async function buildExport(): Promise<NativeBackup> {
         itemName: item.itemName,
         floorPlan: item.floorPlan,
         applicant: item.applicant,
+        outgoingResidentName: item.outgoingResidentName,
         assignedTech: item.assignedTech,
         scopeLevel: item.scopeLevel,
         status: item.status,
@@ -3260,6 +3266,7 @@ async function importBackup(backup: NativeBackup, dryRun: boolean, request: Fast
               unitNumber: item.unitNumber ?? item.itemName,
               floorPlan: item.floorPlan,
               applicant: item.applicant,
+              outgoingResidentName: item.outgoingResidentName,
               assignedTech: item.assignedTech,
               scopeLevel: item.scopeLevel,
               status: item.status,

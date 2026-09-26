@@ -162,6 +162,8 @@ model Unit {
   floorPlanRecord FloorPlan?        @relation(fields: [floorPlanId], references: [id], onDelete: SetNull)
   number          String
   mailboxNumber   String?
+  currentResidentName String?
+  currentResidentMoveInDate DateTime?
   floorPlan       String?
   squareFeet      Int?
   bedrooms        Int?
@@ -236,6 +238,7 @@ model MakeReadyItem {
   unitNumber           String
   floorPlan            String?
   applicant            String?
+  outgoingResidentName String?
   assignedTech         String?
   scopeLevel           String?
   status               String                @default("ACTIVE")

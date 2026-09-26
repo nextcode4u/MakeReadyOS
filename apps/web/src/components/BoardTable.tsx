@@ -218,7 +218,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
       .filter((unit) => unit.isActive && isPhysicallyOccupiedStatus(unit.occupancyStatus) && allowedPropertyIds.has(unit.propertyId))
       .filter((unit) => {
         if (!query) return true;
-        return [unit.number, unit.floorPlan ?? "", unit.floorPlanRecord?.code ?? "", unit.floorPlanRecord?.name ?? "", unit.building ?? "", unit.area ?? "", unit.property.code]
+        return [unit.number, unit.currentResidentName ?? "", unit.floorPlan ?? "", unit.floorPlanRecord?.code ?? "", unit.floorPlanRecord?.name ?? "", unit.building ?? "", unit.area ?? "", unit.property.code]
           .join(" ")
           .toLowerCase()
           .includes(query);
@@ -243,7 +243,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
         moveOutDate: null,
         vacatedDate: null,
         makeReadyDate: null,
-        moveInDate: null,
+        moveInDate: unit.currentResidentMoveInDate ?? null,
         daysVacant: 0,
         daysUntilMoveIn: null,
         priority: 0,
@@ -785,7 +785,19 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
         </div>
       ) : null}
       <div className="mobile-board-list" data-testid="mobile-board-list">
-        {orderedItems.map((item) => (
+        {Object.entries(groups).flatMap(([group, groupItems]) => {
+          const isNtv = (item: MakeReadyItem) => /^NTV(?:_|\s|-|$)/i.test((item.vacancyStatus ?? "").trim());
+          const ordinary = groupItems.filter(item => !isNtv(item));
+          const notices = groupItems.filter(isNtv);
+          return [
+            { key: group, label: groupName(group), items: ordinary, tone: sectionForGroup(group)?.sectionType ?? "OTHER", ntv: false },
+            { key: `${group}:ntv`, label: `${groupName(group)} / NTV - ${isSpanish ? "Aviso de salida" : "Notice to vacate"}`, items: notices, tone: "NTV", ntv: true },
+          ].filter(section => section.items.length > 0);
+        }).map(section => (
+        <details key={section.key} className="mobile-board-section" data-tone={section.tone} data-testid={`mobile-section-${slug(section.key)}`} open>
+          <summary className="mobile-board-section-title"><span>{section.label}</span><strong>{section.items.length}<span className="sr-only"> {isSpanish ? "unidades" : "units"}</span></strong></summary>
+          <div className="mobile-board-section-items">
+        {section.items.map((item) => (
           <article key={item.id} className={item.overdue ? "mobile-board-card overdue" : item.moveInSoon ? "mobile-board-card soon" : "mobile-board-card"}>
             <header className="mobile-board-card-header">
               <div className="mobile-board-card-identity-wrap">
@@ -795,8 +807,9 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                     <strong>{item.unitNumber}</strong>
                     <LabelPill value={item.vacancyStatus} label={item.vacancyStatus ? labelsByField.vacancyStatus?.[item.vacancyStatus] : undefined} muted />
                   </div>
-                  <span>{item.property.code} · {item.floorPlan ?? (isSpanish ? "Sin plano" : "No floor plan")}</span>
-                  <small>{boardGroupLabel(item.boardGroup, item.propertyId, boardSections)} · {item.assignedTech || (isSpanish ? "Tecnico sin asignar" : "Unassigned tech")}</small>
+                  <small>{isOccupiedDirectoryItem(item) ? `${isSpanish ? "Ocupante" : "Occupant"}: ${item.unit?.currentResidentName || (isSpanish ? "No registrado" : "Not recorded")}` : item.assignedTech || (isSpanish ? "Técnico sin asignar" : "Unassigned tech")}</small>
+                  {!isOccupiedDirectoryItem(item) && item.outgoingResidentName ? <small>{isSpanish ? "Residente saliente" : "Outgoing resident"}: {item.outgoingResidentName}</small> : null}
+                  {!isOccupiedDirectoryItem(item) && item.applicant ? <small>{isSpanish ? "Solicitante entrante" : "Incoming applicant"}: {item.applicant}</small> : null}
                 </div>
               </div>
               {!isOccupiedDirectoryItem(item) ? (
@@ -805,13 +818,18 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
             </header>
             <div className="mobile-board-card-status-grid">
               <div>
-                <span>Make Ready</span>
+                <span>{isSpanish ? "Preparación" : "Make Ready"}</span>
                 <LabelPill value={item.makeReadyStatus} label={repairStageDisplay(item, isSpanish) ?? (item.makeReadyStatus ? labelsByField.makeReadyStatus?.[item.makeReadyStatus] : undefined)} muted />
               </div>
               <div>
-                <span>{isSpanish ? "Mudanza" : "Move-In"}</span>
-                <strong>{item.moveInDate ? formatDateDisplay(item.moveInDate) : "—"}</strong>
+                <span>{section.ntv ? (isSpanish ? "Salida prevista" : "Expected vacate") : (isSpanish ? "Mudanza" : "Move-In")}</span>
+                <strong>{section.ntv ? (item.moveOutDate ? formatDateDisplay(item.moveOutDate, undefined, language) : "—") : (item.moveInDate ? formatDateDisplay(item.moveInDate, undefined, language) : "—")}</strong>
               </div>
+            </div>
+            {item.overdue ? <p className="mobile-alert danger">{t(language, "savedViews.overdueMakeReady")}</p> : item.moveInSoon ? <p className="mobile-alert warning">{t(language, "board.moveInApproaching")}</p> : null}
+            <details className="mobile-board-card-more">
+              <summary>{isSpanish ? "Más estados" : "More status"}</summary>
+            <div className="mobile-board-card-status-grid">
               <div>
                 <span>{isSpanish ? "Plagas" : "Pest"}</span>
                 {!isOccupiedDirectoryItem(item) ? (
@@ -846,14 +864,13 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
               </div>
             </div>
             <dl className="mobile-board-card-detail-grid">
+              <div><dt>{isSpanish ? "Plano" : "Floor plan"}</dt><dd>{item.floorPlan || "—"}</dd></div>
+              {section.ntv ? <div><dt>{isSpanish ? "Mudanza" : "Move-In"}</dt><dd>{item.moveInDate ? formatDateDisplay(item.moveInDate, undefined, language) : "—"}</dd></div> : null}
               <div><dt>{isSpanish ? "Seccion" : "Section"}</dt><dd>{boardGroupLabel(item.boardGroup, item.propertyId, boardSections)}</dd></div>
               <div><dt>{isSpanish ? "Tecnico" : "Tech"}</dt><dd>{item.assignedTech || (isSpanish ? "Sin asignar" : "Unassigned")}</dd></div>
               <div><dt>{isSpanish ? "Desocupada" : "Vacated"}</dt><dd>{item.vacatedDate ? formatDateDisplay(item.vacatedDate) : "—"}</dd></div>
               <div><dt>{isSpanish ? "Dias vacante" : "Days Vacant"}</dt><dd>{item.daysVacant ?? "—"}</dd></div>
             </dl>
-            {item.overdue ? <p className="mobile-alert danger">{t(language, "savedViews.overdueMakeReady")}</p> : item.moveInSoon ? <p className="mobile-alert warning">{t(language, "board.moveInApproaching")}</p> : null}
-            <details className="mobile-board-card-more">
-              <summary>{isSpanish ? "Mas estados" : "More status"}</summary>
               <dl>
                 <div><dt>{isSpanish ? "Piso" : "Flooring"}</dt><dd>{item.flooringDate ? formatDateDisplay(item.flooringDate) : "—"}</dd></div>
                 <div><dt>{isSpanish ? "Salida" : "Move-Out"}</dt><dd>{item.moveOutDate ? formatDateDisplay(item.moveOutDate) : "—"}</dd></div>
@@ -862,6 +879,9 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
               </dl>
             </details>
           </article>
+        ))}
+          </div>
+        </details>
         ))}
       </div>
       {Object.entries(groups).map(([group, groupItems]) => (
@@ -889,7 +909,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                   {canManageItems ? <th className="select-column"><input data-testid={`select-group-${slug(group)}`} type="checkbox" checked={groupItems.filter((item) => !isOccupiedDirectoryItem(item)).length > 0 && groupItems.filter((item) => !isOccupiedDirectoryItem(item)).every((item) => selectedSet.has(item.id))} disabled={groupItems.every(isOccupiedDirectoryItem)} onChange={() => toggleGroup(groupItems)} aria-label={`Select all in ${groupName(group)}`} /></th> : null}
                   {orderedVisibleColumns.map((entry) => {
                     const key = entry.key;
-                    const label = entry.custom ? entry.field.label : entry.column.label;
+                    const label = !entry.custom && entry.key === "applicant" && archiveState === "occupied" ? (isSpanish ? "Ocupante" : "Occupant") : entry.custom ? entry.field.label : entry.column.label;
                     const fixed = key === "unitNumber";
                     return (
                       <th
@@ -1108,7 +1128,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                       const cell = { itemId: item.id, key: column.key, custom: false };
                       const token = cellToken(cell);
                       const isEditing = editing && cellToken(editing) === token;
-                      const value = item[column.key as keyof MakeReadyItem];
+                      const value = column.key === "applicant" && isOccupiedDirectoryItem(item) ? item.unit?.currentResidentName : item[column.key as keyof MakeReadyItem];
                       const editable = !isOccupiedDirectoryItem(item) && column.type !== "readonly" && canEditField(item, column.key);
                       const dirty = Boolean(isEditing && !valuesMatch(editing.draft, editing.original));
                       const feedback = <CellState dirty={dirty} state={dirty ? undefined : saveStates[token]} testId={`cell-status-${column.key}-${slug(item.unitNumber)}`} />;

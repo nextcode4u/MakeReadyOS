@@ -325,6 +325,18 @@ export function FilterBar({
             </button>
         </div>
 
+        {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
+          <label className="mobile-unit-scope">
+            <span>{language === "es" ? "Mostrar unidades" : "Show units"}</span>
+            <select data-testid="top-archive-mode" value={archiveMode} onChange={(event) => onArchiveModeChange(event.target.value as ArchiveMode)}>
+              <option value="active">{t(language, "nav.activeItems")}</option>
+              <option value="occupied">{t(language, "nav.occupied")}</option>
+              <option value="archived">{t(language, "nav.archiveOnly")}</option>
+              <option value="all">{t(language, "nav.activeArchive")}</option>
+            </select>
+          </label>
+        ) : null}
+
         {mobileViewsOpen ? (
           <nav id="mobile-workspace-views" className="tabset mobile-tabset" role="tablist" aria-label={t(language, "nav.primaryWorkspaceViews")}>
             {operationViews}
@@ -402,17 +414,6 @@ export function FilterBar({
               />
               {t(language, "nav.dyslexia")}
             </label>
-            {(activeView === "table" || activeView === "kanban" || activeView === "calendar") ? (
-            <label className="toolbar-select archive-mode-select" title={t(language, "nav.archiveMode")}>
-                <span className="sr-only">{t(language, "nav.archiveMode")}</span>
-                <select data-testid="top-archive-mode" aria-label={t(language, "nav.archiveMode")} value={archiveMode} onChange={(event) => onArchiveModeChange(event.target.value as ArchiveMode)}>
-                  <option value="active">{t(language, "nav.activeItems")}</option>
-                  <option value="archived">{t(language, "nav.archiveOnly")}</option>
-                  <option value="occupied">{t(language, "nav.occupied")}</option>
-                  <option value="all">{t(language, "nav.activeArchive")}</option>
-                </select>
-              </label>
-            ) : null}
             <a data-testid="export-csv" className="button button-secondary export-button" href={makeReadyExportCsvUrl(makeReadyExportFilters)}>
               {t(language, "nav.export")}
             </a>

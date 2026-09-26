@@ -7,7 +7,9 @@ export async function archiveOccupiedTurn(db: Prisma.TransactionClient, current:
   const archive = await db.boardSection.findFirst({ where: { propertyId: current.propertyId, sectionType: "ARCHIVE", isActive: true } });
   if (!archive) throw Object.assign(new Error("Configure an Archive section for this property before marking a ready unit Occupied."), { statusCode: 409 });
   Object.assign(patch, { vacancyStatus: "OCCUPIED", boardGroup: archive.key, isArchived: true, archivedAt: new Date() });
-  if (current.unitId) await db.unit.updateMany({ where: { id: current.unitId, propertyId: current.propertyId }, data: { occupancyStatus: "OCCUPIED" } });
+  const applicant = Object.prototype.hasOwnProperty.call(patch, "applicant") ? patch.applicant : current.applicant;
+  const moveInDate = Object.prototype.hasOwnProperty.call(patch, "moveInDate") ? patch.moveInDate : current.moveInDate;
+  if (current.unitId) await db.unit.updateMany({ where: { id: current.unitId, propertyId: current.propertyId }, data: { occupancyStatus: "OCCUPIED", currentResidentName: typeof applicant === "string" ? applicant.trim() || null : null, currentResidentMoveInDate: moveInDate instanceof Date ? moveInDate : typeof moveInDate === "string" ? new Date(moveInDate) : null } });
   await db.auditLog.create({ data: { propertyId: current.propertyId, entityType: "MAKE_READY_ITEM", entityId: current.id,
     action: "READY_TURN_OCCUPIED_ARCHIVED", message: `${current.unitNumber} marked Occupied and moved to the property's Archive.` } });
 }

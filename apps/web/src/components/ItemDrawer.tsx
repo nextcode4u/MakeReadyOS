@@ -724,6 +724,8 @@ export function ItemDrawer({
           <div className="drawer-heading">
             <span className="drawer-kicker">{item.property.code} / {boardGroupLabel(item.boardGroup, item.propertyId, boardSections)}</span>
             <h2>{item.unitNumber}</h2>
+            {item.outgoingResidentName ? <p>{language === "es" ? "Residente saliente" : "Outgoing resident"}: {item.outgoingResidentName}</p> : null}
+            {item.applicant ? <p>{language === "es" ? "Solicitante entrante" : "Incoming applicant"}: {item.applicant}</p> : null}
             <p className="drawer-stage" data-testid="turn-stage-summary"><strong>{stage}</strong></p>
             <div className="drawer-pills">
               <LabelPill value={item.vacancyStatus} label={item.vacancyStatus ? labelsByField.vacancyStatus?.[item.vacancyStatus] : undefined} />

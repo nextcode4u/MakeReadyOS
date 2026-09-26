@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { applicantHeaders, currentResidentHeaders } from "../lib/importResidents";
 import { joinDelimitedLine, splitDelimitedLine } from "../lib/delimitedRows";
 import { availabilityReportDate as detectAvailabilityReportDate } from "../lib/availabilityReportDate";
 import { isPhysicallyOccupiedStatus, isReadyLikeOccupancy, normalizeOccupancy } from "../lib/availabilityStatus";
@@ -83,6 +84,8 @@ type UnitInput = {
 };
 
 type UnitImportInput = {
+  currentResidentMoveInDate?: string | null;
+  currentResidentName?: string | null;
   number: string;
   floorPlan?: string | null;
   squareFeet?: number | null;
@@ -174,11 +177,13 @@ const unitDirectoryAiPrompt = `You are converting a property unit directory or a
 Return a CSV file if your interface supports file attachments. If not, return only one fenced csv block and no extra explanation.
 
 Required header, exactly:
-unit,building,area,floor,floorPlan,beds,baths,sqft,occupancyStatus,budgeted
+unit,building,area,floor,floorPlan,beds,baths,sqft,occupancyStatus,budgeted,currentResidentName,currentResidentMoveInDate
 
 Rules:
 - One row per unit only.
-- Do not include totals, summaries, page headers, footers, blank lines, rent, resident names, lease dates, phone numbers, emails, or private notes.
+- Include explicitly identified current resident names in currentResidentName. Never use future applicants or resident IDs; leave unknown names blank.
+- Include the current occupant's original move-in date in currentResidentMoveInDate as YYYY-MM-DD, not a future applicant's scheduled date. Leave unknown dates blank.
+- Do not include totals, summaries, page headers, footers, blank lines, rent, lease dates, phone numbers, emails, or private notes.
 - If the export only has unit, floor plan, and square footage, leave unknown columns blank and set occupancyStatus to UNKNOWN.
 - Preserve leading zeroes in unit numbers.
 - Use building only when the source clearly has a building/building number. Leave blank for properties with unit numbers only.
@@ -194,12 +199,14 @@ const availabilityAiPrompt = `You are converting a property availability report 
 Return a CSV file if your interface supports file attachments. If not, return only one fenced csv block and no extra explanation.
 
 Required header, exactly:
-unit,floorPlan,sqft,availabilityStatus,vacancyStatus,moveOutDate,vacatedDate,daysVacant,makeReadyDate,moveInDate,applicant,reportDate,dateApplied,building,area,floor
+unit,floorPlan,sqft,availabilityStatus,vacancyStatus,moveOutDate,vacatedDate,daysVacant,makeReadyDate,moveInDate,applicant,reportDate,dateApplied,building,area,floor,currentResidentName,currentResidentMoveInDate
 
 Rules:
 - One row per availability/notice unit only. Do not include fully occupied units unless the report explicitly lists them as NTV, vacant, down, or model.
 - Preserve leading zeroes in unit numbers.
-- Do not include current resident names, phone numbers, emails, rent amounts, charges, totals, page headers, footers, or private notes.
+- Put explicitly identified current/outgoing resident names in currentResidentName, never applicant. Leave ambiguous names blank; never use resident IDs as names.
+- Put the current occupant's original move-in date in currentResidentMoveInDate as YYYY-MM-DD only when explicitly provided. Keep the future applicant's scheduled date in moveInDate.
+- Do not include phone numbers, emails, rent amounts, charges, totals, page headers, footers, or private notes.
 - Do include applicant/preleased names in applicant when the availability report provides them for a future move-in.
 - Use vacancyStatus values only from: VACANT NOT LEASED READY, VACANT NOT LEASED NOT READY, NTV NOT LEASED, NTV LEASED, VACANT LEASED READY, VACANT LEASED NOT READY, DOWN, TO PRE-WALK, TO SCOPE, TO FINAL WALK, MODEL, UNKNOWN.
 - Map report sections carefully:
@@ -346,7 +353,7 @@ function convertAvailabilityXmlToCsv(input: string) {
     settingsRow ? (xmlAttributeValue(settingsRow, "PropertyDate") || xmlAttributeValue(settingsRow, "RunDate")) : "",
   );
   const rows = Array.from(leaseVariance.children).filter((node) => xmlElementName(node) === "row");
-  const header = ["unit", "floorPlan", "sqft", "availabilityStatus", "vacancyStatus", "moveOutDate", "vacatedDate", "daysVacant", "makeReadyDate", "moveInDate", "applicant", "reportDate", "dateApplied", "building", "area", "floor"];
+  const header = ["unit", "floorPlan", "sqft", "availabilityStatus", "vacancyStatus", "moveOutDate", "vacatedDate", "daysVacant", "makeReadyDate", "moveInDate", "applicant", "reportDate", "dateApplied", "building", "area", "floor", "currentResidentName", "currentResidentMoveInDate"];
   const csvRows = rows.flatMap((row) => {
     const sectionType = xmlChildText(row, "SectionType").toUpperCase();
     const unit = cleanXmlReportValue(xmlChildText(row, "UnitNumber_Display") || xmlChildText(row, "UnitNumber"));
@@ -359,7 +366,10 @@ function convertAvailabilityXmlToCsv(input: string) {
     const dateApplied = normalizeXmlSpreadsheetDate(xmlChildText(row, "Applied"));
     const building = cleanXmlReportValue(xmlChildText(row, "bldgNumber"));
     const floor = cleanXmlReportValue(xmlChildText(row, "UnitFloorNumber"));
-    const applicant = cleanXmlReportValue(xmlChildText(row, "NewreshBillingName") || xmlChildText(row, "reshBillingName")).replace(/^Vacant - pending resident:\s*/i, "");
+    const billingName = cleanXmlReportValue(xmlChildText(row, "reshBillingName"));
+    const pendingResident = /^Vacant - pending resident:\s*/i;
+    const applicant = (cleanXmlReportValue(xmlChildText(row, "NewreshBillingName")) || (pendingResident.test(billingName) ? billingName : "")).replace(pendingResident, "");
+    const currentResidentName = pendingResident.test(billingName) || /^vacant$/i.test(billingName) ? "" : billingName;
     const moveOutDate = normalizedStatus.includes("NTV") ? rawMoveOut : "";
     const vacatedDate = normalizedStatus.includes("VACANT") && !normalizedStatus.includes("NTV") ? rawMoveOut : "";
     return [[
@@ -379,6 +389,8 @@ function convertAvailabilityXmlToCsv(input: string) {
       building,
       "",
       floor,
+      currentResidentName,
+      normalizeXmlSpreadsheetDate(xmlChildText(row, "CurrentResidentMoveInDate") || xmlChildText(row, "ResidentMoveInDate")),
     ]];
   });
   return [header, ...csvRows].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n");
@@ -393,7 +405,7 @@ function convertUnitDirectoryXmlToCsv(input: string) {
   const detail = Array.from(allUnitsReport.children).find((node) => xmlElementName(node) === "detail");
   if (!detail) return null;
   const rows = Array.from(detail.children).filter((node) => xmlElementName(node) === "row");
-  const header = ["unit", "building", "area", "floor", "floorPlan", "beds", "baths", "sqft", "occupancyStatus", "budgeted"];
+  const header = ["unit", "building", "area", "floor", "floorPlan", "beds", "baths", "sqft", "occupancyStatus", "budgeted", "currentResidentName", "currentResidentMoveInDate"];
   const csvRows = rows.flatMap((row) => {
     const unit = cleanXmlReportValue(xmlAttributeValue(row, "unitnumber"));
     if (!unit) return [];
@@ -412,6 +424,8 @@ function convertUnitDirectoryXmlToCsv(input: string) {
       cleanXmlReportValue(xmlAttributeValue(row, "unitrentsqftcount")),
       inferAllUnitsOccupancy(row),
       budgeted,
+      cleanXmlReportValue(xmlAttributeValue(row, "currentResidentName") || xmlAttributeValue(row, "residentName")),
+      normalizeXmlSpreadsheetDate(xmlAttributeValue(row, "currentResidentMoveInDate") || xmlAttributeValue(row, "residentMoveInDate") || xmlAttributeValue(row, "moveInDate")),
     ]];
   });
   return [header, ...csvRows].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n");
@@ -522,12 +536,7 @@ function mergeAvailabilityContinuationRows(
   headers: string[],
 ) {
   const unitIndex = headers.findIndex((header) => ["unit", "unitid", "number", "unitnumber", "apartment", "apartmentnumber", "bldgunit", "bldgapt", "bldgunitnumber"].includes(header));
-  const applicantIndex = headers.findIndex((header) => [
-    "applicant", "applicantname", "futureapplicant", "futureapplicantname", "preleased", "prelease", "preleasedname",
-    "preleasedapplicant", "preleasedapplicantname", "preleasename", "leasedto", "leasename", "futuretenant",
-    "futuretenantname", "prospect", "prospectname", "scheduledresident", "scheduledresidentname", "scheduledapplicant",
-    "scheduledapplicantname", "resident", "name",
-  ].includes(header));
+  const applicantIndex = headers.findIndex((header) => applicantHeaders.includes(header));
   if (unitIndex < 0 || applicantIndex < 0) return rows;
   const merged: string[][] = [];
   for (const row of rows) {
@@ -1212,6 +1221,10 @@ export function OperationsPanel({
       const beds = parseNumberCell(valueAt(cells, ["beds", "bed", "bedrooms"]));
       const baths = parseNumberCell(valueAt(cells, ["baths", "bath", "bathrooms"]));
       const imported: UnitImportInput = { number };
+      const currentResidentMoveInDate = normalizeImportedDate(valueAt(cells, ["currentresidentmoveindate", "occupantmoveindate", "residentmoveindate", "moveindate", "movein"]));
+      if (currentResidentMoveInDate) imported.currentResidentMoveInDate = currentResidentMoveInDate;
+      const currentResidentName = cleanImportedTextCell(valueAt(cells, currentResidentHeaders));
+      if (currentResidentName) imported.currentResidentName = currentResidentName;
       const floorPlan = cleanImportedTextCell(valueAt(cells, ["floorplan", "floorplancode", "plancode", "plan", "planname", "unittype", "unittypename", "unitplan"]));
       const building = cleanImportedTextCell(valueAt(cells, ["building", "buildingnumber", "bldg", "bldgno", "buildingname", "bldg#"])) || cleanImportedTextCell(splitUnit.building);
       const area = cleanImportedTextCell(valueAt(cells, ["area", "phase", "zone", "section", "propertyarea"]));
@@ -1263,6 +1276,8 @@ export function OperationsPanel({
       const number = explicitNumber || splitUnit.unit;
       if (!number) throw new Error(language === "es" ? "Cada fila de disponibilidad necesita un número de unidad." : "Every availability row needs a unit number.");
       const imported: AvailabilityImportInput = { number };
+      const currentResidentName = cleanImportedTextCell(valueAt(cells, currentResidentHeaders));
+      if (currentResidentName) imported.currentResidentName = currentResidentName;
       const floorPlan = cleanImportedTextCell(valueAt(cells, ["floorplan", "floorplancode", "plancode", "plan", "planname", "unittype", "unittypename", "floorplantype", "unitplan"]));
       const availabilityStatus = cleanImportedTextCell(valueAt(cells, ["availabilitystatus", "availability", "availabilitysection", "reportsection", "section", "status", "statusdescription", "unitstatus", "currentstatus", "unitavailability", "availstatus", "unitavailabilitystatus", "unitavailstatus", "rentalstatus"]));
       const vacancyStatus = cleanImportedTextCell(valueAt(cells, ["vacancystatus", "operationalstatus", "occupancystatus", "occupancy"]));
@@ -1279,9 +1294,11 @@ export function OperationsPanel({
       const moveInDate = normalizeImportedDate(valueAt(cells, ["moveindate", "movein", "scheduledmovein", "scheduledmoveindate", "scheduledmoveindate", "scheduledmi", "schedmovein", "schedmi", "moveindt"]));
       const reportDate = normalizeImportedDate(valueAt(cells, ["reportdate", "reportgenerated", "reportgenerateddate", "generatedat", "generateddate", "rundate", "snapshotdate", "asof", "asofdate", "reportasof", "availabilitydate", "reportdt", "asofdt", "printdate", "asofdtm"]));
       const dateApplied = normalizeImportedDate(valueAt(cells, ["dateapplied", "applieddate", "applicationdate", "appdate", "applieddt", "applydate"]));
-      const applicant = cleanImportedTextCell(valueAt(cells, ["applicant", "applicantname", "futureapplicant", "futureapplicantname", "futureresident", "futureresidentname", "preleased", "prelease", "preleasedname", "preleasedapplicant", "preleasedapplicantname", "preleasename", "leasedto", "leasename", "futuretenant", "futuretenantname", "prospect", "prospectname", "scheduledresident", "scheduledresidentname", "scheduledapplicant", "scheduledapplicantname", "residentname", "resident", "name"]));
+      const applicant = cleanImportedTextCell(valueAt(cells, applicantHeaders));
       const notes = valueAt(cells, ["notes", "note", "comments", "comment", "memo", "remark", "remarks"]);
       const normalizedStatus = vacancyStatus ? normalizeOccupancy(vacancyStatus) : normalizeOccupancy(availabilityStatus);
+      const currentResidentMoveInDate = normalizeImportedDate(valueAt(cells, ["currentresidentmoveindate", "occupantmoveindate", "residentmoveindate"])) ?? (normalizedStatus === "OCCUPIED" ? moveInDate : undefined);
+      if (currentResidentMoveInDate) imported.currentResidentMoveInDate = currentResidentMoveInDate;
       const normalizedDaysVacant = normalizeImportedDaysVacant(daysVacant, normalizedStatus);
       const useMoveOutAsVacated = normalizedStatus.includes("VACANT") && !normalizedStatus.includes("NTV");
       const moveOutDate = useMoveOutAsVacated ? undefined : rawMoveOutDate;
@@ -1291,6 +1308,7 @@ export function OperationsPanel({
       if (normalizedStatus && normalizedStatus !== "OCCUPIED") {
         imported.vacancyStatus = normalizedStatus as AvailabilityImportInput["vacancyStatus"];
       }
+      if (normalizedStatus === "OCCUPIED") imported.occupancyStatus = "OCCUPIED";
       if (availabilityStatus && !imported.vacancyStatus) {
         imported.availabilityStatus = availabilityStatus;
       }
@@ -1337,6 +1355,8 @@ export function OperationsPanel({
         .map((unit) => ({
           unit: unit.number,
           summary: [
+            unit.currentResidentMoveInDate ? `${isSpanish ? "Fecha de ingreso" : "Moved in"}: ${unit.currentResidentMoveInDate}` : null,
+            unit.currentResidentName ? `${isSpanish ? "Residente" : "Resident"}: ${unit.currentResidentName}` : null,
             unit.building ? `${isSpanish ? "Edificio" : "Building"} ${unit.building}` : null,
             unit.floorPlan ? `${isSpanish ? "Plano" : "Plan"} ${unit.floorPlan}` : null,
             unit.squareFeet ? `${unit.squareFeet} ${isSpanish ? "pies²" : "sq ft"}` : null,
@@ -1348,6 +1368,8 @@ export function OperationsPanel({
         const existingUnit = existingByNumber.get(row.number.toUpperCase());
         if (!existingUnit) return [];
         const changedFields: string[] = [];
+        if (row.currentResidentMoveInDate && normalizePreviewDate(row.currentResidentMoveInDate) !== normalizePreviewDate(existingUnit.currentResidentMoveInDate)) changedFields.push(`${isSpanish ? "Fecha de ingreso" : "Occupant move-in"}: ${normalizePreviewDate(existingUnit.currentResidentMoveInDate) || "-"} -> ${row.currentResidentMoveInDate}`);
+        if (row.currentResidentName && row.currentResidentName !== existingUnit.currentResidentName) changedFields.push(`${isSpanish ? "Residente" : "Resident"}: ${existingUnit.currentResidentName || "-"} -> ${row.currentResidentName}`);
         if (hasImportedValue(row.floorPlan) && (row.floorPlan ?? "") !== (existingUnit.floorPlan ?? "")) changedFields.push(`${isSpanish ? "Plano" : "Floor plan"}: ${existingUnit.floorPlan || (isSpanish ? "vacío" : "blank")} -> ${row.floorPlan}`);
         if (row.squareFeet !== undefined && row.squareFeet !== null && Number(row.squareFeet) !== Number(existingUnit.squareFeet ?? 0)) changedFields.push(`${isSpanish ? "Pies²" : "Sq ft"}: ${existingUnit.squareFeet ?? 0} -> ${row.squareFeet}`);
         if (row.bedrooms !== undefined && row.bedrooms !== null && Number(row.bedrooms) !== Number(existingUnit.bedrooms ?? 0)) changedFields.push(`${isSpanish ? "Recámaras" : "Beds"}: ${existingUnit.bedrooms ?? 0} -> ${row.bedrooms}`);
@@ -1422,6 +1444,7 @@ export function OperationsPanel({
         const status = row.vacancyStatus ?? normalizeOccupancy(row.availabilityStatus ?? "");
         if (status && status !== turn.vacancyStatus) changedFields.push(`${isSpanish ? "Vacancia" : "Vacancy"}: ${occupancyLabel(turn.vacancyStatus, language)} -> ${occupancyLabel(status, language)}`);
         if (hasImportedValue(row.applicant) && (row.applicant ?? "") !== (turn.applicant ?? "")) changedFields.push(`Applicant: ${turn.applicant || "blank"} -> ${row.applicant}`);
+        if (row.currentResidentName && row.currentResidentName !== turn.outgoingResidentName) changedFields.push(`${isSpanish ? "Residente saliente" : "Outgoing resident"}: ${turn.outgoingResidentName || "-"} -> ${row.currentResidentName}`);
         if (hasImportedValue(row.moveOutDate) && normalizePreviewDate(row.moveOutDate) !== normalizePreviewDate(turn.moveOutDate)) changedFields.push(`NTV date: ${normalizePreviewDate(turn.moveOutDate) || "blank"} -> ${normalizePreviewDate(row.moveOutDate)}`);
         if (hasImportedValue(row.vacatedDate) && normalizePreviewDate(row.vacatedDate) !== normalizePreviewDate(turn.vacatedDate)) changedFields.push(`Vacated: ${normalizePreviewDate(turn.vacatedDate) || "blank"} -> ${normalizePreviewDate(row.vacatedDate)}`);
         if (hasImportedValue(row.makeReadyDate) && normalizePreviewDate(row.makeReadyDate) !== normalizePreviewDate(turn.makeReadyDate)) changedFields.push(`Make ready: ${normalizePreviewDate(turn.makeReadyDate) || "blank"} -> ${normalizePreviewDate(row.makeReadyDate)}`);
@@ -1903,6 +1926,9 @@ export function OperationsPanel({
             ) : null}
             <textarea data-testid="availability-import-csv" rows={5} value={availabilityImportText} onChange={(event) => setAvailabilityImportText(event.target.value)} placeholder={"unit,floorPlan,sqft,availabilityStatus,vacancyStatus,moveOutDate,vacatedDate,daysVacant,makeReadyDate,moveInDate,applicant,reportDate\n081,B1,1186,Vacant Not Leased Not Ready,VACANT NOT LEASED NOT READY,,2026-05-04,19,2026-05-05,,,2026-06-07"} />
             {availabilityImportPreview ? (
+              <p className="helper-copy">{isSpanish ? "Residente actual/saliente: currentResidentName o Resident Name. Solicitante futuro: applicant o Preleased Name. Name e identificadores no se interpretan como nombres; confirme y cambie esos encabezados antes de importar." : "Current/outgoing resident: currentResidentName or Resident Name. Future applicant: applicant or Preleased Name. Generic Name and ID columns are not treated as names; confirm and rename those headers before importing."}</p>
+            ) : null}
+            {availabilityImportPreview ? (
               <div className="unit-import-preview" data-testid="availability-import-preview">
                 <span><strong>{selectedProperty?.code ?? (isSpanish ? "Sin propiedad" : "No property")}</strong> {isSpanish ? "destino" : "target"}</span>
                 <span><strong>{availabilityImportPreview.rows}</strong> {isSpanish ? "filas" : "rows"}</span>
@@ -2028,6 +2054,8 @@ export function OperationsPanel({
             <summary>{isSpanish ? "Directorio de unidades / importar inventario permanente" : "Unit directory / import permanent inventory"}</summary>
           <div className="editor-block unit-import-block">
             {importPropertySelector("unit")}
+            <p className="helper-copy">{isSpanish ? "Incluya currentResidentMoveInDate (o Move In Date en el directorio) para mostrar la fecha de ingreso del ocupante. Las fechas vacías conservan el valor existente; no use la fecha de un solicitante futuro." : "Include currentResidentMoveInDate (or Move In Date in the directory) to show when the occupant moved in. Blank dates preserve the existing value; do not use a future applicant's date."}</p>
+            <p className="helper-copy">{isSpanish ? "Configuración inicial: importe todas las unidades con una columna currentResidentName (o Resident Name). Después use los reportes de disponibilidad. Los residentes actuales y los solicitantes futuros se guardan por separado; los nombres vacíos no borran datos existentes. Si el XML no incluye nombres, use CSV con este encabezado." : "Initial setup: import all units with a currentResidentName (or Resident Name) column. Then use availability reports for ongoing updates. Current residents and future applicants are stored separately; blank names preserve existing data. If your XML does not include names, use CSV with this header."}</p>
             <p className="helper-copy">{isSpanish ? "Use esto solo para inventario permanente. Puede pegar CSV o cargar XML compatibles. Actualiza el estado ocupado/vacante del directorio, pero no crea filas activas de make-ready. Para poblar el tablero, use la importación de disponibilidad de arriba." : "Use this for permanent inventory only. You can paste CSV or upload supported XML exports here. It updates occupied/vacant directory status but does not create active make-ready table rows. For board population, use Availability import above."}</p>
             <div className="unit-import-actions">
               <input

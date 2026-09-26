@@ -53,3 +53,20 @@ test("board list archive-only filters both rows and pagination counts", async t 
     for (const where of queries) { assert.equal(where.isArchived, expected); assert.equal(where.propertyId, "ta"); }
   }
 });
+
+test("occupied handoff uses the incoming name, including a simultaneous correction", async () => {
+  const current = { id: "turn", propertyId: "demo", unitId: "unit", unitNumber: "101", vacancyStatus: "VACANT LEASED READY", completionStatus: "YES", makeReadyStatus: "DONE", isArchived: false, applicant: "Incoming Demo", outgoingResidentName: "Outgoing Demo" } as any;
+  const updates: any[] = [];
+  current.moveInDate = new Date("2025-03-15T00:00:00.000Z");
+  const db = {
+    boardSection: { findFirst: async () => ({ key: "DEMO_ARCHIVE" }) },
+    unit: { updateMany: async ({ data }: any) => { updates.push(data); } },
+    auditLog: { create: async () => ({}) },
+  };
+  for (const patch of [{ vacancyStatus: "OCCUPIED" }, { vacancyStatus: "OCCUPIED", applicant: "Corrected Demo", moveInDate: "2025-03-20" }, { vacancyStatus: "OCCUPIED", applicant: null, moveInDate: null }]) {
+    await archiveOccupiedTurn(db as any, current, patch);
+  }
+  assert.deepEqual(updates.map(update => update.currentResidentName), ["Incoming Demo", "Corrected Demo", null]);
+  assert.deepEqual(updates.map(update => update.currentResidentMoveInDate?.toISOString() ?? null), ["2025-03-15T00:00:00.000Z", "2025-03-20T00:00:00.000Z", null]);
+  assert.equal(current.outgoingResidentName, "Outgoing Demo");
+});

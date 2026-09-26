@@ -7,11 +7,14 @@ test("full availability imports preview and atomically archive missing ready uni
   process.env.ADMIN_PASSWORD = "Test-Only-Password!123";
   process.env.SESSION_COOKIE_SECRET = "test-only-session-secret-12345678901234567890";
   const { prisma } = await import("../lib/prisma.js");
-  const { operationsRoutes } = await import("./operations.js");
+  const { operationsRoutes, unitImportRowSchema } = await import("./operations.js");
+  assert.equal(unitImportRowSchema.safeParse({ number: "101", currentResidentMoveInDate: "2024-02-30" }).success, false);
+  assert.equal(unitImportRowSchema.parse({ number: "101", currentResidentMoveInDate: "2024-03-15" }).currentResidentMoveInDate?.toISOString(), "2024-03-15T00:00:00.000Z");
+  assert.equal(unitImportRowSchema.parse({ number: "101", currentResidentMoveInDate: "" }).currentResidentMoveInDate, undefined);
   const { default: Fastify } = await import("fastify");
   const stub = (delegate: any, key: string, fn: (...args: any[]) => unknown) => { const original = delegate[key]; delegate[key] = fn; t.after(() => { delegate[key] = original; }); };
   const initial = { id: "missing", unitId: "unit", unitNumber: "011", propertyId: "ta", boardGroup: "ready", vacancyStatus: "VACANT LEASED READY", makeReadyStatus: "DONE", completionStatus: "NO", moveInDate: new Date("2026-09-10"), updatedAt: new Date("2026-09-11"), isArchived: false, unit: { isActive: true, occupancyStatus: "VACANT LEASED READY" } };
-  let item = { ...initial }; let failAudit = false; let role = "MANAGER"; let access = "ta";
+  let item = { ...initial, applicant: "Incoming Demo", outgoingResidentName: "Outgoing Demo" }; let failAudit = false; let role = "MANAGER"; let access = "ta";
   const audits: any[] = []; const unitUpdates: any[] = [];
   stub(prisma.property, "findUnique", async () => ({ id: "ta", code: "DG", name: "Demo Gardens", isActive: true }));
   stub(prisma.boardSection, "findMany", async () => [{ key: "ready", sectionType: "READY" }, { key: "archive", sectionType: "ARCHIVE" }]);
@@ -58,6 +61,9 @@ test("full availability imports preview and atomically archive missing ready uni
   assert.equal(item.vacancyStatus, "OCCUPIED"); assert.equal(item.boardGroup, "archive"); assert.equal(item.isArchived, true);
   assert.equal(item.completionStatus, "YES");
   assert.ok(unitUpdates.some(update => update.where.id === "unit" && update.data.occupancyStatus === "OCCUPIED"));
+  assert.ok(unitUpdates.some(update => update.where.id === "unit" && update.data.currentResidentName === "Incoming Demo"));
+  assert.ok(unitUpdates.some(update => update.where.id === "unit" && update.data.currentResidentMoveInDate?.toISOString() === "2026-09-10T00:00:00.000Z"));
+  assert.equal(item.outgoingResidentName, "Outgoing Demo");
   assert.ok(audits.some(audit => audit.action === "AVAILABILITY_MOVED_IN_ARCHIVED" && audit.actorUserId === "actor"));
   const receipts = audits.filter(audit => audit.action === "AVAILABILITY_IMPORTED");
   assert.equal(receipts[0].metadata.fullReport, false);

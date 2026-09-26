@@ -15,7 +15,7 @@ export function reconciliationDate(value: string | undefined, now = new Date()) 
 }
 
 type Candidate = { id: string; unitId: string | null; unitNumber: string; vacancyStatus: string | null; boardGroup: string; moveInDate: Date | null; updatedAt: Date; isArchived: boolean; makeReadyStatus: string | null; completionStatus: string | null; unit: { isActive: boolean; occupancyStatus: string } | null };
-export function missingReadyTurns(items: Candidate[], sections: Array<{ key: string; sectionType: string }>, numbers: string[], reportDate: string) {
+export function missingReadyTurns<T extends Candidate>(items: T[], sections: Array<{ key: string; sectionType: string }>, numbers: string[], reportDate: string) {
   const present = new Set(numbers.map(unitKey));
   return items.filter(item => {
     const section = sections.find(section => section.key === item.boardGroup)?.sectionType;

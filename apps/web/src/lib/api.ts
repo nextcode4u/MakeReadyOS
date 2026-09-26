@@ -2273,6 +2273,8 @@ export type CustomField = {
 };
 
 export type Unit = {
+  currentResidentMoveInDate?: string | null;
+  currentResidentName?: string | null;
   id: string;
   number: string;
   floorPlan: string | null;
@@ -2400,6 +2402,7 @@ export type PropertyMapArea = {
 };
 
 export type MakeReadyItem = {
+  outgoingResidentName?: string | null;
   projectedTurnStartDate?: string | null;
   id: string;
   propertyId: string;
@@ -4162,6 +4165,8 @@ export type UnitWriteInput = {
 };
 
 export type UnitImportInput = {
+  currentResidentMoveInDate?: string | null;
+  currentResidentName?: string | null;
   number: string;
   floorPlan?: string | null;
   squareFeet?: number | null;

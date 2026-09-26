@@ -1016,6 +1016,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       return { message: "Select an active property" };
     }
 
+    let outgoingResidentName: string | null = null;
     if (payload.unitId) {
       const unit = await prisma.unit.findFirst({
         where: { id: payload.unitId, propertyId: payload.propertyId, isActive: true },
@@ -1024,6 +1025,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
         reply.code(400);
         return { message: "Select an active unit at the chosen property" };
       }
+      outgoingResidentName = unit.currentResidentName;
       const existingActiveTurn = await prisma.makeReadyItem.findFirst({
         where: {
           propertyId: payload.propertyId,
@@ -1071,6 +1073,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
         makeReadyDate: payload.makeReadyDate ? new Date(payload.makeReadyDate) : null,
         moveInDate: payload.moveInDate ? new Date(payload.moveInDate) : null,
         applicant: payload.applicant ?? null,
+        outgoingResidentName,
         assignedTech: payload.assignedTech ?? null,
         scopeLevel: scopeFromMakeReadyStatus(payload.makeReadyStatus) ?? payload.scopeLevel ?? null,
         makeReadyStatus: payload.makeReadyStatus ?? null,

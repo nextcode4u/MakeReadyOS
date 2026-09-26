@@ -67,6 +67,8 @@ const availabilityStatusValues = [
 ] as const;
 
 export const unitCreateSchema = z.object({
+  currentResidentMoveInDate: z.string().trim().date().transform(value => new Date(`${value}T00:00:00.000Z`)).optional().nullable(),
+  currentResidentName: z.string().trim().max(120).optional().nullable(),
   propertyId: z.string(),
   number: z.string().trim().min(1).max(30),
   floorPlanId: z.string().optional().nullable(),
@@ -86,6 +88,8 @@ export const unitPatchSchema = unitCreateSchema.partial().refine((value) => Obje
 });
 
 export const unitImportRowSchema = z.object({
+  currentResidentMoveInDate: z.preprocess(value => value === null || value === "" ? undefined : value, z.string().trim().date().transform(value => new Date(`${value}T00:00:00.000Z`)).optional()),
+  currentResidentName: z.string().trim().max(120).optional().nullable(),
   number: z.string().trim().min(1).max(30),
   floorPlan: z.string().trim().max(100).optional().nullable(),
   squareFeet: z.number().int().positive().max(10000).optional().nullable(),
@@ -321,6 +325,7 @@ function normalizeImportedDaysVacant(value: number | null | undefined, occupancy
 }
 
 function sanitizeUnitImportRow<T extends {
+  currentResidentName?: string | null;
   floorPlan?: string | null;
   building?: string | null;
   area?: string | null;
@@ -328,6 +333,7 @@ function sanitizeUnitImportRow<T extends {
 }>(row: T): T {
   return {
     ...row,
+    currentResidentName: sanitizeImportedTextCell(row.currentResidentName) ?? undefined,
     floorPlan: sanitizeImportedTextCell(row.floorPlan) ?? undefined,
     building: sanitizeImportedTextCell(row.building) ?? undefined,
     area: sanitizeImportedTextCell(row.area) ?? undefined,
@@ -1169,6 +1175,8 @@ export async function operationsRoutes(app: FastifyInstance) {
         });
         const importedPlan = await resolveImportedFloorPlan(row);
         const createData = {
+          currentResidentMoveInDate: row.currentResidentMoveInDate ?? null,
+          currentResidentName: row.currentResidentName ?? null,
           floorPlanId: importedPlan?.id ?? null,
           floorPlan: importedPlan?.code ?? row.floorPlan ?? null,
           squareFeet: importedPlan?.squareFeet ?? row.squareFeet ?? null,
@@ -1186,6 +1194,8 @@ export async function operationsRoutes(app: FastifyInstance) {
             continue;
           }
           const updateData: Prisma.UnitUncheckedUpdateInput = {};
+          if (row.currentResidentMoveInDate) updateData.currentResidentMoveInDate = row.currentResidentMoveInDate;
+          if (row.currentResidentName) updateData.currentResidentName = row.currentResidentName;
           if (importedPlan) {
             updateData.floorPlanId = importedPlan.id;
             updateData.floorPlan = importedPlan.code;
@@ -1377,6 +1387,8 @@ export async function operationsRoutes(app: FastifyInstance) {
           where: { propertyId_number: { propertyId: payload.propertyId, number: row.number } },
         });
         const unitData = {
+          currentResidentMoveInDate: row.currentResidentMoveInDate ?? (status === "OCCUPIED" ? parseOptionalDate(row.moveInDate) : null),
+          currentResidentName: row.currentResidentName ?? null,
           floorPlanId: floorPlan?.id ?? null,
           floorPlan: floorPlan?.code ?? row.floorPlan ?? null,
           squareFeet: floorPlan?.squareFeet ?? row.squareFeet ?? null,
@@ -1397,6 +1409,8 @@ export async function operationsRoutes(app: FastifyInstance) {
                 ...(unitData.bedrooms !== null ? { bedrooms: unitData.bedrooms } : {}),
                 ...(unitData.bathrooms !== null ? { bathrooms: unitData.bathrooms } : {}),
                 occupancyStatus: status,
+                ...(payload.updateExisting && unitData.currentResidentMoveInDate ? { currentResidentMoveInDate: unitData.currentResidentMoveInDate } : {}),
+                ...(payload.updateExisting && row.currentResidentName ? { currentResidentName: row.currentResidentName } : {}),
                 ...(row.building ? { building: row.building } : {}),
                 ...(row.area ? { area: row.area } : {}),
                 ...(row.floor ? { floor: row.floor } : {}),
@@ -1429,6 +1443,7 @@ export async function operationsRoutes(app: FastifyInstance) {
           vacancyStatus: status,
         };
         const createTurnData = {
+          outgoingResidentName: row.currentResidentName ?? existingUnit?.currentResidentName ?? null,
           unitId: unit.id,
           boardGroup,
           itemName: row.number,
@@ -1455,6 +1470,7 @@ export async function operationsRoutes(app: FastifyInstance) {
           }
           const cleanedNotes = stripAvailabilityImportNotes(existingTurn.notes);
           const updateTurnData = {
+            outgoingResidentName: row.currentResidentName ?? existingTurn.outgoingResidentName ?? existingUnit?.currentResidentName ?? null,
             unitId: unit.id,
             boardGroup,
             itemName: row.number,
@@ -1495,7 +1511,7 @@ export async function operationsRoutes(app: FastifyInstance) {
         }
       }
       for (const item of archivePlan?.candidates ?? []) {
-        await tx.unit.update({ where: { id: item.unitId! }, data: { occupancyStatus: "OCCUPIED" } });
+        await tx.unit.update({ where: { id: item.unitId! }, data: { occupancyStatus: "OCCUPIED", currentResidentName: item.applicant?.trim() || null, currentResidentMoveInDate: item.moveInDate } });
         await tx.makeReadyItem.update({ where: { id: item.id }, data: {
           vacancyStatus: "OCCUPIED", boardGroup: archivePlan!.archiveSection!.key, isArchived: true, archivedAt: new Date(),
           completionStatus: "YES",

@@ -45,6 +45,18 @@ The full repository-wide browser suite was not rerun for this pass.
 
 ## Further opportunities
 
+The mobile turn board now preserves the configured desktop section order with
+collapsible headers and counts for the currently filtered records. Notice-to-vacate
+records get a separately labeled NTV subgroup and show their expected vacate date.
+Section accents supplement text labels rather than replacing them. Compact cards
+keep unit identity, technician, preparation status, key date and urgency visible;
+pest controls and secondary details remain available under More status. Collapsing
+a section does not clear its selected records. Tablet/desktop tables are unchanged.
+Browser regression: `e2e/mobile-board-sections.spec.ts`.
+On mobile, a visible Show units selector below search exposes Active, Occupied,
+Archived, and Active + archive without opening Tools. It uses the existing filter
+state and preserves the selected property; the Spanish label is Mostrar unidades.
+
 1. Add a permission-scoped server-backed unit search so a unit can be found even
    when excluded from the loaded board page or active filters. The current task
    search improvement does not make unit lookup global.

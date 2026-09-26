@@ -55,7 +55,7 @@ export function OnboardingPanel({ open, hasAdditionalActiveUser, currentUser, pr
     },
     {
       title: "Add units and floor plans",
-      description: "Load the unit directory, attach managed floor plans, and keep legacy values only until they are mapped.",
+      description: "Start with an all-units report including currentResidentName to populate occupied units and residents. Then use availability reports to track notice, move-outs, and incoming applicants separately.",
       action: "Manage units",
       view: "operations",
       complete: hasUnitDirectory && hasFloorPlanData,
