@@ -18,6 +18,10 @@ export ADMIN_PASSWORD='TestAdmin!23456Secure'
 export DEMO_TECH_EMAIL=tech@example.com
 export DEMO_TECH_PASSWORD='MakeReadyTech!23456'
 export SEED_DEMO_DATA=true
+if [ "${PUBLIC_SCREENSHOTS:-0}" = "1" ]; then
+  # Public captures create their own fictional records, never the legacy fixtures.
+  export SEED_DEMO_DATA=false
+fi
 export SMTP_HOST=
 export SMTP_USER=
 export SMTP_PASS=

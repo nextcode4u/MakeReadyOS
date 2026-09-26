@@ -33,7 +33,7 @@ test("shared status labels preserve workflow keys and require organization-wide 
   stub(prisma.auditLog, "create", async () => ({ id: "audit" }));
   const app = Fastify();
   app.addHook("preHandler", async request => {
-    request.currentUser = { id: "actor", role, fullName: "Fixture Actor", propertyAccess: [{ propertyId: "only-TA" }] } as any;
+    request.currentUser = { id: "actor", role, fullName: "Fixture Actor", propertyAccess: [{ propertyId: "only-DG" }] } as any;
   });
   await app.register(operationsRoutes);
   t.after(() => app.close());

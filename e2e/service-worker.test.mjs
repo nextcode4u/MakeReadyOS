@@ -143,8 +143,8 @@ test("push displays event context and routes cold and warm clicks without discar
     registration: { showNotification: async (title, options) => displayed.push({ title, ...options }) },
     clients: { matchAll: async () => windows, openWindow: async url => opened.push(url) },
   });
-  await sw.dispatch("push", { data: { json: () => ({ title: "MakeReadyOS - VAB 2907P", body: "Final walk ready for inspection", tag: "mros-event", itemId: "unit", notificationId: "notice", url: "https://evil.test" }) } });
-  assert.equal(displayed[0].title, "MakeReadyOS - VAB 2907P");
+  await sw.dispatch("push", { data: { json: () => ({ title: "MakeReadyOS - DS 2907P", body: "Final walk ready for inspection", tag: "mros-event", itemId: "unit", notificationId: "notice", url: "https://evil.test" }) } });
+  assert.equal(displayed[0].title, "MakeReadyOS - DS 2907P");
   assert.equal(displayed[0].body, "Final walk ready for inspection");
   assert.equal(displayed[0].data.itemId, "unit");
   assert.equal(displayed[0].tag, "mros-event");

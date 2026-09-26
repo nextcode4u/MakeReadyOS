@@ -1355,7 +1355,7 @@ test("parts list supports visible keyboard batch entry, recovery and conflict pr
   await login(page, adminEmail, adminPassword);
   const headers = { "x-csrf-token": (await (await page.request.get("/api/auth/me")).json()).csrfToken };
   const items = await (await page.request.get("/api/make-ready-items")).json();
-  const item = items.find((entry: any) => entry.unitNumber === "284") ?? items[0];
+  const item = items.find((entry: any) => entry.unitNumber === "111") ?? items[0];
   const root = `/api/make-ready-items/${item.id}/materials`;
   const original = await (await page.request.get(root)).json();
   await page.getByRole("button", { name: `Open details for ${item.unitNumber}`, exact: true }).click();
@@ -1408,7 +1408,7 @@ test("turn materials survive saves, conflicts and native restore without leaking
   await login(page, adminEmail, adminPassword);
   const headers = { "x-csrf-token": (await (await session).json()).csrfToken };
   const items = await (await page.request.get("/api/make-ready-items")).json();
-  const item = items.find((entry: any) => entry.unitNumber === "284") ?? items[0];
+  const item = items.find((entry: any) => entry.unitNumber === "111") ?? items[0];
   const root = `/api/make-ready-items/${item.id}/materials`;
   await page.getByRole("button", { name: `Open details for ${item.unitNumber}`, exact: true }).click();
   const panel = page.getByTestId("turn-materials");
@@ -2349,7 +2349,7 @@ test("living pond celebrates a newly ready unit, not initial historical readines
 
 test("shared dialogs keep keyboard focus inside and return it on Escape", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
-  const opener = page.getByTestId("item-details-ta-284");
+  const opener = page.getByTestId("item-details-dg-111");
   await opener.focus();
   await page.keyboard.press("?");
   const dialog = page.getByTestId("shortcut-help-modal");
@@ -2819,7 +2819,7 @@ test("shared status display names preserve readiness, backups and manager proper
   const session = await (await page.request.get("/api/auth/me")).json();
   const headers = { "x-csrf-token": session.csrfToken };
   const meta = await (await page.request.get("/api/meta")).json();
-  const ta = meta.properties.find((property: { code: string }) => property.code === "TA");
+  const ta = meta.properties.find((property: { code: string }) => property.code === "DG");
   const canonical = "VACANT LEASED READY";
   const definition = meta.labels.find((label: { fieldKey: string; value: string }) => label.fieldKey === "vacancyStatus" && label.value === canonical);
   expect(definition).toBeTruthy();
@@ -2908,7 +2908,7 @@ test("offline queue preserves account ownership across logout, reload and anothe
   const meta = await (await page.request.get("/api/meta")).json();
   const tech = meta.workStaff.find((person: any) => person.role === "TECH");
   expect(tech).toBeTruthy();
-  const property = meta.properties.find((entry: any) => entry.code === "TA");
+  const property = meta.properties.find((entry: any) => entry.code === "DG");
   const item = (await (await page.request.get(`/api/make-ready-items?propertyId=${property.id}`)).json())[0];
   const readJobs = () => page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -3105,7 +3105,7 @@ test("workflow reference search and saves preserve drafts on failure", async ({ 
     await pending;
     await route.fulfill({ status: 400, json: { message: "Could not attach this record" } });
   });
-  await page.getByTestId("item-details-ta-284").click();
+  await page.getByTestId("item-details-dg-111").click();
   const references = page.getByTestId("wiki-workflow-make_ready");
   await page.getByTestId("drawer-pane-all").click();
   const search = references.getByRole("textbox", { name: "Search wiki records to attach..." });
@@ -3137,7 +3137,7 @@ test("workflow references retain cached records and show remove failures", async
     return route.fulfill({ json: { reference: { id: "new-reference" } } });
   });
   await page.route("**/api/property-wiki/references/attached-qa", route => route.fulfill({ status: 400, json: { message: "Reference could not be removed" } }));
-  await page.getByTestId("item-details-ta-284").click();
+  await page.getByTestId("item-details-dg-111").click();
   await page.getByTestId("drawer-pane-all").click();
   const references = page.getByTestId("wiki-workflow-make_ready");
   await references.getByRole("textbox").fill("valve");
@@ -3633,8 +3633,8 @@ test("property turn splits assign 25/75 and 100 percent independently with safe 
     return result.json();
   };
   const stamp = Date.now();
-  const { property: ta } = await post("/operations/properties", { code: `SPLITTA${stamp}`, name: "Split TA" });
-  const { property: vab } = await post("/operations/properties", { code: `SPVAB${stamp}`, name: "Split VAB" });
+  const { property: ta } = await post("/operations/properties", { code: `SPLITTA${stamp}`, name: "Split DG" });
+  const { property: vab } = await post("/operations/properties", { code: `SPVAB${stamp}`, name: "Split DS" });
   const { user: manager } = await post("/admin/users", { username: `splitmanager${stamp}`, fullName: `Split Manager ${stamp}`, role: "MANAGER", propertyIds: [ta.id, vab.id], password: "Test-Only-Split!123" });
   const { user: tech } = await post("/admin/users", { username: `splittech${stamp}`, fullName: `Split Tech ${stamp}`, role: "TECH", propertyIds: [ta.id], password: "Test-Only-Split!123" });
   const meta = await get("/meta");
@@ -3644,8 +3644,8 @@ test("property turn splits assign 25/75 and 100 percent independently with safe 
     return post("/make-ready-items", { propertyId, unitId: unit.id, boardGroup: section.key, itemName: number, unitNumber: number, vacatedDate: "2020-01-01", completionStatus: "NO", vacancyStatus: "VACANT NOT LEASED NOT READY", ...extra });
   };
   const taItems = [];
-  for (let i = 0; i < 2; i++) taItems.push(await create(ta.id, `TA-${i}`));
-  const vabItem = await create(vab.id, "VAB-1");
+  for (let i = 0; i < 2; i++) taItems.push(await create(ta.id, `DG-${i}`));
+  const vabItem = await create(vab.id, "DS-1");
   const manual = await create(ta.id, "MANUAL", { assignedTech: manager.fullName });
   const ready = await create(ta.id, "READY", { vacancyStatus: "VACANT LEASED READY" });
   const completed = await create(ta.id, "DONE", { completionStatus: "DONE" });
@@ -3701,7 +3701,7 @@ test("property turn splits assign 25/75 and 100 percent independently with safe 
   // Saving identical shares must keep the nonzero balance from this partial cycle.
   const resave = await page.request.put(`${origin}/api${endpoint(ta.id)}`, { headers, data: { enabled: true, shares: [{ userId: tech.id, percent: 75 }, { userId: manager.id, percent: 25 }] } });
   expect(resave.ok(), await resave.text()).toBeTruthy();
-  for (let i = 2; i < 4; i++) taItems.push(await create(ta.id, `TA-${i}`));
+  for (let i = 2; i < 4; i++) taItems.push(await create(ta.id, `DG-${i}`));
   expect((await post(`${endpoint(ta.id)}/run`, {})).assigned).toBe(2);
   expect(await counts()).toEqual([1, 3]);
   await guide.getByLabel("Assign turns for").selectOption(vab.id);
@@ -3711,18 +3711,18 @@ test("property turn splits assign 25/75 and 100 percent independently with safe 
   expect((await get(`/make-ready-items/${vabItem.id}`)).assignedTech).toBe(manager.fullName);
   for (const item of [ready, completed, archived]) expect((await get(`/make-ready-items/${item.id}`)).assignedTech).toBeNull();
   expect((await get(`/make-ready-items/${manual.id}`)).assignedTech).toBe(manager.fullName);
-  for (let i = 4; i < 8; i++) taItems.push(await create(ta.id, `TA-${i}`));
+  for (let i = 4; i < 8; i++) taItems.push(await create(ta.id, `DG-${i}`));
   const runs = await Promise.all(Array.from({ length: 3 }, () => post(`${endpoint(ta.id)}/run`, {})));
   expect(runs.reduce((sum, run) => sum + run.assigned, 0)).toBe(4);
   expect(await counts()).toEqual([2, 6]);
   await guide.getByRole("button", { name: "Pause automatic assignment" }).click();
   await expect(guide.getByRole("status")).toContainText("paused");
-  await create(vab.id, "VAB-PAUSED");
+  await create(vab.id, "DS-PAUSED");
   expect((await post(`${endpoint(vab.id)}/run`, {})).assigned).toBe(0);
-  // Revoked TA access must block the whole split, not silently give its share to the manager.
+  // Revoked DG access must block the whole split, not silently give its share to the manager.
   const revoke = await page.request.put(`${origin}/api/admin/users/${tech.id}/property-access`, { headers, data: { propertyIds: [] } });
   expect(revoke.ok(), await revoke.text()).toBeTruthy();
-  await create(ta.id, "TA-BLOCKED");
+  await create(ta.id, "DG-BLOCKED");
   const blocked = await post(`${endpoint(ta.id)}/run`, {});
   expect(blocked.assigned).toBe(0);
   expect(blocked.warning).toContain("no longer has assignment access");
@@ -4030,7 +4030,7 @@ test("schedule separates repair starts from existing finish deadlines by default
   const finish = meta.scheduleTracks.find((track: any) => track.sourceField === "makeReadyDate");
   const moveIn = meta.scheduleTracks.find((track: any) => track.sourceField === "moveInDate");
   const items = await (await page.request.get("/api/make-ready-items")).json();
-  const item = items.find((entry: any) => entry.property.code === "TA" && entry.unitNumber === "TA 284");
+  const item = items.find((entry: any) => entry.property.code === "DG" && entry.unitNumber === "DG-111");
   expect(item).toBeTruthy();
   expect(item.makeReadyDate).toBeTruthy();
   expect(item.customFieldValues.some((value: any) => value.customFieldId === startField.id && value.value)).toBe(false);
@@ -4644,7 +4644,7 @@ test("lease quick capture checks every page for the selected unit independently 
   const unitsResponse = await page.request.get(`${origin}/api/operations/units`);
   expect(unitsResponse.ok()).toBeTruthy();
   const { units } = await unitsResponse.json();
-  const unit = units.find((entry: { number: string; property: { code: string } }) => /^(?:TA )?284$/.test(entry.number) && entry.property.code === "TA");
+  const unit = units.find((entry: { number: string; property: { code: string } }) => /^(?:DG-)?111$/.test(entry.number) && entry.property.code === "DG");
   expect(unit).toBeTruthy();
   const ids: string[] = [];
   for (const issueTypeName of ["QA Blinds", "QA Patio"]) {
@@ -4673,8 +4673,8 @@ test("lease quick capture checks every page for the selected unit independently 
   await page.getByTestId("module-rail-lease-compliance").click();
   await page.getByTestId("lease-compliance-panel").getByRole("combobox", { name: "Lease Compliance property", exact: true }).selectOption(unit.propertyId);
   await page.setViewportSize({ width: 412, height: 915 });
-  await page.getByPlaceholder("Search unit...", { exact: true }).fill("284");
-  await page.getByRole("listbox").getByRole("button", { name: /^(?:TA )?284(?: \/|$)/ }).click();
+  await page.getByPlaceholder("Search unit...", { exact: true }).fill("111");
+  await page.getByRole("listbox").getByRole("button", { name: /^(?:DG-)?111(?: \/|$)/ }).click();
   await expect(page.getByTestId("lease-repeat-card")).toHaveCount(2);
   await expect(page.getByTestId("lease-repeat-card").filter({ hasText: "QA Patio" })).toBeVisible();
   await expect(page.getByTestId("lease-repeat-card").filter({ hasText: "QA Blinds" })).toBeVisible();
@@ -4749,10 +4749,10 @@ test("failed bulk archive keeps its selection and blocks duplicate confirmation"
     await pending;
     await route.fulfill({ status: 503, json: { message: "Test archive unavailable" } });
   });
-  await page.getByTestId("select-item-ta-284").check();
+  await page.getByTestId("select-item-dg-111").check();
   await page.getByTestId("batch-archive").click();
-  await expect(page.getByTestId("confirm-dialog")).toContainText("TA / TA 284");
-  const another = page.locator('input[data-testid^="select-item-"]:not([data-testid="select-item-ta-284"])').first();
+  await expect(page.getByTestId("confirm-dialog")).toContainText("DG / DG-111");
+  const another = page.locator('input[data-testid^="select-item-"]:not([data-testid="select-item-dg-111"])').first();
   await another.evaluate(element => (element as HTMLInputElement).click());
   await expect(page.getByTestId("confirm-dialog")).toContainText("archive 1 selected");
   const confirm = page.getByTestId("confirm-dialog-confirm");
@@ -4763,12 +4763,12 @@ test("failed bulk archive keeps its selection and blocks duplicate confirmation"
   release();
   await expect(page.getByTestId("confirm-dialog").getByRole("alert")).toHaveText("Test archive unavailable");
   await expect(confirm).toBeEnabled();
-  await expect(page.getByTestId("select-item-ta-284")).toBeChecked();
+  await expect(page.getByTestId("select-item-dg-111")).toBeChecked();
   await page.getByTestId("confirm-dialog").getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByTestId("board-search").fill("no-such-unit-for-selection-test");
   await expect(page.getByTestId("batch-action-bar")).toHaveCount(0);
   await page.getByTestId("board-search").fill("");
-  await expect(page.getByTestId("select-item-ta-284")).not.toBeChecked();
+  await expect(page.getByTestId("select-item-dg-111")).not.toBeChecked();
   expect(requests).toBe(1);
 });
 
@@ -4777,16 +4777,16 @@ test("move confirmation preserves its original unit selection after a failed req
   await login(page, adminEmail, adminPassword);
   const response = await loaded;
   const body = await response.json();
-  const selectedItem = (Array.isArray(body) ? body : body.items).find((item: { unitNumber: string }) => item.unitNumber === "TA 284");
+  const selectedItem = (Array.isArray(body) ? body : body.items).find((item: { unitNumber: string }) => item.unitNumber === "DG-111");
   expect(selectedItem).toBeTruthy();
-  await page.getByTestId("select-item-ta-284").check();
+  await page.getByTestId("select-item-dg-111").check();
   const groups = page.getByTestId("batch-group-select");
   await groups.selectOption({ index: 1 });
   const destination = await groups.inputValue();
   await page.getByTestId("batch-move").click();
   const dialog = page.getByTestId("confirm-dialog");
-  await expect(dialog).toContainText("TA / TA 284");
-  await page.locator('input[data-testid^="select-item-"]:not([data-testid="select-item-ta-284"])').first()
+  await expect(dialog).toContainText("DG / DG-111");
+  await page.locator('input[data-testid^="select-item-"]:not([data-testid="select-item-dg-111"])').first()
     .evaluate(element => (element as HTMLInputElement).click());
   await expect(dialog).toContainText("Move 1 selected items");
   const submitted: unknown[] = [];
@@ -4797,7 +4797,7 @@ test("move confirmation preserves its original unit selection after a failed req
   await page.getByTestId("confirm-dialog-confirm").click();
   await expect(dialog.getByRole("alert")).toHaveText("Test move unavailable");
   expect(submitted).toEqual([{ action: "MOVE_GROUP", ids: [selectedItem.id], boardGroup: destination }]);
-  await expect(page.getByTestId("select-item-ta-284")).toBeChecked();
+  await expect(page.getByTestId("select-item-dg-111")).toBeChecked();
 });
 
 test("literal translation keys have user-facing labels", () => {
@@ -5059,7 +5059,7 @@ test("refrigerant failed saves retain drafts and failed history is not empty", a
 test("light theme uses neutral surfaces and preserves the warm eye-strain option", async ({ page }, testInfo) => {
   await page.setContent(`<html data-theme="light"><body><div class="app-shell compact-mode">
     <header class="filterbar"><strong>MakeReadyOS</strong><button class="button button-primary">Table</button><button class="button button-secondary">Schedule</button><select aria-label="Property"><option>All properties</option></select></header>
-    <main style="padding:16px"><section class="primary-panel"><div class="board-group-title">TA / READY UNITS</div>
+    <main style="padding:16px"><section class="primary-panel"><div class="board-group-title">DG / READY UNITS</div>
     <div class="table-wrap"><table class="board-table"><thead><tr><th>Item</th><th>Floor plan</th><th>Vacancy</th><th>Assigned</th></tr></thead><tbody><tr><td>012</td><td><button class="cell-button">B1</button></td><td><span class="status-pill status-active">Vacant leased ready</span></td><td>Unassigned</td></tr></tbody></table></div>
     <div class="calendar-day past">Previous day</div><button class="button" disabled>Unavailable</button></section></main>
     </div></body></html>`);
@@ -5405,7 +5405,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByRole("heading", { name: "Map Controls", exact: true })).toBeVisible();
     const taPropertyValue = await page.getByTestId("property-maps-property-select").evaluate((select) => {
       const propertySelect = select as HTMLSelectElement;
-      return Array.from(propertySelect.options).find((option) => option.textContent?.startsWith("TA -"))?.value ?? "";
+      return Array.from(propertySelect.options).find((option) => option.textContent?.startsWith("DG -"))?.value ?? "";
     });
     expect(taPropertyValue).toBeTruthy();
     await page.getByTestId("property-maps-property-select").selectOption(taPropertyValue);
@@ -5427,9 +5427,9 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByText("File uploaded", { exact: true })).toBeVisible();
     expect(pageErrors).toEqual([]);
     await page.getByTestId("property-maps-placement-mode").selectOption("unit");
-    await page.getByPlaceholder("Search unit...", { exact: true }).fill("284");
-    await expect(page.getByPlaceholder("Search unit...", { exact: true })).toHaveValue("284");
-    await page.getByRole("listbox").getByRole("button", { name: /^(?:TA )?284(?: \/|$)/ }).click();
+    await page.getByPlaceholder("Search unit...", { exact: true }).fill("111");
+    await expect(page.getByPlaceholder("Search unit...", { exact: true })).toHaveValue("111");
+    await page.getByRole("listbox").getByRole("button", { name: /^(?:DG-)?111(?: \/|$)/ }).click();
     await page.getByPlaceholder("Building", { exact: true }).fill("B1");
     await page.getByPlaceholder("Area", { exact: true }).fill("North");
     const saveResponse = page.waitForResponse((response) =>
@@ -5437,11 +5437,11 @@ test.describe("MakeReadyOS browser flows", () => {
     );
     await page.getByTestId("property-maps-canvas").click({ position: { x: 180, y: 150 } });
     await expect((await saveResponse).status()).toBe(200);
-    const marker = page.locator(".map-marker").filter({ hasText: /^(?:TA )?284$/ });
+    const marker = page.locator(".map-marker").filter({ hasText: /^(?:DG-)?111$/ });
     await expect(marker).toBeVisible();
     const originalPosition = await marker.getAttribute("style");
-    await page.getByPlaceholder("Search unit...", { exact: true }).fill("284");
-    await page.getByRole("listbox").getByRole("button", { name: /^(?:TA )?284(?: \/|$)/ }).click();
+    await page.getByPlaceholder("Search unit...", { exact: true }).fill("111");
+    await page.getByRole("listbox").getByRole("button", { name: /^(?:DG-)?111(?: \/|$)/ }).click();
     const moveResponse = page.waitForResponse((response) =>
       response.url().includes("/api/unit-map-locations") && response.request().method() === "PUT",
     );
@@ -5450,7 +5450,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(marker).not.toHaveAttribute("style", originalPosition!);
     await marker.click();
     await expect(page.locator(".map-detail-card")).toContainText("B1");
-    await page.locator(".unit-directory-row").getByRole("button", { name: /^(?:TA )?284 / }).click();
+    await page.locator(".unit-directory-row").getByRole("button", { name: /^(?:DG-)?111 / }).click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
     await page.keyboard.press("Escape");
   });
@@ -5660,21 +5660,21 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("kanban-color-by").selectOption("scopeLevel");
     await expect(page.getByTestId("kanban-guide")).toContainText("scopeLevel");
 
-    const sourceCard = page.getByTestId("kanban-card-ta-284");
+    const sourceCard = page.getByTestId("kanban-card-dg-111");
     const targetColumn = page.getByTestId("kanban-column-medium");
 
     await expect(sourceCard).toBeVisible();
     await expect(targetColumn).toBeVisible();
-    await dragCardToColumn(page, "kanban-card-ta-284", "kanban-column-body-medium");
+    await dragCardToColumn(page, "kanban-card-dg-111", "kanban-column-body-medium");
 
-    await expect(targetColumn.getByTestId("kanban-card-ta-284")).toBeVisible();
+    await expect(targetColumn.getByTestId("kanban-card-dg-111")).toBeVisible();
   });
 
   test("item details drawer opens from table and Kanban and closes with Escape", async ({ page }) => {
     await login(page, adminEmail, adminPassword);
-    await page.getByTestId("item-details-ta-284").click();
+    await page.getByTestId("item-details-dg-111").click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
-    await expect(page.getByTestId("item-drawer")).toContainText("TA 284");
+    await expect(page.getByTestId("item-drawer")).toContainText("DG-111");
     const initialPane = await page.getByTestId("item-drawer").getAttribute("data-focus-pane");
     expect(["work", "final"]).toContain(initialPane);
     await page.getByTestId("drawer-pane-work").click();
@@ -5694,7 +5694,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("item-drawer")).toHaveCount(0);
     await page.getByTestId("tab-kanban").click();
-    await page.getByTestId("kanban-details-ta-284").click();
+    await page.getByTestId("kanban-details-dg-111").click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
     await expect(page.getByTestId("item-drawer")).toHaveAttribute("data-focus-pane", initialPane!);
   });
@@ -5702,7 +5702,7 @@ test.describe("MakeReadyOS browser flows", () => {
   test("item drawer supports operational updates, local photos, and checklist execution", async ({ page }) => {
     const note = `QA field note ${Date.now()}`;
     await login(page, adminEmail, adminPassword);
-    await page.getByTestId("item-details-ta-284").click();
+    await page.getByTestId("item-details-dg-111").click();
     await page.getByTestId("drawer-pane-notes").click();
     await page.getByTestId("comment-input").fill(note);
     await page.getByTestId("comment-submit").click();
@@ -5774,7 +5774,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("vendors-panel")).toContainText(vendorName);
 
     await page.getByTestId("tab-table").click();
-    await page.getByTestId("item-details-ta-284").click();
+    await page.getByTestId("item-details-dg-111").click();
     await page.getByTestId("drawer-pane-all").click();
     await expect(page.getByTestId("drawer-vendor-assignments")).toBeVisible();
     await page.getByTestId("drawer-vendor-select").selectOption({ label: `${vendorName} / Flooring` });
@@ -5786,8 +5786,8 @@ test.describe("MakeReadyOS browser flows", () => {
     await login(page, adminEmail, adminPassword);
     await page.keyboard.press("Control+k");
     await expect(page.getByTestId("command-palette")).toBeVisible();
-    await page.getByTestId("command-search").fill("TA 284");
-    await expect(page.getByTestId("command-palette")).toContainText("TA 284");
+    await page.getByTestId("command-search").fill("DG-111");
+    await expect(page.getByTestId("command-palette")).toContainText("DG-111");
     await page.keyboard.press("Escape");
     await page.getByTestId("tab-my-work").click();
     await expect(page.getByTestId("my-work-panel")).toBeVisible();
@@ -5981,26 +5981,26 @@ test.describe("MakeReadyOS browser flows", () => {
     const unitNumber = `B${Date.now()}`;
 
     await login(page, adminEmail, adminPassword);
-    const utilityWidth = await page.getByTestId("board-group-table-ready-units-ta").locator("th.select-column").evaluate((element) => element.getBoundingClientRect().width);
+    const utilityWidth = await page.getByTestId("board-group-table-dg-ready-units").locator("th.select-column").evaluate((element) => element.getBoundingClientRect().width);
     expect(utilityWidth).toBeLessThan(44);
-    await expect.poll(() => page.getByTestId("board-group-table-ready-units-ta").locator("td.identity-column").first().evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
-    await page.getByTestId("add-item-row-make-ready-board-ta").click();
-    await expect(page.getByTestId("add-item-form-make-ready-board-ta")).toBeVisible();
-    await page.getByTestId("add-item-unit-number-make-ready-board-ta").fill(unitNumber);
-    await page.getByTestId("add-item-tech-make-ready-board-ta").selectOption({ label: "Default Admin - ADMIN" });
+    await expect.poll(() => page.getByTestId("board-group-table-dg-ready-units").locator("td.identity-column").first().evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+    await page.getByTestId("add-item-row-dg-make-ready").click();
+    await expect(page.getByTestId("add-item-form-dg-make-ready")).toBeVisible();
+    await page.getByTestId("add-item-unit-number-dg-make-ready").fill(unitNumber);
+    await page.getByTestId("add-item-tech-dg-make-ready").selectOption({ label: "Default Admin - ADMIN" });
     const addResponse = page.waitForResponse((response) => response.url().includes("/api/make-ready-items") && response.request().method() === "POST");
-    await page.getByTestId("add-item-save-make-ready-board-ta").click();
+    await page.getByTestId("add-item-save-dg-make-ready").click();
     await expect((await addResponse).status()).toBe(201);
 
     await page.getByTestId(`select-item-${slugify(unitNumber)}`).check();
     await expect(page.getByTestId("batch-action-bar")).toContainText("1 selected");
-    await page.getByTestId("batch-group-select").selectOption("DOWN_AND_MODELS");
+    await page.getByTestId("batch-group-select").selectOption("DG_DOWN_UNITS");
     const moveResponse = page.waitForResponse((response) => response.url().includes("/api/make-ready-items/batch") && response.request().method() === "POST");
     await page.getByTestId("batch-move").click();
     await expect(page.getByTestId("confirm-dialog")).toBeVisible();
     await page.getByTestId("confirm-dialog-confirm").click();
     await expect((await moveResponse).status()).toBe(200);
-    await expect(page.getByTestId("board-group-table-down-and-models").getByTestId(`select-item-${slugify(unitNumber)}`)).toBeVisible();
+    await expect(page.getByTestId("board-group-table-dg-down-units").getByTestId(`select-item-${slugify(unitNumber)}`)).toBeVisible();
 
     await page.getByTestId(`select-item-${slugify(unitNumber)}`).check();
     const archiveResponse = page.waitForResponse((response) => response.url().includes("/api/make-ready-items/batch") && response.request().method() === "POST");
@@ -6013,29 +6013,29 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect((await archiveResponse).status()).toBe(200);
     await expect(page.getByTestId(`select-item-${slugify(unitNumber)}`)).toHaveCount(0);
     await page.getByTestId("top-archive-mode").selectOption("archived");
-    await expect(page.getByTestId("section-title-archive-ta")).toContainText("TA / Archive");
-    await expect(page.getByTestId("board-group-table-archive-ta").getByTestId(`select-item-${slugify(unitNumber)}`)).toBeVisible();
+    await expect(page.getByTestId("section-title-dg-archive")).toContainText("DG / Archive");
+    await expect(page.getByTestId("board-group-table-dg-archive").getByTestId(`select-item-${slugify(unitNumber)}`)).toBeVisible();
     await page.getByTestId("top-archive-mode").selectOption("active");
   });
 
   test("admin can rename a board section inline and restore its label", async ({ page }) => {
     await login(page, adminEmail, adminPassword);
-    await page.getByTestId("section-rename-make-ready-board-ta").click();
-    await page.getByTestId("section-name-input-make-ready-board-ta").fill("Active Turns QA");
-    await page.getByTestId("section-name-input-make-ready-board-ta").press("Enter");
-    await expect(page.getByTestId("section-title-make-ready-board-ta")).toContainText("Active Turns QA");
-    await page.getByTestId("section-rename-make-ready-board-ta").click();
-    await page.getByTestId("section-name-input-make-ready-board-ta").fill("Make Ready");
-    await page.getByTestId("section-name-input-make-ready-board-ta").press("Enter");
-    await expect(page.getByTestId("section-title-make-ready-board-ta")).toContainText("Make Ready");
+    await page.getByTestId("section-rename-dg-make-ready").click();
+    await page.getByTestId("section-name-input-dg-make-ready").fill("Active Turns QA");
+    await page.getByTestId("section-name-input-dg-make-ready").press("Enter");
+    await expect(page.getByTestId("section-title-dg-make-ready")).toContainText("Active Turns QA");
+    await page.getByTestId("section-rename-dg-make-ready").click();
+    await page.getByTestId("section-name-input-dg-make-ready").fill("Make Ready");
+    await page.getByTestId("section-name-input-dg-make-ready").press("Enter");
+    await expect(page.getByTestId("section-title-dg-make-ready")).toContainText("Make Ready");
   });
 
   test("admin can create a custom field and edit a board value", async ({ page }) => {
     const fieldLabel = `QA Walk Note ${Date.now()}`;
     const fieldKey = customFieldKey(fieldLabel);
     const displayLabel = `${fieldLabel} Display`;
-    const cellId = `custom-field-cell-${fieldKey}-ta-284`;
-    const inputId = `custom-field-input-${fieldKey}-ta-284`;
+    const cellId = `custom-field-cell-${fieldKey}-dg-111`;
+    const inputId = `custom-field-input-${fieldKey}-dg-111`;
 
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-fields").click();
@@ -6046,7 +6046,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("custom-field-save").click();
 
     await page.getByTestId("tab-table").click();
-    await expect(page.getByTestId("board-group-table-ready-units-ta").getByTestId(`custom-field-header-${fieldKey}`)).toBeVisible();
+    await expect(page.getByTestId("board-group-table-dg-ready-units").getByTestId(`custom-field-header-${fieldKey}`)).toBeVisible();
     await page.getByTestId(`column-menu-${fieldKey}`).first().click();
     await page.getByTestId(`column-header-menu-${fieldKey}`).first().getByRole("menuitem", { name: "Rename column" }).click();
     await page.getByTestId("column-rename-input").fill(displayLabel);
@@ -6058,14 +6058,14 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId(`custom-field-header-${fieldKey}`).first()).toContainText(displayLabel);
     await page.getByTestId(cellId).click();
     await page.getByTestId(inputId).fill("Needs final key check");
-    await expect(page.getByTestId(`cell-status-${fieldKey}-ta-284`)).toContainText("Unsaved");
+    await expect(page.getByTestId(`cell-status-${fieldKey}-dg-111`)).toContainText("Unsaved");
     const saveResponse = page.waitForResponse((response) =>
       response.url().includes("/custom-fields/") && response.request().method() === "PUT",
     );
     await page.getByTestId(inputId).press("Enter");
     await expect((await saveResponse).status()).toBe(200);
     await expect(page.getByTestId(cellId)).toContainText("Needs final key check");
-    await expect(page.getByTestId(`cell-status-${fieldKey}-ta-284`)).toContainText("Saved");
+    await expect(page.getByTestId(`cell-status-${fieldKey}-dg-111`)).toContainText("Saved");
 
     await openTableFilters(page);
     await page.getByTestId("custom-filter-field-add").selectOption({ label: displayLabel });
@@ -6092,11 +6092,11 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("custom-field-save").click();
 
     await page.getByTestId("tab-table").click();
-    await page.getByTestId(`custom-field-cell-${fieldKey}-ta-284`).click();
+    await page.getByTestId(`custom-field-cell-${fieldKey}-dg-111`).click();
     const writeResponse = page.waitForResponse((response) =>
       response.url().includes("/custom-fields/") && response.request().method() === "PUT",
     );
-    await page.getByTestId(`custom-field-input-${fieldKey}-ta-284`).selectOption("NEEDS REVIEW");
+    await page.getByTestId(`custom-field-input-${fieldKey}-dg-111`).selectOption("NEEDS REVIEW");
     await expect((await writeResponse).status()).toBe(200);
 
     await openTableFilters(page);
@@ -6105,7 +6105,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId(`custom-filter-value-${fieldKey}`).locator("option", { hasText: "NEEDS REVIEW" })).toHaveCount(1);
     await page.getByTestId(`custom-filter-value-${fieldKey}`).selectOption("NEEDS REVIEW");
     await expect(page.getByTestId("active-filter-bar")).toContainText(`${fieldLabel}: Equals NEEDS REVIEW`);
-    await expect(page.getByTestId(`custom-field-cell-${fieldKey}-ta-284`)).toBeVisible();
+    await expect(page.getByTestId(`custom-field-cell-${fieldKey}-dg-111`)).toBeVisible();
     await page.getByTestId(`custom-filter-remove-${fieldKey}`).click();
 
     await page.getByTestId("tab-fields").click();
@@ -6117,8 +6117,8 @@ test.describe("MakeReadyOS browser flows", () => {
   });
 
   test("admin assigns active staff and keyboard-tabs through text editing", async ({ page }) => {
-    const assignedCell = "builtin-cell-assignedTech-ta-284";
-    const assignedInput = "builtin-input-assignedTech-ta-284";
+    const assignedCell = "builtin-cell-assignedTech-dg-111";
+    const assignedInput = "builtin-input-assignedTech-dg-111";
 
     await login(page, adminEmail, adminPassword);
     await page.getByTestId(assignedCell).click();
@@ -6127,24 +6127,24 @@ test.describe("MakeReadyOS browser flows", () => {
     );
     await page.getByTestId(assignedInput).selectOption({ label: "Default Admin - ADMIN" });
     await expect((await saveResponse).status()).toBe(200);
-    await expect(page.getByTestId("cell-status-assignedTech-ta-284")).toContainText("Saved");
+    await expect(page.getByTestId("cell-status-assignedTech-dg-111")).toContainText("Saved");
     await expect(page.getByTestId(assignedCell)).toContainText("Default Admin");
 
-    await page.getByTestId("builtin-cell-applicant-ta-284").click();
-    await page.getByTestId("builtin-input-applicant-ta-284").fill("Keyboard QA");
+    await page.getByTestId("builtin-cell-applicant-dg-111").click();
+    await page.getByTestId("builtin-input-applicant-dg-111").fill("Keyboard QA");
     const textSaveResponse = page.waitForResponse((response) =>
       response.url().match(/\/api\/make-ready-items\/[^/]+$/) !== null && response.request().method() === "PATCH",
     );
-    await page.getByTestId("builtin-input-applicant-ta-284").press("Tab");
+    await page.getByTestId("builtin-input-applicant-dg-111").press("Tab");
     await expect((await textSaveResponse).status()).toBe(200);
-    await expect(page.getByTestId("builtin-input-moveOutDate-ta-284")).toBeVisible();
+    await expect(page.getByTestId("builtin-input-moveOutDate-dg-111")).toBeVisible();
   });
 
   test("admin assigns a managed floor plan from the table and sees linked metadata", async ({ page }) => {
     const planName = `QA Managed ${Date.now()}`;
     await login(page, adminEmail, adminPassword);
-    await page.getByTestId("builtin-cell-floorPlan-ta-284").click();
-    await page.getByTestId("manage-floor-plans-ta-284").click();
+    await page.getByTestId("builtin-cell-floorPlan-dg-111").click();
+    await page.getByTestId("manage-floor-plans-dg-111").click();
     await expect(page.getByTestId("inline-floor-plan-modal")).toBeVisible();
     await page.getByTestId("inline-floor-plan-code").fill(`QA${Date.now()}`);
     await page.getByTestId("inline-floor-plan-name").fill(planName);
@@ -6155,15 +6155,15 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("inline-floor-plan-add").click();
     await expect((await createPlanResponse).status()).toBe(201);
     await page.getByTestId("inline-floor-plan-modal").getByRole("button", { name: "Close", exact: true }).click();
-    const floorPlanInput = page.getByTestId("builtin-input-floorPlan-ta-284");
+    const floorPlanInput = page.getByTestId("builtin-input-floorPlan-dg-111");
     const floorPlanOption = floorPlanInput.locator("option", { hasText: planName });
     await expect(floorPlanOption).toHaveCount(1);
     const floorPlanValue = await floorPlanOption.first().getAttribute("value");
     const unitUpdate = page.waitForResponse((response) => response.url().match(/\/api\/operations\/units\/[^/]+$/) !== null && response.request().method() === "PATCH");
     await floorPlanInput.selectOption(floorPlanValue ?? "");
     await expect((await unitUpdate).status()).toBe(200);
-    await expect(page.getByTestId("builtin-cell-floorPlan-ta-284")).toContainText(planName);
-    await expect(page.getByTestId("builtin-cell-floorPlan-ta-284")).toContainText("2bd / 1.5ba / 940sf");
+    await expect(page.getByTestId("builtin-cell-floorPlan-dg-111")).toContainText(planName);
+    await expect(page.getByTestId("builtin-cell-floorPlan-dg-111")).toContainText("2bd / 1.5ba / 940sf");
   });
 
   test("admin can add a status option directly from a table dropdown", async ({ page }) => {
@@ -6171,8 +6171,8 @@ test.describe("MakeReadyOS browser flows", () => {
     const renamed = `${label}-updated`;
 
     await login(page, adminEmail, adminPassword);
-    await page.getByTestId("builtin-cell-paintStatus-ta-284").click();
-    await page.getByTestId("manage-options-paintStatus-ta-284").click();
+    await page.getByTestId("builtin-cell-paintStatus-dg-111").click();
+    await page.getByTestId("manage-options-paintStatus-dg-111").click();
     await expect(page.getByTestId("table-option-modal")).toBeVisible();
     await page.getByTestId("table-option-label").fill(label);
     const createResponse = page.waitForResponse((response) =>
@@ -6181,8 +6181,8 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("table-option-save").click();
     await expect((await createResponse).status()).toBe(201);
     await expect(page.getByTestId("table-option-modal")).toHaveCount(0);
-    await page.getByTestId("builtin-cell-paintStatus-ta-284").click();
-    await page.getByTestId("manage-options-paintStatus-ta-284").click();
+    await page.getByTestId("builtin-cell-paintStatus-dg-111").click();
+    await page.getByTestId("manage-options-paintStatus-dg-111").click();
     const optionInput = page.getByTestId("table-option-modal").getByLabel(`Rename ${label}`);
     await optionInput.fill(renamed);
     const updateResponse = page.waitForResponse((response) =>
@@ -6193,13 +6193,13 @@ test.describe("MakeReadyOS browser flows", () => {
     expect(renamedResponse.status(), await renamedResponse.text()).toBe(200);
     expect((await renamedResponse.json()).option).toMatchObject({ value: label, displayName: renamed });
     await expect(page.getByTestId("table-option-modal")).toHaveCount(0);
-    await page.getByTestId("builtin-cell-paintStatus-ta-284").click();
+    await page.getByTestId("builtin-cell-paintStatus-dg-111").click();
     const savedChoice = page.waitForResponse(response => response.url().includes("/api/make-ready-items/") && response.request().method() === "PATCH");
-    await page.getByTestId("builtin-input-paintStatus-ta-284").selectOption({ label: renamed });
+    await page.getByTestId("builtin-input-paintStatus-dg-111").selectOption({ label: renamed });
     const choiceResponse = await savedChoice;
     expect(choiceResponse.status(), await choiceResponse.text()).toBe(200);
     expect(choiceResponse.request().postDataJSON().paintStatus).toBe(label);
-    await expect(page.getByTestId("builtin-cell-paintStatus-ta-284")).toContainText(renamed);
+    await expect(page.getByTestId("builtin-cell-paintStatus-dg-111")).toContainText(renamed);
   });
 
   test("dashboard cards and charts apply clearable structured filters across views", async ({ page }) => {
@@ -6253,12 +6253,12 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("custom-field-save").click();
 
     await page.getByTestId("tab-table").click();
-    await page.getByTestId(`custom-field-cell-${fieldKey}-ta-284`).click();
+    await page.getByTestId(`custom-field-cell-${fieldKey}-dg-111`).click();
     const writeResponse = page.waitForResponse((response) =>
       response.url().includes("/custom-fields/") && response.request().method() === "PUT",
     );
-    await page.getByTestId(`custom-field-input-${fieldKey}-ta-284`).fill(`${month}-14`);
-    await page.getByTestId(`custom-field-input-${fieldKey}-ta-284`).press("Enter");
+    await page.getByTestId(`custom-field-input-${fieldKey}-dg-111`).fill(`${month}-14`);
+    await page.getByTestId(`custom-field-input-${fieldKey}-dg-111`).press("Enter");
     await expect((await writeResponse).status()).toBe(200);
 
     await openTableFilters(page);
@@ -6267,7 +6267,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId(`custom-filter-operator-${fieldKey}`).selectOption("before");
     await page.getByTestId(`custom-filter-value-${fieldKey}`).fill(`${month}-15`);
     await expect(page.getByTestId("active-filter-bar")).toContainText(`${fieldLabel}: Before ${month}-15`);
-    await expect(page.getByTestId(`custom-field-cell-${fieldKey}-ta-284`)).toBeVisible();
+    await expect(page.getByTestId(`custom-field-cell-${fieldKey}-dg-111`)).toBeVisible();
 
     await page.getByTestId("tab-operations").click();
     await expect(page.getByTestId("schedule-track-management")).toBeVisible();
@@ -6296,8 +6296,8 @@ test.describe("MakeReadyOS browser flows", () => {
     if (await page.locator(".calendar-day-conflicts").count()) {
       await expect(page.locator(".calendar-day-conflicts").first()).toBeVisible();
     }
-    await expect(page.getByText("TA 284").first()).toBeVisible();
-    await page.getByText("TA 284").first().click();
+    await expect(page.getByText("DG-111").first()).toBeVisible();
+    await page.getByText("DG-111").first().click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
     await page.keyboard.press("Escape");
     await page.getByTestId("calendar-layout-select").selectOption("split");
@@ -6420,7 +6420,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("storage-validation-result")).toContainText("Path looks safe");
     await expect(page.getByTestId("storage-validation-result")).toContainText("./move-uploads.sh /mnt/storage/makereadyos-uploads");
     await expect(page.getByTestId("storage-property-routing")).toContainText("Property upload folders");
-    const routingRow = page.locator(".storage-routing-row").filter({ hasText: "TA" }).first();
+    const routingRow = page.locator(".storage-routing-row").filter({ hasText: "DG" }).first();
     await routingRow.getByLabel(/Upload routing mode/).selectOption("PROPERTY_SUBDIR");
     await routingRow.getByLabel(/Upload folder/).fill("ta-inspections");
     const routingResponse = page.waitForResponse((response) =>
@@ -6735,8 +6735,8 @@ test.describe("MakeReadyOS browser flows", () => {
       expect(planningBoxes[index].left).toBeGreaterThanOrEqual(planningBoxes[index - 1].left);
     }
     await page.getByTestId("planning-assigned-user").selectOption({ index: 1 });
-    await page.getByPlaceholder("Search unit...", { exact: true }).fill("284");
-    await page.getByRole("listbox").getByRole("button", { name: /^(?:TA )?284(?: \/|$)/ }).click();
+    await page.getByPlaceholder("Search unit...", { exact: true }).fill("111");
+    await page.getByRole("listbox").getByRole("button", { name: /^(?:DG-)?111(?: \/|$)/ }).click();
     await page.getByTestId("planning-date").fill(todayUtc());
     const response = page.waitForResponse((result) => result.url().includes("/api/planning/blocks") && result.request().method() === "POST");
     await page.getByTestId("planning-create-submit").click();

@@ -18,7 +18,7 @@ test("evidence ZIP includes all rows and comment files, preserves extensions, an
   const originalItem = prisma.makeReadyItem.findUnique;
   const originalAttachments = prisma.itemAttachment.findMany;
   let missing = false;
-  prisma.makeReadyItem.findUnique = (async () => ({ id: "turn", propertyId: "p", unitNumber: "101", property: { code: "TA", name: "Test Property" } })) as any;
+  prisma.makeReadyItem.findUnique = (async () => ({ id: "turn", propertyId: "p", unitNumber: "101", property: { code: "DG", name: "Test Property" } })) as any;
   prisma.itemAttachment.findMany = (async (query: any) => {
     assert.equal(query.take, undefined);
     assert.equal(query.where.commentId, undefined);

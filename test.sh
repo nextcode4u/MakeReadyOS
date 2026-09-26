@@ -42,6 +42,7 @@ mkdir -p "$LOG_DIR"
 
   echo "Running isolated report and email regression tests"
   node --test "$ROOT_DIR/e2e/api-request.test.mjs"
+  node --test "$ROOT_DIR/e2e/public-demo-data.test.mjs"
   node --test "$ROOT_DIR/e2e/backup-failure.test.mjs"
   node --test "$ROOT_DIR/e2e/service-worker.test.mjs" "$ROOT_DIR/e2e/hooks-lint.test.mjs" "$ROOT_DIR/e2e/offline-sync.test.mjs" "$ROOT_DIR/e2e/availability-status.test.mjs" "$ROOT_DIR/e2e/material-draft.test.mjs" "$ROOT_DIR/e2e/structured-filters.test.mjs"
   "$ROOT_DIR/apps/api/node_modules/.bin/tsx" --test "$ROOT_DIR/apps/api/src/lib/availabilityReceipt.test.ts" "$ROOT_DIR/apps/api/src/routes/availabilityFreshness.test.ts"
@@ -2637,7 +2638,7 @@ NODE
       "http://localhost:${API_PORT:-4000}/api/checklist-templates")"
     TECH_BATCH_STATUS="$(curl -s -o /tmp/makereadyos-tech-batch.json -b "$TECH_COOKIE_JAR" -w "%{http_code}" \
       -H "Content-Type: application/json" -H "X-CSRF-Token: $TECH_CSRF_TOKEN" \
-      -d "{\"action\":\"MOVE_GROUP\",\"ids\":[\"$TURN_ITEM_ID\"],\"boardGroup\":\"READY_UNITS_TA\"}" \
+      -d "{\"action\":\"MOVE_GROUP\",\"ids\":[\"$TURN_ITEM_ID\"],\"boardGroup\":\"DG_READY_UNITS\"}" \
       "http://localhost:${API_PORT:-4000}/api/make-ready-items/batch")"
     echo "Automation/manual/operations/checklist/library status as tech: $TECH_RUN_STATUS/$TECH_TEMPLATE_INSTALL_STATUS/$TECH_OPERATIONS_STATUS/$TECH_SECTION_STATUS/$TECH_BATCH_STATUS/$TECH_TEMPLATE_CREATE_STATUS/$TECH_LIBRARY_STATUS/$TECH_PROPERTY_TEMPLATE_STATUS/$TECH_PROPERTY_TEMPLATE_CREATE_STATUS; dashboard=$TECH_DASHBOARD_STATUS my-work=$TECH_MY_WORK_STATUS planning=$TECH_PLANNING_STATUS/$TECH_PLANNING_CREATE_STATUS risk-evaluate=$TECH_RISK_EVALUATE_STATUS maps=$TECH_MAP_LIST_STATUS/$TECH_MAP_CREATE_STATUS"
     if [ "$TECH_RUN_STATUS" != "403" ] || [ "$TECH_TEMPLATE_INSTALL_STATUS" != "403" ] || [ "$TECH_LIBRARY_STATUS" != "403" ] || [ "$TECH_PROPERTY_TEMPLATE_STATUS" != "403" ] || [ "$TECH_PROPERTY_TEMPLATE_CREATE_STATUS" != "403" ] || [ "$TECH_OPERATIONS_STATUS" != "403" ] || [ "$TECH_SECTION_STATUS" != "403" ] || [ "$TECH_BATCH_STATUS" != "403" ] || [ "$TECH_TEMPLATE_CREATE_STATUS" != "403" ] || [ "$TECH_RISK_EVALUATE_STATUS" != "403" ] || [ "$TECH_DASHBOARD_STATUS" != "200" ] || [ "$TECH_MY_WORK_STATUS" != "200" ] || [ "$TECH_PLANNING_STATUS" != "200" ] || [ "$TECH_PLANNING_CREATE_STATUS" != "403" ] || [ "$TECH_MAP_LIST_STATUS" != "200" ] || [ "$TECH_MAP_CREATE_STATUS" != "403" ]; then

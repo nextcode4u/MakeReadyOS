@@ -4,6 +4,20 @@
 
 MakeReadyOS is an open-source operations app for property maintenance teams managing unit turns, move-ins, and property service workflows.
 
+## Daily Workflow
+
+Start in My Work to find personal assignments and move-in deadlines, then open a
+unit's Work & parts view. Preparation checks, quantity-based parts, and free-form
+unit work notes live together; general comments and photos have their own tabs.
+Repairs finished does not mean unit ready: the final-walk handoff identifies the
+next inspector and blockers, and corrections return to the repair workflow.
+The turn board, Schedule, and Dashboard support team coordination around this
+workflow. Optional Frog Pond milestones recognize completed turns as a team,
+without ranking workers by speed.
+
+For public demonstrations, use the fictional current-interface images linked in
+the [README](../README.md) and follow the [capture guide](screenshots/README.md).
+
 ## MVP Focus
 
 The initial milestone is deliberately narrow:

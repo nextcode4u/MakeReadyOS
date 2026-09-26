@@ -12,9 +12,9 @@ test("push endpoints reject local, credentialed, and deceptive destinations", ()
   assert.equal(retryPush(429, 4), true);
   assert.equal(retryPush(503, 5), false);
   assert.equal(retryPush(undefined, 1), true);
-  const note = { id: "notice", title: "Final walk ready for inspection", itemId: "unit-id", property: { code: "VAB" }, item: { unitNumber: "2907P" }, message: "Private resident note and door code" };
+  const note = { id: "notice", title: "Final walk ready for inspection", itemId: "unit-id", property: { code: "DS" }, item: { unitNumber: "2907P" }, message: "Private resident note and door code" };
   const payload = JSON.parse(pushPayload(note));
-  assert.deepEqual(payload, { title: "MakeReadyOS - VAB 2907P", body: "Final walk ready for inspection. Tap to view details.", tag: "mros-notice", notificationId: "notice", itemId: "unit-id" });
+  assert.deepEqual(payload, { title: "MakeReadyOS - DS 2907P", body: "Final walk ready for inspection. Tap to view details.", tag: "mros-notice", notificationId: "notice", itemId: "unit-id" });
   assert.ok(!JSON.stringify(payload).includes("door code"));
 });
 

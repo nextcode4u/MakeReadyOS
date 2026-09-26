@@ -13,7 +13,7 @@ test("full availability imports preview and atomically archive missing ready uni
   const initial = { id: "missing", unitId: "unit", unitNumber: "011", propertyId: "ta", boardGroup: "ready", vacancyStatus: "VACANT LEASED READY", makeReadyStatus: "DONE", completionStatus: "NO", moveInDate: new Date("2026-09-10"), updatedAt: new Date("2026-09-11"), isArchived: false, unit: { isActive: true, occupancyStatus: "VACANT LEASED READY" } };
   let item = { ...initial }; let failAudit = false; let role = "MANAGER"; let access = "ta";
   const audits: any[] = []; const unitUpdates: any[] = [];
-  stub(prisma.property, "findUnique", async () => ({ id: "ta", code: "TA", name: "Town Arlington", isActive: true }));
+  stub(prisma.property, "findUnique", async () => ({ id: "ta", code: "DG", name: "Demo Gardens", isActive: true }));
   stub(prisma.boardSection, "findMany", async () => [{ key: "ready", sectionType: "READY" }, { key: "archive", sectionType: "ARCHIVE" }]);
   stub(prisma.makeReadyItem, "findMany", async ({ where }: any) => where.unitNumber || item.isArchived ? [] : [item]);
   stub(prisma.makeReadyItem, "update", async ({ data }: any) => { item = { ...item, ...data }; return item; });

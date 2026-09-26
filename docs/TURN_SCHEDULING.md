@@ -50,8 +50,8 @@ Use **Automatically split turns between your team**, below the calendar guide. C
 
 | Property | Manager | Site Tech |
 | --- | --- | --- |
-| VAB | 100% | Not selected |
-| TA | 25% | 75% |
+| DS | 100% | Not selected |
+| DG | 25% | 75% |
 
 Each property's split is independent. Smooth weighted round-robin distributes new automatic assignments over time, not current open workload: a 25/75 split assigns one of each four turns to the first person and three to the second. Fractions cannot be exact for every small batch. Manual assignments and completed work do not reset the cycle. Changing shares starts a new cycle; saving identical shares, pausing/resuming, or restarting preserves the persisted credits.
 

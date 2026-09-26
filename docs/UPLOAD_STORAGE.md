@@ -58,8 +58,8 @@ Admins can route new photos, attachments, and property-map uploads into property
 Example:
 
 ```text
-/app/uploads/TA/<new files>
-/app/uploads/VAB/<new files>
+/app/uploads/DG/<new files>
+/app/uploads/DS/<new files>
 ```
 
 Existing files keep their current stored path so old attachments and maps continue to open. Routing affects new uploads only. If you need to physically reorganize older files, back up first and use a deliberate migration/move process rather than manually changing database paths.

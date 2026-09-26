@@ -35,7 +35,7 @@ test("refrigerant exports include every transaction and heterogeneous section co
     refrigerantType: type, sourceCylinder: tanks[0], recoveryCylinder: tanks[2],
     startWeight: 20, endWeight: 19, amount: index === 1004 ? -1 : 1, createdByName: "Tech", notes: "Report fixture",
   }));
-  const properties = [{ id: "ta", code: "TA", name: "Test A" }, { id: "vab", code: "VAB", name: "Test B" }];
+  const properties = [{ id: "ta", code: "DG", name: "Test A" }, { id: "vab", code: "DS", name: "Test B" }];
   const stub = (delegate: any, method: string, implementation: (...args: any[]) => unknown) => {
     const original = delegate[method];
     delegate[method] = implementation;

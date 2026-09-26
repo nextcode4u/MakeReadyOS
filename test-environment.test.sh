@@ -7,6 +7,7 @@ export COMPOSE_PROJECT_NAME=production
 export COMPOSE_FILE=/production/compose.yml
 export SMTP_HOST=production-mail
 export ADMIN_PASSWORD=production-password
+unset PUBLIC_SCREENSHOTS
 . "$ROOT_DIR/test-environment.sh"
 [[ "$DATABASE_URL" == *"@db:5432/makereadyos?schema=public" ]]
 [[ "$COMPOSE_PROJECT_NAME" == "makereadyos-"* && "$COMPOSE_PROJECT_NAME" != production ]]
@@ -17,3 +18,7 @@ export ADMIN_PASSWORD=production-password
 [[ -z "$SMTP_HOST" && -z "$SMTP_PASS" ]]
 [[ "$ADMIN_PASSWORD" != production-password && "$SEED_DEMO_DATA" == true ]]
 echo "Test environment rejects inherited production connection settings"
+export PUBLIC_SCREENSHOTS=1
+. "$ROOT_DIR/test-environment.sh"
+[[ "$SEED_DEMO_DATA" == false ]]
+echo "Public screenshots start without legacy demo records"

@@ -7,20 +7,20 @@ const units = [{ id: "a", number: "001", mailboxNumber: null }, { id: "b", numbe
 test("mailbox imports preserve zeroes, quoted commas, tabs and explicit unit-number mode", () => {
   assert.deepEqual(parseMailboxDirectory('unit,mailbox\n001,"Box, 01"'), [{ number: "001", mailbox: "Box, 01" }]);
   assert.deepEqual(parseMailboxDirectory('Unit Number\tMailbox Number\r\n001\t009'), [{ number: "001", mailbox: "009" }]);
-  const plan = mailboxPlan("TA", units, mailboxImportSchema.parse({ mode: "UNIT_NUMBER" }));
+  const plan = mailboxPlan("DG", units, mailboxImportSchema.parse({ mode: "UNIT_NUMBER" }));
   assert.equal(plan.changes[0].after, "001");
   assert.deepEqual(plan.changes.map(row => row.action), ["UPDATE", "KEEP"]);
-  assert.notEqual(plan.token, mailboxPlan("VAB", units, mailboxImportSchema.parse({ mode: "UNIT_NUMBER" })).token);
+  assert.notEqual(plan.token, mailboxPlan("DS", units, mailboxImportSchema.parse({ mode: "UNIT_NUMBER" })).token);
 });
 test("mailbox imports reject unknown and ambiguous units, do not clear blanks, and detect changes", () => {
   const input = mailboxImportSchema.parse({ mode: "DIRECTORY", text: "unit,mailbox\n001,010\n002," });
-  const plan = mailboxPlan("TA", units, input);
+  const plan = mailboxPlan("DG", units, input);
   assert.deepEqual(plan.changes.map(row => row.action), ["UPDATE", "SKIP"]);
-  assert.notEqual(plan.token, mailboxPlan("TA", [{ ...units[0], mailboxNumber: "new" }, units[1]], input).token);
-  const duplicates = mailboxPlan("TA", units, { ...input, text: "unit,mailbox\nunknown,1\n001,2\n001,3" });
+  assert.notEqual(plan.token, mailboxPlan("DG", [{ ...units[0], mailboxNumber: "new" }, units[1]], input).token);
+  const duplicates = mailboxPlan("DG", units, { ...input, text: "unit,mailbox\nunknown,1\n001,2\n001,3" });
   assert.equal(duplicates.errors.length, 3);
   assert.equal(duplicates.changes.length, 0);
-  assert.equal(mailboxPlan("TA", [...units, { ...units[0], id: "dup" }], input).errors.length, 1);
+  assert.equal(mailboxPlan("DG", [...units, { ...units[0], id: "dup" }], input).errors.length, 1);
   assert.throws(() => parseMailboxDirectory('unit,mailbox\n001,"unfinished'));
   assert.throws(() => parseMailboxDirectory('unit,mailbox,code\n001,1,SECRET'));
 });
@@ -31,21 +31,21 @@ test("numeric mailbox unit matching ignores leading zeroes without guessing ambi
     { id: "c", number: "011A", mailboxNumber: null },
   ];
   const input = mailboxImportSchema.parse({ mode: "DIRECTORY", text: "unit,mailbox\n11,009\n0012,010\n011a,A-1" });
-  const plan = mailboxPlan("TA", directory, input);
+  const plan = mailboxPlan("DG", directory, input);
   assert.deepEqual(plan.errors, []);
   assert.deepEqual(plan.changes.map(row => [row.number, row.after]), [["011", "009"], ["12", "010"], ["011A", "A-1"]]);
-  const duplicate = mailboxPlan("TA", directory, { ...input, text: "unit,mailbox\n11,1\n011,2" });
+  const duplicate = mailboxPlan("DG", directory, { ...input, text: "unit,mailbox\n11,1\n011,2" });
   assert.equal(duplicate.errors.length, 2);
   assert.equal(duplicate.changes.length, 0);
   const ambiguousUnits = [...directory, { id: "d", number: "11", mailboxNumber: null }];
-  const ambiguous = mailboxPlan("TA", ambiguousUnits, { ...input, text: "unit,mailbox\n011,1" });
+  const ambiguous = mailboxPlan("DG", ambiguousUnits, { ...input, text: "unit,mailbox\n011,1" });
   assert.equal(ambiguous.errors.length, 1);
   assert.equal(ambiguous.changes.length, 0);
-  assert.equal(mailboxPlan("TA", directory, { ...input, text: "unit,mailbox\n11A,1" }).errors.length, 1);
-  assert.equal(mailboxPlan("TA", ambiguousUnits, { ...input, mode: "UNIT_NUMBER" }).changes.length, 4);
+  assert.equal(mailboxPlan("DG", directory, { ...input, text: "unit,mailbox\n11A,1" }).errors.length, 1);
+  assert.equal(mailboxPlan("DG", ambiguousUnits, { ...input, mode: "UNIT_NUMBER" }).changes.length, 4);
 });
 test("reports follow the directory unless explicitly overridden and never print codes by default", () => {
-  const context = { propertyName: "Property", propertyCode: "TA", propertyLogo: null, companyName: null, companyLogo: null, unitNumber: "001", technician: null, reviewer: null };
+  const context = { propertyName: "Property", propertyCode: "DG", propertyLogo: null, companyName: null, companyLogo: null, unitNumber: "001", technician: null, reviewer: null };
   const draft = reportDraftSchema.parse({ ...emptyReportDraft(), residentDoorCode: 'CODE<123>', residentAccessCode: "RESIDENT-ONLY" });
   assert.equal(resolveReportMailbox(draft, "009").mailbox, "009");
   assert.equal(resolveReportMailbox({ ...draft, mailboxSource: "CUSTOM", mailbox: "" }, "009").mailbox, "");

@@ -8,7 +8,7 @@ test("report editor retains unsaved inspection input during reconnect refresh", 
   await page.getByTestId("login-submit").click();
   await expect(page.getByTestId("property-filter")).toBeVisible();
   const items = await (await page.request.get("/api/make-ready-items")).json();
-  const item = items.find((entry: any) => entry.unitNumber === "284") ?? items[0];
+  const item = items.find((entry: any) => entry.unitNumber === "DG-111") ?? items[0];
   await page.getByTestId("property-filter").selectOption(item.propertyId);
   await page.getByRole("button", { name: `Open details for ${item.unitNumber}`, exact: true }).click();
   await page.getByRole("button", { name: "Inspection details / report", exact: true }).click();

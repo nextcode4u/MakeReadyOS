@@ -8,7 +8,7 @@ test("status display names preserve canonical values and explicitly supplied uni
   assert.equal(statusDisplayName({ value: label.value }), "VACANT READY");
   assert.equal(statusDisplayName(label), "Resident_ready");
   assert.equal(LabelPill({ value: label.value, label }).props.children, "Resident_ready");
-  assert.equal(LabelPill({ value: "TA 101", label }).props.children, "TA 101");
+  assert.equal(LabelPill({ value: "DG 101", label }).props.children, "DG 101");
   assert.equal(LabelPill({ value: null, label }).props.children, "-");
   assert.equal(label.value, "VACANT_READY");
 });

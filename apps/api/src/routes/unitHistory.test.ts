@@ -18,11 +18,11 @@ test("unit history reports source truncation and preserves property authorizatio
   let comments = 0;
   let automationRuns = 0;
   let role = "ADMIN";
-  stub(prisma.unit, "findUnique", async () => ({ id: "unit", propertyId: "property", property: { code: "TA" }, number: "101", createdAt: now }));
+  stub(prisma.unit, "findUnique", async () => ({ id: "unit", propertyId: "property", property: { code: "DG" }, number: "101", createdAt: now }));
   stub(prisma.makeReadyItem, "findMany", async ({ where, include }: any) => {
     assert.equal(where.propertyId, "property");
     assert.equal(include.automationRuns.take, 21);
-    return [{ id: "item", property: { code: "TA" }, unitNumber: "101", createdAt: now, updatedAt: now, riskLevel: "NONE",
+    return [{ id: "item", property: { code: "DG" }, unitNumber: "101", createdAt: now, updatedAt: now, riskLevel: "NONE",
       comments: Array.from({ length: comments }, (_, id) => ({ id: `c${id}`, createdAt: now, body: "note" })),
       attachments: [], vendorAssignments: [], checklistInstances: [],
       automationRuns: Array.from({ length: automationRuns }, (_, id) => ({ id: `r${id}`, ranAt: now, rule: { name: "Rule" }, message: "Applied" })),

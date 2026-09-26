@@ -6,13 +6,13 @@ test("ready-to-occupied archives in the same property and synchronizes the unit 
   const current = { id: "turn", propertyId: "ta", unitId: "unit", unitNumber: "163", vacancyStatus: "VACANT LEASED READY", completionStatus: "YES", makeReadyStatus: "DONE", isArchived: false } as any;
   let writes = 0;
   const db = {
-    boardSection: { findFirst: async ({ where }: any) => { assert.equal(where.propertyId, "ta"); assert.equal(where.sectionType, "ARCHIVE"); return { key: "ARCHIVE_TA" }; } },
+    boardSection: { findFirst: async ({ where }: any) => { assert.equal(where.propertyId, "ta"); assert.equal(where.sectionType, "ARCHIVE"); return { key: "DG_ARCHIVE" }; } },
     unit: { updateMany: async ({ where, data }: any) => { assert.deepEqual(where, { id: "unit", propertyId: "ta" }); assert.equal(data.occupancyStatus, "OCCUPIED"); writes++; } },
     auditLog: { create: async () => { writes++; } },
   };
   const patch: Record<string, unknown> = { vacancyStatus: "OCCUPIED" };
   await archiveOccupiedTurn(db as any, current, patch);
-  assert.equal(patch.boardGroup, "ARCHIVE_TA");
+  assert.equal(patch.boardGroup, "DG_ARCHIVE");
   assert.equal(patch.isArchived, true);
   assert.ok(patch.archivedAt instanceof Date);
   assert.equal(writes, 2);

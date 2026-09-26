@@ -14,7 +14,7 @@ test("availability freshness is read-only, property-scoped and does not expose a
   const reads: any[] = [];
   prisma.property.findMany = (async (query: any) => {
     reads.push(query);
-    return query.where.id === "missing" ? [] : [{ id: "allowed", code: "TA", name: "Allowed" }];
+    return query.where.id === "missing" ? [] : [{ id: "allowed", code: "DG", name: "Allowed" }];
   }) as unknown as typeof prisma.property.findMany;
   prisma.auditLog.findFirst = (async (query: any) => {
     assert.equal(query.where.propertyId, "allowed");

@@ -6,7 +6,7 @@ for (const action of ["tech", "status"] as const) {
     await page.getByTestId("login-email").fill(process.env.ADMIN_EMAIL || "admin@example.com");
     await page.getByTestId("login-password").fill(process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456");
     await page.getByTestId("login-submit").click();
-    const selected = page.getByTestId("mobile-select-ta-284");
+    const selected = page.getByTestId("mobile-select-dg-111");
     await selected.check();
     await page.getByTestId("mobile-board-bulk-open").click();
     const modal = page.getByTestId("mobile-batch-actions-modal");

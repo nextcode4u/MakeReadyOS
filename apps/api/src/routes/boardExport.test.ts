@@ -15,7 +15,7 @@ test("board CSV retains built-in and same-label custom values", async (t) => {
     t.after(() => { delegate[name] = original; });
   };
   stub(prisma.makeReadyItem, "findMany", async () => [{
-    property: { code: "TA" }, boardGroup: "ready", unitNumber: "101", notes: "Original notes",
+    property: { code: "DG" }, boardGroup: "ready", unitNumber: "101", notes: "Original notes",
     customFieldValues: [
       { customFieldId: "a", value: "Custom unit" },
       { customFieldId: "b", value: "First inspection" },

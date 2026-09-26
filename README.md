@@ -1,8 +1,14 @@
 # MakeReadyOS
 
-MakeReadyOS is a self-hosted property operations platform focused on apartment make-ready and maintenance workflows. It uses a dense software-defined spreadsheet workflow built for local ownership, Docker deployment, and property maintenance operations.
+MakeReadyOS helps property teams take an apartment from move-out through repairs, cleaning, and an independent final walk. Technicians, supervisors, vendors, and leasing can see what needs doing and who acts next, while the property controls its own installation and data.
 
-The core workflow is a fast table-first make-ready board with Kanban, Schedule, Dashboard, item drawer, comments, attachments, checklists, vendors, preventive maintenance, refrigerant tracking, pool/spa logging, risk scoring, automations, property maps, and a Frog Pond visualization.
+## A Typical Turn
+
+1. **Find your work.** My Work shows personal assignments, move-in dates and approaching deadlines. Counts and attention indicators help distinguish waiting work from overdue work and final-walk corrections.
+2. **Open the unit.** Work & parts brings together the next action, preparation checks, parts, and unit-specific work notes. A task such as replacing damaged cabinet faces from stock does not need an invented quantity or measurement.
+3. **Record progress.** Track collected or outstanding parts, add photos, and keep general discussion separate from repair tasks. Use the turn board, Kanban, or Schedule to coordinate the team.
+4. **Hand off to final walk.** Repairs finished is not the same as unit ready. The handoff identifies the next inspector and outstanding blockers; leasing or another authorized inspector completes the final walk or sends corrections back.
+5. **Recognize the whole team.** Optional Frog Pond progress and shared completed-turn milestones recognize the property team, while personal outfits and discoveries stay personal. There is no speed leaderboard.
 
 ## What MakeReadyOS Is / Is Not
 
@@ -23,17 +29,23 @@ MakeReadyOS is not:
 
 ## Screenshots
 
+These images show the current interface with fictional records created in a disposable local test environment. They are not screenshots of an operating property. See [the screenshot guide](docs/screenshots/README.md) for reproducible captures and public-media guidance.
+
+| My Work | Work & parts |
+| --- | --- |
+| ![Personal assignments in My Work, fictional demo](docs/screenshots/my-work.png) | ![Unit repair tasks and parts, fictional demo](docs/screenshots/work-and-parts.png) |
+
+| Final-walk handoff |
+| --- |
+| ![Repair completion and next inspector, fictional demo](docs/screenshots/final-walk.png) |
+
 | Table | Dashboard |
 | --- | --- |
 | ![MakeReadyOS table view](docs/screenshots/table-view.png) | ![MakeReadyOS dashboard](docs/screenshots/dashboard.png) |
 
-| Kanban | Schedule |
+| Kanban | Frog Pond |
 | --- | --- |
-| ![MakeReadyOS Kanban view](docs/screenshots/kanban.png) | ![MakeReadyOS schedule view](docs/screenshots/schedule.png) |
-
-| Frog Pond |
-| --- |
-| ![MakeReadyOS Frog Pond](docs/screenshots/frog-pond.png) |
+| ![MakeReadyOS Kanban view](docs/screenshots/kanban.png) | ![MakeReadyOS Frog Pond](docs/screenshots/frog-pond.png) |
 
 ## What It Includes
 
@@ -63,12 +75,17 @@ For a fuller feature walkthrough, see [docs/PRODUCT_OVERVIEW.md](docs/PRODUCT_OV
 Requirements:
 
 - Docker and Docker Compose
-- Node.js 20+ if running scripts outside containers
+- Node.js 24 LTS if running scripts outside containers
 
 ```bash
 git clone https://github.com/nextcode4u/MakeReadyOS.git
 cd MakeReadyOS
 cp .env.example .env
+```
+
+Configure `.env` with your own credentials and browser URL before starting. Docker starts the services; it does not replace configuration, access control, or backups.
+
+```bash
 docker compose up --build -d
 ```
 
@@ -128,7 +145,7 @@ For disposable local databases, `npm --prefix apps/api run db:push` can be used 
 
 On supported mobile browsers, MakeReadyOS can be installed to the home screen as a Progressive Web App. Android/Chrome shows an optional install prompt when available, with a `Continue in browser` bypass. iOS users can use the browser share menu and choose `Add to Home Screen`.
 
-The current PWA support is for app-like launch and static shell caching. Operational API data and uploaded files are not cached for offline edits.
+The PWA supports app-like launch and static shell caching. Supported changes can be queued in browser storage when connectivity fails and retried after reconnection. This is not a fully offline copy of the application: not every action supports queuing, browser storage must be available, and conflicts or rejected changes may require review. Check the save/sync status before assuming work reached the server.
 
 ## Build And Test
 
