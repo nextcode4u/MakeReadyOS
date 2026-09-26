@@ -8570,6 +8570,8 @@ textarea {
   .mobile-filterbar-main > .mobile-view-toggle { grid-area: view; }
   .mobile-filterbar-main > .mobile-tools-toggle { grid-area: tools; }
   .mobile-filterbar-main > .mobile-alerts-button { grid-area: alerts; justify-content: center; }
+  .mobile-filterbar-main[data-work-shortcut="true"] { grid-template-areas: "property view" "search tools" "work alerts"; }
+  .mobile-filterbar-main > .mobile-my-work-shortcut { grid-area: work; justify-content: center; }
 
   .mobile-filterbar-main .mobile-filter-toggle {
     overflow: hidden;
@@ -13945,3 +13947,23 @@ textarea {
 .pond-team-progress progress { width: 100%; height: .7rem; accent-color: #27805b; }
 .pond-team-earned { color: var(--text); }
 .pond-team-progress details summary { cursor: pointer; }
+.my-work-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 1.3rem;
+  min-height: 1.3rem;
+  padding: .12rem .35rem;
+  margin-left: .35rem;
+  border-radius: 999px;
+  font-size: .75rem;
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+  box-shadow: 0 0 0 1px #ffffff80;
+}
+.my-work-count.pending { background: #f6c453; color: #332100; }
+.my-work-count.attention { background: #b42335; color: #fff; }
+.my-work-count.unavailable { background: #e2e8f0; color: #334155; }
+.my-work-tab.needs-attention { border-color: #b42335; }

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { ChangePasswordButton } from "./PasswordForm";
 import { ToolbarPopover } from "./ToolbarPopover";
 import { HelpTip } from "./HelpTip";
+import { MyWorkBadge, myWorkBadgeDescription } from "./MyWorkBadge";
+import type { MyWorkCue } from "../lib/myWorkCue";
 import { makeReadyExportCsvUrl, makeReadyPdfReportUrl, type CurrentUser, type MakeReadyItemFilters, type Property, type UserLanguage } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import type { ClockMode } from "../lib/dateTime";
@@ -42,6 +44,8 @@ type Props = {
   archiveMode: ArchiveMode;
   onArchiveModeChange: (value: ArchiveMode) => void;
   notificationUnreadCount: number;
+  myWorkCue?: MyWorkCue;
+  myWorkUnavailable?: boolean;
   onOpenNotifications: () => void;
   onOpenCommandPalette: () => void;
   onOpenOnboarding: () => void;
@@ -82,6 +86,8 @@ export function FilterBar({
   archiveMode,
   onArchiveModeChange,
   notificationUnreadCount,
+  myWorkCue,
+  myWorkUnavailable = false,
   onOpenNotifications,
   onOpenCommandPalette,
   onOpenOnboarding,
@@ -90,6 +96,9 @@ export function FilterBar({
   onOpenShortcutHelp,
   onLogout,
 }: Props) {
+  const workDescription = myWorkBadgeDescription(myWorkCue, myWorkUnavailable, language);
+  const workAttention = !myWorkUnavailable && Boolean(myWorkCue && (myWorkCue.overdue || myWorkCue.corrections));
+  const mobileWorkShortcut = activeView !== "mywork" && Boolean(myWorkCue?.total || myWorkUnavailable);
   const [isMobileLayout, setIsMobileLayout] = useState(() => isTouchMobileViewport());
   const [mobileViewsOpen, setMobileViewsOpen] = useState(false);
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
@@ -196,8 +205,9 @@ export function FilterBar({
       <button data-testid="tab-calendar" className={activeView === "calendar" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("calendar") : onViewChange("calendar"))} role="tab" aria-selected={activeView === "calendar"}>
         {t(language, "nav.schedule")}
       </button>
-      <button data-testid="tab-my-work" className={activeView === "mywork" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("mywork") : onViewChange("mywork"))} role="tab" aria-selected={activeView === "mywork"}>
+      <button data-testid="tab-my-work" className={`tab my-work-tab${activeView === "mywork" ? " active" : ""}${workAttention ? " needs-attention" : ""}`} title={workDescription} aria-label={`${t(language, "nav.myWork")}: ${workDescription}`} onClick={() => (isMobileLayout ? handleMobileViewChange("mywork") : onViewChange("mywork"))} role="tab" aria-selected={activeView === "mywork"}>
         {t(language, "nav.myWork")}
+        <MyWorkBadge cue={myWorkCue} unavailable={myWorkUnavailable} />
       </button>
       {currentUser.role !== "VIEWER" ? (
         <button data-testid="tab-assigned-work" className={activeView === "assignedwork" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("assignedwork") : onViewChange("assignedwork"))} role="tab" aria-selected={activeView === "assignedwork"}>
@@ -273,7 +283,7 @@ export function FilterBar({
   if (isMobileLayout) {
     return (
       <header className="filterbar mobile-filterbar">
-        <div className="mobile-filterbar-main" aria-label={t(language, "nav.boardEssentials")}>
+        <div className="mobile-filterbar-main" data-work-shortcut={mobileWorkShortcut} aria-label={t(language, "nav.boardEssentials")}>
           <select data-testid="property-filter" value={selectedPropertyId} onChange={(event) => onPropertyChange(event.target.value)} aria-label={t(language, "nav.filterByProperty")}>
             <option value="">{t(language, "nav.allProperties")}</option>
             {properties.map((property) => (
@@ -289,12 +299,16 @@ export function FilterBar({
             placeholder={t(language, "nav.searchPlaceholder")}
             aria-label={t(language, "nav.searchBoardItems")}
           />
-            <button type="button" data-testid="mobile-views-toggle" aria-expanded={mobileViewsOpen} aria-controls="mobile-workspace-views" aria-label={`${t(language, "nav.view")}: ${viewLabel(activeView)}`} className={mobileViewsOpen ? "button mobile-filter-toggle mobile-view-toggle active" : "button button-secondary mobile-filter-toggle mobile-view-toggle"} onClick={toggleMobileViews}>
+            <button type="button" data-testid="mobile-views-toggle" aria-expanded={mobileViewsOpen} aria-controls="mobile-workspace-views" aria-label={`${t(language, "nav.view")}: ${viewLabel(activeView)}${activeView === "mywork" ? `: ${workDescription}` : ""}`} title={activeView === "mywork" ? workDescription : undefined} className={mobileViewsOpen ? "button mobile-filter-toggle mobile-view-toggle active" : "button button-secondary mobile-filter-toggle mobile-view-toggle"} onClick={toggleMobileViews}>
               {viewLabel(activeView)}
+              {activeView === "mywork" ? <MyWorkBadge cue={myWorkCue} unavailable={myWorkUnavailable} /> : null}
             </button>
             <button type="button" data-testid="mobile-tools-toggle" aria-expanded={mobileToolsOpen} aria-controls="mobile-workspace-tools" className={mobileToolsOpen ? "button mobile-filter-toggle mobile-tools-toggle active" : "button button-secondary mobile-filter-toggle mobile-tools-toggle"} onClick={toggleMobileTools}>
               {t(language, "nav.tools")}
             </button>
+            {mobileWorkShortcut ? <button type="button" className={`button button-secondary mobile-my-work-shortcut my-work-tab${workAttention ? " needs-attention" : ""}`} data-testid="mobile-my-work-shortcut" title={workDescription} aria-label={`${t(language, "nav.myWork")}: ${workDescription}`} onClick={() => handleMobileViewChange("mywork")}>
+              {t(language, "nav.myWork")}<MyWorkBadge cue={myWorkCue} unavailable={myWorkUnavailable} />
+            </button> : null}
             <button type="button" data-testid="notifications-button" className="button button-secondary notification-button mobile-alerts-button" onClick={() => { setMobileToolsOpen(false); setMobileViewsOpen(false); onOpenNotifications(); }} aria-label={`${t(language, "nav.alerts")}: ${notificationUnreadCount} ${t(language, "nav.notificationsUnread")}`}>
               {t(language, "nav.alerts")}{notificationUnreadCount > 0 ? <strong>{notificationUnreadCount}</strong> : null}
             </button>

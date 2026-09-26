@@ -1,0 +1,84 @@
+import { expect, test } from "@playwright/test";
+
+test("My Work count is personal, visible across views, and clear on mobile", async ({ page }, testInfo) => {
+  test.setTimeout(90000);
+  page.setDefaultTimeout(10000);
+  let count = 3;
+  let overdue = 0;
+  let correction = false;
+  let unavailable = false;
+  await page.route("**/api/my-work*", async route => {
+    if (unavailable) return route.fulfill({ status: 503, json: { message: "Temporarily unavailable" } });
+    const response = await route.fetch();
+    const data = await response.json();
+    const other = new URL(route.request().url()).searchParams.has("userId");
+    const board = await (await page.request.get("/api/make-ready-items")).json();
+    const total = other ? 7 : count;
+    await route.fulfill({ response, json: {
+      ...data, forecast: { turns: [], warnings: [] }, projectItems: [], pestItems: [], leaseComplianceItems: [], pmTasks: [], activeSessions: [],
+      stats: { total, overdue: other ? 0 : overdue, dueSoon: 0, openChecklistTasks: 0 },
+      items: Array.from({ length: total }, (_, index) => ({ ...board[0], id: `badge-${index}`, checklistInstances: [], workAssignmentBlocks: !other && correction && index === 0 ? [{ id: "correction", category: "FINAL_WALK_CORRECTION", status: "PLANNED", plannedDate: "2026-09-25T12:00:00Z" }] : [] })),
+    } });
+  });
+  await page.goto("/");
+  await page.getByTestId("login-email").fill(process.env.ADMIN_EMAIL || "admin@example.com");
+  await page.getByTestId("login-password").fill(process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456");
+  await page.getByTestId("login-submit").click();
+  const tab = page.getByTestId("tab-my-work");
+  const badge = tab.getByTestId("my-work-count");
+  await expect(badge).toHaveText("3");
+  await expect(badge).toHaveClass(/pending/);
+  await expect(tab).toHaveAttribute("title", /3 open assignments across your properties/);
+  await tab.click();
+  const staff = page.getByTestId("my-work-staff");
+  await expect(staff).toBeVisible();
+  await expect.poll(() => staff.locator("option").count()).toBeGreaterThan(1);
+  const currentUserId = (await (await page.request.get("/api/auth/me")).json()).user.id;
+  const member = await staff.locator("option").evaluateAll((options, currentId) => options.find(option => (option as HTMLOptionElement).value && (option as HTMLOptionElement).value !== currentId)?.getAttribute("value"), currentUserId);
+  expect(member).toBeTruthy();
+  await staff.selectOption(member!);
+  await expect(page.locator(".my-work-stats strong").first()).toContainText("7");
+  await expect(badge).toHaveText("3");
+  await tab.click();
+  await expect(page.locator(".my-work-stats strong").first()).toContainText("3");
+  await page.getByTestId("tab-table").click();
+  overdue = 1;
+  await page.reload();
+  await expect(badge).toHaveText("! 3");
+  await expect(badge).toHaveClass(/attention/);
+  await expect(tab).toHaveAttribute("title", /1 overdue/);
+  await page.screenshot({ path: testInfo.outputPath("my-work-attention-desktop.png") });
+  overdue = 0;
+  correction = true;
+  await page.reload();
+  await expect(badge).toHaveClass(/attention/);
+  await expect(tab).toHaveAttribute("title", /1 with final-walk corrections/);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const shortcut = page.getByTestId("mobile-my-work-shortcut");
+  await expect(shortcut).toBeInViewport();
+  await expect(shortcut.getByTestId("my-work-count")).toHaveText("! 3");
+  await page.screenshot({ path: testInfo.outputPath("my-work-attention-mobile.png") });
+  await shortcut.click();
+  await expect(page.getByTestId("my-work-panel")).toBeVisible();
+  await expect(page.getByTestId("mobile-views-toggle").getByTestId("my-work-count")).toHaveText("! 3");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByTestId("tab-table").click();
+  count = 105;
+  correction = false;
+  await page.reload();
+  await expect(badge).toHaveText("99+");
+  await expect(tab).toHaveAttribute("aria-label", /105 open assignments/);
+  count = 0;
+  await page.reload();
+  await expect(tab).toHaveAttribute("title", /0 open assignments/);
+  await expect(badge).toHaveCount(0);
+  unavailable = true;
+  await page.reload();
+  await expect(badge).toHaveText("?", { timeout: 30000 });
+  await expect(tab).toHaveAttribute("title", "Work count temporarily unavailable");
+  unavailable = false;
+  count = 2;
+  await page.reload();
+  await expect(badge).toHaveText("2");
+});

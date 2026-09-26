@@ -200,6 +200,7 @@ import { openProjectCreateEventName, openProjectRecordEventName, type OpenProjec
 import { openPestQuickAddEventName, openPestWorkspaceEventName, type OpenPestQuickAddRequest, type OpenPestWorkspaceRequest } from "./lib/pestNavigation";
 import { openLeaseQuickAddEventName, openLeaseWorkspaceEventName, type OpenLeaseQuickAddRequest, type OpenLeaseWorkspaceRequest } from "./lib/leaseNavigation";
 import { AvailabilityFreshness } from "./components/AvailabilityFreshness";
+import { myWorkCue } from "./lib/myWorkCue";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel").then((module) => ({ default: module.AdminPanel })));
 const ActivityPanel = lazy(() => import("./components/ActivityPanel").then((module) => ({ default: module.ActivityPanel })));
@@ -1659,6 +1660,15 @@ function App() {
     queryKey: ["my-work", myWorkUserId],
     queryFn: () => getMyWork(myWorkUserId || undefined),
     enabled: meQuery.isSuccess && activeView === "mywork",
+  });
+  // Share the personal panel's cache, never a manager's selected staff member.
+  const myWorkBadgeQuery = useQuery({
+    queryKey: ["my-work", ""],
+    queryFn: () => getMyWork(),
+    enabled: meQuery.isSuccess,
+    staleTime: 30000,
+    refetchInterval: 60000,
+    refetchIntervalInBackground: false,
   });
   const assignedWorkQuery = useQuery({
     queryKey: ["assigned-work", propertyId, myWorkUserId],
@@ -3795,7 +3805,12 @@ function App() {
         onPropertyChange={setPropertyId}
         onSearchChange={setSearch}
         activeView={activeView}
-        onViewChange={setActiveView}
+        myWorkCue={!myWorkBadgeQuery.isError && myWorkBadgeQuery.data?.target.id === currentUser.id ? myWorkCue(myWorkBadgeQuery.data) : undefined}
+        myWorkUnavailable={myWorkBadgeQuery.isError}
+        onViewChange={(view) => {
+          if (view === "mywork") setMyWorkUserId("");
+          setActiveView(view);
+        }}
         showAdmin={currentUser.role === "ADMIN"}
         showFieldManager={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
         showAutomations={currentUser.role === "ADMIN" || currentUser.role === "MANAGER"}
