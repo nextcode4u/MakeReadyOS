@@ -459,7 +459,7 @@ export function FilterBar({
         <button data-testid="command-palette-button" className="button button-secondary command-button" type="button" onClick={onOpenCommandPalette} aria-label={t(language, "nav.openQuickSearch")}>
           {t(language, "nav.search")} <kbd>Ctrl K</kbd>
         </button>
-        <HelpTip label={language === "es" ? "Ayuda del tablero" : "Help finding work on the board"}>{language === "es" ? "Busca una unidad y abre sus detalles. My Work muestra tus asignaciones. Tools permite mostrar solo columnas esenciales. Search encuentra tareas como piezas o inspecciones." : "Search a unit and open its details for work, parts, photos and final walk. My Work shows your assignments. Tools > Basic board reduces columns without deleting data. Search (Ctrl K) also finds tasks such as parts or inspections."}</HelpTip>
+        <HelpTip label={language === "es" ? "Ayuda del tablero" : "Help finding work on the board"}>{language === "es" ? "Busca una unidad y abre sus detalles. Mi trabajo muestra tus asignaciones. Herramientas permite mostrar solo columnas esenciales. Buscar encuentra tareas como piezas o inspecciones." : "Search a unit and open its details for work, parts, photos and final walk. My Work shows your assignments. Tools > Basic board reduces columns without deleting data. Search (Ctrl K) also finds tasks such as parts or inspections."}</HelpTip>
         {(showAdmin || showOperations) ? (
           <button data-testid="onboarding-open" className="button button-secondary" type="button" onClick={onOpenOnboarding}>
             {language === "es" ? "Lista de configuracion" : "Setup checklist"}

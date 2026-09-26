@@ -1,3 +1,4 @@
+import { turnText } from "../lib/turnLocale";
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import { getVerifiedSession, isCurrentSession } from "../lib/verifiedSession";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -733,22 +734,22 @@ export function ItemDrawer({
           </div>
           <button type="button" className="drawer-close" data-testid="item-drawer-close" onClick={onClose} aria-label={t(language, "drawer.closeDetails")}>×</button>
           <nav className="drawer-work-nav" aria-label={language === "es" ? "Secciones de la unidad" : "Unit work sections"}>
-            {([ ["work", "Work & parts", "Trabajo y piezas"], ["photos", "Photos", "Fotos"], ["notes", "General notes", "Notas generales"], ["final", "Final walk", "Inspeccion"], ["all", "All details", "Detalles"] ] as const).map(([value, label, spanish]) => <button key={value} type="button" data-testid={`drawer-pane-${value}`} aria-pressed={pane === value} onClick={event => { setPane(value); event.currentTarget.closest("aside")?.scrollTo({ top: 0 }); }}>{language === "es" ? spanish : label}</button>)}
+            {([ ["work", "Work & parts", "Trabajo y piezas"], ["photos", "Photos", "Fotos"], ["notes", "General notes", "Notas generales"], ["final", "Final walk", "Inspección final"], ["all", "All details", "Todos los detalles"] ] as const).map(([value, label, spanish]) => <button key={value} type="button" data-testid={`drawer-pane-${value}`} aria-pressed={pane === value} onClick={event => { setPane(value); event.currentTarget.closest("aside")?.scrollTo({ top: 0 }); }}>{language === "es" ? spanish : label}</button>)}
           </nav>
         </header>
-        {completedReportOpen ? <FinalWalkReportEditor key={item.id} propertyId={item.propertyId} propertyName={item.property.name} itemId={item.id} onClose={() => setCompletedReportOpen(false)} /> : null}
+        {completedReportOpen ? <FinalWalkReportEditor language={language} key={item.id} propertyId={item.propertyId} propertyName={item.property.name} itemId={item.id} onClose={() => setCompletedReportOpen(false)} /> : null}
 
         {canManageItems && approved && !item.isArchived ? <details className="drawer-section" data-testid="reopen-final-walk">
-          <summary>Reopen for final walk</summary>
-          <p>This unit is currently treated as fully complete, so it will not appear in an inspector's My Work. Reopen it to clear overall approval and request another final walk. Completed repairs, painting, cleaning and report evidence are preserved.</p>
-          <label className="drawer-field"><span>Reason for reopening</span><textarea value={reopenReason} maxLength={1000} onChange={event => setReopenReason(event.target.value)} disabled={saving !== null} /><small>At least 10 characters. Your name and reason are recorded in history.</small></label>
+          <summary>{turnText(language, "Reopen for final walk")}</summary>
+          <p>{turnText(language, "This unit is currently treated as fully complete, so it will not appear in an inspector's My Work. Reopen it to clear overall approval and request another final walk. Completed repairs, painting, cleaning and report evidence are preserved.")}</p>
+          <label className="drawer-field"><span>{turnText(language, "Reason for reopening")}</span><textarea value={reopenReason} maxLength={1000} onChange={event => setReopenReason(event.target.value)} disabled={saving !== null} /><small>{turnText(language, "At least 10 characters. Your name and reason are recorded in history.")}</small></label>
           <button type="button" className="button button-primary" disabled={saving !== null || reopenReason.trim().length < 10} onClick={() => void operation("reopenFinalWalk", async () => {
             const result = await reopenMakeReadyFinalWalk(item.id, reopenReason.trim());
             setReopenReason("");
-            setReopenMessage(result.assigned ? "Reopened for final walk. The inspector has been assigned and notified." : "Reopened, but no eligible inspector is configured. Set up the property's final-walk team; managers have been notified.");
+            setReopenMessage(result.assigned ? turnText(language, "Reopened for final walk. The inspector has been assigned and notified.") : turnText(language, "Reopened, but no eligible inspector is configured. Set up the property's final-walk team; managers have been notified."));
             for (const key of ["make-ready-items", "final-walk", "my-work", "assigned-work", "planning", "activity", "notifications", "calendar"]) await queryClient.invalidateQueries({ queryKey: [key] });
             onRefreshItem();
-          })}>{saving === "reopenFinalWalk" ? "Reopening..." : "Reopen and request final walk"}</button>
+          })}>{saving === "reopenFinalWalk" ? turnText(language, "Reopening...") : turnText(language, "Reopen and request final walk")}</button>
         </details> : null}
         {reopenMessage ? <p role="status" className="drawer-empty">{reopenMessage}</p> : null}
 
@@ -756,25 +757,25 @@ export function ItemDrawer({
         {itemRefreshFailed ? <p className="drawer-error" role="alert">{language === "es" ? "No se pudo actualizar la unidad. Los datos visibles pueden estar desactualizados; tus entradas no guardadas siguen aqui." : "Could not refresh the unit. Displayed data may be stale; your unsaved input is still here."} <button type="button" onClick={onRefreshItem}>{language === "es" ? "Reintentar unidad" : "Retry unit"}</button></p> : null}
         {pendingSyncCount ? <p className="drawer-empty" role="status">{t(language, "drawer.pendingSync").replace("{count}", String(pendingSyncCount))}</p> : null}
         <section className="drawer-section" data-testid="drawer-work-summary">
-          <h3>{language === "es" ? "Trabajo de la unidad" : "Unit work"} <HelpTip label="Help with the turn process">Repairs finished is not the same as unit ready. Finish repairs, painting and cleaning, then the assigned inspector completes the final walk.</HelpTip></h3>
-          <div className="drawer-work-shortcuts" aria-label="Jump to work section">
-            <button type="button" onClick={() => jumpToWorkSection("turn-materials")}>Parts &amp; work notes</button>
+          <h3>{language === "es" ? "Trabajo de la unidad" : "Unit work"} <HelpTip label={turnText(language, "Help with the turn process")}>{turnText(language, "Repairs finished is not the same as unit ready. Finish repairs, painting and cleaning, then the assigned inspector completes the final walk.")}</HelpTip></h3>
+          <div className="drawer-work-shortcuts" aria-label={turnText(language, "Jump to work section")}>
+            <button type="button" onClick={() => jumpToWorkSection("turn-materials")}>{turnText(language, "Parts & work notes")}</button>
             {["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? <>
-              <button type="button" onClick={() => jumpToWorkSection("technician-preparation-checks")}>Preparation checks</button>
-              <button type="button" onClick={() => jumpToWorkSection("resident-code-controls")}>Resident codes</button>
+              <button type="button" onClick={() => jumpToWorkSection("technician-preparation-checks")}>{turnText(language, "Preparation checks")}</button>
+              <button type="button" onClick={() => jumpToWorkSection("resident-code-controls")}>{turnText(language, "Resident codes")}</button>
             </> : null}
           </div>
-          {hasCorrections ? <div className="work-correction-panel" data-testid="drawer-correction-next-step"><strong>Final-walk corrections need attention</strong><p>Review the inspector's feedback, fix the issues, and save the technician resolution before marking repairs Done again.</p><button type="button" onClick={() => jumpToWorkSection(["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? "technician-corrections" : "drawer-turn-details")}>Review corrections</button></div> : null}
+          {hasCorrections ? <div className="work-correction-panel" data-testid="drawer-correction-next-step"><strong>{turnText(language, "Final-walk corrections need attention")}</strong><p>{turnText(language, "Review the inspector's feedback, fix the issues, and save the technician resolution before marking repairs Done again.")}</p><button type="button" onClick={() => jumpToWorkSection(["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? "technician-corrections" : "drawer-turn-details")}>{turnText(language, "Review corrections")}</button></div> : null}
           <dl className="drawer-work-facts">
-            <div><dt>{language === "es" ? "Tecnico de reparaciones" : "Repair technician"}</dt><dd>{item.assignedTech || (language === "es" ? "Sin asignar" : "Unassigned")}</dd></div>
-            <div><dt>{language === "es" ? "Fin previsto" : "Expected finish"}</dt><dd>{dateValue(item.makeReadyDate) || "Not set"}</dd></div>
-            <div><dt>{language === "es" ? "Mudanza" : "Move-in"}</dt><dd>{dateValue(item.moveInDate) || "Not set"}</dd></div>
+            <div><dt>{language === "es" ? "Técnico de reparaciones" : "Repair technician"}</dt><dd>{item.assignedTech || (language === "es" ? "Sin asignar" : "Unassigned")}</dd></div>
+            <div><dt>{language === "es" ? "Fin previsto" : "Expected finish"}</dt><dd>{dateValue(item.makeReadyDate) || turnText(language, "Not set")}</dd></div>
+            <div><dt>{language === "es" ? "Mudanza" : "Move-in"}</dt><dd>{dateValue(item.moveInDate) || turnText(language, "Not set")}</dd></div>
           </dl>
           {item.scopeLevel ? <p>{language === "es" ? "Alcance" : "Scope"}: {item.scopeLevel}</p> : null}
           {item.riskReasons?.length ? <details><summary>{item.riskReasons.length} {language === "es" ? "avisos de riesgo" : "risk notices"}</summary><ul>{item.riskReasons.map((reason, index) => <li key={index}>{reason.message}</li>)}</ul></details> : null}
-          {nextStep ? <TurnHandoffSummary item={item} onOpenFinal={() => setPane("final")} /> : null}
+          {nextStep ? <TurnHandoffSummary language={language} item={item} onOpenFinal={() => setPane("final")} /> : null}
           {nextStep ? <div data-testid="drawer-next-action">
-            {nextStep !== "inspection" ? <strong>{language === "es" ? "Siguiente paso" : "Next step"}: {(language === "es" ? { repairs: "Terminar reparaciones, llaves y codigos del residente", painting: "Terminar pintura y actualizar su estado", cleaning: "Terminar limpieza y actualizar su estado" } : { repairs: "Finish repairs, keys and resident codes", painting: "Complete painting and update the paint status", cleaning: "Complete cleaning and update the cleaning status" })[nextStep]}</strong> : null}
+            {nextStep !== "inspection" ? <strong>{language === "es" ? "Siguiente paso" : "Next step"}: {(language === "es" ? { repairs: "Terminar reparaciones, llaves y códigos del residente", painting: "Terminar pintura y actualizar su estado", cleaning: "Terminar limpieza y actualizar su estado" } : { repairs: "Finish repairs, keys and resident codes", painting: "Complete painting and update the paint status", cleaning: "Complete cleaning and update the cleaning status" })[nextStep]}</strong> : null}
             <details className="workflow-help"><summary>{language === "es" ? "Responsables y fechas" : "Who is assigned & planned dates"}</summary>
             {workPlanState !== "ready" ? <p role="status">{language === "es" ? "Asignaciones por verificar. Revisa el plan de trabajo." : "Stage assignments are not verified. Review the work plan."}</p> : <>
               {nextStepAssignments.length ? <ul>{nextStepAssignments.slice(0, 4).map(assignment => <li key={assignment.id}>{assignment.owner} / {assignment.date?.slice(0, 10) || (language === "es" ? "Fecha sin definir" : "Date not set")} / {assignment.status.replace(/_/g, " ")}</li>)}</ul> : <p>{nextStep === "repairs" && item.assignedTech ? (language === "es" ? `Responsable de reparaciones: ${item.assignedTech}. No se muestra un bloque programado correspondiente.` : `Repair owner: ${item.assignedTech}. No matching scheduled work block shown.`) : (language === "es" ? "No se muestra una asignacion abierta para esta etapa. Revisa categorias personalizadas o asigna cobertura." : "No matching open stage assignment shown. Review the work plan for custom categories or arrange coverage.")}</p>}
@@ -784,14 +785,14 @@ export function ItemDrawer({
             <div><button type="button" className="button button-secondary" onClick={() => { setPane("all"); requestAnimationFrame(() => document.querySelector('[data-testid="drawer-planning-summary"]')?.scrollIntoView({ block: "start" })); }}>{language === "es" ? "Revisar plan de trabajo" : "Review work plan"}</button></div>
             </details>
           </div> : null}
-          <details className="workflow-help"><summary>{language === "es" ? "Como funciona el proceso" : "How the turn process works"}</summary>
+          <details className="workflow-help"><summary>{language === "es" ? "Cómo funciona el proceso" : "How the turn process works"}</summary>
             <ol>
-              <li><strong>Technician:</strong> inspect, record scope, complete repairs, preparation checks, keys and codes. Set Make Ready to DONE when repairs are finished.</li>
-              <li><strong>Painting &amp; cleaning:</strong> update each trade to Done or Not needed. Planned dates alone do not finish the work.</li>
-              <li><strong>Leasing / assigned inspector:</strong> when the trades are finished, automatic final-walk assignment uses the configured inspector order. Check the named inspector, complete the report and review blockers.</li>
-              <li><strong>Corrections:</strong> record what needs fixing for the technician, then recheck before final approval. Unit ready is separate from repairs finished.</li>
+              <li><strong>{turnText(language, "Technician:")}</strong> {turnText(language, "inspect, record scope, complete repairs, preparation checks, keys and codes. Set Make Ready to DONE when repairs are finished.")}</li>
+              <li><strong>{turnText(language, "Painting & cleaning:")}</strong> {turnText(language, "update each trade to Done or Not needed. Planned dates alone do not finish the work.")}</li>
+              <li><strong>{turnText(language, "Leasing / assigned inspector:")}</strong> {turnText(language, "when the trades are finished, automatic final-walk assignment uses the configured inspector order. Check the named inspector, complete the report and review blockers.")}</li>
+              <li><strong>{turnText(language, "Corrections:")}</strong> {turnText(language, "record what needs fixing for the technician, then recheck before final approval. Unit ready is separate from repairs finished.")}</li>
             </ol>
-            <p>Work &amp; parts holds unit-specific tasks and supplies. General notes holds discussion and updates. Final walk holds inspection findings and approval.</p>
+            <p>{turnText(language, "Work & parts holds unit-specific tasks and supplies. General notes holds discussion and updates. Final walk holds inspection findings and approval.")}</p>
           </details>
         </section>
         <section className="drawer-section risk-drawer-section" data-testid="drawer-risk-section">
@@ -905,9 +906,9 @@ export function ItemDrawer({
           })}
         </section> : null}
 
-        {["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? <ResidentCodesPanel key={`codes-${currentUser.id}-${item.id}`} itemId={item.id} status={`${item.makeReadyStatus}|${inspectionReady}|${approved}`}/> : null}
+        {["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? <ResidentCodesPanel language={language} key={`codes-${currentUser.id}-${item.id}`} itemId={item.id} status={`${item.makeReadyStatus}|${inspectionReady}|${approved}`}/> : null}
         {canViewKeycodes(currentUser) ? <details className="drawer-section"><summary>Look up unit keys &amp; access codes</summary><AccessCodesPanel key={`lookup-${currentUser.id}-${item.id}`} properties={[item.property]} selectedPropertyId={item.propertyId} role={currentUser.role} keycodeAccess={currentUser.keycodeAccess} initialUnit={item.unitNumber} /></details> : null}
-        <TurnMaterialsPanel key={`materials-${currentUser.id}-${item.id}`} userId={currentUser.id} itemId={item.id} title={displayUnitNumber(item.property.code, item.unitNumber)} canEdit={["ADMIN", "MANAGER", "TECH", "CLEANER"].includes(currentUser.role)} />
+        <TurnMaterialsPanel language={language} key={`materials-${currentUser.id}-${item.id}`} userId={currentUser.id} itemId={item.id} title={displayUnitNumber(item.property.code, item.unitNumber)} canEdit={["ADMIN", "MANAGER", "TECH", "CLEANER"].includes(currentUser.role)} />
         <section className="drawer-section">
           <h3>{t(language, "drawer.customFields")}</h3>
           {customFields.length === 0 ? <p className="drawer-empty">{t(language, "drawer.noCustomFields")}</p> : (
@@ -964,7 +965,7 @@ export function ItemDrawer({
         <section className="drawer-section completion-section" data-testid="drawer-completion-section">
           <h3>{t(language, "drawer.completionFinalWalk")}</h3>
           <FinalWalkControls key={item.id} itemId={item.id} propertyId={item.propertyId} propertyName={item.property.name} currentUser={currentUser} onMarkReady={onMarkReady} />
-          {["ADMIN", "MANAGER"].includes(currentUser.role) ? <TurnReportPanel key={`report-${item.id}`} item={item} isAdmin={currentUser.role === "ADMIN"}/> : null}
+          {["ADMIN", "MANAGER"].includes(currentUser.role) ? <TurnReportPanel language={language} key={`report-${item.id}`} item={item} isAdmin={currentUser.role === "ADMIN"}/> : null}
           <p className="drawer-empty">
             {t(language, "drawer.completionHelp")}
           </p>
@@ -1152,7 +1153,7 @@ export function ItemDrawer({
 
         <section className="drawer-section" data-testid="drawer-notes-section">
           <h3>{language === "es" ? "Notas generales y actualizaciones" : "General notes & updates"}</h3>
-          <p className="helper-copy">For unit-specific repair tasks, use <button type="button" className="text-action" onClick={() => jumpToWorkSection("unit-work-notes")}>work notes in Work &amp; parts</button>. Record inspection corrections in Final walk.</p>
+          <p className="helper-copy">{turnText(language, "For unit-specific repair tasks, use")} <button type="button" className="text-action" onClick={() => jumpToWorkSection("unit-work-notes")}>{turnText(language, "work notes in Work & parts")}</button>{turnText(language, ". Record inspection corrections in Final walk.")}</p>
           <label htmlFor={`general-notes-${item.id}`}>{language === "es" ? "Notas generales (se guardan al salir del campo)" : "General notes (save when you leave the field)"}</label>
           <textarea id={`general-notes-${item.id}`} key={`notes:${item.notes ?? ""}`} data-testid="drawer-notes" defaultValue={item.notes ?? ""} disabled={!canEditField(item, "notes")} placeholder={t(language, "drawer.operationalNotes")} onBlur={(event) => void commit("notes", event.target.value || null)} />
           {canCollaborate ? (

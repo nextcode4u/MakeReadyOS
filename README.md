@@ -55,7 +55,7 @@ These images show the current interface with fictional records created in a disp
 - Pool Log includes daily readings, safety checks, chemical additions, printable reports, scoped photos/PDFs, and in-app review reminders.
 - Authentication, roles, property-scoped permissions, audit logs, API tokens, and in-app notifications.
 - Optional SMTP-backed new-user invite emails from Admin when operators want login details delivered to the user's email address.
-- English/Spanish user language preferences for the sign-in flow, core app shell, dashboard shell, connection/offline status messaging, and user-management workflow. Module-level workflow translation is still an active hardening pass.
+- English/Spanish user language preferences for the sign-in flow, core app shell, dashboard shell, connection/offline messaging, user management, and turn work/parts/preparation/final-walk controls. See [Spanish interface coverage](docs/SPANISH_LOCALE.md) for remaining module and report-language limits.
 - Mobile browser install support through a Progressive Web App manifest and app-like home-screen launch.
 - Local attachments/photos, item comments, checklist templates, item drawer, unit history, analytics snapshots, and risk scoring.
 - Scoped integration API with examples and a lightweight OpenAPI contract at `/api/openapi.json`.

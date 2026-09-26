@@ -3852,14 +3852,14 @@ function App() {
       />
 
       <main className="workspace module-rail-layout" data-rail-collapsed={moduleRailCollapsed}>
-        <aside id="module-navigation" className="module-rail" aria-label="MakeReadyOS modules">
+        <aside id="module-navigation" className="module-rail" aria-label={currentUser.language === "es" ? "Módulos de MakeReadyOS" : "MakeReadyOS modules"}>
           <button
             type="button"
             className="module-rail-button"
             data-testid="module-rail-toggle"
             aria-expanded={!moduleRailCollapsed}
             aria-controls="module-navigation"
-            aria-label={moduleRailCollapsed ? "Expand navigation labels" : "Collapse navigation labels"}
+            aria-label={currentUser.language === "es" ? (moduleRailCollapsed ? "Mostrar etiquetas de navegación" : "Ocultar etiquetas de navegación") : (moduleRailCollapsed ? "Expand navigation labels" : "Collapse navigation labels")}
             title={currentUser.language === "es" ? (moduleRailCollapsed ? "Mostrar etiquetas" : "Ocultar etiquetas") : (moduleRailCollapsed ? "Expand labels" : "Collapse labels")}
             onClick={() => setModuleRailCollapsed(value => !value)}
           >
@@ -3868,8 +3868,8 @@ function App() {
           <button
             className={activeView === "refrigerant" || activeView === "pool" || activeView === "pest" || activeView === "lease" || activeView === "pm" || activeView === "projects" || activeView === "wiki" || activeView === "oncall" || activeView === "accesscodes" ? "module-rail-button" : "module-rail-button active"}
             type="button"
-            title="Turn board"
-            aria-label="MakeReadyOS board"
+            title={currentUser.language === "es" ? "Tablero de preparación" : "Turn board"}
+            aria-label={currentUser.language === "es" ? "Tablero de MakeReadyOS" : "MakeReadyOS board"}
             onClick={() => setActiveView("table")}
           >
             <span className="module-rail-icon" style={moduleRailMask("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5h6v14H4V5Zm9 0h7v4h-7V5Zm0 7h7v7h-7v-7Z'/%3E%3C/svg%3E")} aria-hidden="true" />
@@ -3878,8 +3878,8 @@ function App() {
             <button
               className={activeView === "refrigerant" ? "module-rail-button active" : "module-rail-button"}
               type="button"
-              title="Refrigerant logs"
-              aria-label="Open RefrigerantLogOS"
+              title={currentUser.language === "es" ? "Registros de refrigerante" : "Refrigerant logs"}
+              aria-label={currentUser.language === "es" ? "Abrir registros de refrigerante" : "Open RefrigerantLogOS"}
               data-testid="module-rail-refrigerant"
               onClick={() => setActiveView("refrigerant")}
             >
@@ -3889,8 +3889,8 @@ function App() {
           <button
             className={activeView === "pool" ? "module-rail-button active" : "module-rail-button"}
             type="button"
-            title="Pool logs"
-            aria-label="Open PoolLogOS"
+            title={currentUser.language === "es" ? "Registros de piscina" : "Pool logs"}
+            aria-label={currentUser.language === "es" ? "Abrir registros de piscina" : "Open PoolLogOS"}
             data-testid="module-rail-pool"
             onClick={() => setActiveView("pool")}
           >
@@ -3899,8 +3899,8 @@ function App() {
           <button
             className={activeView === "pest" ? "module-rail-button active" : "module-rail-button"}
             type="button"
-            title="Pest Control"
-            aria-label="Open Pest Control"
+            title={currentUser.language === "es" ? "Control de plagas" : "Pest Control"}
+            aria-label={currentUser.language === "es" ? "Abrir control de plagas" : "Open Pest Control"}
             data-testid="module-rail-pest"
             onClick={() => setActiveView("pest")}
           >
@@ -3909,8 +3909,8 @@ function App() {
           <button
             className={activeView === "lease" ? "module-rail-button active" : "module-rail-button"}
             type="button"
-            title="Lease Compliance"
-            aria-label="Open Lease Compliance"
+            title={currentUser.language === "es" ? "Cumplimiento del contrato" : "Lease Compliance"}
+            aria-label={currentUser.language === "es" ? "Abrir cumplimiento del contrato" : "Open Lease Compliance"}
             data-testid="module-rail-lease-compliance"
             onClick={() => setActiveView("lease")}
           >
@@ -3919,8 +3919,8 @@ function App() {
           <button
             className={activeView === "pm" ? "module-rail-button active" : "module-rail-button"}
             type="button"
-            title="Preventive Maintenance"
-            aria-label="Open Preventive Maintenance"
+            title={currentUser.language === "es" ? "Mantenimiento preventivo" : "Preventive Maintenance"}
+            aria-label={currentUser.language === "es" ? "Abrir mantenimiento preventivo" : "Open Preventive Maintenance"}
             data-testid="module-rail-pm"
             onClick={() => setActiveView("pm")}
           >
@@ -3930,8 +3930,8 @@ function App() {
             <button
               className={activeView === "projects" ? "module-rail-button active" : "module-rail-button"}
               type="button"
-              title="Projects"
-              aria-label="Open Projects"
+              title={currentUser.language === "es" ? "Proyectos" : "Projects"}
+              aria-label={currentUser.language === "es" ? "Abrir proyectos" : "Open Projects"}
               data-testid="module-rail-projects"
               onClick={() => setActiveView("projects")}
             >
@@ -3941,17 +3941,17 @@ function App() {
           <button
             className={activeView === "wiki" ? "module-rail-button active" : "module-rail-button"}
             type="button"
-            title="Property Wiki"
-            aria-label="Open Property Wiki"
+            title={currentUser.language === "es" ? "Wiki de la propiedad" : "Property Wiki"}
+            aria-label={currentUser.language === "es" ? "Abrir wiki de la propiedad" : "Open Property Wiki"}
             data-testid="module-rail-property-wiki"
             onClick={() => setActiveView("wiki")}
           >
             <span className="module-rail-icon" style={moduleRailMask("/icons/fontawesome/wiki.svg")} aria-hidden="true" />
           </button>
-          <button className={activeView === "oncall" ? "module-rail-button active" : "module-rail-button"} type="button" aria-label="On-call" title="On-call" data-testid="module-rail-oncall" onClick={() => setActiveView("oncall")}>
+          <button className={activeView === "oncall" ? "module-rail-button active" : "module-rail-button"} type="button" aria-label={currentUser.language === "es" ? "Guardias" : "On-call"} title={currentUser.language === "es" ? "Guardias" : "On-call"} data-testid="module-rail-oncall" onClick={() => setActiveView("oncall")}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="M6 3H3v3c0 8.3 6.7 15 15 15h3v-5l-5-2-2 2a12 12 0 0 1-6-6l2-2-2-5H6Z"/><path d="M15 3a6 6 0 0 1 6 6M15 7a2 2 0 0 1 2 2"/></svg>
           </button>
-          {canViewKeycodes(currentUser) ? <button type="button" className={activeView === "accesscodes" ? "module-rail-button active" : "module-rail-button"} title="Keys & Access" aria-label="Keys & Access" onClick={() => setActiveView("accesscodes")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="8" cy="8" r="5"/><path d="m12 12 9 9m-3-3 3-3m-6 0 3-3"/></svg></button> : null}
+          {canViewKeycodes(currentUser) ? <button type="button" className={activeView === "accesscodes" ? "module-rail-button active" : "module-rail-button"} title={currentUser.language === "es" ? "Llaves y acceso" : "Keys & Access"} aria-label={currentUser.language === "es" ? "Llaves y acceso" : "Keys & Access"} onClick={() => setActiveView("accesscodes")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="8" cy="8" r="5"/><path d="m12 12 9 9m-3-3 3-3m-6 0 3-3"/></svg></button> : null}
         </aside>
 
         <section className="primary-panel">

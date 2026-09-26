@@ -19,15 +19,15 @@ async function readLogo(file: File) {
   } finally { bitmap.close(); }
 }
 
-export function PropertyBrandingPanel({ propertyId, isAdmin }: { propertyId: string; isAdmin: boolean }) {
+export function PropertyBrandingPanel({ propertyId, isAdmin, language }: { propertyId: string; isAdmin: boolean; language: string }) {
   const branding = useQuery({ queryKey: ["property-branding", propertyId], queryFn: () => getPropertyBranding(propertyId) });
   const companies = useQuery({ queryKey: ["management-companies"], queryFn: getManagementCompanies });
   if (branding.isPending || companies.isPending) return <p>Loading property branding...</p>;
   if (branding.isError || companies.isError) return <div role="alert">Could not load branding. <button type="button" className="button" onClick={() => { void branding.refetch(); void companies.refetch(); }}>Retry</button></div>;
-  return <BrandingEditor key={propertyId} propertyId={propertyId} propertyName={branding.data.property.name} initial={branding.data.property.branding} companies={companies.data.companies} isAdmin={isAdmin} />;
+  return <BrandingEditor language={language} key={propertyId} propertyId={propertyId} propertyName={branding.data.property.name} initial={branding.data.property.branding} companies={companies.data.companies} isAdmin={isAdmin} />;
 }
 
-function BrandingEditor({ propertyId, propertyName, initial, companies, isAdmin }: { propertyId: string; propertyName: string; initial: PropertyBranding | null; companies: ManagementCompany[]; isAdmin: boolean }) {
+function BrandingEditor({ propertyId, propertyName, initial, companies, isAdmin, language }: { propertyId: string; propertyName: string; initial: PropertyBranding | null; companies: ManagementCompany[]; isAdmin: boolean; language: string }) {
   const client = useQueryClient();
   const [companyId, setCompanyId] = useState(initial?.managementCompanyId ?? "");
   const [logo, setLogo] = useState(initial?.logo ?? null);
@@ -53,7 +53,7 @@ function BrandingEditor({ propertyId, propertyName, initial, companies, isAdmin 
     {error ? <p role="alert">{error}</p> : null}
     {message ? <p role="status">{message}</p> : null}
     {isAdmin ? <div className="branding-report-entry"><button type="button" className="button" data-testid="open-final-report-editor" disabled={busy} onClick={() => setReportOpen(true)}>Edit / Preview Final-Walk Report</button><p className="helper-copy">Uses saved property and company logos. Save branding changes before opening.</p></div> : null}
-    {reportOpen ? <FinalWalkReportEditor propertyId={propertyId} propertyName={propertyName} onClose={() => setReportOpen(false)} /> : null}
+    {reportOpen ? <FinalWalkReportEditor language={language} propertyId={propertyId} propertyName={propertyName} onClose={() => setReportOpen(false)} /> : null}
     {!isAdmin ? <p className="helper-copy">An administrator can update company and property branding.</p> : <fieldset disabled={busy}>
       <label>Management company<select data-testid="branding-company" value={companyId} onChange={event => { setCompanyId(event.target.value); setMessage("Company selection changed. Save property branding to apply it."); }}><option value="">No company selected</option>{companies.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></label>
       <label>Property logo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void run(async () => { setLogo(await readLogo(file)); setMessage("Logo preview updated. Save property branding to apply it."); }); }} /></label>

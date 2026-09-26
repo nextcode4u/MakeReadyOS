@@ -46,7 +46,7 @@ Endpoints:
 
 ## Still Separate
 
-Verified signed/immutable issued revisions and encrypted/expiring code delivery remain separate work. Saved resident codes are sensitive plaintext within access-controlled drafts and privileged native/database backups, not a secrets vault. New editor copy is English; Spanish localization remains a follow-up alongside the branding editor.
+Verified signed/immutable issued revisions and encrypted/expiring code delivery remain separate work. Saved resident codes are sensitive plaintext within access-controlled drafts and privileged native/database backups, not a secrets vault. Editor controls and current inspection labels now follow the user's English/Spanish preference. Resident report wording remains the property's saved wording, not an automatic translation. Branding administration and remaining localization gaps are tracked in [Spanish interface coverage](SPANISH_LOCALE.md).
 
 ## Verification
 
