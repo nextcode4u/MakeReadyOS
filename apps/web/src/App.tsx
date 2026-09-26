@@ -199,7 +199,6 @@ import { openWikiRecordEventName, type OpenWikiRecordRequest } from "./lib/wikiN
 import { openProjectCreateEventName, openProjectRecordEventName, type OpenProjectCreateRequest, type OpenProjectRecordRequest } from "./lib/projectNavigation";
 import { openPestQuickAddEventName, openPestWorkspaceEventName, type OpenPestQuickAddRequest, type OpenPestWorkspaceRequest } from "./lib/pestNavigation";
 import { openLeaseQuickAddEventName, openLeaseWorkspaceEventName, type OpenLeaseQuickAddRequest, type OpenLeaseWorkspaceRequest } from "./lib/leaseNavigation";
-import { isTouchMobileViewport } from "./lib/responsive";
 import { AvailabilityFreshness } from "./components/AvailabilityFreshness";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel").then((module) => ({ default: module.AdminPanel })));
@@ -236,6 +235,7 @@ type DashboardDrilldownContext = {
   savedViewName: string;
 };
 const compactModeStorageKey = "makereadyos.compactMode";
+const moduleRailCollapsedStorageKey = "makereadyos.moduleRailCollapsed";
 const themeModeStorageKey = "makereadyos.themeMode";
 const eyeStrainModeStorageKey = "makereadyos.eyeStrainMode";
 const dyslexiaModeStorageKey = "makereadyos.dyslexiaMode";
@@ -661,7 +661,7 @@ function App() {
   const [visibleColumns, setVisibleColumns] = useState<string[] | null>(null);
   const [previousBoardColumns, setPreviousBoardColumns] = useState<string[] | null>(null);
   const [customFieldToAdd, setCustomFieldToAdd] = useState("");
-  const [tableFiltersOpen, setTableFiltersOpen] = useState(() => !isTouchMobileViewport());
+  const [tableFiltersOpen, setTableFiltersOpen] = useState(false);
   const [loginError, setLoginError] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
   const [adminError, setAdminError] = useState("");
@@ -681,6 +681,7 @@ function App() {
   const [forceLoggedOut, setForceLoggedOut] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [compactMode, setCompactMode] = useState(() => readStorageValue(compactModeStorageKey) !== "false");
+  const [moduleRailCollapsed, setModuleRailCollapsed] = useState(() => readStorageFlag(moduleRailCollapsedStorageKey));
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const stored = readStorageValue(themeModeStorageKey);
     return stored === "dark" || stored === "light" || stored === "default" ? stored : "light";
@@ -3100,6 +3101,10 @@ function App() {
   }, [compactMode]);
 
   useEffect(() => {
+    writeStorageValue(moduleRailCollapsedStorageKey, String(moduleRailCollapsed));
+  }, [moduleRailCollapsed]);
+
+  useEffect(() => {
     writeStorageValue(themeModeStorageKey, themeMode);
     document.documentElement.dataset.theme = themeMode;
   }, [themeMode]);
@@ -3829,12 +3834,24 @@ function App() {
         }}
       />
 
-      <main className="workspace module-rail-layout">
-        <aside className="module-rail" aria-label="MakeReadyOS modules">
+      <main className="workspace module-rail-layout" data-rail-collapsed={moduleRailCollapsed}>
+        <aside id="module-navigation" className="module-rail" aria-label="MakeReadyOS modules">
+          <button
+            type="button"
+            className="module-rail-button"
+            data-testid="module-rail-toggle"
+            aria-expanded={!moduleRailCollapsed}
+            aria-controls="module-navigation"
+            aria-label={moduleRailCollapsed ? "Expand navigation labels" : "Collapse navigation labels"}
+            title={currentUser.language === "es" ? (moduleRailCollapsed ? "Mostrar etiquetas" : "Ocultar etiquetas") : (moduleRailCollapsed ? "Expand labels" : "Collapse labels")}
+            onClick={() => setModuleRailCollapsed(value => !value)}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" focusable="false"><path d={moduleRailCollapsed ? "m9 5 7 7-7 7" : "m15 5-7 7 7 7"} /></svg>
+          </button>
           <button
             className={activeView === "refrigerant" || activeView === "pool" || activeView === "pest" || activeView === "lease" || activeView === "pm" || activeView === "projects" || activeView === "wiki" || activeView === "oncall" || activeView === "accesscodes" ? "module-rail-button" : "module-rail-button active"}
             type="button"
-            title="MakeReadyOS board"
+            title="Turn board"
             aria-label="MakeReadyOS board"
             onClick={() => setActiveView("table")}
           >
@@ -3844,7 +3861,7 @@ function App() {
             <button
               className={activeView === "refrigerant" ? "module-rail-button active" : "module-rail-button"}
               type="button"
-              title="RefrigerantLogOS"
+              title="Refrigerant logs"
               aria-label="Open RefrigerantLogOS"
               data-testid="module-rail-refrigerant"
               onClick={() => setActiveView("refrigerant")}
@@ -3855,7 +3872,7 @@ function App() {
           <button
             className={activeView === "pool" ? "module-rail-button active" : "module-rail-button"}
             type="button"
-            title="PoolLogOS"
+            title="Pool logs"
             aria-label="Open PoolLogOS"
             data-testid="module-rail-pool"
             onClick={() => setActiveView("pool")}
@@ -4916,7 +4933,6 @@ function App() {
         <Suspense fallback={null}>
           <ItemDrawer
             key={`${currentUser.id}-${selectedItem.id}`}
-            focused={activeView === "mywork" || activeView === "assignedwork"}
             item={selectedItem}
             itemRefreshFailed={selectedItemQuery.isError}
             onRefreshItem={() => { void selectedItemQuery.refetch(); }}
@@ -4961,6 +4977,7 @@ function App() {
         onReadAll={async () => { await readAllNotificationsMutation.mutateAsync(); }}
         onDismiss={async (id) => { await dismissNotificationMutation.mutateAsync(id); }}
         onOpenItem={(id) => { openItemDrawer(id); setNotificationsOpen(false); }}
+        onOpenPond={(id) => { setPropertyId(id); setActiveView("pond"); setNotificationsOpen(false); }}
         onPreferenceChange={async (category, enabled, propertyId) => { await notificationPreferenceMutation.mutateAsync({ category, enabled, propertyId }); }}
         onSettingsChange={async (input) => { await notificationSettingsMutation.mutateAsync(input); }}
       />

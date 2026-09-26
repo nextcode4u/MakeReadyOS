@@ -13,6 +13,7 @@ import { repairStageDisplay } from "../lib/repairStageDisplay";
 import { Modal } from "./Modal";
 import { StatusState } from "./StatusState";
 import { statusDisplayName } from "../lib/statusDisplayName";
+import { HelpTip } from "./HelpTip";
 
 type Props = {
   items: MakeReadyItem[];
@@ -904,6 +905,8 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                         aria-label={`${label}${fixed ? "" : isSpanish ? ", arrastre para reordenar columna" : ", drag to reorder column"}`}
                       >
                         <span className="column-header-label">{label}</span>
+                        {!entry.custom && key === "makeReadyStatus" ? <HelpTip label={isSpanish ? "Ayuda del estado de reparaciones" : "Help with repair status"}>{isSpanish ? "DONE termina solo reparaciones. Pintura, limpieza e inspeccion final son pasos separados. Abre la unidad para ver el siguiente paso." : "DONE finishes technician repairs only. Painting, cleaning and final approval are separate. Open the unit to see its next step."}</HelpTip> : null}
+                        {!entry.custom && key === "completionStatus" ? <HelpTip label={isSpanish ? "Ayuda de aprobacion final" : "Help with whole-turn completion"}>{isSpanish ? "La aprobacion final es distinta de terminar reparaciones. Revisa la inspeccion y sus bloqueos en los detalles de la unidad." : "Whole-turn approval is different from finishing repairs. Review the final walk and its blockers in the unit details."}</HelpTip> : null}
                         {!fixed ? <span className="column-drag-handle" aria-hidden="true">::</span> : null}
                         {canManageItems ? (
                           <button

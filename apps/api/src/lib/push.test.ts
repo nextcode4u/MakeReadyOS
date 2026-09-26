@@ -63,6 +63,7 @@ test("push worker respects current access, unread state, sessions, quiet hours a
   await skip(value => { value.notification.category = "STATUS_CHANGE"; });
   await skip(value => { value.notification.category = "CHECKLIST"; });
   await skip(value => { value.notification.category = "BATCH_CHANGE"; });
+  await skip(value => { value.notification.category = "POND_MILESTONE"; });
   const minute = new Date().getHours() * 60 + new Date().getMinutes();
   settings = { quietHoursEnabled: true, quietHoursStartMinute: minute, quietHoursEndMinute: (minute + 2) % 1440 };
   await skip(() => {}); settings = null; fresh = base();

@@ -4457,8 +4457,20 @@ textarea {
 
 .item-drawer-header:has(.drawer-work-nav) { flex-wrap: wrap; }
 .drawer-work-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .3rem; flex-basis: 100%; }
-.drawer-work-nav button { min-width: 0; min-height: 2.5rem; padding: .35rem .2rem; white-space: normal; font-size: .75rem; }
+.drawer-work-nav button { min-width: 0; min-height: 2.75rem; padding: .35rem .2rem; white-space: normal; font-size: .75rem; border: 1px solid var(--border); border-radius: .45rem; background: var(--panel-strong); color: var(--text-soft); cursor: pointer; }
 .drawer-work-nav button[aria-pressed="true"] { background: var(--accent); color: #061624; border-color: var(--accent); }
+.drawer-stage { margin: .3rem 0 .6rem; font-size: .9rem; color: var(--text-soft); }
+.drawer-work-shortcuts { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .9rem; }
+.drawer-work-shortcuts button { min-height: 2.75rem; padding: .45rem .65rem; font-size: .8rem; border: 1px solid var(--border); border-radius: .45rem; background: var(--panel-strong); color: var(--text-soft); cursor: pointer; }
+.workflow-help { margin: .6rem 0; font-size: .82rem; color: var(--text-muted); }
+.workflow-help summary { cursor: pointer; padding: .4rem 0; color: var(--text-soft); }
+.workflow-help li + li { margin-top: .5rem; }
+.turn-handoff-summary { border-left: 3px solid var(--accent); padding: .1rem .8rem; margin: .8rem 0; font-size: .85rem; }
+.turn-handoff-summary p { margin: .4rem 0; }
+.text-action { border: 0; padding: 0; color: var(--accent); background: transparent; text-decoration: underline; font: inherit; }
+.help-tip-trigger { display: inline-grid; place-items: center; width: 1.75rem; height: 1.75rem; padding: 0; margin-left: .25rem; border: 1px solid var(--border); border-radius: 50%; background: var(--panel-strong); color: var(--text-soft); font: bold .8rem/1 sans-serif; vertical-align: middle; cursor: help; }
+.help-tip-content { position: fixed; z-index: 10000; width: min(280px, calc(100vw - 24px)); box-sizing: border-box; max-height: calc(100dvh - 24px); overflow: auto; padding: .75rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--panel-strong); color: var(--text-soft); box-shadow: 0 8px 24px #0005; font-size: .85rem; line-height: 1.5; letter-spacing: normal; text-transform: none; }
+.palette-search-help { padding: 0 1rem; font-size: .8rem; color: var(--text-muted); }
 .device-push-onboarding { margin-bottom: 1rem; padding: 1rem; border: 1px solid var(--accent); border-radius: .6rem; background: var(--surface); }
 .drawer-work-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; margin: 0 0 .75rem; }
 .drawer-work-facts dt { color: var(--text-muted); font-size: .72rem; }
@@ -13900,3 +13912,36 @@ textarea {
     font-size: 1.28rem;
   }
 }
+
+/* Keep module names visible instead of relying on memorized icons. */
+.module-rail-button[title]::after { content: attr(title); font-size: .75rem; line-height: 1.25; text-align: left; color: inherit; }
+@media (min-width: 1181px) and (hover: hover) and (pointer: fine) {
+  .workspace.module-rail-layout,
+  .compact-mode .workspace.module-rail-layout { grid-template-columns: 8.5rem minmax(0, 1fr); }
+  .module-rail-button[title] { width: 100%; grid-template-columns: 1.2rem minmax(0, 1fr); gap: .55rem; padding: .65rem .5rem; justify-items: start; }
+}
+@media (max-width: 1180px), (pointer: coarse) and (hover: none) {
+  .module-rail-button[title] { width: max-content; max-width: 11rem; grid-template-columns: 1.1rem auto; gap: .4rem; padding: .5rem .6rem; }
+}
+@media (pointer: coarse) and (hover: none) {
+  .workspace.module-rail-layout,
+  .compact-mode .workspace.module-rail-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+.workspace[data-rail-collapsed="true"] .module-rail-button[title] { width: 2.75rem; min-height: 2.75rem; grid-template-columns: 1fr; gap: 0; padding: .6rem; justify-items: center; }
+.workspace[data-rail-collapsed="true"] .module-rail-button[title]::after { display: none; }
+@media (min-width: 1181px) and (hover: hover) and (pointer: fine) {
+  .workspace.module-rail-layout[data-rail-collapsed="true"],
+  .compact-mode .workspace.module-rail-layout[data-rail-collapsed="true"] { grid-template-columns: 3rem minmax(0, 1fr); }
+}
+.pond-team-progress {
+  display: grid;
+  gap: .5rem;
+  padding: .85rem 0;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.pond-team-progress > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; }
+.pond-team-progress progress { width: 100%; height: .7rem; accent-color: #27805b; }
+.pond-team-earned { color: var(--text); }
+.pond-team-progress details summary { cursor: pointer; }

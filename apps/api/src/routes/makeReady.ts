@@ -21,6 +21,7 @@ import { computeDerivedFields, editableFields, normalizeItemPatch, scopeFromMake
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
 import { evaluateAndPersistItemRisk, riskCategories } from "../lib/risk.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
+import { pondMilestones, recordPondCompletion } from "../lib/pondMilestones.js";
 
 const itemSortFields = [
   "boardGroup",
@@ -788,6 +789,22 @@ async function processItem(itemId: string, options: {
 }
 
 export async function makeReadyRoutes(app: FastifyInstance) {
+  app.get("/pond/milestones", async (request, reply) => {
+    const { propertyId } = z.object({ propertyId: z.string().min(1).optional() }).parse(request.query);
+    const allowed = scopedAllowedPropertyIds(request);
+    if (propertyId && allowed !== null && !allowed.includes(propertyId)) {
+      reply.code(403);
+      return { message: "Property access denied" };
+    }
+    const properties = await prisma.property.findMany({
+      where: { isActive: true, id: propertyId ?? (allowed === null ? undefined : { in: allowed }) },
+      select: { id: true, name: true, code: true, _count: { select: { pondTurnCompletions: true } } },
+      orderBy: { code: "asc" },
+    });
+    return { milestones: pondMilestones, properties: properties.map(property => ({
+      id: property.id, name: property.name, code: property.code, completedTurns: property._count.pondTurnCompletions,
+    })) };
+  });
   app.get("/make-ready-items", async (request, reply) => {
     const user = request.currentUser!;
     const parsedQuery = makeReadyQuerySchema.safeParse(request.query);
@@ -1488,6 +1505,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       },
     });
     await db.workAssignmentBlock.updateMany({ where: { itemId: id, category: finalWalkCategory, status: { in: pendingWalkStatuses } }, data: { status: overrideReason ? "CANCELED" : "DONE" } });
+    if (!overrideReason && !isTurnReady(current)) await recordPondCompletion(db, current);
     if (overrideReason) await db.auditLog.create({ data: {
       actorUserId: user.id, propertyId: current.propertyId, entityType: "MAKE_READY_ITEM", entityId: id,
       action: "BOARD_ITEM_COMPLETION_OVERRIDDEN",

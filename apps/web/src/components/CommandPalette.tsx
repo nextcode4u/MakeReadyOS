@@ -69,6 +69,13 @@ function searchableText(value: string | null | undefined) {
   return (value ?? "").toLowerCase();
 }
 
+const taskSearch: Partial<Record<CommandPaletteView, { keywords: string; hint: string }>> = {
+  mywork: { keywords: "parts supplies pickup shop cabinet work notes repair task preparation checks photos upload codes technician handoff final walk inspection corrections", hint: "Open a unit: Work & parts for tasks, supplies and checks; Final walk for inspection and corrections." },
+  table: { keywords: "turn board make ready scope status unit repairs painting cleaning ready", hint: "Open a unit for its next step. DONE finishes repairs; unit ready requires final approval." },
+  accesscodes: { keywords: "keys key codes mailbox door gate access", hint: "Search a unit to look up its keys, mailbox and access codes." },
+  automations: { keywords: "final walk inspector order assignment backup handoff", hint: "Configure the final-walk inspector order and backups." },
+};
+
 export function CommandPalette({ open, language, items, properties, views, staff, floorPlans, workspaceGroups, onClose, onOpenItem, onNavigate, onOpenNotifications, onOpenOnboarding, onApplyBasicMode, onOpenShortcutHelp, onLoadView }: Props) {
   const panelRef = useDialogFocus(open, onClose);
   const isSpanish = language === "es";
@@ -83,6 +90,7 @@ export function CommandPalette({ open, language, items, properties, views, staff
         group.actions.map((action) => ({
           ...action,
           groupLabel: group.label,
+          taskHelp: taskSearch[action.view],
         })),
       ),
     [workspaceGroups],
@@ -90,7 +98,7 @@ export function CommandPalette({ open, language, items, properties, views, staff
   const results = useMemo(
     () => ({
       workspaces: workspaceActions
-        .filter((action) => `${searchableText(action.label)} ${searchableText(action.description)} ${searchableText(action.groupLabel)}`.includes(match))
+        .filter((action) => match.split(/\s+/).every(word => `${searchableText(action.label)} ${searchableText(action.description)} ${searchableText(action.groupLabel)} ${action.taskHelp?.keywords ?? ""}`.includes(word)))
         .slice(0, 10),
       items: items.filter((item) => `${item.unitNumber} ${item.property.name} ${item.property.code}`.toLowerCase().includes(match)).slice(0, 6),
       properties: properties.filter((property) => `${property.code} ${property.name}`.toLowerCase().includes(match)).slice(0, 4),
@@ -105,7 +113,8 @@ export function CommandPalette({ open, language, items, properties, views, staff
     <>
       <div className="palette-backdrop" onClick={onClose} aria-hidden="true" />
       <section ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" className="command-palette" data-testid="command-palette" aria-label={isSpanish ? "Busqueda rapida y comandos" : "Quick search and commands"}>
-        <input data-testid="command-search" aria-label={isSpanish ? "Buscar unidades y comandos" : "Search units and commands"} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isSpanish ? "Buscar unidades, vistas, propiedades, personal..." : "Search units, views, properties, staff..."} />
+        <input data-testid="command-search" aria-label={isSpanish ? "Buscar unidades y comandos" : "Search units and commands"} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isSpanish ? "Buscar unidades, vistas, propiedades, personal..." : "Find a unit or task: parts, final walk, codes..."} />
+        <p className="palette-search-help">{isSpanish ? "Las unidades mostradas corresponden a los datos cargados del tablero." : "Find where to work by task name. Unit matches come from the currently loaded board data."}</p>
         {!match ? (
           <div className="palette-actions">
             {workspaceGroups.map((group) => (
@@ -163,6 +172,7 @@ export function CommandPalette({ open, language, items, properties, views, staff
               >
                 <strong>{action.label}</strong>
                 <small>{action.groupLabel} {isSpanish ? "espacio de trabajo" : "workspace"} / {action.description}</small>
+                {!isSpanish && action.taskHelp ? <small>{action.taskHelp.hint}</small> : null}
               </button>
             ))}
             {results.items.map((item) => <button key={item.id} onClick={() => { onOpenItem(item.id); onClose(); }}><strong>{displayUnitNumber(item.property.code, item.unitNumber)}</strong><small>{isSpanish ? "Unidad" : "Unit"} / {item.property.name}</small></button>)}

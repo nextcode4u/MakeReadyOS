@@ -9,6 +9,7 @@ import { frogWarningMood, pondReady } from "../lib/frogMood";
 import { pondEligible } from "../lib/pondEligibility";
 import { PondAudio, type PondSound } from "../lib/pondAudio";
 import { PondFieldGuide, PondWildlife } from "./PondEcosystem";
+import { PondTeamMilestones } from "./PondTeamMilestones";
 import { approachSnack, pondElapsed, pondGreeting, pondJourney, pondLight, pondPads, pondPersonality, pondSnackDuration, snackCatchAge, selectPondHunter, type PondSnack } from "../lib/pondLife";
 
 type MetricSource = "active" | "risk" | "techWorkload" | "vacant" | "moveInsWeek";
@@ -881,8 +882,9 @@ export function FrogPondPanel({ viewerId, items: incomingItems, properties, boar
       </div>
       </details>
 
+      <PondTeamMilestones propertyId={selectedPropertyId} viewerId={viewerId} language={language} />
       <details className="frog-settings pond-collection" data-testid="pond-collection">
-        <summary>{isSpanish ? "Coleccion del estanque" : "Pond collection"}<span>{pondRewards.filter(reward => rewardUnlocked(reward, collection)).length} / {pondRewards.length} {isSpanish ? "descubiertos" : "discovered"}</span></summary>
+        <summary>{isSpanish ? "Su coleccion personal" : "Your personal collection"}<span>{pondRewards.filter(reward => rewardUnlocked(reward, collection)).length} / {pondRewards.length} {isSpanish ? "descubiertos" : "discovered"}</span></summary>
         <p className="muted">{isSpanish ? "Las unidades listas visibles desbloquean estilos. La coleccion se guarda para su cuenta en este navegador; no cambia el trabajo." : "Ready units visible on your board unlock outfits. Discoveries stay with your account in this browser, even after the view changes. Playing never changes work records."}</p>
         {!collectionSaved ? <p role="status">{isSpanish ? "No se pudo guardar la coleccion en este navegador." : "This browser could not save your collection. Discoveries will last only for this visit."}</p> : null}
         <div className="pond-rewards">

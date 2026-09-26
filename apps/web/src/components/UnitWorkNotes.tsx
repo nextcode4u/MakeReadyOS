@@ -30,7 +30,7 @@ export function UnitWorkNotes({ itemId, canEdit }: { itemId: string; canEdit: bo
   };
   return <section data-testid="unit-work-notes" className="unit-work-notes">
     <h4>Unit-specific work notes</h4>
-    <p className="helper-copy">Work needed in this unit that does not need an itemized parts entry. For example: Multiple cabinet faces need replacing. No quantity or order status required. These internal notes do not appear on the resident Final-Walk Report.</p>
+    <p className="helper-copy">Unit-specific tasks without quantities, such as replacing damaged cabinet faces. Internal only; not on the resident report.</p>
     {query.isPending ? <p role="status">Loading work notes...</p> : null}
     {query.isError ? <p role="alert">Could not load or verify access to work notes. <button type="button" disabled={busy} onClick={() => void query.refetch()}>Retry</button></p> : null}
     {query.data && !denied ? <>

@@ -68,7 +68,7 @@ export async function deliverPushBatch(send: Transport = webpush.sendNotificatio
     const minute = current.getHours() * 60 + current.getMinutes();
     const start = settings?.quietHoursStartMinute ?? 0, end = settings?.quietHoursEndMinute ?? 0;
     const quiet = settings?.quietHoursEnabled && start !== end && (start < end ? minute >= start && minute < end : minute >= start || minute < end);
-    const allowed = user.isActive && user.id === note.userId && device.session.expiresAt > current && !note.isRead
+    const allowed = note.category !== "POND_MILESTONE" && user.isActive && user.id === note.userId && device.session.expiresAt > current && !note.isRead
       && note.createdAt.getTime() === fresh.eventAt.getTime() && current.getTime() - fresh.eventAt.getTime() < 86400000
       && (!note.propertyId || user.role === "ADMIN" || user.propertyAccess.some(access => access.propertyId === note.propertyId))
       && (pref?.enabled ?? notificationEnabledByDefault(note.category)) && !quiet && validPushEndpoint(device.endpoint);

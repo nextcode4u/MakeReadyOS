@@ -17,6 +17,7 @@ type Props = {
   onReadAll: () => Promise<void>;
   onDismiss: (id: string) => Promise<void>;
   onOpenItem: (id: string) => void;
+  onOpenPond: (propertyId: string) => void;
   onPreferenceChange: (category: string, enabled: boolean, propertyId?: string | null) => Promise<void>;
   onSettingsChange: (input: { quietHoursEnabled: boolean; quietHoursStartMinute: number; quietHoursEndMinute: number }) => Promise<void>;
   language: UserLanguage;
@@ -29,6 +30,7 @@ const categoryLabels: Record<string, { en: string; es: string }> = {
   OVERDUE: { en: "Overdue work", es: "Trabajo vencido" },
   AUTOMATION_WARNING: { en: "Automation warnings", es: "Alertas de automatización" },
   ITEM_LIFECYCLE: { en: "Final walk and unit readiness", es: "Inspeccion final y unidad lista" },
+  POND_MILESTONE: { en: "Team milestones (in-app only)", es: "Logros del equipo (solo en la app)" },
   BATCH_CHANGE: { en: "Section and batch changes", es: "Cambios de sección y lote" },
   STATUS_CHANGE: { en: "Status changes", es: "Cambios de estado" },
   MATERIALS_REQUEST: { en: "Parts need ordering", es: "Materiales por pedir" },
@@ -52,7 +54,7 @@ function inputToMinutes(value: string) {
   return (Number.isFinite(hour) ? hour : 0) * 60 + (Number.isFinite(minute) ? minute : 0);
 }
 
-export function NotificationDrawer({ focusId, userId, open, data, loading, onClose, onRead, onReadAll, onDismiss, onOpenItem, onPreferenceChange, onSettingsChange, language }: Props) {
+export function NotificationDrawer({ focusId, userId, open, data, loading, onClose, onRead, onReadAll, onDismiss, onOpenItem, onOpenPond, onPreferenceChange, onSettingsChange, language }: Props) {
   const isSpanish = language === "es";
   const client = useQueryClient();
   const [presetBusy, setPresetBusy] = useState(false);
@@ -111,7 +113,7 @@ export function NotificationDrawer({ focusId, userId, open, data, loading, onClo
             } catch (error) { setPresetError(error instanceof Error ? error.message : "Could not save notification preferences"); }
             finally { setPresetBusy(false); }
           }}>{isSpanish ? "Solo lo necesario" : "Need-to-know only"}</button>
-          <small>{isSpanish ? "Silencia cambios de estado, listas completadas y cambios de archivo/seccion. No borra alertas anteriores." : "Mutes routine status, checklist completion, and archive/section updates, including property overrides. Keeps your settings for assignments, schedules, deadlines, risks, parts requests and final walks. Previous alerts stay in your inbox."}</small>
+          <small>{isSpanish ? "Silencia cambios de estado, listas completadas, cambios de archivo/seccion y logros del equipo. No borra alertas anteriores." : "Mutes routine status, checklist completion, archive/section updates, and team celebrations, including property overrides. Keeps your settings for assignments, schedules, deadlines, risks, parts requests and final walks. Previous alerts stay in your inbox."}</small>
           {presetMessage ? <p role="status">{presetMessage}</p> : null}
           {presetError ? <p role="alert">{presetError}</p> : null}
         </div>
@@ -129,11 +131,13 @@ export function NotificationDrawer({ focusId, userId, open, data, loading, onClo
               >
                 <button type="button" className="notification-open" onClick={async () => {
                     if (!notification.isRead) await onRead(notification.id);
-                    if (notification.item) onOpenItem(notification.item.id);
+                    if (notification.category === "POND_MILESTONE" && notification.property) onOpenPond(notification.property.id);
+                    else if (notification.item) onOpenItem(notification.item.id);
                   }}>
                   <span className="notification-category">{categoryLabels[notification.category]?.[isSpanish ? "es" : "en"] ?? notification.category.replace(/_/g, " ")}</span>
                   <strong>{notification.title}</strong>
                   <p>{notification.message}</p>
+                  {notification.category === "POND_MILESTONE" && notification.property ? <span className="notification-category">{isSpanish ? "Ver en el estanque" : "View in Pond"}</span> : null}
                   <small>{formatDateTime(notification.createdAt)}</small>
                 </button>
                 <button type="button" className="notification-dismiss" data-testid={`notification-dismiss-${notification.id}`} onClick={() => void onDismiss(notification.id)} aria-label={`${t(language, "notifications.dismiss")} ${notification.title}`}>×</button>

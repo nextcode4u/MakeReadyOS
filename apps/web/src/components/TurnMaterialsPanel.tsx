@@ -72,7 +72,12 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
   return <section className="drawer-section" data-testid="turn-materials">
     <h3>Parts &amp; materials</h3>
     <UnitWorkNotes key={`${userId}-${itemId}`} itemId={itemId} canEdit={canEdit}/>
-    <p className="helper-copy">Your shop pickup list for this turn: record parts here, then review it at the shop to gather supplies. Needed parts are reminders, not completion blockers. Only parts marked On order block readiness until received, used, or cancelled. This internal list is not printed on the resident Final-Walk Report.</p>
+    <p className="helper-copy">Shop pickup list. Only parts marked <strong>On order</strong> block readiness until received, used, or cancelled.</p>
+    <details className="workflow-help"><summary>How pickup &amp; ordering work</summary>
+      <p>Check Collected after gathering the full quantity. Uncheck to return it to the pickup list. Split partial quantities onto separate lines.</p>
+      <p>Needed is a reminder. Need to order alerts managers and admins according to their notification preferences. On order means purchased and awaiting delivery. Use Status for Used or Cancelled.</p>
+      <p>This internal list is not printed on the resident Final-Walk Report. Ordinary edits do not resend order alerts.</p>
+    </details>
     {draft && !edit && canEdit ? <div role="status" data-testid="material-draft-recovery">
       <p>A material draft is saved on this device for your account. It is not saved to the team list and does not sync automatically.</p>
       <button type="button" disabled={query.data?.readOnly} onClick={() => { setEdit(draft); setDirty(true); setError(""); setReview(null); setConflict(false); }}>Resume material draft</button>
@@ -85,8 +90,6 @@ export function TurnMaterialsPanel({ itemId, title, canEdit, userId }: { itemId:
     {statusMessage ? <p role="status">{statusMessage}</p> : null}
     {query.data ? <>
       <p>{query.data.rows.filter(row => row.status === "NEEDED").length} to gather / {query.data.rows.filter(row => row.status === "ORDERED").length} on order (blocks readiness) / {query.data.rows.filter(row => row.status === "NEED_TO_ORDER").length} need to order / {query.data.rows.length} total lines</p>
-      <p className="helper-copy">Mark missing shop supplies Need to order to alert this property's managers and admins in Notifications. Mark On order after purchasing. Alerts follow notification preferences; ordinary edits do not resend them.</p>
-      <p className="helper-copy">Check Collected when you have the full quantity for this unit. The name is crossed out after saving. Uncheck to put it back on the pickup list. Use separate lines for partial quantities; change Used or Cancelled through Status.</p>
       {!query.data.rows.length ? <p>No parts or materials recorded. Add repair parts, paint, filters, or other supplies here.</p> : <div className="my-work-list">
         {query.data.rows.map(row => <article key={row.id} className="my-work-card" data-testid={`material-${row.id}`}>
           <div><strong className={row.status === "ON_HAND" || row.status === "USED" ? "material-collected" : undefined} style={{ overflowWrap: "anywhere" }}>{row.name}</strong><span>{row.quantity} {row.unit} / {statuses[row.status]}</span></div>

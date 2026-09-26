@@ -9,6 +9,7 @@ export const notificationCategories = [
   "OVERDUE",
   "AUTOMATION_WARNING",
   "ITEM_LIFECYCLE",
+  "POND_MILESTONE",
   "BATCH_CHANGE",
   "STATUS_CHANGE",
   "MATERIALS_REQUEST",
@@ -88,7 +89,7 @@ export async function createNotification(input: {
     title: input.title,
     message: input.message,
     dedupeKey: input.dedupeKey ?? null,
-    pushPending: true,
+    pushPending: input.category !== "POND_MILESTONE",
   };
   if (!input.dedupeKey) return db.notification.create({ data });
   return db.notification.upsert({

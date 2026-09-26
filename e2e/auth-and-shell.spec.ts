@@ -1555,6 +1555,7 @@ test("mailbox directory imports populate turn reports and isolate resident codes
   await page.getByTestId("tab-table").click();
   await page.getByRole("button", { name: `Open details for ${item.unitNumber}`, exact: true }).click();
   const turnPanel = page.getByTestId("turn-report-panel");
+  await page.getByTestId("drawer-pane-final").click();
   await expect(turnPanel.getByTestId("turn-mailbox-number")).toHaveValue("008");
   await turnPanel.getByRole("button", { name: "Edit / Preview this Final-Walk Report" }).click();
   const editor = page.getByTestId("final-report-editor");
@@ -3106,6 +3107,7 @@ test("workflow reference search and saves preserve drafts on failure", async ({ 
   });
   await page.getByTestId("item-details-ta-284").click();
   const references = page.getByTestId("wiki-workflow-make_ready");
+  await page.getByTestId("drawer-pane-all").click();
   const search = references.getByRole("textbox", { name: "Search wiki records to attach..." });
   await search.fill("valve");
   await expect(references.getByRole("alert")).toContainText("Search failed.");
@@ -3136,6 +3138,7 @@ test("workflow references retain cached records and show remove failures", async
   });
   await page.route("**/api/property-wiki/references/attached-qa", route => route.fulfill({ status: 400, json: { message: "Reference could not be removed" } }));
   await page.getByTestId("item-details-ta-284").click();
+  await page.getByTestId("drawer-pane-all").click();
   const references = page.getByTestId("wiki-workflow-make_ready");
   await references.getByRole("textbox").fill("valve");
   await references.getByRole("button", { name: "Attach", exact: true }).click();
@@ -5672,6 +5675,11 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("item-details-ta-284").click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
     await expect(page.getByTestId("item-drawer")).toContainText("TA 284");
+    const initialPane = await page.getByTestId("item-drawer").getAttribute("data-focus-pane");
+    expect(["work", "final"]).toContain(initialPane);
+    await page.getByTestId("drawer-pane-work").click();
+    await expect(page.getByTestId("drawer-work-summary")).toBeVisible();
+    await page.getByTestId("drawer-pane-all").click();
     await expect(page.getByTestId("drawer-field-assignedTech")).toBeVisible();
     await expect(page.getByTestId("drawer-risk-section")).toBeVisible();
     const drawer = page.getByTestId("item-drawer");
@@ -5688,15 +5696,18 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("tab-kanban").click();
     await page.getByTestId("kanban-details-ta-284").click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
+    await expect(page.getByTestId("item-drawer")).toHaveAttribute("data-focus-pane", initialPane!);
   });
 
   test("item drawer supports operational updates, local photos, and checklist execution", async ({ page }) => {
     const note = `QA field note ${Date.now()}`;
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("item-details-ta-284").click();
+    await page.getByTestId("drawer-pane-notes").click();
     await page.getByTestId("comment-input").fill(note);
     await page.getByTestId("comment-submit").click();
     await expect(page.getByTestId("comment-list")).toContainText(note);
+    await page.getByTestId("drawer-pane-photos").click();
     await page.getByTestId("attachment-upload").setInputFiles([
       {
         name: "qa-finish-photo.txt",
@@ -5764,6 +5775,7 @@ test.describe("MakeReadyOS browser flows", () => {
 
     await page.getByTestId("tab-table").click();
     await page.getByTestId("item-details-ta-284").click();
+    await page.getByTestId("drawer-pane-all").click();
     await expect(page.getByTestId("drawer-vendor-assignments")).toBeVisible();
     await page.getByTestId("drawer-vendor-select").selectOption({ label: `${vendorName} / Flooring` });
     await page.getByTestId("drawer-vendor-assignment-submit").click();
@@ -5959,6 +5971,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByTestId("item-create-submit").click();
     await expect((await itemResponse).status()).toBe(201);
     await page.getByTestId("tab-table").click();
+    await openTableFilters(page);
     await page.getByTestId("table-filter-property").selectOption({ label: `${code} / ${propertyName}` });
     await page.getByTestId("board-search").fill(unitNumber);
     await expect(page.getByText(unitNumber).first()).toBeVisible();
@@ -6220,6 +6233,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("active-filter-risk-level")).toContainText("HIGH");
     await expect(page.locator('[data-testid^="risk-pill-"]').first()).toBeVisible();
     await page.locator('[data-testid^="item-details-"]').first().click();
+    await page.getByTestId("drawer-pane-all").click();
     await expect(page.getByTestId("drawer-risk-section")).toBeVisible();
     await expect(page.getByTestId("drawer-risk-section")).toContainText(/risk|RISK/i);
     await expect(page.getByTestId("unit-history-section")).toBeVisible();
@@ -6871,6 +6885,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("board-table-view")).toBeVisible();
     await page.locator("[data-testid^='item-details-']").first().click();
     await expect(page.getByTestId("item-drawer")).toBeVisible();
+    await page.getByTestId("drawer-pane-all").click();
     await expect(page.getByTestId("drawer-pest-context")).toBeVisible();
     await page.getByRole("button", { name: "Create Pest Request" }).click();
     await page.getByTestId("item-drawer-close").click();

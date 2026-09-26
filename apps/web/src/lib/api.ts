@@ -2625,6 +2625,15 @@ export function getNotifications(limit = 30, offset = 0) {
   return request<NotificationResponse>(`/notifications?limit=${limit}&offset=${offset}`);
 }
 
+export type PondMilestonesResponse = {
+  milestones: Array<{ goal: number; name: string }>;
+  properties: Array<{ id: string; name: string; code: string; completedTurns: number }>;
+};
+
+export function getPondMilestones(propertyId: string) {
+  return request<PondMilestonesResponse>(`/pond/milestones${propertyId ? `?propertyId=${encodeURIComponent(propertyId)}` : ""}`);
+}
+
 export function markNotificationRead(id: string) {
   return request<{ ok: true }>(`/notifications/${id}/read`, { method: "POST" });
 }

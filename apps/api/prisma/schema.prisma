@@ -64,6 +64,7 @@ model Property {
   units                     Unit[]
   floorPlans                FloorPlan[]
   makeReadyItems            MakeReadyItem[]
+  pondTurnCompletions        PondTurnCompletion[]
   refrigerantLogs           RefrigerantLog[]
   poolFacilities            PoolFacility[]
   poolChemicals             PoolChemical[]
@@ -1357,6 +1358,16 @@ model SavedView {
 
   @@index([module, isArchived, isShared, createdAt])
   @@index([ownerUserId, module, isArchived, createdAt])
+}
+
+// Keep completion credit even when its original turn record is deleted.
+model PondTurnCompletion {
+  itemId      String   @id
+  propertyId  String
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  completedAt DateTime @default(now())
+
+  @@index([propertyId, completedAt])
 }
 
 model Notification {

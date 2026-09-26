@@ -3,7 +3,7 @@ import { UserRole } from "@prisma/client";
 import { z } from "zod";
 import { notificationCategories } from "../lib/notifications.js";
 import { prisma } from "../lib/prisma.js";
-import { notificationEnabledByDefault, routineNotificationCategories } from "../lib/notificationPolicy.js";
+import { notificationEnabledByDefault, needToKnowMutedCategories } from "../lib/notificationPolicy.js";
 
 export const notificationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30),
@@ -56,8 +56,8 @@ export async function notificationRoutes(app: FastifyInstance) {
     const userId = request.currentUser!.id;
     await prisma.$transaction(async db => {
       // Clear routine per-property overrides too, without changing important-alert opt-outs.
-      await db.notificationPreference.deleteMany({ where: { userId, category: { in: [...routineNotificationCategories] } } });
-      await db.notificationPreference.createMany({ data: routineNotificationCategories.map(category => ({ userId, category, scopeKey: "GLOBAL", enabled: false })) });
+      await db.notificationPreference.deleteMany({ where: { userId, category: { in: [...needToKnowMutedCategories] } } });
+      await db.notificationPreference.createMany({ data: needToKnowMutedCategories.map(category => ({ userId, category, scopeKey: "GLOBAL", enabled: false })) });
     });
     return { ok: true };
   });

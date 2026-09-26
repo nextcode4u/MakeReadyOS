@@ -136,10 +136,14 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     expect(codes.technicianFollowUp).toContain("Touch up entry trim");
     expect(codes.correctionPending).toBe(true);
     await tech.getByRole("button", { name: "Open corrections", exact: true }).click();
+    await expect(tech.getByTestId("drawer-correction-next-step")).toBeVisible();
+    await tech.getByRole("button", { name: "Review corrections", exact: true }).click();
+    await expect(prep.getByLabel("Technician resolution", { exact: true })).toBeFocused();
     await expect(prep.locator('.work-correction-panel')).toContainText("Touch up entry trim");
     await prep.getByLabel("Technician resolution", { exact: true }).fill("Entry trim touched up and dry");
     await prep.getByRole("button", { name: "Save preparation & resident details", exact: true }).click();
     await expect(prep.locator('.work-correction-panel')).toHaveCount(0);
+    await expect(tech.getByTestId("drawer-correction-next-step")).toHaveCount(0);
     await expect(tech.getByTestId(`my-work-item-${item.id}`)).not.toHaveClass(/work-correction-card/);
     codes = await (await tech.request.get(`${origin}/api${itemPath}/resident-codes`)).json();
     expect(codes.correctionPending).toBe(false);
@@ -166,7 +170,19 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     expect(preview.html).not.toContain("Entry trim touched up and dry");
     const pdf = await send(inspector, inspectorHeaders, "POST", `${reportPath}/preview`, { itemId: item.id, settings: data.settings.value, draft: data.draft.value, format: "pdf" });
     expect((Buffer.from(pdf.pdfBase64, "base64").toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
+    // Celebrations can be muted independently without changing final-walk alerts.
+    await send(inspector, inspectorHeaders, "PATCH", "/notifications/preferences/POND_MILESTONE", { enabled: false });
+    expect((await (await tech.request.get(`${origin}/api/pond/milestones?propertyId=${property.id}`)).json()).properties[0].completedTurns).toBe(0);
+    expect((await tech.request.get(`${origin}/api/pond/milestones?propertyId=outside-scope`)).status()).toBe(403);
     await send(inspector, inspectorHeaders, "POST", `${itemPath}/mark-ready`, {});
+    const milestones = await (await tech.request.get(`${origin}/api/pond/milestones`)).json();
+    expect(milestones.properties).toHaveLength(1);
+    expect(milestones.properties[0]).toMatchObject({ id: property.id, completedTurns: 1 });
+    const teamNotes = (await (await tech.request.get(`${origin}/api/notifications`)).json()).notifications.filter((note: any) => note.category === "POND_MILESTONE");
+    expect(teamNotes).toHaveLength(1);
+    expect(teamNotes[0]).toMatchObject({ pushPending: false, item: null, property: { id: property.id } });
+    expect((await (await inspector.request.get(`${origin}/api/notifications`)).json()).notifications.filter((note: any) => note.category === "POND_MILESTONE")).toHaveLength(0);
+    await send(tech, techHeaders, "POST", `/notifications/${teamNotes[0].id}/read`, {});
     expect((await (await page.request.get(`${origin}/api${itemPath}`)).json()).completionStatus).toBe("YES");
     data = await (await inspector.request.get(`${origin}/api${reportPath}?itemId=${item.id}`)).json();
     expect(data.canEditDraft).toBe(true);
@@ -254,6 +270,31 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     expect((await (await inspector.request.get(`${origin}/api/my-work`)).json()).items.some((row: any) => row.id === item.id)).toBe(true);
     expect((await (await inspector.request.get(`${origin}/api${reportPath}?itemId=${item.id}`)).json()).draft.value.parking).toBe("Space 12");
     expect((await page.request.post(`${origin}/api${itemPath}/reopen-final-walk`, { headers: admin, data: { reason: "Duplicate reopen should fail" } })).status()).toBe(409);
+    // A reopened turn can be approved again, but credit and read notices stay unchanged.
+    await send(inspector, inspectorHeaders, "POST", `${itemPath}/mark-ready`, {});
+    await send(page, admin, "POST", `${itemPath}/mark-ready`, {});
+    expect((await (await page.request.get(`${origin}/api/pond/milestones?propertyId=${property.id}`)).json()).properties[0].completedTurns).toBe(1);
+    const repeatedNotes = (await (await tech.request.get(`${origin}/api/notifications`)).json()).notifications.filter((note: any) => note.category === "POND_MILESTONE");
+    expect(repeatedNotes).toHaveLength(1);
+    expect(repeatedNotes[0]).toMatchObject({ id: teamNotes[0].id, isRead: true });
+    await send(page, admin, "POST", `/make-ready-items/${imported.id}/mark-ready`, { overrideReason: "Test administrative correction without an inspection" });
+    const overridden = await send(page, admin, "POST", "/make-ready-items", { propertyId: property.id, unitNumber: "OVERRIDE-3", itemName: "OVERRIDE-3", boardGroup: group, vacancyStatus: "VACANT NOT LEASED NOT READY" });
+    await send(page, admin, "POST", `/make-ready-items/${overridden.id}/mark-ready`, { overrideReason: "Test pending turn override without verified completion" });
+    expect((await (await page.request.get(`${origin}/api/pond/milestones?propertyId=${property.id}`)).json()).properties[0].completedTurns).toBe(1);
+    await page.getByTestId("item-drawer-close").click();
+    await page.reload();
+    await page.getByTestId("notifications-button").click();
+    await page.getByTestId("notification-drawer").getByRole("button", { name: /View in Pond/ }).click();
+    const teamProgress = page.getByTestId(`pond-team-${property.id}`);
+    await expect(teamProgress).toContainText("1 approved turn");
+    await expect(teamProgress).toContainText("First team finish");
+    await expect(page.getByTestId("notification-drawer")).toHaveCount(0);
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await teamProgress.scrollIntoViewIfNeeded();
+      expect(await teamProgress.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`pond-team-${width}.png`) });
+    }
     await page.evaluate(() => { localStorage.setItem("makereadyos.themeMode", "dark"); localStorage.setItem("makereadyos.compactMode", "false"); });
     await page.reload();
     await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "dark");

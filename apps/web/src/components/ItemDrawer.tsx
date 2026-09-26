@@ -21,16 +21,19 @@ import { TurnMaterialsPanel } from "./TurnMaterialsPanel";
 import { ResidentCodesPanel } from "./ResidentCodesPanel";
 import { AccessCodesPanel } from "./AccessCodesPanel";
 import { canViewKeycodes, reopenMakeReadyFinalWalk } from "../lib/api";
-import { awaitingFinalWalk, isTurnReady, tradeDone, turnStageLabel } from "../lib/turnStatus";
+import { awaitingFinalWalk, isTurnReady, turnStageLabel } from "../lib/turnStatus";
+import { HelpTip } from "./HelpTip";
+import { TurnHandoffSummary } from "./TurnHandoffSummary";
 import { uploadBatch, type UploadOutcome } from "../lib/uploadBatch";
 import { matchesTurnStep, turnNextStep } from "../lib/turnNextAction";
+import { hasActiveCorrections } from "../lib/workCues";
+import { repairStageDisplay } from "../lib/repairStageDisplay";
 
 function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
   return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
 }
 
 type Props = {
-  focused?: boolean;
   item: MakeReadyItem;
   itemRefreshFailed: boolean;
   onRefreshItem: () => void;
@@ -72,35 +75,6 @@ function dateValue(value: unknown) {
 
 function customValue(item: MakeReadyItem, id: string) {
   return item.customFieldValues.find((value) => value.customFieldId === id)?.value ?? null;
-}
-
-function normalized(value: string | null | undefined) {
-  return (value ?? "").trim().toUpperCase();
-}
-
-function completionBlockers(item: MakeReadyItem) {
-  if (isTurnReady(item)) return [];
-  const blockers: string[] = [];
-  const requireValue = (value: string | null | undefined, label: string) => {
-    if (!normalized(value) || normalized(value) === "-") blockers.push(`${label} is not set.`);
-  };
-  const requireExact = (value: string | null | undefined, expected: string, label: string) => {
-    if (normalized(value) !== expected) blockers.push(`${label} should be ${expected}.`);
-  };
-  requireValue(item.trashOutStatus, "Trash Out");
-  requireExact(item.pestStatus, "NONE", "Pest");
-  requireExact(item.cabinetsStatus, "GOOD", "Cabinets");
-  requireExact(item.countertopsStatus, "GOOD", "Countertops");
-  requireExact(item.appliancesStatus, "GOOD", "Appliances");
-  requireExact(item.doorsStatus, "GOOD", "Doors");
-  requireExact(item.sheetrockStatus, "GOOD", "Sheetrock");
-  requireExact(item.floorsStatus, "GOOD", "Floors");
-  if (!tradeDone(item.cleaningStatus)) blockers.push("Cleaning should be Done or Not needed.");
-  requireExact(item.keysMadeStatus, "MADE", "Keys Made");
-  if (!tradeDone(item.paintStatus) && !["GOOD", "MAJOR TOUCH UP", "MED TOUCH UP", "LITE TOUCH UP", "TOUCH UP"].includes(normalized(item.paintStatus))) {
-    blockers.push("Paint is not marked ready or touch-up scoped.");
-  }
-  return blockers;
 }
 
 const attachmentStageOptions = [
@@ -182,7 +156,6 @@ function AttachmentMedia({ attachment, onOpen, language }: { attachment: DrawerA
 }
 
 export function ItemDrawer({
-  focused = false,
   item,
   itemRefreshFailed,
   onRefreshItem,
@@ -218,7 +191,21 @@ export function ItemDrawer({
   const approved = isTurnReady(item);
   const inspectionReady = awaitingFinalWalk(item);
   const stage = turnStageLabel(item, boardSections.some(section => section.propertyId === item.propertyId && section.key === item.boardGroup && section.sectionType === "DOWN"));
-  const [pane, setPane] = useState<"work" | "photos" | "notes" | "final" | "all">(() => focused ? (inspectionReady ? "final" : "work") : "all");
+  const [pane, setPane] = useState<"work" | "photos" | "notes" | "final" | "all">(() => inspectionReady || approved ? "final" : "work");
+  function jumpToWorkSection(testId: string) {
+    setPane("work");
+    requestAnimationFrame(() => {
+      const section = document.querySelector<HTMLElement>(`[data-testid="item-drawer"] [data-testid="${testId}"]`)
+        ?? (["technician-preparation-checks", "resident-code-controls", "technician-corrections"].includes(testId)
+          ? document.querySelector<HTMLElement>('[data-testid="item-drawer"] [data-testid="resident-codes-panel"]') : null);
+      const drawer = section?.closest<HTMLElement>(".item-drawer");
+      if (section && drawer) {
+        const headerHeight = drawer.querySelector<HTMLElement>(".item-drawer-header")?.offsetHeight ?? 0;
+        drawer.scrollTo({ top: drawer.scrollTop + section.getBoundingClientRect().top - drawer.getBoundingClientRect().top - headerHeight - 12 });
+      }
+      section?.querySelector<HTMLElement>("textarea, input, select, button")?.focus({ preventScroll: true });
+    });
+  }
   const [saving, setSaving] = useState<string | null>(null);
   const [completedReportOpen, setCompletedReportOpen] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
@@ -253,7 +240,6 @@ export function ItemDrawer({
   const [pendingChecklistItemIds, setPendingChecklistItemIds] = useState<string[]>([]);
   const columns = useMemo(() => configuredBoardColumns(columnDefinitions), [columnDefinitions]);
   const drawerColumns = useMemo(() => columns.filter((column) => column.key !== "unitNumber" && column.key !== "notes" && column.key !== "completionStatus" && column.key !== "scopeLevel"), [columns]);
-  const readinessBlockers = useMemo(() => completionBlockers(item), [item]);
   const activityQuery = useQuery({
     queryKey: ["activity", "item", item.id],
     queryFn: () => getActivity({ entityType: "MAKE_READY_ITEM", entityId: item.id, limit: 12 }),
@@ -291,6 +277,7 @@ export function ItemDrawer({
   const itemVendorAssignments = vendorAssignments.filter((assignment) => assignment.itemId === item.id);
   const itemWorkBlocks = workBlocks.filter((block) => block.itemId === item.id && block.status !== "CANCELED");
   const nextStep = turnNextStep(item, boardSections.some(section => section.propertyId === item.propertyId && section.key === item.boardGroup && section.sectionType === "DOWN"));
+  const hasCorrections = !item.isArchived && !approved && workPlanState === "ready" && hasActiveCorrections(workBlocks.filter(block => block.itemId === item.id));
   const nextStepAssignments = nextStep ? [
     ...itemWorkBlocks.filter(block => block.status !== "DONE" && matchesTurnStep(nextStep, block.category)).map(block => ({ id: block.id, owner: block.assignedUser.fullName, date: block.plannedDate, status: block.status })),
     ...itemVendorAssignments.filter(assignment => !["COMPLETED", "CANCELED"].includes(assignment.status) && nextStep !== "inspection" && matchesTurnStep(nextStep, assignment.trade)).map(assignment => ({ id: assignment.id, owner: assignment.vendor.name, date: assignment.scheduledDate, status: assignment.status })),
@@ -736,17 +723,18 @@ export function ItemDrawer({
           <div className="drawer-heading">
             <span className="drawer-kicker">{item.property.code} / {boardGroupLabel(item.boardGroup, item.propertyId, boardSections)}</span>
             <h2>{item.unitNumber}</h2>
+            <p className="drawer-stage" data-testid="turn-stage-summary"><strong>{stage}</strong></p>
             <div className="drawer-pills">
               <LabelPill value={item.vacancyStatus} label={item.vacancyStatus ? labelsByField.vacancyStatus?.[item.vacancyStatus] : undefined} />
-              <LabelPill value={item.makeReadyStatus} label={item.makeReadyStatus ? labelsByField.makeReadyStatus?.[item.makeReadyStatus] : undefined} />
+              {item.makeReadyStatus ? <LabelPill value={item.makeReadyStatus} label={repairStageDisplay(item, language === "es") ?? labelsByField.makeReadyStatus?.[item.makeReadyStatus]} /> : null}
               {item.riskLevel && item.riskLevel !== "NONE" ? <span className={`risk-level-badge ${item.riskLevel.toLowerCase()}`}>{item.riskLevel} risk / {item.riskScore}</span> : null}
             </div>
             {approved && !item.isArchived && ["ADMIN", "MANAGER", "LEASING"].includes(currentUser.role) ? <div className="drawer-header-actions"><button type="button" className="button button-primary" data-testid="completed-unit-report" onClick={() => setCompletedReportOpen(true)}>{language === "es" ? "Editar / descargar informe final" : "Edit / download final-walk report"}</button></div> : null}
           </div>
           <button type="button" className="drawer-close" data-testid="item-drawer-close" onClick={onClose} aria-label={t(language, "drawer.closeDetails")}>×</button>
-          {focused ? <nav className="drawer-work-nav" aria-label={language === "es" ? "Secciones de la unidad" : "Unit work sections"}>
-            {([ ["work", "Work", "Trabajo"], ["photos", "Photos", "Fotos"], ["notes", "Notes", "Notas"], ["final", "Final walk", "Inspeccion"], ["all", "All details", "Detalles"] ] as const).map(([value, label, spanish]) => <button key={value} type="button" data-testid={`drawer-pane-${value}`} aria-pressed={pane === value} onClick={event => { setPane(value); event.currentTarget.closest("aside")?.scrollTo({ top: 0 }); }}>{language === "es" ? spanish : label}</button>)}
-          </nav> : null}
+          <nav className="drawer-work-nav" aria-label={language === "es" ? "Secciones de la unidad" : "Unit work sections"}>
+            {([ ["work", "Work & parts", "Trabajo y piezas"], ["photos", "Photos", "Fotos"], ["notes", "General notes", "Notas generales"], ["final", "Final walk", "Inspeccion"], ["all", "All details", "Detalles"] ] as const).map(([value, label, spanish]) => <button key={value} type="button" data-testid={`drawer-pane-${value}`} aria-pressed={pane === value} onClick={event => { setPane(value); event.currentTarget.closest("aside")?.scrollTo({ top: 0 }); }}>{language === "es" ? spanish : label}</button>)}
+          </nav>
         </header>
         {completedReportOpen ? <FinalWalkReportEditor key={item.id} propertyId={item.propertyId} propertyName={item.property.name} itemId={item.id} onClose={() => setCompletedReportOpen(false)} /> : null}
 
@@ -767,8 +755,16 @@ export function ItemDrawer({
         {error ? <p className="drawer-error" role="alert">{error}</p> : null}
         {itemRefreshFailed ? <p className="drawer-error" role="alert">{language === "es" ? "No se pudo actualizar la unidad. Los datos visibles pueden estar desactualizados; tus entradas no guardadas siguen aqui." : "Could not refresh the unit. Displayed data may be stale; your unsaved input is still here."} <button type="button" onClick={onRefreshItem}>{language === "es" ? "Reintentar unidad" : "Retry unit"}</button></p> : null}
         {pendingSyncCount ? <p className="drawer-empty" role="status">{t(language, "drawer.pendingSync").replace("{count}", String(pendingSyncCount))}</p> : null}
-        {focused ? <section className="drawer-section" data-testid="drawer-work-summary">
-          <h3>{language === "es" ? "Plan de trabajo" : "Work plan"}</h3>
+        <section className="drawer-section" data-testid="drawer-work-summary">
+          <h3>{language === "es" ? "Trabajo de la unidad" : "Unit work"} <HelpTip label="Help with the turn process">Repairs finished is not the same as unit ready. Finish repairs, painting and cleaning, then the assigned inspector completes the final walk.</HelpTip></h3>
+          <div className="drawer-work-shortcuts" aria-label="Jump to work section">
+            <button type="button" onClick={() => jumpToWorkSection("turn-materials")}>Parts &amp; work notes</button>
+            {["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? <>
+              <button type="button" onClick={() => jumpToWorkSection("technician-preparation-checks")}>Preparation checks</button>
+              <button type="button" onClick={() => jumpToWorkSection("resident-code-controls")}>Resident codes</button>
+            </> : null}
+          </div>
+          {hasCorrections ? <div className="work-correction-panel" data-testid="drawer-correction-next-step"><strong>Final-walk corrections need attention</strong><p>Review the inspector's feedback, fix the issues, and save the technician resolution before marking repairs Done again.</p><button type="button" onClick={() => jumpToWorkSection(["ADMIN", "MANAGER", "TECH"].includes(currentUser.role) ? "technician-corrections" : "drawer-turn-details")}>Review corrections</button></div> : null}
           <dl className="drawer-work-facts">
             <div><dt>{language === "es" ? "Tecnico de reparaciones" : "Repair technician"}</dt><dd>{item.assignedTech || (language === "es" ? "Sin asignar" : "Unassigned")}</dd></div>
             <div><dt>{language === "es" ? "Fin previsto" : "Expected finish"}</dt><dd>{dateValue(item.makeReadyDate) || "Not set"}</dd></div>
@@ -776,18 +772,28 @@ export function ItemDrawer({
           </dl>
           {item.scopeLevel ? <p>{language === "es" ? "Alcance" : "Scope"}: {item.scopeLevel}</p> : null}
           {item.riskReasons?.length ? <details><summary>{item.riskReasons.length} {language === "es" ? "avisos de riesgo" : "risk notices"}</summary><ul>{item.riskReasons.map((reason, index) => <li key={index}>{reason.message}</li>)}</ul></details> : null}
-          <p data-testid="turn-stage-summary"><strong>{stage}</strong></p>
+          {nextStep ? <TurnHandoffSummary item={item} onOpenFinal={() => setPane("final")} /> : null}
           {nextStep ? <div data-testid="drawer-next-action">
-            <strong>{language === "es" ? "Siguiente paso" : "Next step"}: {(language === "es" ? { repairs: "Terminar reparaciones, llaves y codigos del residente", painting: "Terminar pintura y actualizar su estado", cleaning: "Terminar limpieza y actualizar su estado", inspection: "Inspeccion final independiente y revision de correcciones" } : { repairs: "Finish repairs, keys and resident codes", painting: "Complete painting and update the paint status", cleaning: "Complete cleaning and update the cleaning status", inspection: "Independent final walk and correction review" })[nextStep]}</strong>
+            {nextStep !== "inspection" ? <strong>{language === "es" ? "Siguiente paso" : "Next step"}: {(language === "es" ? { repairs: "Terminar reparaciones, llaves y codigos del residente", painting: "Terminar pintura y actualizar su estado", cleaning: "Terminar limpieza y actualizar su estado" } : { repairs: "Finish repairs, keys and resident codes", painting: "Complete painting and update the paint status", cleaning: "Complete cleaning and update the cleaning status" })[nextStep]}</strong> : null}
+            <details className="workflow-help"><summary>{language === "es" ? "Responsables y fechas" : "Who is assigned & planned dates"}</summary>
             {workPlanState !== "ready" ? <p role="status">{language === "es" ? "Asignaciones por verificar. Revisa el plan de trabajo." : "Stage assignments are not verified. Review the work plan."}</p> : <>
               {nextStepAssignments.length ? <ul>{nextStepAssignments.slice(0, 4).map(assignment => <li key={assignment.id}>{assignment.owner} / {assignment.date?.slice(0, 10) || (language === "es" ? "Fecha sin definir" : "Date not set")} / {assignment.status.replace(/_/g, " ")}</li>)}</ul> : <p>{nextStep === "repairs" && item.assignedTech ? (language === "es" ? `Responsable de reparaciones: ${item.assignedTech}. No se muestra un bloque programado correspondiente.` : `Repair owner: ${item.assignedTech}. No matching scheduled work block shown.`) : (language === "es" ? "No se muestra una asignacion abierta para esta etapa. Revisa categorias personalizadas o asigna cobertura." : "No matching open stage assignment shown. Review the work plan for custom categories or arrange coverage.")}</p>}
               {nextStepAssignments.length > 4 || workPlanCoverage?.blocksTruncated || workPlanCoverage?.vendorsTruncated ? <p>{language === "es" ? "Se muestra solo parte del historial. No supongas que la cobertura esta completa." : "Only part of the assignment history is shown. Do not assume coverage is complete."}</p> : null}
             </>}
             <small>{language === "es" ? "Las fechas son planes, no pruebas de finalizacion. Revisa los estados, piezas pedidas y hallazgos de inspeccion." : "Assignment dates are planned work, not proof of completion. Trade checks, parts on order and inspection findings still need review."}</small>
             <div><button type="button" className="button button-secondary" onClick={() => { setPane("all"); requestAnimationFrame(() => document.querySelector('[data-testid="drawer-planning-summary"]')?.scrollIntoView({ block: "start" })); }}>{language === "es" ? "Revisar plan de trabajo" : "Review work plan"}</button></div>
+            </details>
           </div> : null}
-          <p className="helper-copy">{language === "es" ? "Reparaciones, pintura, limpieza, inspeccion final. DONE en Make Ready solo termina las reparaciones." : "Repairs, painting, cleaning, then final walk. Make Ready DONE only finishes the technician's repairs, keys and codes."}</p>
-        </section> : null}
+          <details className="workflow-help"><summary>{language === "es" ? "Como funciona el proceso" : "How the turn process works"}</summary>
+            <ol>
+              <li><strong>Technician:</strong> inspect, record scope, complete repairs, preparation checks, keys and codes. Set Make Ready to DONE when repairs are finished.</li>
+              <li><strong>Painting &amp; cleaning:</strong> update each trade to Done or Not needed. Planned dates alone do not finish the work.</li>
+              <li><strong>Leasing / assigned inspector:</strong> when the trades are finished, automatic final-walk assignment uses the configured inspector order. Check the named inspector, complete the report and review blockers.</li>
+              <li><strong>Corrections:</strong> record what needs fixing for the technician, then recheck before final approval. Unit ready is separate from repairs finished.</li>
+            </ol>
+            <p>Work &amp; parts holds unit-specific tasks and supplies. General notes holds discussion and updates. Final walk holds inspection findings and approval.</p>
+          </details>
+        </section>
         <section className="drawer-section risk-drawer-section" data-testid="drawer-risk-section">
           <h3>{t(language, "drawer.slaRisk")}</h3>
           {item.riskLevel && item.riskLevel !== "NONE" ? (
@@ -800,7 +806,7 @@ export function ItemDrawer({
           ) : <p className="drawer-empty">{t(language, "drawer.noActiveRiskFlags")}</p>}
         </section>
         <section className="drawer-section" data-testid="drawer-turn-details">
-          <h3>{t(language, "drawer.turnDetails")}</h3>
+          <h3>{t(language, "drawer.turnDetails")} <HelpTip label="Help with Make Ready status">EASY, LITE, MEDIUM or MAJOR saves the scope. DONE keeps that scope and finishes repairs only. Painting, cleaning and the final walk remain separate.</HelpTip></h3>
           <div className="drawer-fields">
             {drawerColumns.map((column) => {
               const value = item[column.key as keyof MakeReadyItem];
@@ -843,7 +849,7 @@ export function ItemDrawer({
                       <option value="">{t(language, "drawer.unset")}</option>
                       {options.map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}{option.isArchived ? " (archived)" : ""}</option>)}
                     </select>
-                    {column.key === "makeReadyStatus" ? <small>{language === "es" ? "EASY, LITE, MEDIUM o MAJOR guarda el alcance automaticamente. DONE termina solo las reparaciones y conserva el alcance. Pintura y limpieza deben terminar antes de la inspeccion final." : "EASY, LITE, MEDIUM or MAJOR automatically saves the scope. DONE finishes repairs only and keeps the saved scope. Painting and cleaning must finish before final walk."}</small> : null}
+                    {column.key === "makeReadyStatus" ? <small>{language === "es" ? "DONE termina reparaciones, no la aprobacion final." : "DONE finishes repairs, not final approval."}</small> : null}
                   </label>
                 );
               }
@@ -962,16 +968,6 @@ export function ItemDrawer({
           <p className="drawer-empty">
             {t(language, "drawer.completionHelp")}
           </p>
-          {readinessBlockers.length > 0 ? (
-            <div className="completion-warning" role="status">
-              <strong>{t(language, "drawer.readinessWarnings")}</strong>
-              <ul>
-                {readinessBlockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
-              </ul>
-            </div>
-          ) : (
-            <div className="completion-ready" role="status">{t(language, "drawer.noReadinessBlockers")}</div>
-          )}
           <div className="drawer-fields">
             <label className="drawer-field">
               <span>Whole turn complete</span>
@@ -1155,8 +1151,10 @@ export function ItemDrawer({
         </section>
 
         <section className="drawer-section" data-testid="drawer-notes-section">
-          <h3>{t(language, "drawer.notesUpdates")}</h3>
-          <textarea key={`notes:${item.notes ?? ""}`} data-testid="drawer-notes" defaultValue={item.notes ?? ""} disabled={!canEditField(item, "notes")} placeholder={t(language, "drawer.operationalNotes")} onBlur={(event) => void commit("notes", event.target.value || null)} />
+          <h3>{language === "es" ? "Notas generales y actualizaciones" : "General notes & updates"}</h3>
+          <p className="helper-copy">For unit-specific repair tasks, use <button type="button" className="text-action" onClick={() => jumpToWorkSection("unit-work-notes")}>work notes in Work &amp; parts</button>. Record inspection corrections in Final walk.</p>
+          <label htmlFor={`general-notes-${item.id}`}>{language === "es" ? "Notas generales (se guardan al salir del campo)" : "General notes (save when you leave the field)"}</label>
+          <textarea id={`general-notes-${item.id}`} key={`notes:${item.notes ?? ""}`} data-testid="drawer-notes" defaultValue={item.notes ?? ""} disabled={!canEditField(item, "notes")} placeholder={t(language, "drawer.operationalNotes")} onBlur={(event) => void commit("notes", event.target.value || null)} />
           {canCollaborate ? (
             <form className="comment-compose" data-testid="comment-compose" onSubmit={(event) => {
               event.preventDefault();

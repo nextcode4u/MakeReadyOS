@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getFinalWalk, handoffFinalWalk, type CurrentUser } from "../lib/api";
 import { FinalWalkReportEditor } from "./FinalWalkReportEditor";
+import { HelpTip } from "./HelpTip";
 
 type Props = { itemId: string; propertyId: string; propertyName: string; currentUser: CurrentUser; onMarkReady: (id: string) => Promise<void> };
 
@@ -13,7 +14,7 @@ function FinalWalkContent({ itemId, propertyId, propertyName, currentUser, onMar
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [showHandoff, setShowHandoff] = useState(false);
-  const block = query.data?.block;
+  const block = query.isError ? undefined : query.data?.block;
   const manager = ["ADMIN", "MANAGER"].includes(currentUser.role);
   const canHandoff = block && (manager || block.assignedUserId === currentUser.id);
   async function act(handoff: boolean) {
@@ -29,12 +30,13 @@ function FinalWalkContent({ itemId, propertyId, propertyName, currentUser, onMar
     finally { setBusy(false); }
   }
   return <div data-testid="final-walk-controls">
+    <p className="helper-copy">Open the inspection report to record checks or send repair corrections. Approve only after the work passes. <HelpTip label="Help with final-walk approval">The technician finishes repairs first. The assigned inspector reviews the unit independently. Sending an inspection to a backup is different from returning repair corrections to the technician.</HelpTip></p>
     {currentUser.role === "ADMIN" || query.data?.reportAvailable ? <button type="button" className="button button-secondary" onClick={() => setReportOpen(true)}>Inspection details / report</button> : null}
     {reportOpen ? <FinalWalkReportEditor propertyId={propertyId} propertyName={propertyName} itemId={itemId} onClose={() => setReportOpen(false)} /> : null}
-    {query.data?.blockers?.length ? <div data-testid="turn-readiness-blockers"><strong>Before marking ready</strong><ul>{query.data.blockers.map((blocker, index) => <li key={index}>{blocker}</li>)}</ul><button type="button" className="button button-secondary" onClick={() => void query.refetch()}>Recheck completion blockers</button></div> : null}
+    {!query.isError && query.data?.blockers?.length ? <div data-testid="turn-readiness-blockers"><strong>Before marking ready</strong><ul>{query.data.blockers.map((blocker, index) => <li key={index}>{blocker}</li>)}</ul><button type="button" className="button button-secondary" onClick={() => void query.refetch()}>Recheck completion blockers</button></div> : null}
     {query.isLoading ? <p>Loading final walk assignment...</p> : null}
     {query.error ? <p role="alert">Could not load final walk assignment. <button type="button" onClick={() => void query.refetch()}>Retry</button></p> : null}
-    {query.data?.unitReady ? <p data-testid="final-walk-recorded-ready">Unit already recorded ready. Open Inspection details / report above to edit saved inspection details or download a report. Ready status alone does not confirm that a final walk was performed.</p> : block ? <><p><strong>Final walk: {block.assignedUser.fullName}</strong> / {block.plannedDate.slice(0, 10)}</p><p>{query.data?.ready ? "Ready for inspection" : "Scheduled; waiting for the turn to be marked complete."}</p>
+    {!query.isError && query.data?.unitReady ? <p data-testid="final-walk-recorded-ready">Unit already recorded ready. Open Inspection details / report above to edit saved inspection details or download a report. Ready status alone does not confirm that a final walk was performed.</p> : block ? <><p><strong>Final walk: {block.assignedUser.fullName}</strong> / {block.plannedDate.slice(0, 10)}</p><p>{query.data?.ready ? "Ready for inspection. This assignment appears in the inspector's My Work; no separate send action is needed." : "Waiting for repairs, painting and cleaning to finish. Scheduled dates do not complete the turn."}</p>
       {!manager && block.assignedUserId === currentUser.id && query.data?.ready ? <button type="button" className="button button-primary" disabled={busy || !!query.data?.blockers?.length} onClick={() => void act(false)}>Final walk passed / mark ready</button> : null}
       {canHandoff ? <div>
         <button type="button" className="button button-secondary" disabled={busy} aria-expanded={showHandoff} onClick={() => setShowHandoff(value => !value)}>Cannot do this inspection?</button>

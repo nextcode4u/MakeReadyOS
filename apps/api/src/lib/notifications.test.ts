@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { notificationEnabledByDefault } from "./notificationPolicy.js";
+import { notificationEnabledByDefault, needToKnowMutedCategories } from "./notificationPolicy.js";
 
 test("need-to-know defaults suppress routine updates without suppressing action requests", () => {
+  assert.equal(notificationEnabledByDefault("POND_MILESTONE"), true);
+  assert.ok(needToKnowMutedCategories.includes("POND_MILESTONE"));
   for (const category of ["STATUS_CHANGE", "BATCH_CHANGE", "CHECKLIST"]) assert.equal(notificationEnabledByDefault(category), false);
   for (const category of ["ASSIGNMENT", "SCHEDULE", "OVERDUE", "MOVE_IN_SOON", "RISK", "MATERIALS_REQUEST", "ITEM_LIFECYCLE", "COMMENT"]) assert.equal(notificationEnabledByDefault(category), true);
 });
