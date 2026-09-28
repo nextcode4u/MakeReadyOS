@@ -78,6 +78,9 @@ export const pestIssueQuerySchema = z.object({
   includeArchived: booleanFlag.optional(),
   makeReadyOnly: booleanFlag.optional(),
   recurringOnly: booleanFlag.optional(),
+  activeOnly: booleanFlag.optional(),
+  archiveOnly: booleanFlag.optional(),
+  overdueOnly: booleanFlag.optional(),
   q: z.string().trim().optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
@@ -243,7 +246,7 @@ async function syncMakeReadyPestState(makeReadyItemId: string | null | undefined
     orderBy: [{ requestDate: "desc" }, { updatedAt: "desc" }],
   });
   const recentTreated = await prisma.pestIssue.findFirst({
-    where: { makeReadyItemId, isArchived: false, OR: [{ treatmentDate: { not: null } }, { status: { in: ["Closed", "Treated"] } }] },
+    where: { makeReadyItemId, AND: [{ OR: [{ isArchived: false }, { status: "Closed" }] }, { OR: [{ treatmentDate: { not: null } }, { status: { in: ["Closed", "Treated"] } }] }] },
     orderBy: [{ treatmentDate: "desc" }, { updatedAt: "desc" }],
   });
   let pestStatus = "NONE";
@@ -272,7 +275,7 @@ async function applyRecurringFlags(issueId: string, unitId: string | null | unde
     prisma.pestIssue.count({
       where: {
         unitId,
-        isArchived: false,
+        OR: [{ isArchived: false }, { status: "Closed" }],
         requestDate: { gte: ninetyDays },
       },
     }),
@@ -316,7 +319,7 @@ function issueWhere(query: z.infer<typeof pestIssueQuerySchema>, request: Fastif
   }
   const where: Record<string, unknown> = {
     propertyId: scoped.where,
-    ...(query.includeArchived ? {} : { isArchived: false }),
+    ...(query.includeArchived || query.archiveOnly ? {} : { isArchived: false }),
     ...(query.unitId ? { unitId: query.unitId } : {}),
     ...(query.makeReadyItemId ? { makeReadyItemId: query.makeReadyItemId } : {}),
     ...(query.status ? { status: query.status } : {}),
@@ -324,7 +327,7 @@ function issueWhere(query: z.infer<typeof pestIssueQuerySchema>, request: Fastif
     ...(query.vendorId ? { vendorId: query.vendorId } : {}),
     ...(query.assignedUserId ? { assignedUserId: query.assignedUserId } : {}),
     ...(query.source ? { source: query.source } : {}),
-    ...(query.makeReadyOnly ? { makeReadyItemId: { not: null } } : {}),
+    ...(query.makeReadyOnly && !query.makeReadyItemId ? { makeReadyItemId: { not: null } } : {}),
     ...(query.recurringOnly ? { OR: [{ recurringConcern: true }, { managerReviewRequired: true }] } : {}),
   };
   if (query.from || query.to) {
@@ -350,6 +353,17 @@ function issueWhere(query: z.infer<typeof pestIssueQuerySchema>, request: Fastif
         ],
       },
     ];
+  }
+  if (query.activeOnly) {
+    where.isArchived = false;
+    where.AND = [...(where.AND as unknown[] ?? []), { status: { notIn: ["Closed", "Cancelled", "Archived"] } }];
+    if (query.recurringOnly && !query.unitId) where.unitId = { not: null };
+  }
+  if (query.overdueOnly) {
+    where.AND = [...(where.AND as unknown[] ?? []), { status: "Needs Follow Up", followUpDate: { lt: startOfDay() } }];
+  }
+  if (query.archiveOnly) {
+    where.AND = [...(where.AND as unknown[] ?? []), { OR: [{ isArchived: true }, { status: { in: ["Closed", "Cancelled", "Archived"] } }] }];
   }
   return where;
 }
@@ -396,7 +410,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
     const { propertyId } = z.object({ propertyId: z.string().optional() }).parse(request.query);
     const scoped = propertyScopeWhere(request, propertyId);
     if (scoped.denied) return reply.code(403).send({ message: "Property access denied" });
-    const where = { propertyId: scoped.where, isArchived: false };
+    const where = { propertyId: scoped.where, OR: [{ isArchived: false }, { status: "Closed" }] };
     const today = startOfDay();
     const [issues, vendors, defaultVendor, assignableUsers] = await Promise.all([
       prisma.pestIssue.findMany({
@@ -437,7 +451,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
     const dueFollowUps = issues.filter((issue) => issue.followUpDate && issue.followUpDate >= today && issue.status === "Needs Follow Up");
     const overdueFollowUps = issues.filter((issue) => issue.followUpDate && issue.followUpDate < today && issue.status === "Needs Follow Up");
     const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const recurringMap = new Set(issues.filter((issue) => issue.unitId && (issue.recurringConcern || issue.managerReviewRequired)).map((issue) => issue.unitId!));
+    const recurringMap = new Set(openRequests.filter((issue) => issue.unitId && (issue.recurringConcern || issue.managerReviewRequired)).map((issue) => issue.unitId!));
     return {
       summary: {
         openRequests: openRequests.length,
@@ -695,6 +709,10 @@ export async function pestControlRoutes(app: FastifyInstance) {
         followUpDate: input.followUpDate ?? null,
         closedAt: input.followUpDate ? null : new Date(),
         closedById: input.followUpDate ? null : request.currentUser!.id,
+        isArchived: !input.followUpDate,
+        archivedAt: input.followUpDate ? null : new Date(),
+        archivedById: input.followUpDate ? null : request.currentUser!.id,
+        archiveNotes: input.followUpDate ? null : input.closingNotes,
         updatedById: request.currentUser!.id,
       },
       include: {

@@ -13,6 +13,7 @@ import { poolObservationGaps, poolSafetyObservations } from "../lib/poolObservat
 import { prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { notifyPropertyRoles } from "../lib/notifications.js";
+import { notifyMissingPoolLogs } from "../lib/poolLogReminders.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { renderPoolReport, poolObservationFields } from "../lib/poolReport.js";
 import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../lib/reportScope.js";
@@ -338,18 +339,6 @@ async function notifyPoolReviewIfNeeded(input: {
   });
 }
 
-async function notifyMissingPoolLogs(input: { propertyId: string; facilities: Array<{ id: string; name: string }> }) {
-  const dateKey = dateOnly().toISOString().slice(0, 10);
-  await Promise.all(input.facilities.map((facility) => notifyPropertyRoles({
-    propertyId: input.propertyId,
-    roles: [UserRole.ADMIN, UserRole.MANAGER],
-    category: "SCHEDULE",
-    title: `Pool log missing: ${facility.name}`,
-    message: `${facility.name} has no daily pool/spa log for ${dateKey}.`,
-    dedupeKey: `pool-missing-log:${facility.id}:${dateKey}`,
-  })));
-}
-
 async function ensureDefaultPoolChemicals(propertyIds: string[], userId?: string | null) {
   if (!propertyIds.length) return;
   const existing = await prisma.poolChemical.findMany({
@@ -491,13 +480,13 @@ export async function poolLogRoutes(app: FastifyInstance) {
     });
     const usageToday = entriesToday.flatMap((entry) => entry.chemicalAdditions);
     const missingFacilities = facilities.filter((facility) => !loggedFacilityIds.has(facility.id));
-    const missingByProperty = new Map<string, Array<{ id: string; name: string }>>();
-    missingFacilities.forEach((facility) => {
-      const bucket = missingByProperty.get(facility.propertyId) ?? [];
+    const facilitiesByProperty = new Map<string, Array<{ id: string; name: string }>>();
+    facilities.forEach((facility) => {
+      const bucket = facilitiesByProperty.get(facility.propertyId) ?? [];
       bucket.push({ id: facility.id, name: facility.name });
-      missingByProperty.set(facility.propertyId, bucket);
+      facilitiesByProperty.set(facility.propertyId, bucket);
     });
-    await Promise.all([...missingByProperty.entries()].map(([propertyId, propertyFacilities]) => notifyMissingPoolLogs({ propertyId, facilities: propertyFacilities })));
+    await Promise.all([...facilitiesByProperty.entries()].map(([propertyId, propertyFacilities]) => notifyMissingPoolLogs({ propertyId, facilities: propertyFacilities })));
 
     return {
       permissions: access,

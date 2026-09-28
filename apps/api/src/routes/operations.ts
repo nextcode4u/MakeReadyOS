@@ -1208,7 +1208,7 @@ export async function operationsRoutes(app: FastifyInstance) {
           if (!importedPlan && Object.prototype.hasOwnProperty.call(row, "squareFeet") && row.squareFeet !== null && row.squareFeet !== undefined) updateData.squareFeet = row.squareFeet;
           if (!importedPlan && Object.prototype.hasOwnProperty.call(row, "bedrooms") && row.bedrooms !== null && row.bedrooms !== undefined) updateData.bedrooms = row.bedrooms;
           if (!importedPlan && Object.prototype.hasOwnProperty.call(row, "bathrooms") && row.bathrooms !== null && row.bathrooms !== undefined) updateData.bathrooms = row.bathrooms;
-          if (Object.prototype.hasOwnProperty.call(row, "occupancyStatus") && row.occupancyStatus) updateData.occupancyStatus = row.occupancyStatus;
+          // Directory refreshes must not replace live availability or manual status changes.
           if (Object.prototype.hasOwnProperty.call(row, "building") && row.building) updateData.building = row.building;
           if (Object.prototype.hasOwnProperty.call(row, "area") && row.area) updateData.area = row.area;
           if (Object.prototype.hasOwnProperty.call(row, "floor") && row.floor) updateData.floor = row.floor;

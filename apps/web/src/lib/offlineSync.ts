@@ -644,16 +644,19 @@ function deliverQueuedJob(id: string) {
   return delivery;
 }
 
-export async function syncOfflineJobs(): Promise<{ processed: number; synced: number; remaining: number }> {
+// Override a stale browser hint only after the caller has verified the server.
+type SyncConnection = { serverReachable?: boolean };
+
+export async function syncOfflineJobs(connection: SyncConnection = {}): Promise<{ processed: number; synced: number; remaining: number }> {
   const session = getVerifiedSession();
   if (!session.userId) return { processed: 0, synced: 0, remaining: 0 };
   if (syncPromise) {
     await syncPromise;
-    return isCurrentSession(session) ? syncOfflineJobs() : { processed: 0, synced: 0, remaining: 0 };
+    return isCurrentSession(session) ? syncOfflineJobs(connection) : { processed: 0, synced: 0, remaining: 0 };
   }
   syncPromise = Promise.resolve().then(async () => {
     try {
-      if (typeof navigator !== "undefined" && !navigator.onLine) {
+      if (!connection.serverReachable && typeof navigator !== "undefined" && !navigator.onLine) {
         return { processed: 0, synced: 0, remaining: await getOfflineSyncPendingCount() };
       }
       syncing = true;
@@ -692,8 +695,8 @@ export async function syncOfflineJobs(): Promise<{ processed: number; synced: nu
   return syncPromise;
 }
 
-export async function retryOfflineSyncJob(id: string) {
-  if (typeof navigator !== "undefined" && !navigator.onLine) {
+export async function retryOfflineSyncJob(id: string, connection: SyncConnection = {}) {
+  if (!connection.serverReachable && typeof navigator !== "undefined" && !navigator.onLine) {
     return { synced: false, remaining: await getOfflineSyncPendingCount() };
   }
   try {

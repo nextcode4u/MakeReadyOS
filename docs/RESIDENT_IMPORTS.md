@@ -10,6 +10,13 @@ unit,occupancyStatus,currentResidentName
 102,NTV LEASED,Casey Example
 ```
 
+You can also refresh the all-units report after importing availability. Existing
+units keep their current occupancy status, even if the directory report differs.
+Only newly created units take their initial status from the directory report.
+Resident names, occupant move-in dates, and inventory details can still update;
+active turns, incoming applicants, and turn dates are untouched. Use availability
+imports for ongoing status updates. The directory preview reflects retained statuses.
+
 Availability imports keep `currentResidentName` separate from `applicant`
 (also accepted as `Preleased Name` or `Future Resident`). Generic `Name` and
 resident/applicant identifier columns are not guessed. Rename ambiguous headers

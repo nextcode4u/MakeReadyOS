@@ -2979,6 +2979,9 @@ export function getPestIssues(filters: {
   includeArchived?: boolean;
   makeReadyOnly?: boolean;
   recurringOnly?: boolean;
+  activeOnly?: boolean;
+  archiveOnly?: boolean;
+  overdueOnly?: boolean;
   q?: string;
   from?: string;
   to?: string;

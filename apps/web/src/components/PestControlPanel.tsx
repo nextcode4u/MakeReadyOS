@@ -41,6 +41,7 @@ import { isTouchMobileViewport } from "../lib/responsive";
 import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
 import { StatusState } from "./StatusState";
 import { UnitSearchSelect } from "./UnitSearchSelect";
+import { formatPestRequestList, loadActivePestRequests } from "../lib/pestRequestList";
 
 type Tab = "dashboard" | "active" | "make-ready" | "vendors" | "archive" | "reports";
 
@@ -64,7 +65,7 @@ function today() {
 }
 
 function formatDate(value?: string | null) {
-  return value ? new Date(value).toLocaleDateString() : "-";
+  return value ? new Date(`${value.slice(0, 10)}T00:00:00`).toLocaleDateString() : "-";
 }
 
 function queueStatusSummary(jobs: OfflineSyncJobSummary[], language: UserLanguage) {
@@ -172,7 +173,7 @@ function PestIssueCard({
   const [followUpDate, setFollowUpDate] = useState(issue.followUpDate ? issue.followUpDate.slice(0, 10) : "");
   const [expanded, setExpanded] = useState(!compact);
   const label = issue.unit?.number || issue.makeReadyItem?.unitNumber || issue.area || t(language, "pest.areaNotSet");
-  const overdueFollowUp = issue.status === "Needs Follow Up" && issue.followUpDate && new Date(issue.followUpDate) < new Date(`${today()}T00:00:00`);
+  const overdueFollowUp = issue.status === "Needs Follow Up" && issue.followUpDate && issue.followUpDate.slice(0, 10) < today();
   const vendorOptions = useMemo<SearchSelectOption[]>(() => vendors.map((vendor) => ({
     value: vendor.id,
     label: vendor.vendorName,
@@ -220,8 +221,8 @@ function PestIssueCard({
   };
 
   return (
-    <article className={`pool-card pest-issue-card ${overdueFollowUp ? "pm-task-card" : ""}`} data-testid={`pest-issue-${issue.id}`}>
-      <button type="button" className="compact-issue-summary pest-issue-summary" onClick={() => setExpanded((current) => !current)}>
+    <article className={`pool-card pest-issue-card ${expanded ? "is-expanded" : "is-collapsed"} ${overdueFollowUp ? "pm-task-card" : ""}`} data-testid={`pest-issue-${issue.id}`}>
+      <button type="button" aria-expanded={expanded} className="compact-issue-summary pest-issue-summary" onClick={() => setExpanded((current) => !current)}>
         <div className="compact-issue-summary-main">
           <strong>{label} / {issue.pestType}{issue.additionalPestType ? ` + ${issue.additionalPestType}` : ""}</strong>
           <span className="pool-reading-stack compact-issue-meta">
@@ -236,12 +237,11 @@ function PestIssueCard({
           {issue.description ? <p className="lease-issue-description">{issue.description}</p> : null}
         </div>
         <div className="compact-issue-summary-side">
-          {issue.attachments[0]?.mimeType.startsWith("image/") ? (
+          {expanded && issue.attachments[0]?.mimeType.startsWith("image/") ? (
             <img className="compact-issue-thumb" src={pestIssueAttachmentDownloadUrl(issue.attachments[0].id)} alt={issue.attachments[0].originalName} loading="lazy" />
-          ) : (
-            <div className="compact-issue-thumb lease-issue-thumb-placeholder">{t(language, "pest.noPriorPhoto")}</div>
-          )}
+          ) : null}
           <span className={`status-pill ${overdueFollowUp ? "risk-critical" : issue.status === "Needs Follow Up" ? "risk-high" : ""}`}>{issue.status}</span>
+          <span aria-hidden="true">{expanded ? "-" : "+"}</span>
         </div>
       </button>
       {expanded ? (
@@ -389,6 +389,7 @@ function PestIssueCard({
             className="button button-primary"
             type="button"
             onClick={closeIssue}
+            title={language === "es" ? "Cerrar y mover al archivo; se conserva el historial." : "Close and move to Archive; treatment history is kept."}
           >
             {t(language, "pest.closeWithoutFollowUp")}
           </button>
@@ -420,8 +421,12 @@ export function PestControlPanel({ properties, units, userRole, language, select
   const [propertyId, setPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<PestStatus | "">("");
+  const [focusFilter, setFocusFilter] = useState<"" | "overdue" | "make-ready" | "recurring">("");
+  const [copyStatus, setCopyStatus] = useState("");
+  const [copyText, setCopyText] = useState("");
   const [linkedMakeReadyItemId, setLinkedMakeReadyItemId] = useState("");
   const [quickAddUnitId, setQuickAddUnitId] = useState("");
+  const [quickAddExpanded, setQuickAddExpanded] = useState(false);
   const [quickAddPhotos, setQuickAddPhotos] = useState<File[]>([]);
   const [quickCreatedIssueId, setQuickCreatedIssueId] = useState<string | null>(null);
   const [quickAddBusy, setQuickAddBusy] = useState(false);
@@ -503,11 +508,14 @@ export function PestControlPanel({ properties, units, userRole, language, select
     enabled: Boolean(propertyId),
   });
   const activeQuery = useQuery({
-    queryKey: ["pest", "active", propertyId, statusFilter, search, linkedMakeReadyItemId],
-    queryFn: () => getPestIssues({
+    queryKey: ["pest", "active", propertyId, statusFilter, focusFilter, search, linkedMakeReadyItemId],
+    queryFn: () => loadActivePestRequests({
       propertyId: propertyId || undefined,
       makeReadyItemId: linkedMakeReadyItemId || undefined,
       status: statusFilter || undefined,
+      overdueOnly: focusFilter === "overdue" || undefined,
+      makeReadyOnly: focusFilter === "make-ready" || undefined,
+      recurringOnly: focusFilter === "recurring" || undefined,
       q: search || undefined,
       limit: 200,
     }),
@@ -518,6 +526,7 @@ export function PestControlPanel({ properties, units, userRole, language, select
     queryFn: () => getPestIssues({
       propertyId: propertyId || undefined,
       makeReadyOnly: true,
+      activeOnly: true,
       makeReadyItemId: linkedMakeReadyItemId || undefined,
       includeArchived: false,
       limit: 200,
@@ -530,6 +539,7 @@ export function PestControlPanel({ properties, units, userRole, language, select
       propertyId: propertyId || undefined,
       makeReadyItemId: linkedMakeReadyItemId || undefined,
       includeArchived: true,
+      archiveOnly: true,
       q: search || undefined,
       limit: 200,
     }),
@@ -539,10 +549,14 @@ export function PestControlPanel({ properties, units, userRole, language, select
     propertyId: propertyId || undefined,
     makeReadyItemId: linkedMakeReadyItemId || undefined,
     status: tab === "active" ? statusFilter || undefined : undefined,
-    makeReadyOnly: tab === "make-ready" ? true : undefined,
+    activeOnly: tab === "active" || tab === "make-ready" ? true : undefined,
+    overdueOnly: tab === "active" && focusFilter === "overdue" ? true : undefined,
+    recurringOnly: tab === "active" && focusFilter === "recurring" ? true : undefined,
+    makeReadyOnly: tab === "make-ready" || (tab === "active" && focusFilter === "make-ready") ? true : undefined,
     includeArchived: tab === "archive" ? true : undefined,
+    archiveOnly: tab === "archive" ? true : undefined,
     q: search || undefined,
-  }), [linkedMakeReadyItemId, propertyId, search, statusFilter, tab]);
+  }), [linkedMakeReadyItemId, propertyId, search, statusFilter, focusFilter, tab]);
   const vendorsQuery = useQuery({
     queryKey: ["pest", "vendors", propertyId],
     queryFn: () => getPestVendors(propertyId || undefined),
@@ -594,7 +608,25 @@ export function PestControlPanel({ properties, units, userRole, language, select
     keywords: [vendor.vendorName, vendor.primaryContact ?? "", vendor.phone ?? "", vendor.email ?? ""].filter(Boolean),
   })), [activeVendors]);
   const defaultVendorId = overviewQuery.data?.defaultVendor?.id ?? "";
-  const archivedOnly = (archiveQuery.data?.issues ?? []).filter((issue) => issue.isArchived || issue.status === "Archived");
+  const archivedOnly = (archiveQuery.data?.issues ?? []).filter((issue) => issue.isArchived || ["Closed", "Cancelled", "Archived"].includes(issue.status));
+  useEffect(() => { setCopyText(""); setCopyStatus(""); }, [propertyId, statusFilter, focusFilter, search, linkedMakeReadyItemId, activeQuery.data]);
+  const openOverview = (status: PestStatus | "" = "", focus: typeof focusFilter = "") => {
+    setStatusFilter(status);
+    setFocusFilter(focus);
+    setSearch("");
+    setLinkedMakeReadyItemId("");
+    setTab("active");
+  };
+  const copyActiveRequests = async () => {
+    const text = formatPestRequestList(activeQuery.data?.issues ?? [], language);
+    setCopyText(text);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyStatus(language === "es" ? "Lista copiada." : "List copied.");
+    } catch {
+      setCopyStatus(language === "es" ? "Seleccione y copie el texto de abajo." : "Select and copy the text below.");
+    }
+  };
   const selectedQuickAddUnit = useMemo(
     () => propertyUnits.find((unit) => unit.id === quickAddUnitId) ?? null,
     [propertyUnits, quickAddUnitId]
@@ -682,6 +714,7 @@ export function PestControlPanel({ properties, units, userRole, language, select
     if (!workspaceRequest?.propertyId) return;
     setPropertyId(workspaceRequest.propertyId);
     setTab(workspaceRequest.tab ?? "active");
+    setFocusFilter("");
     setLinkedMakeReadyItemId(workspaceRequest.makeReadyItemId ?? "");
     setSearch(workspaceRequest.search ?? "");
     if (workspaceRequest.tab !== "active") setStatusFilter("");
@@ -827,6 +860,9 @@ export function PestControlPanel({ properties, units, userRole, language, select
         <section className="panel-card" style={{ marginBottom: 16 }}>
           <div className="drawer-section-title">
             <h2>{t(language, "pest.quickAddTitle")}</h2>
+            {tab !== "dashboard" ? <button type="button" className="button button-secondary" aria-expanded={quickAddExpanded} aria-controls="pest-new-request" onClick={() => setQuickAddExpanded(value => !value)}>
+              {quickAddExpanded ? (language === "es" ? "Ocultar formulario" : "Hide form") : (language === "es" ? "Nueva solicitud" : "New request")}
+            </button> : null}
           </div>
           {queuedPestJobs.length ? (
             <div className="pool-card projects-sync-banner" style={{ marginBottom: 12 }}>
@@ -870,6 +906,7 @@ export function PestControlPanel({ properties, units, userRole, language, select
               </div>
             </div>
           ) : null}
+          <div id="pest-new-request" hidden={tab !== "dashboard" && !quickAddExpanded}>
           <form data-testid="pest-quick-add-form" className="pool-form" onSubmit={(event) => void submitQuickAdd(event)}>
             <fieldset disabled={quickAddBusy || !propertyId} className="pest-capture-controls">
             {quickAddError ? <p role="alert">{quickAddError}</p> : null}
@@ -1038,6 +1075,7 @@ export function PestControlPanel({ properties, units, userRole, language, select
             </div>
             </fieldset>
           </form>
+          </div>
         </section>
       ) : null}
 
@@ -1047,12 +1085,12 @@ export function PestControlPanel({ properties, units, userRole, language, select
             <section className="panel-card">
               <h2>{t(language, "dashboard.overview")}</h2>
               <div className="dashboard-kpis pest-dashboard-kpis">
-                <div><strong>{overviewQuery.data.summary.openRequests}</strong><span>{t(language, "pest.openRequests")}</span></div>
-                <div><strong>{overviewQuery.data.summary.scheduled}</strong><span>{t(language, "pest.scheduled")}</span></div>
-                <div><strong>{overviewQuery.data.summary.needsFollowUp}</strong><span>{t(language, "pest.needsFollowUp")}</span></div>
-                <div><strong>{overviewQuery.data.summary.overdueFollowUps}</strong><span>{t(language, "pest.overdueFollowUps")}</span></div>
-                <div><strong>{overviewQuery.data.summary.makeReadyPending}</strong><span>{t(language, "pest.makeReadyPending")}</span></div>
-                <div><strong>{overviewQuery.data.summary.recurringUnits}</strong><span>{t(language, "pest.recurringUnits")}</span></div>
+                <button type="button" onClick={() => openOverview()}><strong>{overviewQuery.data.summary.openRequests}</strong><span>{t(language, "pest.openRequests")}</span></button>
+                <button type="button" onClick={() => openOverview("Scheduled")}><strong>{overviewQuery.data.summary.scheduled}</strong><span>{t(language, "pest.scheduled")}</span></button>
+                <button type="button" onClick={() => openOverview("Needs Follow Up")}><strong>{overviewQuery.data.summary.needsFollowUp}</strong><span>{t(language, "pest.needsFollowUp")}</span></button>
+                <button type="button" onClick={() => openOverview("", "overdue")}><strong>{overviewQuery.data.summary.overdueFollowUps}</strong><span>{t(language, "pest.overdueFollowUps")}</span></button>
+                <button type="button" onClick={() => openOverview("", "make-ready")}><strong>{overviewQuery.data.summary.makeReadyPending}</strong><span>{t(language, "pest.makeReadyPending")}</span></button>
+                <button type="button" onClick={() => openOverview("", "recurring")}><strong>{overviewQuery.data.summary.recurringUnits}</strong><span>{t(language, "pest.recurringUnits")}</span></button>
               </div>
             </section>
             <section className="panel-card">
@@ -1081,13 +1119,27 @@ export function PestControlPanel({ properties, units, userRole, language, select
               <label>{t(language, "admin.status")}
                 <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as PestStatus | "")}>
                   <option value="">{t(language, "pest.allActiveStatuses")}</option>
-                  {pestStatuses.filter((status) => status !== "Archived").map((status) => <option key={status} value={status}>{status}</option>)}
+                  {pestStatuses.filter((status) => !["Closed", "Cancelled", "Archived"].includes(status)).map((status) => <option key={status} value={status}>{status}</option>)}
+                </select>
+              </label>
+              <label>{language === "es" ? "Mostrar" : "Show"}
+                <select aria-label={language === "es" ? "Enfoque de solicitudes" : "Request focus"} value={focusFilter} onChange={event => setFocusFilter(event.target.value as typeof focusFilter)}>
+                  <option value="">{language === "es" ? "Todas las solicitudes activas" : "All active requests"}</option>
+                  <option value="overdue">{t(language, "pest.overdueFollowUps")}</option>
+                  <option value="make-ready">{t(language, "pest.makeReadyPending")}</option>
+                  <option value="recurring">{t(language, "pest.recurringUnits")}</option>
                 </select>
               </label>
             </div>
+            <div className="pest-list-tools">
+              <span>{activeQuery.data?.issues.length ?? 0} {language === "es" ? "solicitudes coincidentes" : "matching requests"}</span>
+              <button type="button" className="button button-secondary" disabled={activeQuery.isFetching || activeQuery.isError || !activeQuery.data?.issues.length} onClick={() => void copyActiveRequests()}>{language === "es" ? "Copiar lista activa" : "Copy active list"}</button>
+            </div>
+            {copyStatus ? <p role="status">{copyStatus}</p> : null}
+            {copyText ? <textarea aria-label={language === "es" ? "Lista para control de plagas" : "List for pest control"} value={copyText} readOnly rows={5} onFocus={event => event.currentTarget.select()} /> : null}
           </section>
           {activeQuery.isLoading ? <StatusState title={t(language, "pest.loadingActiveTitle")} description={t(language, "pest.loadingActiveCopy")} /> : activeQuery.isError || !activeQuery.data ? <StatusState title={t(language, "pest.activeFailedTitle")} description={t(language, "pest.refreshTryAgain")} tone="error" /> : (
-            <div className="pool-card-grid lease-issue-grid">
+            <div className="pest-active-list">
               {activeQuery.data.issues.filter((issue) => !issue.isArchived).map((issue) => (
                 <PestIssueCard
                   key={issue.id}

@@ -58,6 +58,47 @@ test("offline sync releases its lock before the next online attempt", async () =
   assert.equal(fixture.checks(), 2);
 });
 
+for (const mode of ["automatic", "manual"]) {
+  test(`${mode} sync can recover from a stale offline hint after server verification`, async () => {
+    const jobs = [ownedJob("a", "owner-a"), ownedJob("b", "owner-b")];
+    const sent = [];
+    const fixture = queue({ jobs, deliver: async job => { sent.push(job.id); } });
+    const sync = options => mode === "automatic"
+      ? fixture.exports.syncOfflineJobs(options)
+      : fixture.exports.retryOfflineSyncJob("a", options);
+    await sync();
+    assert.deepEqual(sent, []);
+    await sync({ serverReachable: true });
+    assert.deepEqual(sent, ["a"]);
+    assert.deepEqual(jobs.map(job => job.id), ["b"]);
+  });
+}
+
+test("server verification does not discard a queued save if the connection fails again", async () => {
+  const jobs = [ownedJob("a", "owner-a")];
+  const fixture = queue({ jobs, deliver: async () => { throw new Error("Network failed again"); } });
+  const result = await fixture.exports.syncOfflineJobs({ serverReachable: true });
+  assert.equal(result.synced, 0);
+  assert.equal(result.remaining, 1);
+  assert.equal(jobs[0].attemptCount, 1);
+  assert.equal(jobs[0].lastError, "Network failed again");
+});
+
+test("repeated automatic sync honors backoff and leaves conflicts for review", async () => {
+  const jobs = [
+    { ...ownedJob("retry", "owner-a"), lastErrorStatus: 0, attemptCount: 1, lastAttemptAt: new Date().toISOString() },
+    { ...ownedJob("conflict", "owner-a"), lastErrorStatus: 409 },
+  ];
+  const sent = [];
+  const fixture = queue({ jobs, deliver: async job => { sent.push(job.id); } });
+  await fixture.exports.syncOfflineJobs({ serverReachable: true });
+  assert.deepEqual(sent, []);
+  jobs[0].lastAttemptAt = "2020-01-01T00:00:00.000Z";
+  await fixture.exports.syncOfflineJobs({ serverReachable: true });
+  assert.deepEqual(sent, ["retry"]);
+  assert.deepEqual(jobs.map(job => job.id), ["conflict"]);
+});
+
 for (const order of ["manual/manual", "automatic/manual", "manual/automatic"]) {
   test(`offline ${order} attempts share one delivery`, async () => {
     let release;

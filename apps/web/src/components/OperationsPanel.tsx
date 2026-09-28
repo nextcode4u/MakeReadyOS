@@ -1347,7 +1347,8 @@ export function OperationsPanel({
       const existing = new Set(unitsForProperty.map((unit) => unit.number.toUpperCase()));
       const existingByNumber = new Map(unitsForProperty.map((unit) => [unit.number.toUpperCase(), unit]));
       const statuses = parsed.reduce<Record<string, number>>((acc, unit) => {
-        acc[unit.occupancyStatus ?? "OCCUPIED"] = (acc[unit.occupancyStatus ?? "OCCUPIED"] ?? 0) + 1;
+        const status = existingByNumber.get(unit.number.toUpperCase())?.occupancyStatus ?? unit.occupancyStatus ?? "UNKNOWN";
+        acc[status] = (acc[status] ?? 0) + 1;
         return acc;
       }, {});
       const creates = parsed
@@ -1360,7 +1361,7 @@ export function OperationsPanel({
             unit.building ? `${isSpanish ? "Edificio" : "Building"} ${unit.building}` : null,
             unit.floorPlan ? `${isSpanish ? "Plano" : "Plan"} ${unit.floorPlan}` : null,
             unit.squareFeet ? `${unit.squareFeet} ${isSpanish ? "pies²" : "sq ft"}` : null,
-            occupancyLabel(unit.occupancyStatus ?? "OCCUPIED", language),
+            occupancyLabel(unit.occupancyStatus ?? "UNKNOWN", language),
           ].filter(Boolean).join(" / "),
         }))
         .sort((left, right) => compareUnitLike(left.unit, right.unit));
@@ -1377,7 +1378,6 @@ export function OperationsPanel({
         if (hasImportedValue(row.building) && (row.building ?? "") !== (existingUnit.building ?? "")) changedFields.push(`${isSpanish ? "Edificio" : "Building"}: ${existingUnit.building || (isSpanish ? "vacío" : "blank")} -> ${row.building}`);
         if (hasImportedValue(row.area) && (row.area ?? "") !== (existingUnit.area ?? "")) changedFields.push(`${isSpanish ? "Área" : "Area"}: ${existingUnit.area || (isSpanish ? "vacía" : "blank")} -> ${row.area}`);
         if (hasImportedValue(row.floor) && (row.floor ?? "") !== (existingUnit.floor ?? "")) changedFields.push(`${isSpanish ? "Piso" : "Floor"}: ${existingUnit.floor || (isSpanish ? "vacío" : "blank")} -> ${row.floor}`);
-        if (hasImportedValue(row.occupancyStatus) && row.occupancyStatus !== existingUnit.occupancyStatus) changedFields.push(`${isSpanish ? "Ocupación" : "Occupancy"}: ${occupancyLabel(existingUnit.occupancyStatus, language)} -> ${occupancyLabel(row.occupancyStatus, language)}`);
         if (row.isBudgeted !== undefined && row.isBudgeted !== existingUnit.isBudgeted) changedFields.push(`${isSpanish ? "Presupuestada" : "Budgeted"}: ${existingUnit.isBudgeted ? (isSpanish ? "sí" : "yes") : (isSpanish ? "no" : "no")} -> ${row.isBudgeted ? (isSpanish ? "sí" : "yes") : (isSpanish ? "no" : "no")}`);
         return changedFields.length > 0 ? [{ unit: row.number, fields: changedFields }] : [];
       }).sort((left, right) => compareUnitLike(left.unit, right.unit));
@@ -2056,7 +2056,7 @@ export function OperationsPanel({
             {importPropertySelector("unit")}
             <p className="helper-copy">{isSpanish ? "Incluya currentResidentMoveInDate (o Move In Date en el directorio) para mostrar la fecha de ingreso del ocupante. Las fechas vacías conservan el valor existente; no use la fecha de un solicitante futuro." : "Include currentResidentMoveInDate (or Move In Date in the directory) to show when the occupant moved in. Blank dates preserve the existing value; do not use a future applicant's date."}</p>
             <p className="helper-copy">{isSpanish ? "Configuración inicial: importe todas las unidades con una columna currentResidentName (o Resident Name). Después use los reportes de disponibilidad. Los residentes actuales y los solicitantes futuros se guardan por separado; los nombres vacíos no borran datos existentes. Si el XML no incluye nombres, use CSV con este encabezado." : "Initial setup: import all units with a currentResidentName (or Resident Name) column. Then use availability reports for ongoing updates. Current residents and future applicants are stored separately; blank names preserve existing data. If your XML does not include names, use CSV with this header."}</p>
-            <p className="helper-copy">{isSpanish ? "Use esto solo para inventario permanente. Puede pegar CSV o cargar XML compatibles. Actualiza el estado ocupado/vacante del directorio, pero no crea filas activas de make-ready. Para poblar el tablero, use la importación de disponibilidad de arriba." : "Use this for permanent inventory only. You can paste CSV or upload supported XML exports here. It updates occupied/vacant directory status but does not create active make-ready table rows. For board population, use Availability import above."}</p>
+            <p className="helper-copy" data-testid="unit-import-status-policy">{isSpanish ? "Actualiza los datos del residente y del inventario sin cambiar el estado ocupado/vacante/NTV de las unidades existentes. El estado del reporte solo se usa para unidades nuevas. No cambia las rotaciones activas, los solicitantes ni sus fechas. Use Disponibilidad para actualizar los estados." : "Updates resident and inventory details without changing existing units' occupied/vacant/NTV status. Report status is used only for new units. Active turns, applicants, and turn dates are not changed. Use Availability to update statuses."}</p>
             <div className="unit-import-actions">
               <input
                 data-testid="unit-import-file"

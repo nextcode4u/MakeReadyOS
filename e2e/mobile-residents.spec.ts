@@ -39,6 +39,20 @@ test("all-units setup keeps outgoing residents separate from incoming applicants
   const getItem = async () => (await page.request.get(`/api/make-ready-items/${itemId}`)).json();
   expect(await getItem()).toMatchObject({ applicant: "Jordan Sample", outgoingResidentName: "Alex Demo" });
 
+  // An older directory report must not undo the newer availability status.
+  await page.getByTestId("unit-import-csv").fill("unit,occupancyStatus,Resident Name,Move In Date,building\nR-101,OCCUPIED,Alex Demo,2024-03-15,North");
+  await expect(page.getByTestId("unit-import-status-policy")).toContainText("without changing existing units'");
+  await expect(page.getByTestId("unit-import-preview")).toContainText("NTV leased");
+  const refreshed = page.waitForResponse(response => response.url().includes("/operations/units/import") && response.request().method() === "POST");
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByTestId("unit-import-submit").click();
+  expect((await refreshed).status()).toBe(200);
+  expect(await getItem()).toMatchObject({
+    vacancyStatus: "NTV LEASED", applicant: "Jordan Sample",
+    moveOutDate: "2030-10-01T00:00:00.000Z", moveInDate: "2030-10-07T00:00:00.000Z",
+    unit: { occupancyStatus: "NTV LEASED", building: "North", currentResidentName: "Alex Demo" },
+  });
+
   // Blank cells and omitted units in a partial report must not erase names.
   await post("/operations/units/import", { propertyId: property.id, units: [{ number: "R-101", currentResidentName: " ", currentResidentMoveInDate: "" }] });
   await post("/operations/availability/import", { propertyId: property.id, rows: [{ number: "R-101", vacancyStatus: "NTV LEASED", applicant: "", currentResidentName: null }] });

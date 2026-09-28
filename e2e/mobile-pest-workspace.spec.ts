@@ -1,0 +1,76 @@
+import { expect, test } from "@playwright/test";
+
+test("pest overview filters compact rows, copies the list and archives closed requests", async ({ page }, testInfo) => {
+  test.setTimeout(120000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  await page.getByTestId("login-email").fill(process.env.ADMIN_EMAIL || "admin@example.com");
+  await page.getByTestId("login-password").fill(process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456");
+  await page.getByTestId("login-submit").click();
+  await expect(page.getByTestId("property-filter")).toBeVisible();
+  const session = await (await page.request.get("/api/auth/me")).json();
+  const headers = { "x-csrf-token": session.csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `P${Date.now()}`, name: "Pest workflow demo" });
+  const { issue: open } = await post("/pest/issues", { propertyId: property.id, area: "North laundry", pestType: "Ants", description: "Treat near sink", reportedBy: "Private Reporter" });
+  const { issue: scheduled } = await post("/pest/issues", { propertyId: property.id, area: "South laundry", pestType: "Ants", status: "Scheduled" });
+  const { issue: overdue } = await post("/pest/issues", { propertyId: property.id, area: "Courtyard", pestType: "Ants", followUpRequired: true, followUpDate: "2020-01-01" });
+  await page.reload();
+  await page.getByTestId("property-filter").selectOption(property.id);
+  await page.getByTestId("module-rail-pest").click();
+  const panel = page.getByTestId("pest-control-panel");
+  const dashboard = () => panel.locator(".module-tabs").getByRole("button", { name: "Dashboard", exact: true }).click();
+  await panel.locator(".pest-dashboard-kpis").getByRole("button", { name: /Scheduled/ }).click();
+  await expect(panel.getByTestId(`pest-issue-${scheduled.id}`)).toBeVisible();
+  await expect(panel.getByTestId(`pest-issue-${open.id}`)).toHaveCount(0);
+  await dashboard();
+  await panel.locator(".pest-dashboard-kpis").getByRole("button", { name: /Overdue/ }).click();
+  await expect(panel.getByTestId(`pest-issue-${overdue.id}`)).toBeVisible();
+  await expect(panel.getByTestId(`pest-issue-${overdue.id}`)).toContainText("1/1/2020");
+  await expect(panel.getByTestId(`pest-issue-${scheduled.id}`)).toHaveCount(0);
+  await dashboard();
+  await panel.locator(".pest-dashboard-kpis").getByRole("button", { name: /Needs Follow Up/ }).click();
+  await expect(panel.locator(".pest-active-list article")).toHaveCount(1);
+  for (const name of [/Make Ready Pending/, /Recurring Units/]) {
+    await dashboard();
+    await panel.locator(".pest-dashboard-kpis").getByRole("button", { name }).click();
+    await expect(panel.locator(".pest-active-list")).toContainText("No active");
+    await expect(panel.locator(".pest-active-list article")).toHaveCount(0);
+  }
+  await dashboard();
+  await panel.locator(".pest-dashboard-kpis").getByRole("button", { name: /Open Requests/ }).click();
+  await expect(panel.locator(".pest-active-list article")).toHaveCount(3);
+  await expect(panel.getByTestId("pest-quick-add-form")).toBeHidden();
+  await panel.getByRole("button", { name: "New request", exact: true }).click();
+  await expect(panel.getByTestId("pest-quick-add-form")).toBeVisible();
+  await panel.getByRole("button", { name: "Hide form", exact: true }).click();
+  // Exercise the manual-copy fallback used when browser clipboard permission is unavailable.
+  await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("Clipboard denied"); } } }));
+  await panel.getByRole("button", { name: "Copy active list" }).click();
+  const copied = panel.getByRole("textbox", { name: "List for pest control" });
+  await expect(copied).toHaveValue(/Active pest requests \(3\)/);
+  await expect(copied).toHaveValue(/North laundry.*Treat near sink/);
+  await expect(copied).not.toHaveValue(/Private Reporter/);
+  await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { sessionStorage.setItem("copied-pest-test", text); } } }));
+  await panel.getByRole("button", { name: "Copy active list" }).click();
+  await expect(panel.getByRole("status").filter({ hasText: "List copied." })).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem("copied-pest-test"))).toContain("Active pest requests (3)");
+  await page.setViewportSize({ width: 390, height: 844 });
+  const card = panel.getByTestId(`pest-issue-${open.id}`);
+  await expect(card.locator(".pest-issue-summary")).toHaveAttribute("aria-expanded", "false");
+  expect((await card.boundingBox())!.height).toBeLessThan(180);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await panel.locator(".pest-active-list").screenshot({ path: testInfo.outputPath("pest-compact-mobile.png") });
+  await card.locator(".pest-issue-summary").click();
+  const closed = page.waitForResponse(response => response.url().endsWith(`/pest/issues/${open.id}/close`) && response.request().method() === "POST");
+  await card.getByRole("button", { name: "Close Without Follow Up", exact: true }).click();
+  expect((await closed).status()).toBe(200);
+  await expect(card).toHaveCount(0);
+  await panel.locator(".module-tabs").getByRole("button", { name: "Archive", exact: true }).click();
+  await expect(panel.getByTestId(`pest-issue-${open.id}`)).toBeVisible();
+  await expect(panel.getByTestId(`pest-issue-${open.id}`)).toContainText("Closed");
+});

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { canViewKeycodes } from "./lib/api";
 import { getVerifiedSession, isCurrentSession, requireVerifiedUserId, verifiedSessionEventName } from "./lib/verifiedSession";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { onlineManager, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isReadyLikeOccupancy } from "./lib/availabilityStatus";
 import { repairStageDisplay } from "./lib/repairStageDisplay";
 import { ActiveFilterBar } from "./components/ActiveFilterBar";
@@ -711,6 +711,8 @@ function App() {
   const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
   const [apiDegraded, setApiDegraded] = useState(false);
   const connectionIssueVersion = useRef(0);
+  const confirmedApiReachable = useRef(false);
+  const [connectionCheckRequested, setConnectionCheckRequested] = useState(0);
   const [lastConnectionIssueAt, setLastConnectionIssueAt] = useState<string | null>(null);
   const [offlineQueuePendingCount, setOfflineQueuePendingCount] = useState(0);
   const [unattributedOfflineWork, setUnattributedOfflineWork] = useState(false);
@@ -816,8 +818,8 @@ function App() {
   };
 
   const retryConnection = () => {
-    void queryClient.invalidateQueries();
-    void syncQueuedOfflineChanges();
+    setApiDegraded(true);
+    setConnectionCheckRequested(value => value + 1);
   };
 
   const refreshOfflineQueueState = async () => {
@@ -836,11 +838,11 @@ function App() {
   };
 
   const syncQueuedOfflineChanges = async () => {
-    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine && !confirmedApiReachable.current) return;
     const session = getVerifiedSession();
     if (!session.userId) return;
     let result;
-    try { result = await syncOfflineJobs(); }
+    try { result = await syncOfflineJobs({ serverReachable: confirmedApiReachable.current }); }
     catch (error) {
       if (isCurrentSession(session)) setOfflineQueueError(error instanceof Error ? error.message : "Could not sync offline work.");
       return;
@@ -1093,7 +1095,7 @@ function App() {
   const retrySingleOfflineQueueJob = async (job: OfflineSyncJobSummary) => {
     const session = getVerifiedSession();
     try {
-      const result = await retryOfflineSyncJob(job.id);
+      const result = await retryOfflineSyncJob(job.id, { serverReachable: confirmedApiReachable.current });
       if (!isCurrentSession(session)) return;
       await refreshOfflineQueueState();
       if (!isCurrentSession(session)) return;
@@ -1128,7 +1130,7 @@ function App() {
     const session = getVerifiedSession();
     if (!session.userId || job.ownerUserId !== session.userId) return;
     let result;
-    try { result = await retryOfflineSyncJob(job.id); }
+    try { result = await retryOfflineSyncJob(job.id, { serverReachable: confirmedApiReachable.current }); }
     catch (error) {
       if (isCurrentSession(session)) setOfflineQueueError(error instanceof Error ? error.message : "Could not reapply offline work.");
       return;
@@ -3251,13 +3253,29 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!apiDegraded || !isOnline) return;
+    if (!apiDegraded && isOnline) return;
     return startConnectionRecovery(async signal => {
       const version = connectionIssueVersion.current;
       const healthy = await probeApiConnection(signal);
       return healthy && version === connectionIssueVersion.current;
-    }, () => setApiDegraded(false));
-  }, [apiDegraded, isOnline]);
+    }, () => {
+      confirmedApiReachable.current = true;
+      setIsOnline(true);
+      setApiDegraded(false);
+      onlineManager.setOnline(true);
+      void queryClient.invalidateQueries();
+      void syncQueuedOfflineChanges();
+    });
+  }, [apiDegraded, isOnline, connectionCheckRequested, queryClient]);
+
+  useEffect(() => {
+    if (!isOnline || apiDegraded || offlineQueuePendingCount === 0) return;
+    // Recovery can finish before a queued job's retry backoff expires.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") void syncQueuedOfflineChanges();
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [isOnline, apiDegraded, offlineQueuePendingCount, queryClient]);
 
   useEffect(() => {
     const online = () => {
@@ -3268,27 +3286,33 @@ function App() {
     };
     const offline = () => {
       connectionIssueVersion.current++;
+      confirmedApiReachable.current = false;
       setIsOnline(false);
       setLastConnectionIssueAt(new Date().toISOString());
     };
     const unreachable = (event: Event) => {
       connectionIssueVersion.current++;
+      confirmedApiReachable.current = false;
       const detail = event instanceof CustomEvent ? event.detail as { at?: string } | null : null;
       setApiDegraded(true);
       setLastConnectionIssueAt(detail?.at ?? new Date().toISOString());
     };
+    const resume = () => {
+      if (document.visibilityState === "hidden") return;
+      retryConnection();
+    };
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
     window.addEventListener("makereadyos:api-unreachable", unreachable);
-    window.addEventListener("focus", syncQueuedOfflineChanges);
-    document.addEventListener("visibilitychange", syncQueuedOfflineChanges);
+    window.addEventListener("focus", resume);
+    document.addEventListener("visibilitychange", resume);
     void syncQueuedOfflineChanges();
     return () => {
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
       window.removeEventListener("makereadyos:api-unreachable", unreachable);
-      window.removeEventListener("focus", syncQueuedOfflineChanges);
-      document.removeEventListener("visibilitychange", syncQueuedOfflineChanges);
+      window.removeEventListener("focus", resume);
+      document.removeEventListener("visibilitychange", resume);
     };
   }, [queryClient]);
 
