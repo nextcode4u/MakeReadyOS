@@ -228,7 +228,7 @@ const ProjectsPanel = lazy(() => import("./components/ProjectsPanel").then((modu
 const RefrigerantPanel = lazy(() => import("./components/RefrigerantPanel").then((module) => ({ default: module.RefrigerantPanel })));
 const VendorsPanel = lazy(() => import("./components/VendorsPanel").then((module) => ({ default: module.VendorsPanel })));
 
-type AppView = "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "accesscodes" | "fields" | "automations" | "activity" | "admin";
+type AppView = "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "availability" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "accesscodes" | "fields" | "automations" | "activity" | "admin";
 type KanbanGroupKey = string;
 type NavigationHistoryState = { view?: AppView; selectedItemId?: string | null };
 type DashboardDrilldownContext = {
@@ -385,7 +385,7 @@ function moduleRailMask(path: string) {
 
 function isAppView(value: unknown): value is AppView {
   return typeof value === "string" && [
-    "dashboard", "mywork", "planning", "table", "kanban", "calendar", "maps", "pond", "operations", "vendors",
+    "dashboard", "mywork", "planning", "table", "kanban", "calendar", "maps", "pond", "operations", "availability", "vendors",
     "refrigerant", "pool", "pest", "lease", "pm", "projects", "wiki", "oncall", "accesscodes", "fields", "automations", "activity", "admin",
   ].includes(value);
 }
@@ -1689,7 +1689,7 @@ function App() {
     queryFn: () => getOperationsProperties(true),
     enabled: meQuery.isSuccess
       && (meQuery.data?.user.role === "ADMIN" || meQuery.data?.user.role === "MANAGER")
-      && activeView === "operations",
+      && ["operations", "availability"].includes(activeView),
   });
 
   const operationsUnitsQuery = useQuery({
@@ -1697,7 +1697,7 @@ function App() {
     queryFn: () => getOperationsUnits(undefined, true),
     enabled: meQuery.isSuccess
       && (meQuery.data?.user.role === "ADMIN" || meQuery.data?.user.role === "MANAGER")
-      && activeView === "operations",
+      && ["operations", "availability"].includes(activeView),
   });
 
   const operationsOptionsQuery = useQuery({
@@ -1705,7 +1705,7 @@ function App() {
     queryFn: getBoardOptions,
     enabled: meQuery.isSuccess
       && (meQuery.data?.user.role === "ADMIN" || meQuery.data?.user.role === "MANAGER")
-      && activeView === "operations",
+      && ["operations", "availability"].includes(activeView),
   });
 
   const floorPlansQuery = useQuery({
@@ -1713,7 +1713,7 @@ function App() {
     queryFn: () => getFloorPlans(undefined, true),
     enabled: meQuery.isSuccess
       && (meQuery.data?.user.role === "ADMIN" || meQuery.data?.user.role === "MANAGER")
-      && ["table", "kanban", "calendar", "maps", "pond", "operations", "mywork"].includes(activeView),
+      && ["table", "kanban", "calendar", "maps", "pond", "operations", "availability", "mywork"].includes(activeView),
   });
 
   const vendorsQuery = useQuery({
@@ -1751,7 +1751,7 @@ function App() {
     queryFn: getScheduleTracks,
     enabled: meQuery.isSuccess
       && (meQuery.data?.user.role === "ADMIN" || meQuery.data?.user.role === "MANAGER")
-      && activeView === "operations",
+      && ["operations", "availability"].includes(activeView),
   });
 
   const operatingCalendarsQuery = useQuery({
@@ -1759,7 +1759,7 @@ function App() {
     queryFn: () => getOperatingCalendars(undefined, true),
     enabled: meQuery.isSuccess
       && (meQuery.data?.user.role === "ADMIN" || meQuery.data?.user.role === "MANAGER")
-      && activeView === "operations",
+      && ["operations", "availability"].includes(activeView),
   });
 
   const riskPoliciesQuery = useQuery({
@@ -1767,7 +1767,7 @@ function App() {
     queryFn: () => getRiskPolicies(),
     enabled: meQuery.isSuccess
       && (meQuery.data?.user.role === "ADMIN" || meQuery.data?.user.role === "MANAGER")
-      && activeView === "operations",
+      && ["operations", "availability"].includes(activeView),
   });
 
   const adminUsersQuery = useQuery({
@@ -3441,6 +3441,7 @@ function App() {
     ];
 
     const managementActions: CommandPaletteWorkspaceGroup["actions"] = [
+      ...(currentUser.role === "ADMIN" || currentUser.role === "MANAGER" ? [{ id: "availability", label: currentUser.language === "es" ? "Disponibilidad y unidades" : "Availability & Units", description: currentUser.language === "es" ? "Importar reportes, directorio, buzones y llaves" : "Import availability reports, unit directory, mailboxes and keys", view: "availability" as const }] : []),
       { id: "vendors", label: t(currentUser.language, "nav.vendors"), description: t(currentUser.language, "command.vendorsCopy"), view: "vendors" as const },
       { id: "accesscodes", label: "Keys & Access", description: "Look up unit door codes and key references", view: "accesscodes" as const },
       { id: "automations", label: t(currentUser.language, "nav.automations"), description: t(currentUser.language, "command.automationsCopy"), view: "automations" as const },
@@ -4126,7 +4127,7 @@ function App() {
               onUpdateBlock={async (id, input) => { await workBlockUpdateMutation.mutateAsync({ id, data: input }); }}
               onOpenItem={openItemDrawer}
             />
-          ) : activeView === "operations" && (currentUser.role === "ADMIN" || currentUser.role === "MANAGER") ? (
+          ) : (activeView === "operations" || activeView === "availability") && (currentUser.role === "ADMIN" || currentUser.role === "MANAGER") ? (
             operationsPropertiesQuery.isLoading || operationsUnitsQuery.isLoading || operationsOptionsQuery.isLoading || floorPlansQuery.isLoading || scheduleTracksQuery.isLoading || operatingCalendarsQuery.isLoading || riskPoliciesQuery.isLoading ? (
               <div className="panel-state-wrap">
                 <StatusState title={t(currentUser.language, "status.loadingBoardSetup")} description={t(currentUser.language, "status.loadingBoardSetupCopy")} />
@@ -4144,6 +4145,7 @@ function App() {
                 </div>
               ) : null}
               <OperationsPanel
+                workspace={activeView === "availability" ? "inventory" : "setup"}
                 language={currentUser.language}
                 role={currentUser.role}
                 properties={operationsPropertiesQuery.data?.properties ?? []}

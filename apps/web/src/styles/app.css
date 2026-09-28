@@ -4935,6 +4935,10 @@ textarea {
   margin: 0;
 }
 
+.operations-panel [hidden] { display: none !important; }
+.operations-panel > .module-tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+.operations-panel > .module-tabs button { min-height: 44px; }
+
 .operations-grid {
   grid-template-columns: repeat(2, minmax(18rem, 1fr));
 }

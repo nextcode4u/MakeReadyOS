@@ -23,8 +23,8 @@ type Props = {
   onClearFilters: () => void;
   onPropertyChange: (value: string) => void;
   onSearchChange: (value: string) => void;
-  activeView: "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "accesscodes" | "fields" | "automations" | "activity" | "admin";
-  onViewChange: (value: "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "accesscodes" | "fields" | "automations" | "activity" | "admin") => void;
+  activeView: "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "availability" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "accesscodes" | "fields" | "automations" | "activity" | "admin";
+  onViewChange: (value: "dashboard" | "mywork" | "assignedwork" | "planning" | "table" | "kanban" | "calendar" | "maps" | "pond" | "operations" | "availability" | "vendors" | "refrigerant" | "pool" | "pest" | "lease" | "pm" | "projects" | "wiki" | "oncall" | "accesscodes" | "fields" | "automations" | "activity" | "admin") => void;
   showAdmin: boolean;
   showFieldManager: boolean;
   showAutomations: boolean;
@@ -170,6 +170,7 @@ export function FilterBar({
       case "vendors": return t(language, "nav.vendors");
       case "automations": return t(language, "nav.automations");
       case "operations": return t(language, "nav.setup");
+      case "availability": return language === "es" ? "Disponibilidad y unidades" : "Availability & Units";
       case "fields": return t(language, "nav.fields");
       case "admin": return t(language, "nav.admin");
       case "oncall": return "On-call";
@@ -248,9 +249,12 @@ export function FilterBar({
       </button>
     </div>
   );
-  const managementViews = showVendors || showAutomations ? (
+  const managementViews = showOperations || showVendors || showAutomations ? (
     <div className="nav-group" data-testid="nav-group-management">
       <span className="nav-group-label">{t(language, "nav.manage")}</span>
+      {showOperations ? <button data-testid="tab-availability" className={activeView === "availability" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("availability") : onViewChange("availability"))} role="tab" aria-selected={activeView === "availability"}>
+        {language === "es" ? "Disponibilidad y unidades" : "Availability & Units"}
+      </button> : null}
       {showVendors ? (
         <button data-testid="tab-vendors" className={activeView === "vendors" ? "tab active" : "tab"} onClick={() => (isMobileLayout ? handleMobileViewChange("vendors") : onViewChange("vendors"))} role="tab" aria-selected={activeView === "vendors"}>
           {t(language, "nav.vendors")}

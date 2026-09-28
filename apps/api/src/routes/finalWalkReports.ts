@@ -193,7 +193,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     if (blockers.length) throw Object.assign(new Error(`Resident report needs completed inspection records: ${blockers.join("; ")}`), { statusCode: 409 });
     const settings = savedReportSettingsSchema.safeParse(property.branding?.finalWalkReportSettings);
     const html = finalWalkReportHtml({ propertyName: property.name, propertyCode: property.code, propertyLogo: property.branding?.logo ?? null, companyName: property.branding?.managementCompany?.name ?? null, companyLogo: property.branding?.managementCompany?.logo ?? null, unitNumber: item.unitNumber, technician: item.assignedTech, reviewer: null }, settings.success ? settings.data.value : defaultReportSettings, resolveReportMailbox(saved.data.value, await directoryMailbox(item)), { exportedBy: request.currentUser!.fullName, exportedAt: new Date().toISOString(), revision: saved.data.version });
-    const pdf = await renderPdfFromHtml(html, { singlePage: true });
+    const pdf = await renderPdfFromHtml(html, { blockExternalRequests: true });
     // Rendering can take seconds. Do not return an obsolete report if the turn changed meanwhile.
     const latest = await findItem(property.id, itemId);
     const latestDraft = savedReportDraftSchema.safeParse(latest.finalWalkReportDraft?.payload);
@@ -214,6 +214,6 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     const reviewer = item ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory }, orderBy: { createdAt: "desc" }, select: { assignedUser: { select: { fullName: true } } } }) : null;
     const html = finalWalkReportHtml({ propertyName: property.name, propertyCode: property.code, propertyLogo: property.branding?.logo ?? null, companyName: property.branding?.managementCompany?.name ?? null, companyLogo: property.branding?.managementCompany?.logo ?? null, unitNumber: item?.unitNumber ?? null, technician: item?.assignedTech ?? null, reviewer: reviewer?.assignedUser.fullName ?? null }, input.settings, item ? resolveReportMailbox(input.draft, await directoryMailbox(item)) : emptyReportDraft());
     if (input.format === "html") return { html };
-    return { pdfBase64: (await renderPdfFromHtml(html, { singlePage: true })).toString("base64") };
+    return { pdfBase64: (await renderPdfFromHtml(html, { blockExternalRequests: true })).toString("base64") };
   });
 }

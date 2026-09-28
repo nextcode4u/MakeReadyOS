@@ -17,6 +17,7 @@ export type CommandPaletteView =
   | "vendors"
   | "automations"
   | "operations"
+  | "availability"
   | "fields"
   | "admin"
   | "refrigerant"

@@ -1596,7 +1596,7 @@ test("mailbox directory imports populate turn reports and isolate resident codes
   expect(restoredBackup.data.units.find((u: { propertyCode: string }) => u.propertyCode === restoreCode).mailboxNumber).toBe("008");
 });
 
-test("admin final-walk report editor saves drafts, uses real branding and produces one-page PDFs", async ({ page }) => {
+test("admin final-walk report editor saves drafts, uses real branding and paginates long PDFs", async ({ page }) => {
   test.setTimeout(120000);
   page.setDefaultTimeout(15000);
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
@@ -1645,6 +1645,18 @@ test("admin final-walk report editor saves drafts, uses real branding and produc
   const bytes = readFileSync("/tmp/mros-final-report-live-data.pdf");
   expect(bytes.subarray(0,4).toString()).toBe("%PDF");
   expect((bytes.toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
+  const longWording = Array.from({ length: 100 }, (_, index) => `Resident reminder ${index + 1}: Please contact the property team with questions.`).join("\n");
+  await modal.getByRole("textbox", { name: "Introduction", exact: true }).fill(longWording);
+  await modal.getByRole("textbox", { name: "Resident footer", exact: true }).fill(longWording);
+  await modal.getByRole("button", { name: "Save report settings", exact: true }).click();
+  await expect(modal.getByRole("status")).toContainText("Report settings saved");
+  await modal.getByTestId("final-report-preview").click();
+  await expect(preview.locator(".report-text").first()).toHaveText(longWording);
+  await expect(preview.locator(".report-text").first()).toHaveCSS("white-space", "pre-wrap");
+  const longDownload = page.waitForEvent("download");
+  await modal.getByTestId("final-report-pdf").click();
+  await (await longDownload).saveAs("/tmp/final-report-multipage.pdf");
+  expect((readFileSync("/tmp/final-report-multipage.pdf").toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBeGreaterThan(1);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   await expect(modal.getByTestId("final-report-title")).toBeVisible();
@@ -1653,6 +1665,8 @@ test("admin final-walk report editor saves drafts, uses real branding and produc
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByTestId("open-final-report-editor").click();
   await expect(modal.getByTestId("final-report-title")).toHaveValue("Your Home / <Report & Preview>");
+  await expect(modal.getByRole("textbox", { name: "Introduction", exact: true })).toHaveValue(longWording);
+  await expect(modal.getByRole("textbox", { name: "Resident footer", exact: true })).toHaveValue(longWording);
   await modal.getByTestId("final-report-unit").selectOption(item.id);
   await expect(modal.getByTestId("final-report-result-presentation-v2-1")).toHaveValue("CHECKED");
   const data = await (await page.request.get(`${root}?itemId=${item.id}`)).json();
@@ -1665,7 +1679,7 @@ test("admin final-walk report editor saves drafts, uses real branding and produc
   const hugeDraft = { ...data.draft.value, results: Object.fromEntries(data.checks.map((check: { id: string }) => [check.id, { status: "ATTENTION", note: "Detailed unresolved inspection concern requiring additional repairs and review. ".repeat(2).slice(0,100) }])) };
   const oversized = await page.request.post(`${root}/preview`, { headers, data: { itemId: item.id, settings: data.settings.value, draft: hugeDraft, format: "pdf" } });
   expect(oversized.status()).toBe(200);
-  expect((Buffer.from((await oversized.json()).pdfBase64, "base64").toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
+  expect((Buffer.from((await oversized.json()).pdfBase64, "base64").toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBeGreaterThan(1);
   const unchanged = await (await page.request.get(`/api/make-ready-items/${item.id}`)).json();
   expect(unchanged.completionStatus).toBe(item.completionStatus);
   expect(unchanged.makeReadyStatus).toBe(item.makeReadyStatus);

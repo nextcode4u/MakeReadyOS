@@ -33,6 +33,23 @@ test("report HTML escapes content, rejects remote logos and never fabricates sig
   assert.ok(html.includes("NOT FOR RESIDENT ISSUE"));
   assert.equal((html.match(/class="NOT_CHECKED"/g) ?? []).length, 17);
   assert.ok(html.includes("Independent sign-off: not recorded"));
+  assert.ok(html.includes("A few friendly reminders"));
+  assert.ok(html.includes("designated parking spaces"));
+  assert.ok(html.includes("help avoid towing"));
+  assert.ok(html.includes("keep pets on a leash in shared areas and pick up after them"));
+});
+
+test("report wording preserves long multiline text and escapes markup", () => {
+  const wording = "Welcome & enjoy your home.\n\nPlease contact <the office>.\n".repeat(100);
+  const settings = reportSettingsSchema.parse({ ...defaultReportSettings, introduction: wording.trim(), footer: wording.trim() });
+  assert.equal(settings.introduction, wording.trim());
+  assert.equal(settings.footer, wording.trim());
+  const html = finalWalkReportHtml({ propertyName: "Demo", propertyCode: "DEMO", companyName: "Demo", propertyLogo: null, companyLogo: null, unitNumber: "101", technician: null, reviewer: null }, settings, emptyReportDraft());
+  assert.equal((html.match(/Welcome &amp; enjoy your home\./g) ?? []).length, 200);
+  assert.ok(html.includes("\n\nPlease contact &lt;the office&gt;."));
+  assert.ok(html.includes("white-space:pre-wrap"));
+  assert.equal((html.match(/class="note report-text"/g) ?? []).length, 2);
+  assert.equal(reportSettingsSchema.safeParse({ ...settings, footer: "x".repeat(20001) }).success, false);
 });
 
 test("report endpoints reject out-of-scope staff and API tokens before database reads", async () => {
@@ -74,6 +91,12 @@ test("resident report requires evidence and never invents signatures or includes
   assert.ok(html.includes("Saved revision 3"));
   assert.ok(html.includes("Leasing &lt;staff&gt;"));
   assert.ok(html.includes("not a signed certification"));
+  assert.ok(html.includes("A few friendly reminders"));
+  assert.ok(html.includes(defaultReportSettings.footer));
+  const customized = finalWalkReportHtml(context, { ...defaultReportSettings, footer: "Contact the office with questions & concerns." }, draft, publication);
+  assert.ok(customized.includes("Contact the office with questions &amp; concerns."));
+  assert.ok(customized.includes("help avoid towing"));
+  assert.ok(customized.includes("keep pets on a leash in shared areas and pick up after them"));
   draft.correctionPending = true;
   assert.ok(residentReportBlockers(draft).length);
   draft.correctionPending = false;

@@ -15,7 +15,7 @@ async function detectChromiumPath() {
   throw new Error("Chromium executable not found. Set CHROMIUM_PATH or install chromium in the API container.");
 }
 
-export async function renderPdfFromHtml(html: string, options?: { headerTemplate?: string; footerTemplate?: string; singlePage?: boolean }) {
+export async function renderPdfFromHtml(html: string, options?: { headerTemplate?: string; footerTemplate?: string; singlePage?: boolean; blockExternalRequests?: boolean }) {
   const executablePath = await detectChromiumPath();
   const browser = await chromium.launch({
     executablePath,
@@ -24,14 +24,16 @@ export async function renderPdfFromHtml(html: string, options?: { headerTemplate
   });
   try {
     const page = await browser.newPage();
-    if (options?.singlePage) {
+    if (options?.singlePage || options?.blockExternalRequests) {
       await page.setViewportSize({ width: 739, height: 974 });
       await page.emulateMedia({ media: "print" });
       await page.route("**/*", route => route.abort());
     }
     await page.setContent(html, { waitUntil: "load" });
-    if (options?.singlePage) {
+    if (options?.singlePage || options?.blockExternalRequests) {
       await page.evaluate(async () => { await document.fonts.ready; await Promise.all(Array.from(document.images).map(image => image.decode())); });
+    }
+    if (options?.singlePage) {
       const fits = await page.evaluate(() => {
         const main = document.querySelector("main")!;
         return main.getBoundingClientRect().height <= 974 && document.documentElement.scrollWidth <= 739;

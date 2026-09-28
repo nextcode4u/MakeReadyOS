@@ -40,8 +40,8 @@ export const reportChecks = checksFor(reportSections);
 const text = (max: number) => z.string().trim().max(max);
 export const reportSettingsSchema = z.object({
   title: text(80).min(1),
-  introduction: text(240),
-  footer: text(240),
+  introduction: text(20000),
+  footer: text(20000),
   accent: z.string().regex(/^#[0-9a-fA-F]{6}$/),
 }).strict();
 export const defaultReportSettings = { title: "Your Home Preparation Checklist", introduction: "Recorded preparation checks and final presentation review for your home.", footer: "Please complete your move-in condition form and report concerns to the property team. This summary is not a safety certification or a guarantee of future performance.", accent: "#174d49" };
@@ -96,14 +96,24 @@ export function finalWalkReportHtml(context: { propertyName: string; propertyCod
   if (draft.includeResidentCodes) details.push(["Resident gate code", draft.gateCode], ["Resident pedestrian code", draft.pedestrianCode]);
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${publication ? "Resident" : "Draft"} final-walk report</title><style>
   *{box-sizing:border-box}body{margin:0;background:white;color:#20323a;font:11px/1.25 Tahoma,sans-serif}main{border-top:5px solid ${settings.accent};padding:8px 0;overflow-wrap:anywhere}h1{font:25px/1.15 Georgia,serif;margin:8px 0;color:${settings.accent}}h2{font-size:11px;color:${settings.accent};border-bottom:2px solid ${settings.accent};padding-bottom:3px;margin:8px 0 3px}.draft{padding:5px;background:#fff3d8;border:1px solid #aa772e;font-size:10px;font-weight:bold}.brand{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-top:8px}.brand>div{display:flex;gap:10px;align-items:center;max-width:49%}.brand img{width:90px;height:48px;object-fit:contain}.brand strong{font-size:14px}.brand small{display:block}.identity,.handoff{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;border-block:1px solid #ccd7d8;padding:7px 0}.identity strong,.handoff strong{display:block}.columns{display:grid;grid-template-columns:1fr 1fr;gap:18px}.check{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;border-bottom:1px solid #e1e8e8;padding:1px 0;font-size:9px;line-height:1.3}.check b{font-size:8px}.check small{display:block;font-size:8px;color:#674e35}.CHECKED{color:#245849}.ATTENTION{color:#a32028}.NOT_CHECKED{color:#665d53}.handoff{grid-template-columns:repeat(4,minmax(0,1fr));font-size:9px;margin-top:8px}.note{font-size:9px;margin:6px 0}.signoffs{display:grid;grid-template-columns:1fr 1fr;gap:18px;font-size:9px;margin-top:8px}.signoffs>div{border-top:2px solid ${settings.accent};padding-top:5px}.signoffs strong{display:block}footer{border-top:1px solid #ccd7d8;margin-top:7px;padding-top:5px;font-size:8px;display:flex;justify-content:space-between}@page{size:Letter;margin:.4in .4in .45in}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .resident-reminders{break-inside:avoid;border:1px solid #ccd7d8;background:#f4f8f7;padding:7px 9px;margin-top:8px;font-size:9px}.resident-reminders h2{margin:0 0 4px;border:0;padding:0}.resident-reminders p{margin:0 0 4px}.resident-reminders ul{margin:0;padding-left:15px}.resident-reminders li+li{margin-top:3px}
+  .report-text{white-space:pre-wrap;overflow-wrap:anywhere;orphans:3;widows:3}.check,.identity,.handoff,.signoffs,footer{break-inside:avoid}h1,h2{break-after:avoid}
   </style></head><body><main>${publication ? "" : '<div class="draft">DRAFT / NOT FINALIZED / NOT FOR RESIDENT ISSUE - No verified sign-offs.</div>'}
   <div class="brand"><div>${logo(context.propertyLogo)}<strong>${escape(context.propertyName)}</strong></div><div>${logo(context.companyLogo)}<span><small>Managed by</small><strong>${escape(context.companyName || "Not selected")}</strong></span></div></div>
-  <h1>${escape(settings.title)}</h1><p class="note">${escape(settings.introduction)}</p>
+  <h1>${escape(settings.title)}</h1><p class="note report-text">${escape(settings.introduction)}</p>
   <div class="identity"><div>Property<strong>${escape(context.propertyCode)}</strong></div><div>Unit<strong>${escape(context.unitNumber || "Branding preview - no unit selected")}</strong></div><div>Inspection date${publication ? "" : " (draft)"}<strong>${escape(draft.inspectionDate || "Not recorded")}</strong></div></div>
   <p class="note">${publication ? "Summary of saved preparation and presentation checks. Grouped checks cover all applicable rooms; N/A means not applicable. This report is not a signed certification." : "Checked = manually recorded in this draft, not inferred from board status or a scheduled date. Grouped checks cover all applicable rooms. Technical tests and independent review require separate verified sign-offs."}</p>
   <div class="columns"><div>${sections.slice(0, legacy ? 3 : 1).map(sectionHtml).join("")}</div><div>${sections.slice(legacy ? 3 : 1).map(sectionHtml).join("")}</div></div>
   <div class="handoff">${details.map(([label,value]) => `<div>${label}<strong>${escape(value || "Not recorded")}</strong></div>`).join("")}</div>
   <p class="note"><b>Keys / fobs / remotes:</b> ${draft.handoffConfirmed ? (publication ? "Handoff counts confirmed in the saved inspection." : "Counts confirmed by final-walk reviewer in this draft.") : "Final-walk count confirmation not recorded."}</p>
   <div class="signoffs"><div>Assigned technician (not a signature)<strong>${escape(context.technician || "Unassigned")}</strong>${publication ? "Technical preparation recorded" : "Preparation sign-off: not recorded"}</div><div>${publication ? "Report exported by (not a signature)" : "Assigned final reviewer (not a signature)"}<strong>${escape(publication?.exportedBy ?? context.reviewer ?? "Unassigned")}</strong>${publication ? escape(publication.exportedAt) : "Independent sign-off: not recorded"}</div></div>
-  <p class="note">${escape(settings.footer)}</p><footer><span>Prepared with MakeReadyOS / ${publication ? "Resident copy" : "Draft preview"}</span><b>${publication ? `Saved revision ${escape(publication.revision)}` : "NOT ISSUED"}</b></footer></main></body></html>`;
+  <section class="resident-reminders" aria-label="Community reminders">
+    <h2>A few friendly reminders</h2>
+    <p>Welcome home! Thank you for helping keep our community safe, clean and welcoming.</p>
+    <ul>
+      <li><b>Parking:</b> Please use designated parking spaces and follow posted parking signs to help avoid towing. If you are unsure where to park, ask the property team.</li>
+      <li><b>Pets:</b> Please keep pets on a leash in shared areas and pick up after them.</li>
+    </ul>
+  </section>
+  <p class="note report-text">${escape(settings.footer)}</p><footer><span>Prepared with MakeReadyOS / ${publication ? "Resident copy" : "Draft preview"}</span><b>${publication ? `Saved revision ${escape(publication.revision)}` : "NOT ISSUED"}</b></footer></main></body></html>`;
 }

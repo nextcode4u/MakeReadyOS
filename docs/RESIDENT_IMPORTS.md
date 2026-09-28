@@ -10,6 +10,14 @@ unit,occupancyStatus,currentResidentName
 102,NTV LEASED,Casey Example
 ```
 
+Managers and administrators can use **Manage > Availability & Units** for the
+Availability, Unit Directory, Mailboxes, and Keys & Access sections. The same
+tools remain available in **Admin > Setup**, with the same property permissions.
+
+After refreshing the directory, import the latest availability report to bring
+new units and current turns into sync. Existing availability statuses remain
+protected during directory imports.
+
 You can also refresh the all-units report after importing availability. Existing
 units keep their current occupancy status, even if the directory report differs.
 Only newly created units take their initial status from the directory report.

@@ -21,6 +21,7 @@ function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
 }
 
 type Props = {
+  workspace?: "setup" | "inventory";
   language: "en" | "es";
   role: UserRole;
   properties: Property[];
@@ -701,6 +702,7 @@ function timeToMinutes(value: string, fallback: number) {
 }
 
 export function OperationsPanel({
+  workspace = "setup",
   language,
   role,
   properties,
@@ -734,6 +736,8 @@ export function OperationsPanel({
   onUpdateRiskPolicy,
 }: Props) {
   const isSpanish = language === "es";
+  const inventoryMode = workspace === "inventory";
+  const [inventoryTab, setInventoryTab] = useState<"availability" | "directory" | "mailboxes" | "keys">("availability");
   const occupancyOptions = useMemo(() => occupancyOptionsFor(language), [language]);
   const activeProperties = properties.filter((property) => property.isActive);
   const [selectedPropertyId, setSelectedPropertyId] = useState("");
@@ -1621,17 +1625,21 @@ export function OperationsPanel({
     <div className="operations-panel" data-testid="operations-panel">
       <header className="operations-header">
         <div>
-          <p className="eyebrow">{isSpanish ? "Configuración del tablero" : "Board Setup"}</p>
-          <h2>{isSpanish ? "Propiedades, Unidades y Rotaciones" : "Properties, Units & Turns"}</h2>
-          <p className="subtitle">{isSpanish ? "Mantenga el inventario detrás del tablero y archive de forma segura los registros completados o retirados." : "Maintain the inventory behind the board and safely archive completed or retired records."}</p>
+          <p className="eyebrow">{inventoryMode ? (isSpanish ? "Administrar" : "Manage") : (isSpanish ? "Configuración del tablero" : "Board Setup")}</p>
+          <h2>{inventoryMode ? (isSpanish ? "Disponibilidad y unidades" : "Availability & Units") : (isSpanish ? "Propiedades, Unidades y Rotaciones" : "Properties, Units & Turns")}</h2>
+          <p className="subtitle">{inventoryMode ? (isSpanish ? "Actualice reportes y directorios de su propiedad sin entrar a Configuración." : "Update property reports and directories without going through Setup.") : (isSpanish ? "Mantenga el inventario detrás del tablero y archive de forma segura los registros completados o retirados." : "Maintain the inventory behind the board and safely archive completed or retired records.")}</p>
         </div>
         <span className="role-chip">{role} {isSpanish ? "ACCESO" : "ACCESS"}</span>
       </header>
 
       {message ? <div className="admin-message success">{message}</div> : null}
       {error ? <div className="admin-message error">{error}</div> : null}
+      {inventoryMode ? <div className="module-tabs" aria-label={isSpanish ? "Directorios de la propiedad" : "Property directories"}>
+        {([["availability", isSpanish ? "Disponibilidad" : "Availability"], ["directory", isSpanish ? "Directorio de unidades" : "Unit Directory"], ["mailboxes", isSpanish ? "Buzones" : "Mailboxes"], ["keys", isSpanish ? "Llaves y acceso" : "Keys & Access"]] as const).map(([value, label]) => <button type="button" key={value} data-testid={`inventory-tab-${value}`} className={inventoryTab === value ? "button button-primary" : "button button-secondary"} aria-pressed={inventoryTab === value} onClick={() => setInventoryTab(value)}>{label}</button>)}
+      </div> : null}
 
       <section className="operations-grid">
+        {!inventoryMode ? <>
         <article className="operations-card" data-testid="property-management">
           <div className="admin-section-head">
             <h3>{isSpanish ? "Propiedades" : "Properties"}</h3>
@@ -1773,7 +1781,8 @@ export function OperationsPanel({
           )}
         </article>
 
-        <article className="operations-card" data-testid="unit-management">
+        </> : null}
+        <article className="operations-card" data-testid="unit-management" style={inventoryMode ? { gridColumn: "1 / -1" } : undefined}>
           <div className="admin-section-head">
             <h3>{isSpanish ? "Unidades" : "Units"}</h3>
             <span className="subtitle">{isSpanish ? `${unitsForProperty.length} en la propiedad seleccionada` : `${unitsForProperty.length} in selected property`}</span>
@@ -1795,6 +1804,7 @@ export function OperationsPanel({
             </select>
             <span className="helper-copy">{isSpanish ? "La lista de unidades, la vista previa CSV y la importación usan esta propiedad seleccionada." : "The unit list, CSV preview, and import all use this selected property."}</span>
           </label>
+          <div hidden={inventoryMode && inventoryTab !== "directory"}>
           <form className="compact-form" onSubmit={(event) => {
             event.preventDefault();
             void onCreateUnit({
@@ -1877,7 +1887,8 @@ export function OperationsPanel({
               </div>
             </div>
           ) : null}
-          <div className="editor-block unit-import-block">
+          </div>
+          <div className="editor-block unit-import-block" hidden={inventoryMode && inventoryTab !== "availability"}>
             <h4>{isSpanish ? "Pegar CSV/XML de disponibilidad" : "Paste Availability CSV / XML"}</h4>
             {importPropertySelector("availability")}
             <p className="helper-copy">{isSpanish ? "Use esto para reportes de disponibilidad como NTV, NTV arrendado, vacante arrendado, vacante listo, fuera de servicio y unidades modelo. Puede pegar CSV o cargar XML compatibles. Esto actualiza la ocupación de la unidad y crea o actualiza filas activas de make-ready para registros de disponibilidad no ocupados." : "Use this for availability snapshots such as NTV, NTV leased, vacant leased, vacant ready, down, and model units. You can paste CSV or upload supported XML exports here. This updates unit occupancy and creates or updates active make-ready table rows for non-occupied availability records."}</p>
@@ -2050,10 +2061,15 @@ export function OperationsPanel({
             {lastAvailabilityImport?.warnings?.map(warning => <p key={warning} role="alert" className="admin-message warning">{warning}</p>)}
             <button data-testid="availability-import-submit" className="button button-primary" disabled={loading || !properties.length || !selectedPropertyId || !availabilityImportText.trim() || (availabilityFullReport && (!effectiveAvailabilityReportDate || Boolean(availabilityDateInfo.error)))} onClick={() => void importAvailabilityReport()}>{isSpanish ? "Importar disponibilidad y llenar tablero" : "Import Availability & Populate Board"}</button>
           </div>
-          <details data-testid="unit-directory-import" style={{ gridColumn: "1 / -1", minWidth: 0 }}>
+          <details data-testid="unit-directory-import" open={inventoryMode || undefined} hidden={inventoryMode && inventoryTab !== "directory"} style={{ gridColumn: "1 / -1", minWidth: 0 }}>
             <summary>{isSpanish ? "Directorio de unidades / importar inventario permanente" : "Unit directory / import permanent inventory"}</summary>
           <div className="editor-block unit-import-block">
             {importPropertySelector("unit")}
+            <div className="admin-message warning" data-testid="directory-availability-warning">
+              <strong>{isSpanish ? "Después del directorio, importe la disponibilidad más reciente." : "After the directory, import the latest availability report."}</strong>
+              <p>{isSpanish ? "Esto sincroniza las unidades nuevas y las rotaciones actuales. Los estados de disponibilidad existentes se conservan: el directorio no reemplaza el último reporte." : "This brings newly added units and current turns into sync. Existing availability statuses are preserved: the directory does not overwrite the last availability report."}</p>
+              {inventoryMode ? <button type="button" className="button button-secondary" onClick={() => setInventoryTab("availability")}>{isSpanish ? "Ir a Disponibilidad" : "Go to Availability"}</button> : null}
+            </div>
             <p className="helper-copy">{isSpanish ? "Incluya currentResidentMoveInDate (o Move In Date en el directorio) para mostrar la fecha de ingreso del ocupante. Las fechas vacías conservan el valor existente; no use la fecha de un solicitante futuro." : "Include currentResidentMoveInDate (or Move In Date in the directory) to show when the occupant moved in. Blank dates preserve the existing value; do not use a future applicant's date."}</p>
             <p className="helper-copy">{isSpanish ? "Configuración inicial: importe todas las unidades con una columna currentResidentName (o Resident Name). Después use los reportes de disponibilidad. Los residentes actuales y los solicitantes futuros se guardan por separado; los nombres vacíos no borran datos existentes. Si el XML no incluye nombres, use CSV con este encabezado." : "Initial setup: import all units with a currentResidentName (or Resident Name) column. Then use availability reports for ongoing updates. Current residents and future applicants are stored separately; blank names preserve existing data. If your XML does not include names, use CSV with this header."}</p>
             <p className="helper-copy" data-testid="unit-import-status-policy">{isSpanish ? "Actualiza los datos del residente y del inventario sin cambiar el estado ocupado/vacante/NTV de las unidades existentes. El estado del reporte solo se usa para unidades nuevas. No cambia las rotaciones activas, los solicitantes ni sus fechas. Use Disponibilidad para actualizar los estados." : "Updates resident and inventory details without changing existing units' occupied/vacant/NTV status. Report status is used only for new units. Active turns, applicants, and turn dates are not changed. Use Availability to update statuses."}</p>
@@ -2170,13 +2186,16 @@ export function OperationsPanel({
             <button data-testid="unit-import-submit" className="button button-secondary" disabled={loading || !properties.length || !selectedPropertyId || !unitImportText.trim()} onClick={() => void importUnitDirectory()}>{isSpanish ? "Importar / actualizar directorio" : "Import / Update Directory"}</button>
           </div>
           </details>
-          <div className="editor-block unit-import-block">
-            {selectedProperty?.isActive ? <><MailboxDirectoryPanel key={`mailbox-${selectedProperty.id}`} propertyId={selectedProperty.id} /><details style={{ gridColumn: "1 / -1", minWidth: 0 }}><summary>Keys &amp; Access / unit code directory</summary><AccessCodesPanel key={`codes-${selectedProperty.id}`} properties={[selectedProperty]} selectedPropertyId={selectedProperty.id} role={role} /></details></> : <p className="helper-copy">{isSpanish ? "Seleccione una propiedad activa arriba para importar el directorio de buzones." : "Select an active property above to import its mailbox directory."}</p>}
+          <div className="editor-block unit-import-block" hidden={inventoryMode && inventoryTab !== "mailboxes" && inventoryTab !== "keys"}>
+            {selectedProperty?.isActive ? <>
+              <div hidden={inventoryMode && inventoryTab !== "mailboxes"}><MailboxDirectoryPanel key={`mailbox-${selectedProperty.id}`} propertyId={selectedProperty.id} /></div>
+              <details hidden={inventoryMode && inventoryTab !== "keys"} open={inventoryMode || undefined} style={{ gridColumn: "1 / -1", minWidth: 0 }}><summary>{isSpanish ? "Llaves y acceso / directorio de códigos" : "Keys & Access / unit code directory"}</summary><AccessCodesPanel key={`codes-${selectedProperty.id}`} properties={[selectedProperty]} selectedPropertyId={selectedProperty.id} role={role} /></details>
+            </> : <p className="helper-copy">{isSpanish ? "Seleccione una propiedad activa arriba para importar el directorio de buzones." : "Select an active property above to import its mailbox directory."}</p>}
           </div>
         </article>
       </section>
 
-      <section className="operations-grid turns-grid">
+      {!inventoryMode ? <section className="operations-grid turns-grid">
         <article className="operations-card" data-testid="turn-create-panel">
           <div className="admin-section-head">
             <h3>{isSpanish ? "Nuevo elemento de make-ready" : "New Make-Ready Item"}</h3>
@@ -2593,7 +2612,7 @@ export function OperationsPanel({
             )}
           </div>
         </article>
-      </section>
+      </section> : null}
 
       <ConfirmDialog
         open={Boolean(confirmTarget)}
