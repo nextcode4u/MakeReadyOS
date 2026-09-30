@@ -41,6 +41,7 @@ mkdir -p "$LOG_DIR"
   echo
 
   echo "Running isolated report and email regression tests"
+  node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/apps/api/src/routes/health.test.ts"
   node --test "$ROOT_DIR/e2e/api-request.test.mjs"
   node --test "$ROOT_DIR/e2e/public-demo-data.test.mjs"
   node --import "$ROOT_DIR/apps/api/node_modules/tsx/dist/loader.mjs" --test "$ROOT_DIR/e2e/spanish-turn-locale.test.ts"

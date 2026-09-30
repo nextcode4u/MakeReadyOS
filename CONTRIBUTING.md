@@ -9,6 +9,12 @@ MakeReadyOS is an open-source property maintenance operations app. Contributions
 - pragmatic data modeling
 - straightforward deployment and upgrade paths
 
+## Contribution Licensing
+
+Unless explicitly stated otherwise, contributions submitted for inclusion in MakeReadyOS are provided under `AGPL-3.0-only`, as described in [LICENSE](LICENSE). Submit only work you have the right to license this way. Contributors retain their copyright; submitting a contribution does not assign ownership to the project.
+
+Identify third-party code and assets, preserve their notices, and check license compatibility before including them. See [licensing guidance](docs/LICENSING.md).
+
 ## Before You Change Code
 
 1. Read `README.md`

@@ -9,6 +9,9 @@ import { loadSessionUser, requireApiTokenRateLimit, requireApiTokenScope, requir
 import { requireExpectedSessionUser } from "./lib/sessionConstraint.js";
 import { openApiDocument } from "./lib/openapi.js";
 import { prisma } from "./lib/prisma.js";
+import { healthRoutes, isHealthRequest } from "./routes/health.js";
+import { checkUploadStorage } from "./lib/readiness.js";
+import { uploadDir } from "./lib/uploadStorage.js";
 import { authRoutes } from "./routes/auth.js";
 import { activityRoutes } from "./routes/activity.js";
 import { adminRoutes } from "./routes/admin.js";
@@ -104,6 +107,7 @@ await app.register(multipart, {
 });
 
 app.addHook("onRequest", async (request) => {
+  if (isHealthRequest(request.method, request.url)) return;
   await loadSessionUser(request);
 });
 
@@ -136,7 +140,10 @@ app.setErrorHandler((error, _request, reply) => {
   });
 });
 
-app.get("/health", async () => ({ ok: true }));
+await healthRoutes(app, {
+  database: () => prisma.$queryRaw`SELECT 1`,
+  uploads: () => checkUploadStorage(uploadDir),
+});
 app.get("/openapi.json", async () => openApiDocument);
 app.get("/api/openapi.json", async () => openApiDocument);
 

@@ -248,6 +248,16 @@ Contributor-facing docs:
 
 Current committed runtime assets include OpenDyslexic fonts, Frog Pond assets, and small Font Awesome placeholder icons.
 
+## Monitoring
+
+For application and dependency monitoring, see [Uptime Kuma setup](docs/UPTIME_MONITORING.md).
+
 ## License
 
-MakeReadyOS is released under the [BSD Zero Clause License](LICENSE), allowing use, distribution, forks, and modifications without attribution requirements.
+Copyright (C) 2026 MakeReadyOS contributors.
+
+MakeReadyOS is licensed under the [GNU Affero General Public License, version 3 only](LICENSE) (`AGPL-3.0-only`). You may use, modify, and redistribute it under that license, including commercially. It is provided without warranty.
+
+If you modify MakeReadyOS and let users interact with it over a network, you must prominently offer those users the corresponding source for your version under the AGPL. See [licensing and hosting guidance](docs/LICENSING.md).
+
+Versions previously distributed under the BSD Zero Clause License remain available under their original terms. Third-party dependencies and assets retain their own licenses.

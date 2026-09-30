@@ -336,6 +336,18 @@ const operationalStaff = arrayOf({
 
 const generatedResponseSchemas = {
   HealthResponse: envelope("ok", { type: "boolean" }),
+  ReadinessResponse: {
+    type: "object",
+    required: ["ok", "checks"],
+    properties: {
+      ok: { type: "boolean" },
+      checks: {
+        type: "object",
+        required: ["api", "database", "uploads"],
+        properties: { api: { type: "boolean" }, database: { type: "boolean" }, uploads: { type: "boolean" } },
+      },
+    },
+  },
   AuthUser: {
     type: "object",
     additionalProperties: true,
@@ -3093,6 +3105,17 @@ export const openApiDocument = {
     },
   },
   paths: {
+    ...Object.fromEntries(["/api/health", "/api/health/database", "/api/health/uploads", "/api/health/ready"].map(path => [path, {
+      get: {
+        tags: ["System"],
+        summary: path.endsWith("/ready") ? "Read-only application readiness" : `Health check: ${path.split("/").pop()}`,
+        security: [],
+        responses: {
+          "200": { description: "Check succeeded. Dependency results are cached for 10 seconds.", ...json(ref(path.endsWith("/ready") ? "ReadinessResponse" : "HealthResponse")) },
+          ...(path === "/api/health" ? {} : { "503": { description: "Dependency unavailable or timed out. Response contains only boolean health indicators.", ...json(ref(path.endsWith("/ready") ? "ReadinessResponse" : "HealthResponse")) } }),
+        },
+      },
+    }])),
     "/health": {
       get: {
         tags: ["System"],

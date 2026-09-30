@@ -1596,6 +1596,17 @@ test("mailbox directory imports populate turn reports and isolate resident codes
   expect(restoredBackup.data.units.find((u: { propertyCode: string }) => u.propertyCode === restoreCode).mailboxNumber).toBe("008");
 });
 
+test("read-only monitors work through the public proxy without authentication", async ({ request }) => {
+  for (const path of ["health", "health/database", "health/uploads", "health/ready"]) {
+    const response = await request.get(`/api/${path}`, { headers: { cookie: "makereadyos_session=invalid-monitor-cookie" } });
+    expect(response.status()).toBe(200);
+    expect(response.headers()["cache-control"]).toBe("no-store");
+    expect(await response.json()).toEqual(path === "health/ready" ? { ok: true, checks: { api: true, database: true, uploads: true } } : { ok: true });
+  }
+  expect((await request.get("/api/auth/me")).status()).toBe(401);
+  expect((await request.get("/api/make-ready-items")).status()).toBe(401);
+});
+
 test("admin final-walk report editor saves drafts, uses real branding and paginates long PDFs", async ({ page }) => {
   test.setTimeout(120000);
   page.setDefaultTimeout(15000);
