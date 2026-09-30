@@ -14,6 +14,34 @@ Managers and administrators can use **Manage > Availability & Units** for the
 Availability, Unit Directory, Mailboxes, and Keys & Access sections. The same
 tools remain available in **Admin > Setup**, with the same property permissions.
 
+## Direct RealPage Availability XML
+
+In **Availability**, select the correct property and upload the original RealPage
+availability `.xml` file. No PDF, Excel, CSV preparation, or AI conversion is
+needed. If reports are in a ZIP, extract it first and select one report for the
+intended property and date. The app reads the XML into its existing tabular
+preview internally; review that preview before confirming the import.
+
+Supported exports contain `LeaseVariance` detail rows and `Settings` report
+metadata. Summary rows are excluded. The importer preserves leading-zero unit
+numbers, floor plans, square footage, status, scheduled move-in, make-ready and
+application dates. Move-out dates belong to notice units; already-vacant units
+use them as vacated dates. Current and incoming resident names remain separate;
+internal lease/resident IDs are never used as names.
+
+`Settings/Row` PropertyDate supplies the report date, with RunDate as a fallback;
+row-level PropertyDate is used when the settings date is absent. Tag matching
+handles case and namespace prefixes. UTF-8 and UTF-16 XML uploads are supported.
+Malformed XML, unsupported reports/statuses, missing unit/status fields, and
+reports without detail rows are rejected rather than silently skipping units.
+
+Only select **Full property report** for a complete, unfiltered snapshot. A ZIP
+of historical exports should not be imported as one combined current report.
+Original reports are private reference material; repository tests use synthetic
+records, not production exports.
+
+## Directory And Resident Updates
+
 After refreshing the directory, import the latest availability report to bring
 new units and current turns into sync. Existing availability statuses remain
 protected during directory imports.

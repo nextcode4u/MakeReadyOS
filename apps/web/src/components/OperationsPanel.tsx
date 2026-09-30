@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { applicantHeaders, currentResidentHeaders } from "../lib/importResidents";
+import { cleanXmlReportValue, convertAvailabilityXmlToCsv, normalizeXmlSpreadsheetDate, readImportFile, xmlAttributeValue, xmlChildText, xmlElementName } from "../lib/realpageAvailabilityXml";
 import { joinDelimitedLine, splitDelimitedLine } from "../lib/delimitedRows";
 import { availabilityReportDate as detectAvailabilityReportDate } from "../lib/availabilityReportDate";
 import { isPhysicallyOccupiedStatus, isReadyLikeOccupancy, normalizeOccupancy } from "../lib/availabilityStatus";
@@ -276,39 +277,6 @@ function downloadBlob(filename: string, blob: Blob) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function xmlElementName(node: Element | null | undefined) {
-  return node?.localName?.toLowerCase() ?? node?.nodeName?.replace(/^.*:/, "").toLowerCase() ?? "";
-}
-
-function xmlAttributeValue(node: Element, name: string) {
-  const normalized = name.toLowerCase();
-  for (const attribute of Array.from(node.attributes)) {
-    const attributeName = attribute.localName?.toLowerCase() ?? attribute.name.replace(/^.*:/, "").toLowerCase();
-    if (attributeName === normalized) return attribute.value;
-  }
-  return "";
-}
-
-function xmlChildText(node: Element, name: string) {
-  const normalized = name.toLowerCase();
-  for (const child of Array.from(node.children)) {
-    if (xmlElementName(child) === normalized) return child.textContent?.trim() ?? "";
-  }
-  return "";
-}
-
-function normalizeXmlSpreadsheetDate(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10);
-  return normalizePreviewDate(trimmed);
-}
-
-function cleanXmlReportValue(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed || /^(n\/a|na|none|null|no data|\(blank\)|blank|-|—)$/i.test(trimmed)) return "";
-  return trimmed;
-}
 
 function cleanImportedTextCell(value: string | null | undefined) {
   const trimmed = `${value ?? ""}`.trim();
@@ -342,60 +310,6 @@ function inferAllUnitsOccupancy(row: Element): Unit["occupancyStatus"] {
   return "OCCUPIED";
 }
 
-function convertAvailabilityXmlToCsv(input: string) {
-  const parser = new DOMParser();
-  const document = parser.parseFromString(input, "application/xml");
-  if (document.querySelector("parsererror")) return null;
-  const leaseVariance = Array.from(document.getElementsByTagName("*")).find((node) => xmlElementName(node) === "leasevariance");
-  if (!leaseVariance) return null;
-  const settingsRow = Array.from(document.getElementsByTagName("*")).find((node) => xmlElementName(node) === "settings")
-    ?.querySelector("row");
-  const reportDate = normalizeXmlSpreadsheetDate(
-    settingsRow ? (xmlAttributeValue(settingsRow, "PropertyDate") || xmlAttributeValue(settingsRow, "RunDate")) : "",
-  );
-  const rows = Array.from(leaseVariance.children).filter((node) => xmlElementName(node) === "row");
-  const header = ["unit", "floorPlan", "sqft", "availabilityStatus", "vacancyStatus", "moveOutDate", "vacatedDate", "daysVacant", "makeReadyDate", "moveInDate", "applicant", "reportDate", "dateApplied", "building", "area", "floor", "currentResidentName", "currentResidentMoveInDate"];
-  const csvRows = rows.flatMap((row) => {
-    const sectionType = xmlChildText(row, "SectionType").toUpperCase();
-    const unit = cleanXmlReportValue(xmlChildText(row, "UnitNumber_Display") || xmlChildText(row, "UnitNumber"));
-    const status = cleanXmlReportValue(xmlChildText(row, "Status"));
-    if (!unit || !status || sectionType !== "DETAIL") return [];
-    const normalizedStatus = normalizeOccupancy(status);
-    const rawMoveOut = normalizeXmlSpreadsheetDate(xmlChildText(row, "MoveOut"));
-    const rawMoveIn = normalizeXmlSpreadsheetDate(xmlChildText(row, "MoveIn"));
-    const makeReady = normalizeXmlSpreadsheetDate(xmlChildText(row, "MakeReady"));
-    const dateApplied = normalizeXmlSpreadsheetDate(xmlChildText(row, "Applied"));
-    const building = cleanXmlReportValue(xmlChildText(row, "bldgNumber"));
-    const floor = cleanXmlReportValue(xmlChildText(row, "UnitFloorNumber"));
-    const billingName = cleanXmlReportValue(xmlChildText(row, "reshBillingName"));
-    const pendingResident = /^Vacant - pending resident:\s*/i;
-    const applicant = (cleanXmlReportValue(xmlChildText(row, "NewreshBillingName")) || (pendingResident.test(billingName) ? billingName : "")).replace(pendingResident, "");
-    const currentResidentName = pendingResident.test(billingName) || /^vacant$/i.test(billingName) ? "" : billingName;
-    const moveOutDate = normalizedStatus.includes("NTV") ? rawMoveOut : "";
-    const vacatedDate = normalizedStatus.includes("VACANT") && !normalizedStatus.includes("NTV") ? rawMoveOut : "";
-    return [[
-      unit,
-      cleanXmlReportValue(xmlChildText(row, "fpCode")),
-      cleanXmlReportValue(xmlChildText(row, "unitRentSqFtCount")),
-      status,
-      normalizedStatus,
-      moveOutDate,
-      vacatedDate,
-      cleanXmlReportValue(xmlChildText(row, "DaysVacant")),
-      makeReady,
-      rawMoveIn,
-      applicant,
-      reportDate,
-      dateApplied,
-      building,
-      "",
-      floor,
-      currentResidentName,
-      normalizeXmlSpreadsheetDate(xmlChildText(row, "CurrentResidentMoveInDate") || xmlChildText(row, "ResidentMoveInDate")),
-    ]];
-  });
-  return [header, ...csvRows].map((row) => row.map((value) => csvCell(value)).join(",")).join("\n");
-}
 
 function convertUnitDirectoryXmlToCsv(input: string) {
   const parser = new DOMParser();
@@ -1889,7 +1803,8 @@ export function OperationsPanel({
           ) : null}
           </div>
           <div className="editor-block unit-import-block" hidden={inventoryMode && inventoryTab !== "availability"}>
-            <h4>{isSpanish ? "Pegar CSV/XML de disponibilidad" : "Paste Availability CSV / XML"}</h4>
+            <h4>{isSpanish ? "Importar disponibilidad / XML de RealPage o CSV" : "Import Availability / RealPage XML or CSV"}</h4>
+            <p className="helper-copy" data-testid="realpage-direct-import-help">{isSpanish ? "Cargue directamente el archivo XML de disponibilidad exportado de RealPage. No necesita Excel, PDF ni conversión con IA. Extraiga primero el ZIP y seleccione un XML de la propiedad y fecha correctas; revise la vista previa antes de importar." : "Upload the availability XML exported directly from RealPage. No Excel, PDF, or AI conversion is needed. Extract ZIP archives first and select one XML for the correct property and report date; review the preview before importing."}</p>
             {importPropertySelector("availability")}
             <p className="helper-copy">{isSpanish ? "Use esto para reportes de disponibilidad como NTV, NTV arrendado, vacante arrendado, vacante listo, fuera de servicio y unidades modelo. Puede pegar CSV o cargar XML compatibles. Esto actualiza la ocupación de la unidad y crea o actualiza filas activas de make-ready para registros de disponibilidad no ocupados." : "Use this for availability snapshots such as NTV, NTV leased, vacant leased, vacant ready, down, and model units. You can paste CSV or upload supported XML exports here. This updates unit occupancy and creates or updates active make-ready table rows for non-occupied availability records."}</p>
             <div className="unit-import-actions">
@@ -1900,9 +1815,11 @@ export function OperationsPanel({
                 onChange={(event) => {
                   const file = event.currentTarget.files?.[0];
                   if (!file) return;
-                  void file.text()
+                  setAvailabilityImportError("");
+                  setAvailabilityImportText("");
+                  void readImportFile(file)
                     .then((text) => setAvailabilityImportText(normalizeImportSourceText(text, "availability")))
-                    .catch(() => setAvailabilityImportError(isSpanish ? "No se pudo leer ese archivo." : "Could not read that file."));
+                    .catch((error) => setAvailabilityImportError(isSpanish ? "No se pudo leer el reporte. Use el XML original de disponibilidad de RealPage con filas de detalle válidas." : (error instanceof Error ? error.message : "Could not read that file.")));
                 }}
               />
               <button type="button" className="button button-secondary" onClick={() => setAvailabilityImportText(availabilityImportSamples.standard)}>{isSpanish ? "Cargar ejemplo" : "Load sample"}</button>
