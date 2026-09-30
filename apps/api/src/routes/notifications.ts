@@ -13,6 +13,7 @@ export const notificationQuerySchema = z.object({
 
 export async function notificationRoutes(app: FastifyInstance) {
   app.get("/notifications", async (request) => {
+    const snapshotAt = new Date().toISOString();
     const query = notificationQuerySchema.parse(request.query);
     const userId = request.currentUser!.id;
     const accessiblePropertyIds = request.currentUser!.role === UserRole.ADMIN
@@ -41,6 +42,7 @@ export async function notificationRoutes(app: FastifyInstance) {
       }),
     ]);
     return {
+      snapshotAt,
       notifications,
       unreadCount,
       preferences,
@@ -50,6 +52,22 @@ export async function notificationRoutes(app: FastifyInstance) {
       categoryDefaults: Object.fromEntries(notificationCategories.map(category => [category, notificationEnabledByDefault(category)])),
       pagination: { total, limit: query.limit, offset: query.offset, hasMore: query.offset + notifications.length < total },
     };
+  });
+
+  app.post("/notifications/clear", async (request) => {
+    const { mode, before } = z.object({ mode: z.enum(["read", "all"]), before: z.string().datetime() }).strict().parse(request.body);
+    const user = request.currentUser!;
+    const propertyScope = user.role === UserRole.ADMIN ? {} : {
+      OR: [{ propertyId: null }, { propertyId: { in: user.propertyAccess.map(access => access.propertyId) } }],
+    };
+    const result = await prisma.notification.deleteMany({ where: {
+      userId: user.id,
+      ...propertyScope,
+      ...(mode === "read" ? { isRead: true } : {}),
+      // Preserve alerts that arrive after the inbox snapshot/confirmation.
+      createdAt: { lte: new Date(Math.min(Date.parse(before), Date.now())) },
+    } });
+    return { ok: true, count: result.count };
   });
 
   app.post("/notifications/need-to-know", async (request) => {

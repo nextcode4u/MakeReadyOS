@@ -939,6 +939,7 @@ const generatedResponseSchemas = {
     type: "object",
     required: ["notifications"],
     properties: {
+      snapshotAt: { type: "string", format: "date-time" },
       notifications: arrayOf(ref("Notification")),
       unreadCount: { type: "integer" },
       pagination,
@@ -5973,6 +5974,19 @@ export const openApiDocument = {
             ...json(ref("NotificationsResponse")),
           },
         },
+      },
+    },
+    "/api/notifications/clear": {
+      post: {
+        tags: ["Notifications"],
+        summary: "Clear current-user alerts across all pages",
+        description: "Deletes only accessible alerts belonging to the current user, created at or before the inbox snapshot. Work records and other users' alerts are unchanged.",
+        security: [{ cookieSession: [] }],
+        requestBody: { required: true, ...json({ type: "object", required: ["mode", "before"], additionalProperties: false, properties: {
+          mode: { type: "string", enum: ["read", "all"] },
+          before: { type: "string", format: "date-time", description: "snapshotAt from the notification list response" },
+        } }) },
+        responses: { "200": { description: "Number of alerts cleared.", ...json({ type: "object", properties: { ok: { type: "boolean" }, count: { type: "integer" } } }) } },
       },
     },
     "/api/notifications/read-all": {

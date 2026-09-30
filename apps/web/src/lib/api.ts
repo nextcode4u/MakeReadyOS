@@ -1252,6 +1252,7 @@ export type PlanningResponse = {
 };
 
 export type NotificationResponse = {
+  snapshotAt?: string;
   notifications: NotificationRecord[];
   unreadCount: number;
   preferences: Array<{ category: string; enabled: boolean; propertyId: string | null; scopeKey: string }>;
@@ -2647,6 +2648,10 @@ export function markAllNotificationsRead() {
 
 export function dismissNotification(id: string) {
   return request<{ ok: true }>(`/notifications/${id}`, { method: "DELETE" });
+}
+
+export function clearNotifications(mode: "read" | "all", before: string) {
+  return request<{ ok: true; count: number }>("/notifications/clear", { method: "POST", body: JSON.stringify({ mode, before }) });
 }
 
 export function applyNeedToKnowNotifications() {

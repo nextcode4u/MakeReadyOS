@@ -5,7 +5,7 @@ import { formatDateTime } from "../lib/dateTime";
 import { t, tWithVars } from "../lib/i18n";
 import { DevicePushSettings } from "./DevicePushSettings";
 import { useQueryClient } from "@tanstack/react-query";
-import { applyNeedToKnowNotifications } from "../lib/api";
+import { applyNeedToKnowNotifications, clearNotifications } from "../lib/api";
 
 type Props = {
   focusId?: string;
@@ -57,6 +57,24 @@ function inputToMinutes(value: string) {
 
 export function NotificationDrawer({ focusId, userId, open, data, loading, onClose, onRead, onReadAll, onDismiss, onOpenItem, onOpenPond, onPreferenceChange, onSettingsChange, language }: Props) {
   const isSpanish = language === "es";
+  const [clearBusy, setClearBusy] = useState(false);
+  const [clearError, setClearError] = useState("");
+  const [clearMessage, setClearMessage] = useState("");
+  const clearAlerts = async (mode: "read" | "all") => {
+    if (!data || clearBusy) return;
+    const before = data.snapshotAt ?? new Date().toISOString();
+    if (mode === "all" && !window.confirm(isSpanish
+      ? "¿Borrar todas tus alertas actuales, incluidas las no leídas y las de páginas anteriores? No se puede deshacer. El trabajo y las alertas de otras personas no cambian."
+      : "Clear all your current alerts, including unread alerts and older pages? This cannot be undone. Work records and other people's alerts are not changed.")) return;
+    setClearBusy(true); setClearError(""); setClearMessage("");
+    try {
+      const result = await clearNotifications(mode, before);
+      await client.invalidateQueries({ queryKey: ["notifications"] });
+      setClearMessage(isSpanish ? `${result.count} alertas borradas.` : `${result.count} alerts cleared.`);
+    } catch (error) {
+      setClearError(error instanceof Error ? error.message : (isSpanish ? "No se pudieron borrar las alertas. Inténtalo de nuevo." : "Could not clear alerts. Please try again."));
+    } finally { setClearBusy(false); }
+  };
   const panelRef = useRef<HTMLElement>(null);
   const close = useEffectEvent(onClose);
   useEffect(() => {
@@ -150,8 +168,13 @@ export function NotificationDrawer({ focusId, userId, open, data, loading, onClo
           {presetError ? <p role="alert">{presetError}</p> : null}
         </div>
         <div className="notification-toolbar">
-          <button data-testid="notifications-read-all" className="button button-secondary" disabled={!data?.unreadCount} onClick={() => void onReadAll()}>{t(language, "notifications.markAllRead")}</button>
+          <button data-testid="notifications-read-all" className="button button-secondary" disabled={clearBusy || !data?.unreadCount} onClick={() => void onReadAll()}>{t(language, "notifications.markAllRead")}</button>
+          <button type="button" data-testid="notifications-clear-read" className="button button-secondary" disabled={clearBusy || loading || !data || data.pagination.total <= data.unreadCount} onClick={() => void clearAlerts("read")}>{isSpanish ? "Borrar leídas" : "Clear read"}</button>
+          <button type="button" data-testid="notifications-clear-all" className="button button-secondary" disabled={clearBusy || loading || !data?.pagination.total} onClick={() => void clearAlerts("all")}>{isSpanish ? "Borrar todas" : "Clear all"}</button>
         </div>
+        <small>{isSpanish ? "Borrar elimina alertas solo de tu bandeja, no el trabajo ni las solicitudes de piezas. Marcar como leído las conserva." : "Clearing removes alerts only from your inbox, not work or parts requests. Marking read keeps them in the list."}</small>
+        {clearError ? <p role="alert">{clearError}</p> : null}
+        {clearMessage ? <p role="status">{clearMessage}</p> : null}
         {loading ? <p className="empty-copy">{t(language, "notifications.loading")}</p> : !data?.notifications.length ? <p className="empty-copy">{t(language, "notifications.empty")}</p> : (
           <div className="notification-list">
             {data.notifications.map((notification) => (
