@@ -9,6 +9,48 @@ project copyright and warranty notice in [NOTICE](../NOTICE).
 Commercial use, self-hosting, modification, and redistribution are allowed
 subject to the license. AGPL does not prohibit competing paid services.
 
+## Why The License Changed
+
+### A Note From The Maintainer
+
+I want to be honest about how MakeReadyOS is built: it is mostly "vibe coded,"
+and AI has played a major role in writing the software. I do not want to take
+personal credit for hand-writing work that was generated with that help.
+
+At the same time, generating code has not been the end of the work. I use
+this project in practice, and that means dealing with the parts that break,
+manually debugging problems, testing changes in the field, and reworking
+things when the people using them cannot easily find or understand them.
+That effort is part of the project's history too. Being open about AI's role
+should go alongside being open about the testing, limitations, and mistakes,
+not replace responsibility for them.
+
+I chose the BSD Zero Clause License (0BSD) originally because it felt right
+at the time. As more hands-on work went into making the project useful, I
+reconsidered that choice and moved to AGPL-3.0-only. My aim is to keep
+improvements open and encourage people to preserve an honest connection to
+the work they build upon.
+
+This is not about wanting my name on someone else's project or discouraging
+forks. I want people to use MakeReadyOS, adapt it, and make it better. What I
+would like to avoid is a fork presenting the inherited project as something
+created entirely from scratch, without acknowledging its source. There is
+room to take pride in your own contributions without erasing what came before.
+
+If you build on MakeReadyOS, please acknowledge it and link to the
+[original repository](https://github.com/nextcode4u/MakeReadyOS). Explain what
+you changed, and give your own contributors and third-party sources their
+credit as well. That helps users understand which version they are using,
+where to report problems, and where improvements originated. Sharing fixes
+back is welcome, as are bug reports, documentation, and feedback from actual
+use. You do not have to write code to make a meaningful contribution.
+
+These are the reasons behind the change and the spirit in which I hope the
+project is shared. They are not additional license conditions or a claim
+that the AGPL guarantees attribution in every form I might prefer. The
+license text defines the legal obligations. Earlier 0BSD releases retain
+their original permissions; this change does not take those back.
+
 ## Hosting And Distribution
 
 If you modify the software and users interact with it over a network,

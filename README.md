@@ -252,6 +252,18 @@ Current committed runtime assets include OpenDyslexic fonts, Frog Pond assets, a
 
 For application and dependency monitoring, see [Uptime Kuma setup](docs/UPTIME_MONITORING.md).
 
+## Project Origins And Credit
+
+MakeReadyOS is mostly "vibe coded." I want to be upfront about that: AI has played a major role in writing this software, and I am not presenting it as something I wrote entirely by hand.
+
+But this is also something I actually use. A lot of the work happens after code is generated: finding what breaks, debugging it, testing it in the field, listening when something is confusing, and revisiting workflows that do not work as well in practice as they did on paper. AI assistance does not remove the responsibility to check the result. Daily use has helped shape this project; it does not mean it is finished or free of mistakes.
+
+I originally chose the BSD Zero Clause License (0BSD) because it felt appropriate. As the hands-on debugging and field testing grew, I reconsidered what I wanted for the project's future and changed to AGPL-3.0-only. My intention is to keep improvements open and encourage an honest account of where the work came from. I am not asking for personal recognition. I would just like MakeReadyOS to be acknowledged when it is the foundation of someone else's project, rather than having that foundation presented as entirely their own creation.
+
+Please do fork it, improve it, and make it useful for your own team. Give yourself and your contributors credit for what you add, and leave room in that story for the project and other sources you built on. A simple acknowledgment and link back help people find the original work, understand what changed, and contribute fixes in either direction. Useful feedback, honest bug reports, and clearer workflows matter here too, not just code.
+
+This is a note about the project's values, not an extra license restriction. See [license background and attribution](docs/LICENSING.md#why-the-license-changed) for more context.
+
 ## License
 
 Copyright (C) 2026 MakeReadyOS contributors.
