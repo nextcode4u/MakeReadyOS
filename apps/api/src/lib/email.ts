@@ -1,9 +1,9 @@
-import nodemailer from "nodemailer";
+import nodemailer, { type Transporter } from "nodemailer";
 import SMTPTransport from "nodemailer/lib/smtp-transport/index.js";
 import { mailConfig } from "./config.js";
 import { renderInviteHtml } from "./inviteTemplate.js";
 
-let transporter: nodemailer.Transporter | null = null;
+let transporter: Transporter | null = null;
 
 function getTransporter() {
   if (!mailConfig.enabled) {
