@@ -94,7 +94,7 @@ const projectAllowedAttachmentTypes = new Set(["image/jpeg", "image/png", "image
 
 function formatCurrency(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 }
 
 function queuedCaptureStatusSummary(captures: QueuedProjectCaptureSummary[]) {
@@ -147,6 +147,7 @@ function recordDraft(propertyId: string) {
     recordType: "Recommendation" as ProjectRecordType,
     title: "",
     description: "",
+    productUrl: "",
     source: "Quick Capture" as ProjectSource,
     sourceRecordType: "",
     sourceRecordId: "",
@@ -273,6 +274,7 @@ function ProjectDetail({
   users,
   language = "en",
   onSave,
+  onSaveBasics,
   onConvert,
   onAddComment,
   onAddTask,
@@ -288,6 +290,7 @@ function ProjectDetail({
   language?: UserLanguage;
   history: ProjectHistoryEntry[];
   onSave: (record: ProjectRecord, patch: Partial<ProjectRecord>) => void;
+  onSaveBasics: (record: ProjectRecord, patch: Partial<ProjectRecord>) => Promise<string>;
   onConvert: (id: string) => void;
   onAddComment: (id: string, body: string) => Promise<unknown>;
   onAddTask: (id: string, input: { title: string; status?: ProjectTaskStatus; assignedUserId?: string | null; dueDate?: string | null }) => Promise<unknown>;
@@ -308,6 +311,11 @@ function ProjectDetail({
     finally { entryLock.current = false; setEntryBusy(false); }
   }
   const [attachmentType, setAttachmentType] = useState<ProjectAttachmentType>("GENERAL");
+  const [basics, setBasics] = useState({ title: record.title, productUrl: record.productUrl ?? "", estimatedCost: String(record.estimatedCost ?? record.totalAmount ?? "") });
+  const [basicsVersion, setBasicsVersion] = useState(record.updatedAt);
+  const [basicsBusy, setBasicsBusy] = useState(false);
+  const [basicsMessage, setBasicsMessage] = useState("");
+  const [basicsError, setBasicsError] = useState("");
   const [attachmentCaption, setAttachmentCaption] = useState("");
   const [previewAttachmentId, setPreviewAttachmentId] = useState<string | null>(null);
   const [bidDraft, setBidDraft] = useState({
@@ -393,6 +401,31 @@ function ProjectDetail({
         </div>
       </div>
 
+      {record.productUrl && /^https?:\/\//i.test(record.productUrl) ? <p><a href={record.productUrl} target="_blank" rel="noopener noreferrer">{isSpanish ? "Ver producto / proveedor" : "View product / vendor"}</a></p> : null}
+      {canEdit ? <details className="projects-detail-section"><summary>{isSpanish ? "Editar título, enlace y total" : "Edit title, link & total"}</summary>
+        <form className="projects-detail-form" onSubmit={async event => {
+          event.preventDefault(); if (basicsBusy) return;
+          setBasicsBusy(true); setBasicsMessage(""); setBasicsError("");
+          try {
+            const version = await onSaveBasics({ ...record, updatedAt: basicsVersion }, { title: basics.title.trim(), productUrl: basics.productUrl.trim() || null, estimatedCost: basics.estimatedCost === "" ? null : Number(basics.estimatedCost), ...(basics.estimatedCost !== String(record.estimatedCost ?? record.totalAmount ?? "") ? { totalAmount: null } : {}) });
+            setBasicsVersion(version);
+            setBasicsMessage(isSpanish ? "Datos guardados." : "Basics saved.");
+          } catch (error) { setBasicsError(error instanceof Error ? error.message : "Could not save. Your draft is preserved."); }
+          finally { setBasicsBusy(false); }
+        }}>
+          <label>{isSpanish ? "Título" : "Title"}<input disabled={basicsBusy} required maxLength={180} value={basics.title} onChange={event => setBasics(current => ({ ...current, title: event.target.value }))} /></label>
+          <label>{isSpanish ? "Enlace del producto" : "Product link"}<input disabled={basicsBusy} type="url" maxLength={2000} pattern="https?://.*" value={basics.productUrl} onChange={event => setBasics(current => ({ ...current, productUrl: event.target.value }))} /></label>
+          <label>{isSpanish ? "Total estimado ($)" : "Estimated total ($)"}<input disabled={basicsBusy} type="number" min="0" step="0.01" value={basics.estimatedCost} onChange={event => setBasics(current => ({ ...current, estimatedCost: event.target.value }))} /></label>
+          <button type="submit" disabled={basicsBusy || !basics.title.trim()} className="button button-primary">{basicsBusy ? (isSpanish ? "Guardando..." : "Saving...") : (isSpanish ? "Guardar datos" : "Save basics")}</button>
+          {basicsError ? <p role="alert">{basicsError}</p> : null}
+          {basicsError ? <button type="button" disabled={basicsBusy} onClick={() => {
+            if (!window.confirm(isSpanish ? "¿Reemplazar estos cambios con los últimos datos cargados?" : "Replace these edits with the latest loaded values?")) return;
+            setBasics({ title: record.title, productUrl: record.productUrl ?? "", estimatedCost: String(record.estimatedCost ?? record.totalAmount ?? "") }); setBasicsVersion(record.updatedAt); setBasicsError("");
+          }}>{isSpanish ? "Restablecer datos cargados" : "Reset to loaded values"}</button> : null}
+          {basicsMessage ? <p role="status">{basicsMessage}</p> : null}
+        </form>
+      </details> : null}
+      <details className="projects-detail-section"><summary>{isSpanish ? "Detalles del proyecto" : "Project details"}</summary>
       <div className="pool-reading-grid projects-detail-summary-grid">
         <div><dt>{isSpanish ? "Tipo" : "Type"}</dt><dd>{record.recordType}</dd></div>
         <div><dt>{isSpanish ? "Origen" : "Source"}</dt><dd>{record.source ?? (isSpanish ? "Otro" : "Other")}</dd></div>
@@ -414,7 +447,9 @@ function ProjectDetail({
         <div><dt>{isSpanish ? "Programado" : "Scheduled"}</dt><dd>{formatDate(record.scheduledDate)}</dd></div>
         <div><dt>{isSpanish ? "Vence" : "Due"}</dt><dd>{formatDate(record.dueDate)}</dd></div>
       </div>
+      </details>
       <div className="projects-detail-notes">
+        <p><strong>{isSpanish ? "Total estimado" : "Estimated total"}: {record.estimatedCost === null && record.totalAmount === null ? (isSpanish ? "Sin estimación" : "Not estimated") : formatCurrency(record.estimatedCost ?? record.totalAmount)}</strong></p>
         {record.description ? <p>{record.description}</p> : null}
         {record.locationNotes ? <p className="muted">{record.locationNotes}</p> : null}
         {record.deferredReason ? <p className="muted">{isSpanish ? "Motivo de diferimiento" : "Deferred reason"}: {record.deferredReason}</p> : null}
@@ -424,7 +459,8 @@ function ProjectDetail({
       </div>
 
       {canEdit ? (
-        <section className="projects-detail-card projects-workflow-card">
+        <details className="projects-detail-card projects-workflow-card">
+          <summary>{isSpanish ? "Cambiar estado / flujo de trabajo" : "Change status / workflow"}</summary>
           <div className="drawer-section-title">
             <h4>{isSpanish ? "Flujo de trabajo" : "Workflow"}</h4>
           </div>
@@ -465,12 +501,13 @@ function ProjectDetail({
                 : (isSpanish ? "Marcar diferido" : "Mark Deferred")}
             </button>
           </div>
-        </section>
+        </details>
       ) : null}
 
-      <ProjectSchedulePanel key={`schedule-${record.id}`} record={record} canEdit={canEdit} />
-      <ProjectBudgetPanel key={record.id} record={record} canEdit={canEdit} canManageVendors={canManageVendors} />
+      <details><summary>{isSpanish ? "Planificar fechas y responsables" : "Schedule & assignments"}</summary><ProjectSchedulePanel key={`schedule-${record.id}`} record={record} canEdit={canEdit} /></details>
+      <details><summary>{isSpanish ? "Cotizaciones y desglose de costos" : "Quotes & detailed costs"}</summary><ProjectBudgetPanel key={record.id} record={record} canEdit={canEdit} canManageVendors={canManageVendors} /></details>
 
+      <details><summary>{isSpanish ? "Referencias de la propiedad" : "Property references"}</summary>
       <PropertyWikiWorkflowPanel
         title={isSpanish ? "Contexto de la wiki de la propiedad" : "Property Wiki Context"}
         module="PROJECTS"
@@ -483,6 +520,7 @@ function ProjectDetail({
         canEdit={canEdit}
         language={language}
       />
+      </details>
 
       <div className="projects-detail-workspace">
         <div className="projects-detail-column">
@@ -554,8 +592,8 @@ function ProjectDetail({
             </details>
           </section>
 
-          <section className="projects-detail-card">
-            <h4>{isSpanish ? "Fotos y documentos" : "Photos & documents"}</h4>
+          <details className="projects-detail-card">
+            <summary>{isSpanish ? "Fotos y documentos" : "Photos & documents"} ({record.attachments.length})</summary>
             <div className="projects-photo-toolbar">
               {canEdit ? (
                 <>
@@ -637,12 +675,12 @@ function ProjectDetail({
                 </div>
               </div>
             )) : <p className="muted">{isSpanish ? "Todavía no hay fotos/archivos del proyecto." : "No project photos/files yet."}</p>}
-          </section>
+          </details>
         </div>
 
         <div className="projects-detail-column">
-          <section className="projects-detail-card">
-            <h4>{isSpanish ? "Tareas" : "Tasks"}</h4>
+          <details className="projects-detail-card">
+            <summary>{isSpanish ? "Tareas" : "Tasks"} ({record.tasks.filter(task => !["Completed", "Skipped"].includes(task.status)).length} {isSpanish ? "pendientes" : "open"})</summary>
             <div className="projects-detail-list">
               {record.tasks.map((entry) => (
                 <div key={entry.id} className="projects-detail-list-item">
@@ -690,10 +728,10 @@ function ProjectDetail({
                 <button className="button button-primary" type="submit" disabled={entryBusy || !task.title.trim()}>{isSpanish ? "Agregar tarea" : "Add Task"}</button>
               </form>
             ) : null}
-          </section>
+          </details>
 
-          <section className="projects-detail-card">
-            <h4>{isSpanish ? "Comentarios" : "Comments"}</h4>
+          <details className="projects-detail-card">
+            <summary>{isSpanish ? "Comentarios" : "Comments"} ({record.comments.length})</summary>
             <div className="projects-detail-list">
               {record.comments.map((entry) => (
                 <div key={entry.id} className="projects-detail-list-item projects-detail-history-item">
@@ -712,10 +750,10 @@ function ProjectDetail({
                 <button className="button button-primary" type="submit" disabled={entryBusy || !comment.trim()}>{isSpanish ? "Agregar comentario" : "Add Comment"}</button>
               </form>
             ) : null}
-          </section>
+          </details>
 
-          <section className="projects-detail-card">
-            <h4>{isSpanish ? "Historial del ciclo de vida" : "Lifecycle History"}</h4>
+          <details className="projects-detail-card">
+            <summary>{isSpanish ? "Historial" : "History"} ({history.length})</summary>
             <div className="projects-detail-list">
               {history.length ? history.map((entry) => (
                 <div key={entry.id} className="projects-detail-list-item projects-detail-history-item">
@@ -725,7 +763,7 @@ function ProjectDetail({
                 </div>
               )) : <p className="muted">{isSpanish ? "Todavía no hay historial del ciclo de vida." : "No lifecycle history yet."}</p>}
             </div>
-          </section>
+          </details>
         </div>
       </div>
       </section>
@@ -789,7 +827,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const captureMapCanvasRef = useRef<HTMLDivElement | null>(null);
   const mapViewCanvasRef = useRef<HTMLDivElement | null>(null);
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<Tab>("projects");
   const [lastRecordsTab, setLastRecordsTab] = useState<Extract<Tab, "projects" | "recommendations" | "bids" | "archive">>("projects");
   const [propertyId, setPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
@@ -803,6 +841,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   const [quickCreateMode, setQuickCreateMode] = useState<"recommendation" | "project">("project");
   const [showMoreDetails, setShowMoreDetails] = useState(false);
   const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
+  const [captureError, setCaptureError] = useState("");
   const [captureFiles, setCaptureFiles] = useState<StagedCaptureFile[]>([]);
   const [propertyWalkActive, setPropertyWalkActive] = useState(false);
   const [propertyWalkSummary, setPropertyWalkSummary] = useState<PropertyWalkSummary | null>(null);
@@ -1006,8 +1045,9 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: Partial<ProjectRecord> }) => updateProjectRecord(id, patch),
+    mutationFn: async ({ id, patch }: { id: string; patch: Partial<ProjectRecord> & { expectedUpdatedAt?: string } }) => updateProjectRecord(id, patch),
     onSuccess: invalidate,
+    onError: () => { void invalidate(); },
   });
   const convertMutation = useMutation({
     mutationFn: convertProjectRecommendation,
@@ -1071,6 +1111,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
       if (!normalizedSearch) return true;
       const haystack = [
         record.title,
+        record.productUrl,
         record.description,
         record.source,
         record.status,
@@ -1234,6 +1275,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
       recordType: draft.recordType,
       title: generatedTitle,
       description: draft.description.trim() || null,
+      productUrl: draft.productUrl.trim() || null,
       source: draft.source,
       sourceRecordType: draft.sourceRecordType || null,
       sourceRecordId: draft.sourceRecordId || null,
@@ -1374,9 +1416,9 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
               data-testid="projects-quick-capture-open"
               className="button button-primary"
               type="button"
-              onClick={() => openQuickCapture({ launchCamera: isMobileCaptureViewport })}
+              onClick={() => openQuickCapture()}
             >
-              {isMobileCaptureViewport ? (isSpanish ? "Tomar foto" : "Take Photo") : "Quick Capture"}
+              {isSpanish ? "Agregar proyecto / idea" : "Add project / idea"}
             </button>
           ) : null}
           {canEdit && !propertyWalkActive ? <button className="button button-secondary" type="button" onClick={() => { setPropertyWalkActive(true); setPropertyWalkStats({ count: 0, highPriority: 0, needsBid: 0 }); openQuickCapture({ launchCamera: isMobileCaptureViewport }); }}>{isSpanish ? "Iniciar recorrido" : "Start Property Walk"}</button> : null}
@@ -1447,10 +1489,10 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
       {tab === "dashboard" ? (
         overviewQuery.isLoading ? <StatusState title="Loading Projects" description="Gathering dashboard counts and recent project activity." /> : overviewQuery.isError || !overviewQuery.data ? <StatusState title="Projects failed to load" description="Refresh the workspace and try again." tone="error" action={{ label: t(language, "connection.retryNow"), onClick: () => void overviewQuery.refetch() }} /> : (
           <div className="pool-kpi-grid">
-            {Object.entries(overviewQuery.data.summary).map(([key, value]) => (
+            {Object.entries(overviewQuery.data.summary).filter(([key]) => ["openRecommendations", "needsBid", "inProgress", "waiting", "overdue", "estimatedProjectValue"].includes(key)).map(([key, value]) => (
               <article key={key} className={`pool-kpi ${key === "deferredMaintenance" || key === "overdue" ? "warning" : key === "actualCompletedCostThisYear" ? "" : ""}`}>
                 <strong>{typeof value === "number" && (key.toLowerCase().includes("value") || key.toLowerCase().includes("cost")) ? formatCurrency(value) : value}</strong>
-                <span>{key === "estimatedProjectValue" ? "Original manual estimates (separate from quote plan)" : key === "actualCompletedCostThisYear" ? "Manually reported completed cost this year" : key.replace(/([A-Z])/g, " $1")}</span>
+                <span>{({ openRecommendations: isSpanish ? "Ideas por revisar" : "Ideas to review", needsBid: isSpanish ? "Necesitan cotización" : "Need a quote", inProgress: isSpanish ? "En curso" : "In progress", waiting: isSpanish ? "En espera" : "Waiting", overdue: isSpanish ? "Vencidos" : "Overdue", estimatedProjectValue: isSpanish ? "Estimaciones iniciales (no aprobadas)" : "Initial estimates (not approved)" } as Record<string, string>)[key]}</span>
               </article>
             ))}
           </div>
@@ -1494,8 +1536,8 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
         <section className="pool-card projects-capture-card">
           <div className="drawer-section-title">
             <div>
-              <h2>Quick Capture</h2>
-              <p className="muted">Take photos first, add a short note, choose project or recommendation, and save.</p>
+              <h2>{isSpanish ? "Agregar proyecto / idea" : "Add project / idea"}</h2>
+              <p className="muted">{isSpanish ? "Un título es suficiente para empezar. El enlace, total, fotos y planificación son opcionales." : "A title is enough to start. Product link, total, photos and planning are optional."}</p>
             </div>
             <div className="pool-entry-actions">
               <button className="button button-secondary" type="button" onClick={() => setQuickCaptureOpen(false)}>Close</button>
@@ -1517,7 +1559,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
               <strong>{lastCreatedRecord.title} {isSpanish ? "guardado." : "saved."}</strong>
               {lastCaptureOutcome?.mode === "saved-with-pending-uploads" ? <p className="muted">{lastCaptureOutcome.fileCount} {isSpanish ? `archivo${lastCaptureOutcome.fileCount === 1 ? "" : "s"} de foto terminará${lastCaptureOutcome.fileCount === 1 ? "" : "n"} de subirse cuando vuelva la conexión.` : `photo file${lastCaptureOutcome.fileCount === 1 ? "" : "s"} will finish uploading after connection returns.`}</p> : null}
               <div className="pool-entry-actions">
-                <button className="button button-primary" type="button" onClick={() => { setSelectedRecordId(lastCreatedRecord.id); setTab(lastCreatedRecord.recordType === "Recommendation" ? "recommendations" : "projects"); }}>{isSpanish ? "Ver registro" : "View Record"}</button>
+                <button className="button button-primary" type="button" onClick={() => { setQuickCaptureOpen(false); setSelectedRecordId(lastCreatedRecord.id); setTab(lastCreatedRecord.recordType === "Recommendation" ? "recommendations" : "projects"); }}>{isSpanish ? "Ver registro" : "View Record"}</button>
                 <button className="button button-secondary" type="button" onClick={() => resetQuickCapture(propertyId)}>{isSpanish ? "Agregar otro" : "Add Another"}</button>
                 <button className="button button-secondary" type="button" onClick={() => { setQuickCaptureOpen(false); setTab("projects"); }}>{isSpanish ? "Ir a proyectos" : "Go To Projects"}</button>
               </div>
@@ -1525,8 +1567,17 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
           ) : (
             <form data-testid="projects-quick-capture-form" className="pool-form" onSubmit={(event: FormEvent) => {
               event.preventDefault();
-              void saveQuickCapture();
+              setCaptureError("");
+              void saveQuickCapture().catch(error => setCaptureError(error instanceof Error ? error.message : (isSpanish ? "No se pudo guardar. Se conservó el borrador." : "Could not save. Your draft is preserved.")));
             }}>
+              {captureError ? <p role="alert">{captureError}</p> : null}
+              <div className="form-grid">
+                <label>{isSpanish ? "¿Qué se necesita?" : "What is needed?"}<input data-testid="projects-quick-capture-title" maxLength={180} value={draft.title} onChange={event => setDraft(current => ({ ...current, title: event.target.value }))} placeholder={isSpanish ? "Estaciones para desechos de mascotas" : "Dog stations"} /></label>
+                <label>{isSpanish ? "Enlace del producto (opcional)" : "Product link (optional)"}<input data-testid="projects-product-url" type="url" pattern="https?://.*" maxLength={2000} value={draft.productUrl} onChange={event => setDraft(current => ({ ...current, productUrl: event.target.value }))} placeholder="https://www.amazon.com/..." /></label>
+                <label>{isSpanish ? "Total estimado ($, opcional)" : "Estimated total ($, optional)"}<input data-testid="projects-estimated-total" type="number" min="0" step="0.01" value={draft.estimatedCost} onChange={event => setDraft(current => ({ ...current, estimatedCost: event.target.value }))} /></label>
+              </div>
+              <small>{isSpanish ? "El total es una estimación del trabajo completo, no un precio unitario ni un gasto aprobado." : "Total is your estimate for the whole job, not a unit price or approved spending."}</small>
+              <details><summary>{isSpanish ? "Fotos y archivos (opcional)" : "Photos & files (optional)"} ({captureFiles.length})</summary>
               <div className="pool-entry-actions projects-capture-actions-top" style={{ marginBottom: 12, flexWrap: "wrap" }}>
                 <button className="button button-primary" type="button" onClick={() => captureInputRef.current?.click()}>{isSpanish ? "Tomar foto" : "Take Photo"}</button>
                 <button className="button button-secondary" type="button" onClick={() => uploadInputRef.current?.click()}>{isSpanish ? "Subir archivo" : "Upload File"}</button>
@@ -1555,7 +1606,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                     event.currentTarget.value = "";
                   }}
                 />
-                <strong>{isSpanish ? "Fotos primero" : "Photos first"}</strong>
+                <strong>{isSpanish ? "Agregar evidencia" : "Add supporting photos"}</strong>
                 <p className="muted">{isSpanish ? "Tome una foto, cargue desde escritorio o arrastre archivos aquí." : "Take a photo, upload from desktop, or drag files here."}</p>
                 <div className="pool-entry-actions">
                   <button className="button button-secondary" type="button" onClick={() => captureInputRef.current?.click()}>{isSpanish ? "Agregar más fotos" : "Add More Photos"}</button>
@@ -1575,8 +1626,8 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                   ))}
                 </div>
               ) : null}
+              </details>
               <div className="form-grid projects-capture-grid">
-                <label>{isSpanish ? "Título corto" : "Short title"}<input data-testid="projects-quick-capture-title" value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder={isSpanish ? "Bisagra de portón frontal" : "Front gate hinge"} /></label>
                 <label>{isSpanish ? "Recomendación / Proyecto" : "Recommendation / Project"}
                   <select value={draft.recordType} onChange={(event) => {
                     const nextType = event.target.value as ProjectRecordType;
@@ -1591,12 +1642,6 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                     {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
                   </select>
                 </label>
-                <label>{isSpanish ? "Categoría" : "Category"}
-                  <select value={draft.categoryId} onChange={(event) => setDraft((current) => ({ ...current, categoryId: event.target.value }))}>
-                    <option value="">{isSpanish ? "Sin categoría" : "Uncategorized"}</option>
-                    {categoryOptions.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-                  </select>
-                </label>
               </div>
               <label>{isSpanish ? "Descripción corta" : "Short description"}<textarea data-testid="projects-quick-capture-description" value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder={isSpanish ? "Concreto suelto en la banqueta del Edificio 4. Riesgo de tropiezo." : "Loose concrete at Building 4 sidewalk. Trip hazard."} /></label>
               <div className="pool-entry-actions">
@@ -1605,6 +1650,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
               <details open={showMoreDetails} onToggle={(event) => setShowMoreDetails((event.currentTarget as HTMLDetailsElement).open)}>
                 <summary>{isSpanish ? "Más detalles" : "More Details"}</summary>
                 <div className="form-grid projects-advanced-grid">
+                  <label>{isSpanish ? "Categoría" : "Category"}<select value={draft.categoryId} onChange={event => setDraft(current => ({ ...current, categoryId: event.target.value }))}><option value="">{isSpanish ? "Sin categoría" : "Uncategorized"}</option>{categoryOptions.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
                   <label>{isSpanish ? "Prioridad" : "Priority"}<select value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value as ProjectPriority }))}>{["Low", "Normal", "High", "Critical"].map((priority) => <option key={priority} value={priority}>{isSpanish ? ({ Low: "Baja", Normal: "Normal", High: "Alta", Critical: "Crítica" } as const)[priority] : priority}</option>)}</select></label>
                   <label>{isSpanish ? "Estado" : "Status"}<input value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))} /></label>
                   <label>{isSpanish ? "Edificio" : "Building"}<input value={draft.building} onChange={(event) => setDraft((current) => ({ ...current, building: event.target.value }))} /></label>
@@ -1680,7 +1726,6 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                       {budgetYearOptions.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
                     </select>
                   </label>
-                  <label>{isSpanish ? "Costo estimado" : "Estimated cost"}<input type="number" value={draft.estimatedCost} onChange={(event) => setDraft((current) => ({ ...current, estimatedCost: event.target.value }))} /></label>
                   <label>{isSpanish ? "Etiquetas" : "Tags"}<input value={draft.tags} onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} placeholder={isSpanish ? "etiquetas, separadas, por comas" : "comma, separated, tags"} /></label>
                   <label className="compact-toggle">{isSpanish ? "Mantenimiento diferido" : "Deferred maintenance"}
                     <input type="checkbox" checked={draft.deferredMaintenance} onChange={(event) => setDraft((current) => ({ ...current, deferredMaintenance: event.target.checked }))} />
@@ -2023,6 +2068,9 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
           ) : null}
           <div className="form-grid">
             <label>{isSpanish ? "Buscar" : "Search"}<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={projectSearchPlaceholder} /></label>
+          </div>
+          <details><summary>{isSpanish ? "Más filtros" : "More filters"}{[sourceFilter, budgetYearFilter, deferredFilter, agingFilter].filter(Boolean).length ? ` (${[sourceFilter, budgetYearFilter, deferredFilter, agingFilter].filter(Boolean).length})` : ""}</summary>
+          <div className="form-grid">
             <label>{isSpanish ? "Origen" : "Source"}
               <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
                 <option value="">{isSpanish ? "Todos los orígenes" : "All sources"}</option>
@@ -2052,6 +2100,8 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
               </select>
             </label>
           </div>
+          <button type="button" className="button button-secondary" onClick={() => { setSourceFilter(""); setBudgetYearFilter(""); setDeferredFilter(""); setAgingFilter(""); }}>{isSpanish ? "Limpiar filtros" : "Clear filters"}</button>
+          </details>
         </div>
       )}
 
@@ -2066,12 +2116,11 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                 </div>
               ) : null}
               {recordsQuery.isLoading ? <StatusState title={isSpanish ? "Cargando registros" : "Loading records"} description={isSpanish ? "Cargando proyectos y recomendaciones." : "Fetching project and recommendation records."} /> : visibleRecords.map((record) => (
-                <button key={record.id} type="button" className="projects-record-card" onClick={() => setSelectedRecordId(record.id)}>
-                  <div className="projects-record-thumb">
-                    {record.attachments.find((attachment) => isImageAttachment(attachment.mimeType)) ? <img src={projectAttachmentDownloadUrl(record.attachments.find((attachment) => isImageAttachment(attachment.mimeType))!.id)} alt={record.title} /> : <span>{isSpanish ? "Sin foto" : "No photo"}</span>}
-                  </div>
+                <button key={record.id} type="button" className="projects-record-card" aria-label={record.title} onClick={() => setSelectedRecordId(record.id)}>
+                  {record.attachments.find((attachment) => isImageAttachment(attachment.mimeType)) ? <div className="projects-record-thumb"><img src={projectAttachmentDownloadUrl(record.attachments.find((attachment) => isImageAttachment(attachment.mimeType))!.id)} alt="" /></div> : null}
                   <div className="projects-record-body">
                     <strong>{record.title}</strong>
+                    <span>{record.estimatedCost !== null || record.totalAmount !== null ? `${isSpanish ? "Total estimado" : "Estimated total"}: ${formatCurrency(record.estimatedCost ?? record.totalAmount)}` : (isSpanish ? "Sin estimación" : "Not estimated")}{record.productUrl ? (isSpanish ? " · Enlace del producto" : " · Product link") : ""}</span>
                     <div className="pool-reading-stack">
                       <span>{record.property.code}</span>
                       <span>{record.status}</span>
@@ -2105,6 +2154,7 @@ export function ProjectsPanel({ properties, users, userRole, language = "en", se
                 users={assignableUsers}
                 language={language}
                 onSave={(record, patch) => updateMutation.mutate({ id: record.id, patch })}
+                onSaveBasics={async (record, patch) => { const result = await updateMutation.mutateAsync({ id: record.id, patch: { ...patch, expectedUpdatedAt: record.updatedAt } }); return result.record.updatedAt; }}
                 onConvert={(id) => convertMutation.mutate(id)}
                 onAddComment={(id, body) => commentMutation.mutateAsync({ id, body })}
                 onAddTask={(id, input) => taskCreateMutation.mutateAsync({ id, input })}

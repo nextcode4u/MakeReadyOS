@@ -34,6 +34,8 @@ test("mobile project quotes, internal costs, deadlines and document exports work
   await page.getByTestId("property-filter").selectOption(property.id);
   await page.getByTestId("module-rail-projects").click();
   await page.getByRole("button", { name: record.title, exact: true }).first().click();
+  await page.getByText("Quotes & detailed costs", { exact: true }).click();
+  await page.getByText("Schedule & assignments", { exact: true }).click();
   const budget = page.getByTestId("project-budget");
   const form = page.getByTestId("project-quote-form");
   await form.getByLabel("Scope / phase", { exact: true }).fill("Roof replacement");

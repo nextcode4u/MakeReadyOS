@@ -8,6 +8,7 @@ import { prisma } from "../lib/prisma.js";
 import { lockProjectCategories } from "../lib/projectCategoryLock.js";
 import { turnMaterialsSchema } from "../lib/turnMaterials.js";
 import { projectQuoteInput, projectCostInput } from "../lib/projectBudget.js";
+import { productLinkSchema } from "../lib/productLink.js";
 
 const backupFormat = "makereadyos.backup";
 const backupVersion = 1;
@@ -699,6 +700,7 @@ const projectCategoryBackupSchema = z.object({
 });
 
 const projectRecordBackupSchema = z.object({
+  productUrl: productLinkSchema.nullable().optional().default(null),
   quotes: z.array(projectQuoteInput.omit({ expectedVersion: true }).extend({ id: z.string().uuid(), version: z.number().int().positive(), createdAt: z.string().datetime(), updatedAt: z.string().datetime() })).max(500).optional().default([]),
   costLines: z.array(projectCostInput.innerType().omit({ expectedVersion: true }).extend({ id: z.string().uuid(), version: z.number().int().positive(), createdAt: z.string().datetime(), updatedAt: z.string().datetime() }).refine(line => line.quantity * line.unitCostCents <= 1000000000, "Line estimate exceeds limit")).max(500).optional().default([]),
   portableKey: z.string().min(1),
@@ -2288,6 +2290,7 @@ async function buildExport(): Promise<NativeBackup> {
         estimatedQuantity: record.estimatedQuantity,
         quantityUnit: record.quantityUnit,
         estimatedCost: record.estimatedCost,
+        productUrl: record.productUrl,
         actualCost: record.actualCost,
         totalAmount: record.totalAmount,
         deferredMaintenance: record.deferredMaintenance,

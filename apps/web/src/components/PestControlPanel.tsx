@@ -417,7 +417,7 @@ function CaptureFilePreview({ file }: { file: File }) {
 export function PestControlPanel({ properties, units, userRole, language, selectedPropertyId, openQuickAddRequest, workspaceRequest }: Props) {
   const queryClient = useQueryClient();
   const [isMobileLayout, setIsMobileLayout] = useState(() => isTouchMobileViewport());
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<Tab>("active");
   const [propertyId, setPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<PestStatus | "">("");

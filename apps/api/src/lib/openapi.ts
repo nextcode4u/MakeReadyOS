@@ -2123,6 +2123,7 @@ export const openApiDocument = {
           estimatedQuantity: { type: ["number", "null"] },
           quantityUnit: { type: ["string", "null"] },
           estimatedCost: { type: ["number", "null"] },
+          productUrl: { type: ["string", "null"], format: "uri", description: "Optional HTTP(S) product or vendor link; never fetched by the server." },
           actualCost: { type: ["number", "null"] },
           totalAmount: { type: ["number", "null"] },
           deferredMaintenance: { type: "boolean" },
@@ -5024,6 +5025,7 @@ export const openApiDocument = {
         summary: "List pool/spa log entries",
         security: [{ cookieSession: [] }, { bearerApiToken: [] }],
         parameters: [
+          { name: "entryId", in: "query", schema: { type: "string" }, description: "Focus on one entry within the user's property access." },
           { name: "propertyId", in: "query", schema: { type: "string" } },
           { name: "facilityId", in: "query", schema: { type: "string" } },
           { name: "from", in: "query", schema: { type: "string", format: "date" } },

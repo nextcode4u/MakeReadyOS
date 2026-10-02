@@ -50,3 +50,4 @@
   .on-call-calendar-grid > button { min-width: 0; min-height: 76px; padding: 5px 3px !important; font-size: .8rem !important; }
   .on-call-calendar-grid small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
+.on-call-save-bar { position: sticky; top: 0; z-index: 3; background: var(--panel, Canvas); padding: .65rem; border: 1px solid var(--line, #bcc8d6); border-radius: .5rem; }

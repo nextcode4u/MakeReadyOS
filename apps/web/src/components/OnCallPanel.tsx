@@ -131,6 +131,9 @@ export function OnCallPanel({ external = false, userId = "" }: { external?: bool
       }}>
         <p>Changes affect the shared on-call group for all staff. This does not grant access to other MakeReadyOS modules or import private property wiki records.</p>
         <fieldset disabled={busy}>
+          <div className="on-call-actions on-call-save-bar"><button className="button button-primary" type="submit" disabled={!dirty}>{busy ? "Saving..." : "Save on-call"}</button><span role={dirty ? "status" : undefined}>{dirty ? "Unsaved changes" : "All changes saved"}</span></div>
+          <p className="helper-copy">Schedule shown in {data.timeZone}. Enter manual shift times in your device time zone ({Intl.DateTimeFormat().resolvedOptions().timeZone}).</p>
+          <details open><summary>Schedule settings &amp; sharing</summary>
           <div className="on-call-fields"><label>Schedule title<input required maxLength={100} value={data.title} onChange={event => change({ title: event.target.value })}/></label><label>Display time zone<input required list="on-call-zones" value={data.timeZone} onChange={event => change({ timeZone: event.target.value })}/><datalist id="on-call-zones">{["America/Chicago", "America/New_York", "America/Denver", "America/Phoenix", "America/Los_Angeles", "UTC"].map(zone => <option key={zone}>{zone}</option>)}</datalist></label></div>
           {!external ? <><label className="on-call-check"><input type="checkbox" checked={current.externalEnabled} onChange={event => setDraft({ ...current, externalEnabled: event.target.checked })}/>Enable external sharing: names, phone numbers, property names and shift notes are public</label>
           <label>{current.hasAccessCode ? "New access code (leave blank to keep current)" : "Set property-guide access code"}<input type="password" autoComplete="new-password" minLength={6} maxLength={100} value={newCode} onChange={event => setNewCode(event.target.value)}/></label>
@@ -139,6 +142,7 @@ export function OnCallPanel({ external = false, userId = "" }: { external?: bool
           <label>{current.hasEditCode ? "New editing code (leave blank to keep current)" : "Set separate editing code (optional)"}<input type="password" autoComplete="new-password" minLength={10} maxLength={100} disabled={disableEditing} value={newEditCode} onChange={event => setNewEditCode(event.target.value)}/></label>
           <p className="helper-copy">Use a different passphrase of at least 10 characters. This code permits changes to On-call, including schedules, contacts, guides and maps, but no other modules. Shared-code editors are not individually identified. Editing sessions last one hour. Changing this code revokes existing editors; leave it blank to keep the current setting.</p>
           <label className="on-call-check"><input type="checkbox" checked={disableEditing} onChange={event => { setDisableEditing(event.target.checked); if (event.target.checked) setNewEditCode(""); }}/>Disable external editing and revoke editing sessions on save</label></> : null}
+          </details>
           <details open><summary>People ({data.people.length})</summary><p>External participants do not need accounts. Names and phone numbers below are public when sharing is enabled; use approved on-call contact numbers.</p>
             <p>Removing a person requires typing their name. People assigned to a rotation, shift, backup or coverage change must be reassigned first. Removals are not permanent until you save.</p>
             {data.people.map((member, index) => {
@@ -210,7 +214,7 @@ export function OnCallPanel({ external = false, userId = "" }: { external?: bool
             </section>; })}
             <button type="button" disabled={!data.people.length || !data.properties.length} onClick={() => { const start = new Date(); start.setSeconds(0, 0); const end = new Date(start); end.setDate(end.getDate() + 7); change({ shifts: [...data.shifts, { id: newId(), personId: data.people[0].id, backupId: "", propertyIds: data.properties.map(property => property.id), start: start.toISOString(), end: end.toISOString(), notes: "" }] }); }}>Add shift</button>
           </details>
-          <div className="on-call-actions"><button className="button button-primary" type="submit" disabled={!dirty}>{busy ? "Saving..." : "Save on-call"}</button><button type="button" onClick={async () => { if (dirty && !window.confirm("Discard unsaved changes and reload the saved workspace?")) return; setDraft(null); resetCodes(); await reload(); }}>Reload saved workspace</button>{dirty ? <span role="status">Unsaved changes</span> : null}</div>
+          <div className="on-call-actions"><button type="button" onClick={async () => { if (dirty && !window.confirm("Discard unsaved changes and reload the saved workspace?")) return; setDraft(null); resetCodes(); await reload(); }}>Reload saved workspace</button></div>
         </fieldset>
       </form> : <>
         <label className="on-call-filter">Coverage for<select value={filter} onChange={event => setFilter(event.target.value)}><option value="">All on-call properties</option>{data.properties.map(property => <option key={property.id} value={property.id}>{property.name}</option>)}</select></label>

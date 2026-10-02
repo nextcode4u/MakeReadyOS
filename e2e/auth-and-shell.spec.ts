@@ -291,7 +291,7 @@ test("Lease detail drafts survive failed saves, reopening and reviewed conflicts
   await page.getByTestId("module-rail-lease-compliance").click();
   const panel = page.getByTestId("lease-compliance-panel");
   await panel.getByRole("combobox", { name: "Lease Compliance property", exact: true }).selectOption(issue.propertyId);
-  await panel.getByRole("button", { name: "Active Issues", exact: true }).click();
+  await panel.getByLabel("Issue view", { exact: true }).selectOption("active");
   const card = page.getByTestId(`lease-issue-${issue.id}`);
   const editor = page.getByTestId(`lease-editor-${issue.id}`);
   await card.locator(".compact-issue-summary").click();
@@ -321,7 +321,7 @@ test("Lease detail drafts survive failed saves, reopening and reviewed conflicts
   await page.reload();
   await page.getByTestId("module-rail-lease-compliance").click();
   await panel.getByRole("combobox", { name: "Lease Compliance property", exact: true }).selectOption(issue.propertyId);
-  await panel.getByRole("button", { name: "Active Issues", exact: true }).click();
+  await panel.getByLabel("Issue view", { exact: true }).selectOption("active");
   await card.locator(".compact-issue-summary").click();
   await editor.getByRole("button", { name: "Resume draft", exact: true }).click();
   await expect(editor.getByLabel("Building", { exact: true })).toHaveValue("New building");
@@ -2463,6 +2463,7 @@ for (const module of ["pm", "maps", "projects"] as const) {
     } else {
       await expect(page.getByTestId("property-maps-property-select")).toHaveValue(expectedPropertyId);
       const name = uniqueTag("Delayed metadata map");
+      await page.getByText("Map setup & exports", { exact: true }).click();
       await page.getByTestId("property-maps-create-name").fill(name);
       const saved = page.waitForResponse(response => response.url().endsWith("/api/property-maps") && response.request().method() === "POST");
       await page.getByTestId("property-maps-create-submit").click();
@@ -2492,7 +2493,7 @@ test("wiki initializes delayed property metadata and saves to the displayed prop
   const wiki = page.getByTestId("property-wiki-panel");
   await expect(wiki).toBeVisible();
   await expect(wiki.getByRole("combobox", { name: "Property Wiki property", exact: true })).toHaveValue(expectedPropertyId);
-  await wiki.getByRole("button", { name: "Utilities", exact: true }).click();
+  await wiki.getByLabel("Browse knowledge").selectOption("utilities");
   const title = uniqueTag("Delayed wiki utility");
   await wiki.getByLabel("Title", { exact: true }).fill(title);
   const saved = page.waitForResponse(response => response.url().includes("/api/property-wiki/entries") && response.request().method() === "POST");
@@ -5434,6 +5435,7 @@ test.describe("MakeReadyOS browser flows", () => {
     });
     expect(taPropertyValue).toBeTruthy();
     await page.getByTestId("property-maps-property-select").selectOption(taPropertyValue);
+    await page.getByText("Map setup & exports", { exact: true }).click();
     await page.getByTestId("property-maps-create-name").fill(mapName);
     const createResponse = page.waitForResponse((response) =>
       response.url().includes("/api/property-maps") && response.request().method() === "POST",
@@ -5793,6 +5795,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-vendors").click();
     await expect(page.getByTestId("vendors-panel")).toBeVisible();
+    await page.getByRole("button", { name: "Add vendor", exact: true }).click();
     await page.getByTestId("vendor-create-name").fill(vendorName);
     await page.getByTestId("vendor-create-trade").fill("Flooring");
     await page.getByTestId("vendor-create-submit").click();
@@ -6954,7 +6957,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await page.getByRole("button", { name: "Save Overview" }).click();
     await expect((await profileResponse).status()).toBe(200);
 
-    await wiki.getByRole("button", { name: "Utilities", exact: true }).click();
+    await wiki.getByLabel("Browse knowledge").selectOption("utilities");
     const utilityTitle = uniqueTag("QA Utility Shutoff");
     await wiki.getByLabel("Title", { exact: true }).fill(utilityTitle);
     const utilityResponse = page.waitForResponse((response) =>
@@ -6964,7 +6967,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect((await utilityResponse).status()).toBe(201);
     await expect(wiki.locator(".property-wiki-record").filter({ hasText: utilityTitle })).toBeVisible();
 
-    await wiki.getByRole("button", { name: "Vendors", exact: true }).click();
+    await wiki.getByLabel("Browse knowledge").selectOption("vendors");
     const vendorName = uniqueTag("QA Wiki Vendor");
     await wiki.getByLabel("Company", { exact: true }).fill(vendorName);
     const vendorResponse = page.waitForResponse((response) =>
@@ -6974,7 +6977,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect((await vendorResponse).status()).toBe(201);
     await expect(wiki.locator(".property-wiki-record").filter({ hasText: vendorName })).toBeVisible();
 
-    await wiki.getByRole("button", { name: "Documents", exact: true }).click();
+    await wiki.getByLabel("Browse knowledge").selectOption("documents");
     const assetResponse = page.waitForResponse((response) =>
       response.url().includes("/api/property-wiki/assets/upload") && response.request().method() === "POST",
     );

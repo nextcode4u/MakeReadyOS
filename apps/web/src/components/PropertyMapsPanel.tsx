@@ -1187,8 +1187,8 @@ export function PropertyMapsPanel({
       </div>
 
       {canManage ? (
-        <div className="operations-card map-management-card">
-          <h3>{isSpanish ? "Configuración del mapa" : "Map Setup"}</h3>
+        <details className="operations-card map-management-card">
+          <summary>{isSpanish ? "Configurar mapas y exportar" : "Map setup & exports"}</summary>
           {selectedMap ? (
             <div className="admin-message" style={{ marginBottom: 12 }}>
               <strong>{selectedMap.name}</strong>{" "}
@@ -1280,7 +1280,7 @@ export function PropertyMapsPanel({
               </div>
             ) : null}
           </div>
-        </div>
+        </details>
       ) : null}
 
       <div className="map-grid property-map-enhanced-grid">

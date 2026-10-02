@@ -157,6 +157,7 @@ function TankSizeField({ language }: { language: UserLanguage }) {
 
 export function RefrigerantPanel({ properties, units, userRole, language }: Props) {
   const [tab, setTab] = useState<RefrigerantTab>("overview");
+  const [entryMode, setEntryMode] = useState<"charge" | "recovery" | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [propertyFilter, setPropertyFilter] = useState("");
@@ -353,7 +354,13 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
           </div>
           {canEdit ? (
             <div className="refrigerant-quick-grid">
-              <QuickChargeForm
+              <div className="pool-entry-actions">
+                <button type="button" className="button button-primary" aria-pressed={entryMode === "charge"} onClick={() => setEntryMode("charge")}>{language === "es" ? "Registrar carga" : "Record charge"}</button>
+                <button type="button" className="button button-secondary" aria-pressed={entryMode === "recovery"} onClick={() => setEntryMode("recovery")}>{language === "es" ? "Registrar recuperación" : "Record recovery"}</button>
+                <button type="button" className="button button-secondary" onClick={() => setTab("tanks")}>{language === "es" ? "Ver cilindros" : "View cylinders"}</button>
+              </div>
+              {entryMode === "recovery" ? <p className="muted">{language === "es" ? "Este formulario registra recuperación limpia. Para recuperación sucia, use la pestaña correspondiente." : "This form records clean recovery. For dirty recovery, use the Dirty Recovery tab."}</p> : null}
+              <div hidden={entryMode !== "charge"}><QuickChargeForm
                 title={t(language, "refrigerant.quickCharge")}
                 properties={properties}
                 units={units}
@@ -363,8 +370,8 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
                 onSubmit={submitCharge}
                 canEdit={canEdit}
                 loading={runMutation.isPending}
-              />
-              <QuickRecoveryForm
+              /></div>
+              <div hidden={entryMode !== "recovery"}><QuickRecoveryForm
                 title={t(language, "refrigerant.quickRecovery")}
                 properties={properties}
                 units={units}
@@ -376,7 +383,7 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
                 onSubmit={(event) => submitRecovery(event, "CLEAN")}
                 canEdit={canEdit}
                 loading={runMutation.isPending}
-              />
+              /></div>
             </div>
           ) : null}
           <section className="refrigerant-card">
@@ -398,6 +405,7 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
               </div>
             )) : <p className="muted">{t(language, "refrigerant.noLeakFlags")}</p>}
           </section>
+          <details><summary>{language === "es" ? "Configurar tipos de refrigerante" : "Refrigerant type setup"}</summary>
           <RefrigerantTypesCard
             language={language}
             canAdmin={canAdmin}
@@ -407,6 +415,7 @@ export function RefrigerantPanel({ properties, units, userRole, language }: Prop
             onDelete={(id) => deleteTypeMutation.mutate(id)}
             loading={runMutation.isPending}
           />
+          </details>
           <HistoryList language={language} transactions={overviewQuery.data?.recent ?? []} />
         </>
       ) : tab === "tanks" ? (

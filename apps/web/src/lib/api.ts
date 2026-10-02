@@ -1847,6 +1847,7 @@ export type ProjectRecord = {
   estimatedQuantity: number | null;
   quantityUnit: string | null;
   estimatedCost: number | null;
+  productUrl?: string | null;
   actualCost: number | null;
   totalAmount: number | null;
   deferredMaintenance: boolean;
@@ -3226,6 +3227,7 @@ export function createProjectRecord(input: {
   estimatedQuantity?: number | null;
   quantityUnit?: string | null;
   estimatedCost?: number | null;
+  productUrl?: string | null;
   actualCost?: number | null;
   totalAmount?: number | null;
   deferredMaintenance?: boolean;
@@ -4635,7 +4637,7 @@ export function deletePoolChemical(id: string) {
   return request<{ ok: true }>(`/pool/chemicals/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export function getPoolEntries(filters: { propertyId?: string; facilityId?: string; from?: string; to?: string; limit?: number; offset?: number } = {}) {
+export function getPoolEntries(filters: { propertyId?: string; facilityId?: string; entryId?: string; from?: string; to?: string; limit?: number; offset?: number } = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") params.set(key, String(value));

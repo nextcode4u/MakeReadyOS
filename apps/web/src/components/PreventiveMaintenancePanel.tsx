@@ -256,7 +256,7 @@ function TaskCard({
 export function PreventiveMaintenancePanel({ properties, userRole, selectedPropertyId, language = "en" }: Props) {
   const isSpanish = language === "es";
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<Tab>(["ADMIN", "MANAGER"].includes(userRole) ? "dashboard" : "tasks");
   const [lastFilterTab, setLastFilterTab] = useState<Extract<Tab, "tasks" | "history">>("tasks");
   const [propertyId, setPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("monthly");
@@ -265,7 +265,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   const [taskCategory, setTaskCategory] = useState<PreventiveMaintenanceCategory | "">("");
   const [taskPriority, setTaskPriority] = useState<PreventiveMaintenancePriority | "">("");
   const [taskQuery, setTaskQuery] = useState("");
-  const [taskFocus, setTaskFocus] = useState<TaskFocus>("all");
+  const [taskFocus, setTaskFocus] = useState<TaskFocus>(["ADMIN", "MANAGER"].includes(userRole) ? "all" : "due-now");
   const [historyQuery, setHistoryQuery] = useState("");
   const [queuedPmJobs, setQueuedPmJobs] = useState<OfflineSyncJobSummary[]>([]);
   const [queueSyncing, setQueueSyncing] = useState(false);
@@ -534,9 +534,11 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
           <select value={propertyId} onChange={(event) => setPropertyId(event.target.value)} aria-label={t(language, "pm.property")}>
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
           </select>
+          <details><summary>{language === "es" ? "Exportar reportes" : "Export reports"}</summary>
           <a className="button secondary" href={preventiveMaintenancePrintableReportUrl(pmReportFilters)} target="_blank" rel="noreferrer">{t(language, "pm.pdfReport")}</a>
           <a className="button secondary" href={preventiveMaintenanceExportCsvUrl(pmReportFilters)}>{t(language, "nav.csv")}</a>
           <a className="button secondary" href={preventiveMaintenanceExportExcelUrl(pmReportFilters)}>{t(language, "nav.excel")}</a>
+          </details>
         </div>
       </div>
 

@@ -30,6 +30,8 @@ Details: [Feature status](FEATURE_STATUS.md), [Offline implementation](../apps/w
 
 ## Active Priorities
 
+Approved 2026-10-02: [module simplification TODO](UX_DEBT.md#module-simplification-todo---2026-10-02), with extra emphasis on simple Projects entry and browsing. This queue supplements the dated priorities below; it is not a deployment record.
+
 The [Reliability and polish queue](RELIABILITY_POLISH.md) owns detailed acceptance checks; [Technical debt](TECH_DEBT.md) owns infrastructure gaps. These priorities summarize that work rather than creating a second independent checklist.
 
 1. **Readiness consistency and signed reports.** Align import/create/override/reopen paths and cross-screen status rules. Finish durable technician/reviewer identities, independent sign-offs, immutable issued revisions and correction/recheck evidence. Existing final-walk drafts and PDFs are not a replacement for signed resident handoff records. See [Turn workflow audit](TURN_WORKFLOW_AUDIT.md).

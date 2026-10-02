@@ -63,11 +63,14 @@ export const projectCategorySchema = z.object({
   sortOrder: z.coerce.number().int().min(0).max(999).optional(),
 });
 
+import { productLinkSchema } from "../lib/productLink.js";
+
 export const projectRecordSchema = z.object({
   propertyId: z.string().min(1),
   recordType: z.enum(projectRecordTypes),
   title: z.string().trim().min(1).max(180),
   description: z.string().trim().max(5000).nullable().optional(),
+  productUrl: productLinkSchema.nullable().optional(),
   source: z.enum(projectSources).nullable().optional(),
   sourceRecordType: z.string().trim().max(80).nullable().optional(),
   sourceRecordId: z.string().trim().max(120).nullable().optional(),
@@ -336,6 +339,7 @@ async function canEditProjectRecord(request: FastifyRequest, record: {
 
 function projectMatchesQuery(record: {
   title: string;
+  productUrl?: string | null;
   description: string | null;
   source: string | null;
   categoryName: string | null;
@@ -355,6 +359,7 @@ function projectMatchesQuery(record: {
   if (!q) return true;
   const haystack = [
     record.title,
+    record.productUrl,
     record.description,
     record.source,
     record.categoryName,
@@ -658,6 +663,7 @@ async function projectReportHtml(record: ProjectReportRecord, options?: { inline
         <div><dt>Scheduled</dt><dd>${htmlEscape(record.scheduledDate?.toLocaleDateString() ?? "-")}</dd></div>
         <div><dt>Due</dt><dd>${htmlEscape(record.dueDate?.toLocaleDateString() ?? "-")}</dd></div>
         <div><dt>Cost / Amount</dt><dd>${htmlEscape(record.estimatedCost ?? record.totalAmount ?? "-")}</dd></div>
+        ${record.productUrl ? `<div><dt>Product / vendor link</dt><dd style="overflow-wrap:anywhere">${htmlEscape(record.productUrl)}</dd></div>` : ""}
         <div><dt>Created</dt><dd>${htmlEscape(record.createdAt.toLocaleDateString())}</dd></div>
         <div><dt>Updated</dt><dd>${htmlEscape(record.updatedAt.toLocaleDateString())}</dd></div>
       </div>
@@ -1012,7 +1018,7 @@ export async function projectRoutes(app: FastifyInstance) {
     const existing = await prisma.projectRecord.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ message: "Project record not found" });
     if (!(await canEditProjectRecord(request, existing))) return reply.code(403).send({ message: "Projects edit access denied" });
-    if (expectedUpdatedAt && existing.updatedAt.getTime() !== expectedUpdatedAt.getTime()) return reply.code(409).send({ message: "Project changed. Reload before applying your schedule; your draft was not saved." });
+    if (expectedUpdatedAt && existing.updatedAt.getTime() !== expectedUpdatedAt.getTime()) return reply.code(409).send({ message: "Project changed. Reload before saving; your draft was not saved." });
     if (["dueDate", "scheduledDate", "startDate"].some(key => key in input)) {
       const deadline = input.dueDate === undefined ? existing.dueDate : input.dueDate;
       const starts = [input.scheduledDate === undefined ? existing.scheduledDate : input.scheduledDate, input.startDate === undefined ? existing.startDate : input.startDate];
@@ -1041,7 +1047,7 @@ export async function projectRoutes(app: FastifyInstance) {
       },
       include: { property: true, category: true, attachments: true, comments: true, tasks: true, wikiReferences: true },
     }).catch(error => {
-      if (expectedUpdatedAt && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") throw Object.assign(new Error("Project changed. Reload before saving your schedule."), { statusCode: 409 });
+      if (expectedUpdatedAt && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") throw Object.assign(new Error("Project changed. Reload before saving."), { statusCode: 409 });
       throw error;
     });
     if (assignedUser?.id && assignedUser.id !== existing.assignedUserId) {
@@ -1363,6 +1369,7 @@ export async function projectRoutes(app: FastifyInstance) {
       Category: record.categoryName ?? "",
       ExecutionType: record.executionType,
       EstimatedCost: record.estimatedCost ?? "",
+      ProductLink: record.productUrl ?? "",
       ActualCost: record.actualCost ?? "",
       CompanyName: record.companyName ?? "",
       TotalAmount: record.totalAmount ?? "",
@@ -1406,12 +1413,13 @@ export async function projectRoutes(app: FastifyInstance) {
       return projectMatchesQuery(record, query.q);
     });
     const scopeLabel = await reportScopeLabel(query.propertyId);
-    const header = ["Property", "Record Type", "Title", "Source", "Status", "Priority", "Days Open", "Budget Year", "Deferred", "Deferred Reason", "Target Year", "Category", "Execution Type", "Estimated Cost", "Actual Cost", "Company Name", "Total Amount", "Scheduled Date", "Due Date", "Assigned User"];
+    const header = ["Property", "Record Type", "Title", "Product Link", "Source", "Status", "Priority", "Days Open", "Budget Year", "Deferred", "Deferred Reason", "Target Year", "Category", "Execution Type", "Estimated Cost", "Actual Cost", "Company Name", "Total Amount", "Scheduled Date", "Due Date", "Assigned User"];
     header.push("Included Quote Subtotal", "In-House Estimate", "Planned Subtotal", "Unpriced Included Quotes", "Recorded In-House Actual", "In-House Actuals Not Recorded");
     const lines = [header, ...filtered.map((record) => [
       record.property.code,
       record.recordType,
       record.title,
+      record.productUrl ?? "",
       record.source ?? "",
       record.status,
       record.priority,

@@ -413,7 +413,7 @@ function IssueCard({
 
 export function LeaseCompliancePanel({ properties, units, userRole, language, selectedPropertyId, openQuickAddRequest, workspaceRequest }: Props) {
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<Tab>("active");
   const [isMobileLayout, setIsMobileLayout] = useState(() => isTouchMobileViewport());
   const [propertyId, setPropertyId] = useState(selectedPropertyId || properties[0]?.id || "");
   const [search, setSearch] = useState("");
@@ -926,6 +926,7 @@ export function LeaseCompliancePanel({ properties, units, userRole, language, se
       </div>
 
       <div className="module-tabs" aria-label={t(language, "lease.sections")}>
+        <label>{language === "es" ? "Vista de problemas" : "Issue view"}<select aria-label={language === "es" ? "Vista de problemas" : "Issue view"} value={tab} onChange={event => setTab(event.target.value as Tab)}>
         {([
           ["dashboard", t(language, "nav.dashboard")],
           ["active", t(language, "lease.activeIssues")],
@@ -937,12 +938,16 @@ export function LeaseCompliancePanel({ properties, units, userRole, language, se
           ["reports", t(language, "pm.reports")],
           ["settings", t(language, "nav.setup")],
         ] as Array<[Tab, string]>).map(([key, label]) => (
-          <button key={key} type="button" className={tab === key ? "active" : ""} onClick={() => setTab(key)}>{label}</button>
+          <option key={key} value={key}>{label}</option>
         ))}
+        </select></label>
+        <button type="button" className="button button-secondary" onClick={() => setTab("grounds")}>{t(language, "lease.groundsWalk")}</button>
       </div>
+      {tab === "resolved" || tab === "archive" ? <p className="muted">{language === "es" ? "Resuelto significa que el problema fue atendido. Archivado lo retira del trabajo activo, conservando el historial." : "Resolved means the issue was addressed. Archived removes it from active work while keeping its history."}</p> : null}
 
       {permissions.edit && (tab === "dashboard" || tab === "grounds" || tab === "active") ? (
-        <section className="panel-card" style={{ marginBottom: 16 }}>
+        <details className="panel-card" style={{ marginBottom: 16 }} key={tab === "grounds" ? "walk" : "capture"} open={tab === "grounds" ? true : undefined}>
+          <summary>{tab === "grounds" ? t(language, "lease.groundsWalkCapture") : t(language, "lease.quickCapture")}</summary>
           <div className="drawer-section-title">
             <h2>{tab === "grounds" ? t(language, "lease.groundsWalkCapture") : t(language, "lease.quickCapture")}</h2>
           </div>
@@ -1296,7 +1301,7 @@ export function LeaseCompliancePanel({ properties, units, userRole, language, se
               ) : null}
             </div>
           </form>
-        </section>
+        </details>
       ) : null}
 
       {tab === "dashboard" ? (

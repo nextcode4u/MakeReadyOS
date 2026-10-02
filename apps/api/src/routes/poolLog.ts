@@ -665,6 +665,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
     const access = roleAccess(request.currentUser?.role ?? "VIEWER");
     if (!access.view) throw Object.assign(new Error("Pool log access denied"), { statusCode: 403 });
     const query = z.object({
+      entryId: z.string().optional(),
       propertyId: z.string().optional(),
       facilityId: z.string().optional(),
       from: z.string().optional(),
@@ -676,6 +677,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
     const allowed = await allowedPropertyIds(request);
     const where = {
       propertyId: query.propertyId ?? { in: allowed },
+      ...(query.entryId ? { id: query.entryId } : {}),
       ...(query.facilityId ? { facilityId: query.facilityId } : {}),
       ...(query.from || query.to ? { logDate: { ...(query.from ? { gte: dateOnly(new Date(query.from)) } : {}), ...(query.to ? { lte: endOfDay(new Date(query.to)) } : {}) } } : {}),
     };

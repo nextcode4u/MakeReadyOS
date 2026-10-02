@@ -782,6 +782,7 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
       </div>
 
       <div className="module-tabs">
+        <label>{language === "es" ? "Explorar conocimiento" : "Browse knowledge"}<select value={activeTab} onChange={event => { setSelectedRecord(null); setActiveTab(event.target.value as WikiTab); }}>
         {([
           ["overview", t(language, "dashboard.overview")],
           ["utilities", t(language, "wiki.utilities")],
@@ -800,10 +801,11 @@ export function PropertyWikiPanel({ properties, selectedPropertyId, userRole, la
           ["pages", t(language, "wiki.pages")],
           ["search", t(language, "nav.search")],
         ] as Array<[WikiTab, string]>).map(([tab, label]) => (
-          <button key={tab} type="button" className={activeTab === tab ? "active" : undefined} onClick={() => setActiveTab(tab)}>
+          <option key={tab} value={tab}>
             {label}
-          </button>
+          </option>
         ))}
+        </select></label>
       </div>
 
       {detailQuery.data?.record ? (

@@ -44,6 +44,9 @@ export function VendorsPanel({
   const isSpanish = language === "es";
   const [query, setQuery] = useState("");
   const [tradeFilter, setTradeFilter] = useState("");
+  const [entryForm, setEntryForm] = useState<"vendor" | "assignment" | null>(null);
+  const [entryBusy, setEntryBusy] = useState(false);
+  const [entryError, setEntryError] = useState("");
   const [vendorDraft, setVendorDraft] = useState({ name: "", trade: "Flooring", phone: "", email: "", notes: "", isPreferred: true, propertyIds: [] as string[] });
   const [assignmentDraft, setAssignmentDraft] = useState({ vendorId: "", itemId: "", trade: "Flooring", scheduledDate: "", dueDate: "", notes: "" });
 
@@ -84,8 +87,11 @@ export function VendorsPanel({
 
       {loading && <div className="state-card">{isSpanish ? "Cargando proveedores..." : "Loading vendors..."}</div>}
       {error && <div className="state-card error">{error}</div>}
+      {entryError ? <p role="alert">{entryError}</p> : null}
 
       <div className="toolbar compact-toolbar">
+        {canManageDirectory ? <button type="button" className="button button-secondary" aria-expanded={entryForm === "vendor"} onClick={() => setEntryForm(entryForm === "vendor" ? null : "vendor")}>{isSpanish ? "Agregar proveedor" : "Add vendor"}</button> : null}
+        {canCoordinateAssignments ? <button type="button" className="button button-primary" aria-expanded={entryForm === "assignment"} onClick={() => setEntryForm(entryForm === "assignment" ? null : "assignment")}>{isSpanish ? "Asignar trabajo" : "Assign work"}</button> : null}
         <input data-testid="vendor-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isSpanish ? "Buscar proveedores..." : "Search vendors..."} />
         <select data-testid="vendor-trade-filter" value={tradeFilter} onChange={(event) => setTradeFilter(event.target.value)}>
           <option value="">{isSpanish ? "Todos los oficios" : "All trades"}</option>
@@ -95,8 +101,11 @@ export function VendorsPanel({
 
       {canManageDirectory || canCoordinateAssignments ? (
         <div className="operations-grid two">
-          {canManageDirectory ? <form className="operations-card" data-testid="vendor-create-form" onSubmit={async (event) => {
+          {canManageDirectory ? <form hidden={entryForm !== "vendor"} className="operations-card" data-testid="vendor-create-form" onSubmit={async (event) => {
             event.preventDefault();
+            if (entryBusy) return;
+            setEntryBusy(true); setEntryError("");
+            try {
             await onCreateVendor({
               name: vendorDraft.name,
               trade: vendorDraft.trade,
@@ -107,24 +116,30 @@ export function VendorsPanel({
               propertyIds: vendorDraft.propertyIds,
             });
             setVendorDraft((current) => ({ ...current, name: "", phone: "", email: "", notes: "" }));
+            setEntryForm(null);
+            } catch (error) { setEntryError(error instanceof Error ? error.message : (isSpanish ? "No se pudo guardar." : "Could not save.")); }
+            finally { setEntryBusy(false); }
           }}>
             <h3>{isSpanish ? "Agregar proveedor rápido" : "Quick Add Vendor"}</h3>
-            <input data-testid="vendor-create-name" value={vendorDraft.name} onChange={(event) => setVendorDraft((current) => ({ ...current, name: event.target.value }))} placeholder={isSpanish ? "Nombre de la empresa" : "Company name"} required />
-            <input data-testid="vendor-create-trade" value={vendorDraft.trade} onChange={(event) => setVendorDraft((current) => ({ ...current, trade: event.target.value }))} placeholder={isSpanish ? "Oficio/categoría" : "Trade/category"} required />
-            <input value={vendorDraft.phone} onChange={(event) => setVendorDraft((current) => ({ ...current, phone: event.target.value }))} placeholder={isSpanish ? "Teléfono" : "Phone"} />
-            <input value={vendorDraft.email} onChange={(event) => setVendorDraft((current) => ({ ...current, email: event.target.value }))} placeholder={isSpanish ? "Correo" : "Email"} />
-            <textarea value={vendorDraft.notes} onChange={(event) => setVendorDraft((current) => ({ ...current, notes: event.target.value }))} placeholder={isSpanish ? "Notas" : "Notes"} />
+            <label>{isSpanish ? "Nombre de la empresa" : "Company name"}<input data-testid="vendor-create-name" value={vendorDraft.name} onChange={(event) => setVendorDraft((current) => ({ ...current, name: event.target.value }))} required /></label>
+            <label>{isSpanish ? "Oficio/categoría" : "Trade/category"}<input data-testid="vendor-create-trade" value={vendorDraft.trade} onChange={(event) => setVendorDraft((current) => ({ ...current, trade: event.target.value }))} required /></label>
+            <label>{isSpanish ? "Teléfono" : "Phone"}<input type="tel" value={vendorDraft.phone} onChange={(event) => setVendorDraft((current) => ({ ...current, phone: event.target.value }))} /></label>
+            <label>{isSpanish ? "Correo" : "Email"}<input type="email" value={vendorDraft.email} onChange={(event) => setVendorDraft((current) => ({ ...current, email: event.target.value }))} /></label>
+            <label>{isSpanish ? "Notas" : "Notes"}<textarea value={vendorDraft.notes} onChange={(event) => setVendorDraft((current) => ({ ...current, notes: event.target.value }))} /></label>
             <div className="checkbox-row wrap">
               {properties.map((property) => (
                 <label key={property.id}><input type="checkbox" checked={vendorDraft.propertyIds.includes(property.id)} onChange={(event) => setVendorDraft((current) => ({ ...current, propertyIds: event.target.checked ? [...current.propertyIds, property.id] : current.propertyIds.filter((id) => id !== property.id) }))} />{property.code}</label>
               ))}
             </div>
             <label className="checkbox-row"><input type="checkbox" checked={vendorDraft.isPreferred} onChange={(event) => setVendorDraft((current) => ({ ...current, isPreferred: event.target.checked }))} /> {isSpanish ? "Proveedor preferido" : "Preferred vendor"}</label>
-            <button data-testid="vendor-create-submit" className="button button-primary" disabled={!vendorDraft.name.trim() || !vendorDraft.trade.trim()}>{isSpanish ? "Crear proveedor" : "Create Vendor"}</button>
+            <button data-testid="vendor-create-submit" className="button button-primary" disabled={entryBusy || !vendorDraft.name.trim() || !vendorDraft.trade.trim()}>{isSpanish ? "Crear proveedor" : "Create Vendor"}</button>
           </form> : null}
 
-          {canCoordinateAssignments ? <form className="operations-card" data-testid="vendor-assignment-create-form" onSubmit={async (event) => {
+          {canCoordinateAssignments ? <form hidden={entryForm !== "assignment"} className="operations-card" data-testid="vendor-assignment-create-form" onSubmit={async (event) => {
             event.preventDefault();
+            if (entryBusy) return;
+            setEntryBusy(true); setEntryError("");
+            try {
             await onCreateAssignment({
               vendorId: assignmentDraft.vendorId,
               itemId: assignmentDraft.itemId,
@@ -135,6 +150,9 @@ export function VendorsPanel({
               notes: assignmentDraft.notes || null,
             });
             setAssignmentDraft((current) => ({ ...current, scheduledDate: "", dueDate: "", notes: "" }));
+            setEntryForm(null);
+            } catch (error) { setEntryError(error instanceof Error ? error.message : (isSpanish ? "No se pudo guardar." : "Could not save.")); }
+            finally { setEntryBusy(false); }
           }}>
             <h3>{isSpanish ? "Asignar trabajo al proveedor" : "Assign Vendor Work"}</h3>
             <select data-testid="vendor-assignment-vendor" value={assignmentDraft.vendorId} onChange={(event) => {
@@ -156,7 +174,7 @@ export function VendorsPanel({
             <label>{isSpanish ? "Programado" : "Scheduled"}<input type="date" value={assignmentDraft.scheduledDate} onChange={(event) => setAssignmentDraft((current) => ({ ...current, scheduledDate: event.target.value }))} /></label>
             <label>{isSpanish ? "Vence" : "Due"}<input type="date" value={assignmentDraft.dueDate} onChange={(event) => setAssignmentDraft((current) => ({ ...current, dueDate: event.target.value }))} /></label>
             <textarea value={assignmentDraft.notes} onChange={(event) => setAssignmentDraft((current) => ({ ...current, notes: event.target.value }))} placeholder={isSpanish ? "Notas de trabajo" : "Work notes"} />
-            <button data-testid="vendor-assignment-create-submit" className="button button-primary" disabled={!assignmentDraft.vendorId || !assignmentDraft.itemId}>{isSpanish ? "Crear asignación" : "Create Assignment"}</button>
+            <button data-testid="vendor-assignment-create-submit" className="button button-primary" disabled={entryBusy || !assignmentDraft.vendorId || !assignmentDraft.itemId}>{isSpanish ? "Crear asignación" : "Create Assignment"}</button>
           </form> : null}
         </div>
       ) : null}

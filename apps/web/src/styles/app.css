@@ -12616,6 +12616,9 @@ textarea {
   padding: 0.85rem;
 }
 
+.projects-record-card:not(:has(.projects-record-thumb)) { grid-template-columns: minmax(0, 1fr); }
+.vendors-panel [hidden], .refrigerant-panel [hidden] { display: none !important; }
+
 .projects-record-thumb {
   width: 116px;
   height: 96px;

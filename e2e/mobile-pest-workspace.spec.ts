@@ -24,6 +24,7 @@ test("pest overview filters compact rows, copies the list and archives closed re
   await page.getByTestId("module-rail-pest").click();
   const panel = page.getByTestId("pest-control-panel");
   const dashboard = () => panel.locator(".module-tabs").getByRole("button", { name: "Dashboard", exact: true }).click();
+  await dashboard();
   await panel.locator(".pest-dashboard-kpis").getByRole("button", { name: /Scheduled/ }).click();
   await expect(panel.getByTestId(`pest-issue-${scheduled.id}`)).toBeVisible();
   await expect(panel.getByTestId(`pest-issue-${open.id}`)).toHaveCount(0);

@@ -929,6 +929,7 @@ model ProjectRecord {
   recordType          String
   title               String
   description         String?
+  productUrl          String?
   source              String?                @default("Other")
   sourceRecordType    String?
   sourceRecordId      String?

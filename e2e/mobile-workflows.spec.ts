@@ -157,6 +157,7 @@ test.describe("mobile workflow coverage", () => {
     await assertNoPageHorizontalOverflow(page);
 
     await openModuleRailPanel(page, "module-rail-pest", "pest", "pest-control-panel");
+    await page.getByRole("button", { name: "New request", exact: true }).click();
     await page.getByTestId("pest-quick-add-area").fill(pestArea);
     await page.getByTestId("pest-quick-add-description").fill("Mobile pest request coverage.");
     await page.getByTestId("pest-quick-add-submit").click();
@@ -164,6 +165,8 @@ test.describe("mobile workflow coverage", () => {
     await assertNoPageHorizontalOverflow(page);
 
     await openModuleRailPanel(page, "module-rail-lease-compliance", "lease", "lease-compliance-panel");
+    await page.getByLabel("Issue view", { exact: true }).selectOption("dashboard");
+    await page.getByTestId("lease-compliance-panel").locator("summary").filter({ hasText: "Quick Capture" }).click();
     await page.getByTestId("lease-quick-capture-building").fill("Building 12");
     await page.getByTestId("lease-quick-capture-area").fill(leaseArea);
     const issueTypeSelect = page.getByTestId("lease-quick-capture-issue-type");
@@ -208,6 +211,7 @@ test.describe("mobile workflow coverage", () => {
     await assertNoPageHorizontalOverflow(page);
 
     await openWorkspaceFromViews(page, "tab-maps", "maps", "property-maps-panel");
+    await page.getByText("Map setup & exports", { exact: true }).click();
     await page.getByTestId("property-maps-create-name").fill(mapName);
     await page.getByTestId("property-maps-create-submit").click();
     await expect(page.getByTestId("property-maps-map-select")).toContainText(mapName);
@@ -224,12 +228,14 @@ test.describe("mobile workflow coverage", () => {
     await loginMobile(page);
 
     await openWorkspaceFromViews(page, "tab-vendors", "vendors", "vendors-panel");
+    await page.getByRole("button", { name: "Add vendor", exact: true }).click();
     await page.getByTestId("vendor-create-name").fill(vendorName);
     await page.getByTestId("vendor-create-trade").fill(vendorTrade);
     await page.getByTestId("vendor-create-submit").click();
     const createdVendor = page.locator(".vendor-row").filter({ hasText: vendorName }).first();
     await expect(createdVendor).toBeVisible();
 
+    await page.getByRole("button", { name: "Assign work", exact: true }).click();
     const vendorAssignmentItem = page.getByTestId("vendor-assignment-item");
     const hasAssignableItem = await selectFirstRealOption(vendorAssignmentItem);
     if (hasAssignableItem) {
@@ -249,6 +255,7 @@ test.describe("mobile workflow coverage", () => {
     await assertNoPageHorizontalOverflow(page);
 
     await openModuleRailPanel(page, "module-rail-refrigerant", "refrigerant", "refrigerant-panel");
+    await page.getByText("Refrigerant type setup", { exact: true }).click();
     await page.getByText("Refrigerant Types", { exact: true }).scrollIntoViewIfNeeded();
     await page.getByPlaceholder("R454B, R32, R410A...").fill(refrigerantType);
     await page.getByRole("button", { name: "Add type" }).click();

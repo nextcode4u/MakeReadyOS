@@ -358,6 +358,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
   const queryClient = useQueryClient();
   const isSpanish = language === "es";
   const [tab, setTab] = useState<PoolTab>("overview");
+  const [requestedFacilityId, setRequestedFacilityId] = useState("");
+  const [reviewEntryId, setReviewEntryId] = useState("");
   const [formError, setFormError] = useState("");
   const [uploadError, setUploadError] = useState("");
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
@@ -381,8 +383,8 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
     queryFn: () => getPoolChemicals(propertyId ? { propertyId, includeArchived: true } : { includeArchived: true }),
   });
   const historyQuery = useQuery({
-    queryKey: ["pool-entries", propertyId],
-    queryFn: () => getPoolEntries({ propertyId: propertyId || undefined, limit: 60 }),
+    queryKey: ["pool-entries", propertyId, reviewEntryId],
+    queryFn: () => getPoolEntries({ propertyId: propertyId || undefined, entryId: reviewEntryId || undefined, limit: 60 }),
   });
 
   const facilities = overviewQuery.data?.facilities ?? [];
@@ -395,7 +397,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
   const archivedChemicals = useMemo(() => allChemicals.filter((chemical) => !chemical.isActive), [allChemicals]);
   const activeChemicalsById = useMemo(() => new Map(activeChemicals.map((chemical) => [chemical.id, chemical])), [activeChemicals]);
   const selectedProperty = properties.find((property) => property.id === propertyId);
-  const defaultFacilityId = activeFacilities[0]?.id ?? "";
+  const defaultFacilityId = activeFacilities.find(facility => facility.id === requestedFacilityId)?.id ?? activeFacilities[0]?.id ?? "";
   const [selectedChemicalId, setSelectedChemicalId] = useState("");
   const [selectedChemicalUnit, setSelectedChemicalUnit] = useState<PoolChemical["unit"] | "">("");
   const [chemicalAmountValue, setChemicalAmountValue] = useState("");
@@ -636,6 +638,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
           <p>{isSpanish ? "Lecturas diarias de piscina y spa, revisiones de seguridad, químicos agregados y revisión de cumplimiento para cada propiedad." : "Daily pool and spa readings, safety checks, chemical additions, and compliance review for each property."}</p>
         </div>
         <div className="module-actions">
+          {canEdit ? <button type="button" className="button button-primary" onClick={() => setTab("daily")}>{isSpanish ? "Registrar lecturas" : "Log readings"}</button> : null}
           <select value={propertyId} onChange={(event) => setPropertyId(event.target.value)} aria-label={isSpanish ? "Propiedad del registro de piscina" : "Pool log property"}>
             <option value="">{t(language, "common.allAccessibleProperties")}</option>
             {properties.map((property) => <option key={property.id} value={property.id}>{property.code} - {property.name}</option>)}
@@ -707,6 +710,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                 <div className="pool-row" key={facility.id}>
                   <strong>{facility.name}</strong>
                   <span>{facility.property?.code ?? selectedProperty?.code} / {poolTypeLabel(facility.type, language)}</span>
+                  {canEdit ? <button type="button" className="button button-secondary" onClick={() => { setPropertyId(facility.propertyId); setRequestedFacilityId(facility.id); setTab("daily"); }}>{isSpanish ? "Registrar lecturas" : "Log readings"}</button> : null}
                 </div>
               )) : <p className="muted">{isSpanish ? "Todas las piscinas/spas activas ya tienen registro hoy." : "All active pools/spas have a log today."}</p>}
             </article>
@@ -716,6 +720,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                 <div className="pool-row danger" key={`${failure.entryId}-${failure.label}-${index}`}>
                   <strong>{failure.facilityName}</strong>
                   <span>{failure.label}{failure.notes ? ` / ${failure.notes}` : ""}</span>
+                  <button type="button" className="button button-secondary" onClick={() => { setReviewEntryId(failure.entryId); setTab("history"); }}>{isSpanish ? "Revisar registro" : "Review entry"}</button>
                 </div>
               )) : null}
               {overviewQuery.data?.chemistryIssues.length ? overviewQuery.data.chemistryIssues.slice(0, 8).map((issue, index) => (
@@ -729,6 +734,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
                       language,
                     ).join("; ") || (isSpanish ? "Revisar química" : "Review chemistry")}
                   </span>
+                  <button type="button" className="button button-secondary" onClick={() => { setReviewEntryId(issue.entryId); setTab("history"); }}>{isSpanish ? "Revisar registro" : "Review entry"}</button>
                 </div>
               )) : null}
               {!overviewQuery.data?.safetyFailures.length && !overviewQuery.data?.chemistryIssues.length ? <p className="muted">{isSpanish ? "No hay elementos de seguridad o química para revisar hoy." : "No safety or chemistry review items today."}</p> : null}
@@ -755,7 +761,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
             {!facilities.length ? <StatusState title={isSpanish ? "No hay piscinas o spas configurados" : "No pools or spas configured"} description={isSpanish ? "Cree una piscina/spa en Configuración antes de registrar lecturas." : "Create a pool/spa in Setup before logging readings."} /> : null}
             <div className="form-grid">
               <label>{isSpanish ? "Piscina/spa" : "Pool/spa"}
-                <select name="facilityId" defaultValue={defaultFacilityId} required>
+                <select name="facilityId" value={defaultFacilityId} onChange={event => setRequestedFacilityId(event.target.value)} required>
                   {facilities.map((facility) => <option key={facility.id} value={facility.id}>{facility.name}</option>)}
                 </select>
               </label>
@@ -1045,6 +1051,7 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
         <div className="pool-grid">
           <article className="pool-card">
             <h2>{isSpanish ? "Registros recientes de piscina" : "Recent pool logs"}</h2>
+            {reviewEntryId ? <button type="button" className="button button-secondary" onClick={() => setReviewEntryId("")}>{isSpanish ? "Ver todos los registros" : "Show all logs"}</button> : null}
             {historyQuery.isLoading ? <p role="status" className="muted">{isSpanish ? "Cargando historial..." : "Loading history..."}</p> : null}
             {historyQuery.isError ? (
               <div role="alert">
