@@ -39,6 +39,9 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
   const previewRef = useRef<HTMLDivElement>(null);
   const settingsDirty = JSON.stringify(settings) !== JSON.stringify(savedSettings.value);
   const draftDirty = JSON.stringify(draft) !== JSON.stringify(savedDraft.value);
+  const handoffCounts = [["homeKeys", "Home key count"], ["mailboxKeys", "Mailbox key count"], ["fobs", "Access fob count"], ["remotes", "Garage remote count"]] as const;
+  const invalidCounts = handoffCounts.filter(([key]) => !/^\d{1,4}$/.test(draft[key].trim()));
+  const countsWarning = `${turnText(language, "Enter a whole-number count for each item (0 for none):")} ${invalidCounts.map(([, label]) => turnText(language, label)).join(", ")}`;
   useEffect(() => { onDirty(settingsDirty || draftDirty); }, [settingsDirty, draftDirty, onDirty]);
   useEffect(() => { onBusy(busy); }, [busy, onBusy]);
   useEffect(() => { setHtml(""); }, [settings, draft, item?.id]);
@@ -61,6 +64,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
   const result = (id: string) => draft.results[id] ?? { status: "NOT_CHECKED" as const, note: "" };
   const updateResult = (id: string, patch: Partial<FinalReportResult>) => setDraft(current => ({ ...current, results: { ...current.results, [id]: { ...(current.results[id] ?? { status: "NOT_CHECKED", note: "" }), ...patch } } }));
   const validateDraft = () => {
+    if (draft.handoffConfirmed && invalidCounts.length) throw new Error(countsWarning);
     const missing = initial.checks.find(check => ["ATTENTION", "NA"].includes(result(check.id).status) && !result(check.id).note.trim());
     if (missing) throw new Error(`${language === "es" ? "Agrega un motivo para" : "Add a reason for"}: ${turnText(language, missing.label)}`);
   };
@@ -123,8 +127,11 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
           <label>{turnText(language, "Mailbox number")}<input data-testid="report-mailbox" maxLength={40} value={draft.mailbox} readOnly={draft.mailboxSource === "DIRECTORY"} onChange={event => updateDraft({ mailbox: event.target.value })}/></label>
           <p>{draft.mailboxSource === "DIRECTORY" ? turnText(language, "Uses the latest saved unit mailbox when previewing or printing. Manage assignments in Turn Details or Setup > Units > Mailbox directory.") : turnText(language, "This override does not change the unit directory.")}</p>
           <p>{turnText(language, "Counts below come from technician preparation. Count the actual items, correct any discrepancy, then confirm. Use 0 for none.")}</p>
-          {([['homeKeys',turnText(language, "Home key count"),20],['mailboxKeys',turnText(language, "Mailbox key count"),20],['fobs',turnText(language, "Access fob count"),20],['remotes',turnText(language, "Garage remote count"),20],['parking',turnText(language, "Parking / garage assignment"),60]] as const).map(([key,label,maxLength]) => <label key={key}>{label}<input maxLength={maxLength} value={draft[key]} onChange={event => updateDraft({ [key]: event.target.value, handoffConfirmed: false })}/></label>)}
-          <label><input type="checkbox" style={{ width: "auto" }} checked={draft.handoffConfirmed} onChange={event => updateDraft({ handoffConfirmed: event.target.checked })} />{turnText(language, "I counted and confirmed the home/mailbox keys, fobs and remotes for handoff")}</label>
+          {handoffCounts.map(([key, label]) => <label key={key}>{turnText(language, label)}<input inputMode="numeric" maxLength={4} value={draft[key]} aria-invalid={invalidCounts.some(([field]) => field === key)} aria-describedby={invalidCounts.length ? "final-report-counts-warning" : undefined} onChange={event => updateDraft({ [key]: event.target.value, handoffConfirmed: false })}/></label>)}
+          <label>{turnText(language, "Parking / garage assignment")}<input maxLength={60} value={draft.parking} onChange={event => updateDraft({ parking: event.target.value })}/></label>
+          {invalidCounts.length ? <p id="final-report-counts-warning" role="status">{countsWarning}</p> : null}
+          <label><input type="checkbox" style={{ width: "auto" }} disabled={invalidCounts.length > 0} checked={draft.handoffConfirmed} onChange={event => updateDraft({ handoffConfirmed: event.target.checked })} />{turnText(language, "I counted and confirmed the home/mailbox keys, fobs and remotes for handoff")}</label>
+          <p>{turnText(language, "After confirming the counts, click Save inspection draft below. Checking this box alone does not save.")}</p>
           <p>{turnText(language, "Door/unit codes must be resident-specific. Gate/pedestrian codes may be resident-issued community codes. Never enter staff, vendor or master codes. No access codes are copied from the property access wiki.")}</p>
           <label>{turnText(language, "Resident-only door code")}<input data-testid="report-door-code" type="password" autoComplete="new-password" maxLength={60} value={draft.residentDoorCode} onChange={event => updateDraft({ residentDoorCode: event.target.value })}/></label>
           <label>{turnText(language, "Resident-only access code")}<input type="password" autoComplete="new-password" maxLength={60} value={draft.residentAccessCode} onChange={event => updateDraft({ residentAccessCode: event.target.value })}/></label>
@@ -144,6 +151,8 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
           onReturned();
         })}>{turnText(language, "Save and send corrections to technician")}</button>
         <button type="button" className="button button-primary" data-testid="final-report-save-draft" disabled={!draftDirty} onClick={() => void run(async () => { validateDraft(); const saved = await saveFinalReportDraft(initial.property.id, item.id, { version: savedDraft.version, value: draft }); setSavedDraft(saved); setDraft(saved.value); void client.invalidateQueries({ queryKey: ["final-walk", item.id] }); void client.invalidateQueries({ queryKey: ["resident-codes", item.id] }); setMessage(turnText(language, "Inspection draft saved. Unit status and sign-offs were not changed.")); })}>{turnText(language, "Save inspection draft")}</button>
+        {error ? <p role="alert" data-testid="final-report-save-error">{error}</p> : null}
+        {draftDirty ? <p>{turnText(language, "Unsaved changes. Preview includes them; Save persists them.")}</p> : null}
         <small>{savedDraft.updatedAt ? `${language === "es" ? "Guardado" : "Saved"} ${new Date(savedDraft.updatedAt).toLocaleString(language === "es" ? "es-US" : "en-US")} / ${language === "es" ? "revisión" : "revision"} ${savedDraft.version}` : turnText(language, "No saved inspection draft yet.")}</small>
         </fieldset>
       </> : <p>{turnText(language, "Choose a turn to enter inspection details. Branding-only previews start with every check unrecorded.")}</p>}

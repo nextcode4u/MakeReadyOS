@@ -3,7 +3,11 @@ import { isTurnReady } from "./turnStatus.js";
 
 // Called inside the property lifecycle lock, before saving the status change.
 export async function archiveOccupiedTurn(db: Prisma.TransactionClient, current: MakeReadyItem, patch: Record<string, unknown>) {
-  if (String(patch.vacancyStatus ?? "").trim().toUpperCase() !== "OCCUPIED" || current.isArchived || !isTurnReady(current)) return;
+  if (!["vacancyStatus", "completionStatus", "makeReadyStatus"].some(key => Object.prototype.hasOwnProperty.call(patch, key))) return;
+  const next = { ...current, ...patch } as MakeReadyItem;
+  // Preserve imported ready status when occupancy is the only lifecycle change.
+  const wasReady = !("completionStatus" in patch) && !("makeReadyStatus" in patch) && isTurnReady(current);
+  if (String(next.vacancyStatus ?? "").trim().toUpperCase() !== "OCCUPIED" || current.isArchived || (!isTurnReady(next) && !wasReady)) return;
   const archive = await db.boardSection.findFirst({ where: { propertyId: current.propertyId, sectionType: "ARCHIVE", isActive: true } });
   if (!archive) throw Object.assign(new Error("Configure an Archive section for this property before marking a ready unit Occupied."), { statusCode: 409 });
   Object.assign(patch, { vacancyStatus: "OCCUPIED", boardGroup: archive.key, isArchived: true, archivedAt: new Date() });

@@ -26,6 +26,28 @@ test("ready-to-occupied archives in the same property and synchronizes the unit 
   await assert.rejects(archiveOccupiedTurn(db as any, current, { vacancyStatus: "OCCUPIED" }), /Configure an Archive section/);
 });
 
+test("occupied-before-ready archives on approval, but not on unfinished or unrelated edits", async () => {
+  const current = { id: "turn", propertyId: "demo", unitId: "unit", unitNumber: "101", vacancyStatus: "OCCUPIED", completionStatus: "NO", makeReadyStatus: "FINAL WALK", isArchived: false } as any;
+  let writes = 0;
+  const db = {
+    boardSection: { findFirst: async () => ({ key: "DEMO_ARCHIVE" }) },
+    unit: { updateMany: async () => { writes++; } },
+    auditLog: { create: async () => ({}) },
+  };
+  for (const patch of [{ completionStatus: "YES", makeReadyStatus: "DONE" }, { completionStatus: "YES", makeReadyStatus: "DONE", vacancyStatus: "OCCUPIED" }]) {
+    const data: Record<string, unknown> = { ...patch };
+    await archiveOccupiedTurn(db as any, current, data);
+    assert.equal(data.isArchived, true);
+    assert.equal(data.boardGroup, "DEMO_ARCHIVE");
+  }
+  for (const patch of [{ vacancyStatus: "OCCUPIED" }, { makeReadyStatus: "DONE" }, { completionStatus: "YES" }, { applicant: "Demo Resident" }]) {
+    const data = { ...patch };
+    await archiveOccupiedTurn(db as any, current, data);
+    assert.deepEqual(data, patch);
+  }
+  assert.equal(writes, 2);
+});
+
 test("board list archive-only filters both rows and pagination counts", async t => {
   process.env.DATABASE_URL = "postgresql://unused:unused@127.0.0.1:1/unused";
   process.env.ADMIN_USERNAME = "archive-test";

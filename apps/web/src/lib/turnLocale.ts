@@ -362,6 +362,8 @@ export const turnSpanish: Record<string, string> = {
   "For unit-specific repair tasks, use": "Para tareas de reparación específicas de la unidad, usa",
   "work notes in Work & parts": "las notas de trabajo en Trabajo y piezas",
   ". Record inspection corrections in Final walk.": ". Registra las correcciones en Inspección final.",
+  "Enter a whole-number count for each item (0 for none):": "Ingresa una cantidad entera para cada artículo (0 si no hay):",
+  "After confirming the counts, click Save inspection draft below. Checking this box alone does not save.": "Después de confirmar las cantidades, pulsa Guardar borrador de inspección abajo. Marcar esta casilla no guarda los cambios.",
 };
 
 export function turnText(language: UserLanguage | string | undefined, source: string): string {

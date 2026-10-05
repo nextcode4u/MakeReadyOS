@@ -1494,9 +1494,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     }
     const blockers = await getTurnReadiness(db, id, user.fullName);
     if (blockers.length && !overrideReason) throw Object.assign(new Error(`Cannot mark ready: ${blockers.slice(0, 8).join("; ")}${blockers.length > 8 ? `; plus ${blockers.length - 8} more. Review completion blockers in turn details.` : ""}`), { statusCode: 409 });
-    await db.makeReadyItem.update({
-      where: { id },
-      data: {
+    const readyData = {
         boardGroup: readySection.key,
         isArchived: false,
         archivedAt: null,
@@ -1505,8 +1503,9 @@ export async function makeReadyRoutes(app: FastifyInstance) {
         overdue: false,
         moveInSoon: false,
         vacancyStatus: readyVacancyStatus(current.vacancyStatus),
-      },
-    });
+    };
+    await archiveOccupiedTurn(db, current, readyData);
+    await db.makeReadyItem.update({ where: { id }, data: readyData });
     await db.workAssignmentBlock.updateMany({ where: { itemId: id, category: finalWalkCategory, status: { in: pendingWalkStatuses } }, data: { status: overrideReason ? "CANCELED" : "DONE" } });
     if (!overrideReason && !isTurnReady(current)) await recordPondCompletion(db, current);
     if (overrideReason) await db.auditLog.create({ data: {
@@ -1528,7 +1527,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       entityType: "MAKE_READY_ITEM",
       entityId: item.id,
       action: "BOARD_ITEM_MARKED_READY",
-      message: `${item.unitNumber} was marked ready and moved to Ready Units.`,
+      message: item.isArchived ? `${item.unitNumber} was marked ready; the occupied turn was archived.` : `${item.unitNumber} was marked ready and moved to Ready Units.`,
     });
     await notifyAssignedStaff({
       assignedTech: item.assignedTech,
@@ -1536,7 +1535,7 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       itemId: item.id,
       category: "ITEM_LIFECYCLE",
       title: "Unit marked ready",
-      message: `${item.unitNumber} was marked ready and moved to Ready Units.`,
+      message: item.isArchived ? `${item.unitNumber} was marked ready; the occupied turn was archived.` : `${item.unitNumber} was marked ready and moved to Ready Units.`,
       dedupeKey: `marked-ready:${item.id}`,
     });
     await queueWebhookEvent({

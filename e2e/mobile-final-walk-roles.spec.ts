@@ -101,6 +101,17 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     await expect(report.locator('[data-testid^="final-report-result-"]')).toHaveCount(9);
     await expect(report.getByLabel("Home key count", { exact: true })).toHaveValue("2");
     await expect(report.getByLabel("Access fob count", { exact: true })).toHaveValue("1");
+    await report.getByLabel("Access fob count", { exact: true }).fill("");
+    const confirmCounts = report.getByLabel("I counted and confirmed the home/mailbox keys, fobs and remotes for handoff", { exact: true });
+    await expect(confirmCounts).toBeDisabled();
+    await expect(report.locator('#final-report-counts-warning')).toContainText("Access fob count");
+    await report.getByLabel("Access fob count", { exact: true }).fill("0");
+    await expect(confirmCounts).toBeEnabled();
+    await confirmCounts.check();
+    await report.getByTestId("final-report-save-draft").click();
+    await expect(report.getByTestId("final-report-save-draft")).toBeDisabled();
+    const savedCounts = await (await inspector.request.get(`${origin}/api/final-walk-reports/${property.id}?itemId=${item.id}`)).json();
+    expect(savedCounts.draft.value).toMatchObject({ fobs: "0", handoffConfirmed: true });
     await expect(report.getByRole("combobox", { name: /condensate/ })).toHaveCount(0);
     await report.getByTestId("final-report-date").fill("2026-09-15");
     await report.getByTestId("final-report-result-presentation-v2-3").selectOption("ATTENTION");
@@ -299,5 +310,13 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     await page.reload();
     await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "dark");
     await expect(page.locator(".app-shell")).not.toHaveClass(/compact-mode/);
+    // Occupancy may be recorded before inspection approval; both orders must archive.
+    await send(page, admin, "POST", `${itemPath}/reopen-final-walk`, { reason: "Verify occupied-before-ready lifecycle" });
+    await send(page, admin, "PATCH", itemPath, { vacancyStatus: "OCCUPIED" });
+    expect((await (await page.request.get(`${origin}/api${itemPath}`)).json()).isArchived).toBe(false);
+    await send(inspector, inspectorHeaders, "POST", `${itemPath}/mark-ready`, {});
+    const occupiedTurn = await (await page.request.get(`${origin}/api${itemPath}`)).json();
+    expect(occupiedTurn).toMatchObject({ isArchived: true, vacancyStatus: "OCCUPIED", completionStatus: "YES", unit: { occupancyStatus: "OCCUPIED" } });
+    expect(occupiedTurn.boardGroup).toBe(meta.boardSections.find((s: any) => s.propertyId === property.id && s.sectionType === "ARCHIVE").key);
   } finally { await techContext.close(); await leasingContext.close(); }
 });
