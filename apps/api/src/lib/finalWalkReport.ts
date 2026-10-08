@@ -79,7 +79,7 @@ export function resolveReportMailbox(draft: ReportDraft, directoryMailbox: strin
 }
 const escape = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 
-export function finalWalkReportHtml(context: { propertyName: string; propertyCode: string; propertyLogo: string | null; companyName: string | null; companyLogo: string | null; unitNumber: string | null; technician: string | null; reviewer: string | null }, settings: ReportSettings, draft: ReportDraft, publication?: { exportedBy: string; exportedAt: string; revision: number }) {
+export function finalWalkReportHtml(context: { propertyName: string; propertyCode: string; propertyLogo: string | null; companyName: string | null; companyLogo: string | null; unitNumber: string | null; technician: string | null; reviewer: string | null; stockInspection?: boolean }, settings: ReportSettings, draft: ReportDraft, publication?: { exportedBy: string; exportedAt: string; revision: number }) {
   if (publication && residentReportBlockers(draft).length) throw new Error("Complete the saved inspection before exporting a resident report");
   // Logos come only from the validated branding store; never fetch remote resources.
   const logo = (value: string | null) => value && /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(value) ? `<img alt="Logo" src="${escape(value)}">` : "";
@@ -89,6 +89,7 @@ export function finalWalkReportHtml(context: { propertyName: string; propertyCod
   const checks = legacy ? legacyReportChecks : [...technicianChecks, ...reportChecks];
   const sectionHtml = (section: { id: string; title: string }) => `<section><h2>${escape(section.title)}</h2>${checks.filter(check => check.section === section.id).map(check => {
     const result = (check.section === "tech-v2" ? draft.technicianResults : draft.results)[check.id] ?? { status: "NOT_CHECKED", note: "" };
+    if (context.stockInspection && check.id === "handoff-v2-2" && result.status === "NOT_CHECKED") return `<div class="check"><span>${escape(check.label)}</span><b>Deferred until move-in</b></div>`;
     return `<div class="check"><span>${escape(check.label)}${result.note ? `<small>${escape(result.note)}</small>` : ""}</span><b class="${result.status}">${labels[result.status]}</b></div>`;
   }).join("")}</section>`;
   const details = [["Mailbox", draft.mailbox], ["Home / mailbox keys", `${draft.homeKeys || "Not recorded"} / ${draft.mailboxKeys || "Not recorded"}`], ["Fobs / remotes", `${draft.fobs || "Not recorded"} / ${draft.remotes || "Not recorded"}`], ["Parking / garage", draft.parking]];
@@ -100,12 +101,12 @@ export function finalWalkReportHtml(context: { propertyName: string; propertyCod
   .report-text{white-space:pre-wrap;overflow-wrap:anywhere;orphans:3;widows:3}.check,.identity,.handoff,.signoffs,footer{break-inside:avoid}h1,h2{break-after:avoid}
   </style></head><body><main>${publication ? "" : '<div class="draft">DRAFT / NOT FINALIZED / NOT FOR RESIDENT ISSUE - No verified sign-offs.</div>'}
   <div class="brand"><div>${logo(context.propertyLogo)}<strong>${escape(context.propertyName)}</strong></div><div>${logo(context.companyLogo)}<span><small>Managed by</small><strong>${escape(context.companyName || "Not selected")}</strong></span></div></div>
-  <h1>${escape(settings.title)}</h1><p class="note report-text">${escape(settings.introduction)}</p>
+  <h1>${escape(settings.title)}</h1>${context.stockInspection ? '<p class="note"><b>Stock-ready inspection / no move-in scheduled.</b> Resident handoff is deferred, not verified by this inspection.</p>' : ""}<p class="note report-text">${escape(settings.introduction)}</p>
   <div class="identity"><div>Property<strong>${escape(context.propertyCode)}</strong></div><div>Unit<strong>${escape(context.unitNumber || "Branding preview - no unit selected")}</strong></div><div>Inspection date${publication ? "" : " (draft)"}<strong>${escape(draft.inspectionDate || "Not recorded")}</strong></div></div>
   <p class="note">${publication ? "Summary of saved preparation and presentation checks. Grouped checks cover all applicable rooms; N/A means not applicable. This report is not a signed certification." : "Checked = manually recorded in this draft, not inferred from board status or a scheduled date. Grouped checks cover all applicable rooms. Technical tests and independent review require separate verified sign-offs."}</p>
   <div class="columns"><div>${sections.slice(0, legacy ? 3 : 1).map(sectionHtml).join("")}</div><div>${sections.slice(legacy ? 3 : 1).map(sectionHtml).join("")}</div></div>
-  <div class="handoff">${details.map(([label,value]) => `<div>${label}<strong>${escape(value || "Not recorded")}</strong></div>`).join("")}</div>
-  <p class="note"><b>Keys / fobs / remotes:</b> ${draft.handoffConfirmed ? (publication ? "Handoff counts confirmed in the saved inspection." : "Counts confirmed by final-walk reviewer in this draft.") : "Final-walk count confirmation not recorded."}</p>
+  ${context.stockInspection ? '<p class="note">Resident codes and key/fob/remote handoff: deferred until move-in.</p>' : `<div class="handoff">${details.map(([label,value]) => `<div>${label}<strong>${escape(value || "Not recorded")}</strong></div>`).join("")}</div>
+  <p class="note"><b>Keys / fobs / remotes:</b> ${draft.handoffConfirmed ? (publication ? "Handoff counts confirmed in the saved inspection." : "Counts confirmed by final-walk reviewer in this draft.") : "Final-walk count confirmation not recorded."}</p>`}
   <div class="signoffs"><div>Assigned technician (not a signature)<strong>${escape(context.technician || "Unassigned")}</strong>${publication ? "Technical preparation recorded" : "Preparation sign-off: not recorded"}</div><div>${publication ? "Report exported by (not a signature)" : "Assigned final reviewer (not a signature)"}<strong>${escape(publication?.exportedBy ?? context.reviewer ?? "Unassigned")}</strong>${publication ? escape(publication.exportedAt) : "Independent sign-off: not recorded"}</div></div>
   <section class="resident-reminders" aria-label="Community reminders">
     <h2>A few friendly reminders</h2>

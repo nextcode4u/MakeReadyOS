@@ -12,6 +12,16 @@ test("final-walk separates nine presentation checks from eight technician checks
   assert.ok(reportChecks.some(check => check.label.includes("Valet trash")));
   assert.ok(!reportChecks.some(check => /Bathroom 1|Bedroom 1/.test(check.label)));
 });
+test("stock preview defers handoff without exposing resident codes or marking it checked", () => {
+  const draft = emptyReportDraft();
+  draft.includeResidentCodes = true;
+  draft.gateCode = "TEST-PRIVATE-GATE";
+  const html = finalWalkReportHtml({ propertyName: "Demo", propertyCode: "DEMO", propertyLogo: null, companyName: null, companyLogo: null, unitNumber: "101", technician: null, reviewer: null, stockInspection: true }, defaultReportSettings, draft);
+  assert.match(html, /Deferred until move-in/);
+  assert.doesNotMatch(html, /TEST-PRIVATE-GATE/);
+  assert.equal(draft.results["handoff-v2-2"], undefined);
+  assert.ok(residentReportBlockers(draft).length > 0);
+});
 test("inspection draft validation preserves unknowns and requires exception reasons", () => {
   assert.equal(reportDraftSchema.safeParse(emptyReportDraft()).success, true);
   for (const status of ["NA", "ATTENTION"] as const) {

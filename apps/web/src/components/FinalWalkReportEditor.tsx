@@ -4,6 +4,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { downloadResidentReport, getFinalReport, isApiError, previewFinalReport, returnFinalWalkToTech, saveFinalReportDraft, saveFinalReportSettings, type FinalReportData, type FinalReportDraft, type FinalReportResult, type FinalReportSettings } from "../lib/api";
 import { Modal } from "./Modal";
 import "./finalWalkReportEditor.css";
+import { todayInputValue } from "../lib/dateTime";
+
+const datedInspection = (draft: FinalReportDraft, hasItem: boolean) => hasItem && !draft.inspectionDate ? { ...draft, inspectionDate: todayInputValue() } : draft;
 
 export function FinalWalkReportEditor({ propertyId, propertyName, itemId, onClose, language }: { propertyId: string; propertyName: string; itemId?: string; onClose: () => void; language: string }) {
   const query = useQuery({ queryKey: ["final-report", propertyId, itemId], queryFn: () => getFinalReport(propertyId, itemId), staleTime: 0, gcTime: 0, refetchOnWindowFocus: false });
@@ -29,7 +32,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
   const [savedSettings, setSavedSettings] = useState(initial.settings);
   const [settings, setSettings] = useState(initial.settings.value);
   const [savedDraft, setSavedDraft] = useState(initial.draft);
-  const [draft, setDraft] = useState(initial.draft.value);
+  const [draft, setDraft] = useState(() => datedInspection(initial.draft.value, Boolean(initial.item)));
   const [item, setItem] = useState(initial.item);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -62,6 +65,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
   };
   const updateDraft = (patch: Partial<FinalReportDraft>) => setDraft(current => ({ ...current, ...patch }));
   const result = (id: string) => draft.results[id] ?? { status: "NOT_CHECKED" as const, note: "" };
+  const visibleChecks = initial.checks.filter(check => !item?.stockInspection || check.id !== "handoff-v2-2" || result(check.id).status === "ATTENTION");
   const updateResult = (id: string, patch: Partial<FinalReportResult>) => setDraft(current => ({ ...current, results: { ...current.results, [id]: { ...(current.results[id] ?? { status: "NOT_CHECKED", note: "" }), ...patch } } }));
   const validateDraft = () => {
     if (draft.handoffConfirmed && invalidCounts.length) throw new Error(countsWarning);
@@ -93,13 +97,13 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
   return <div className="final-report-workspace">
     <div className="final-report-notice"><strong>{item?.unitReady ? turnText(language, "Completed unit / inspection report") : turnText(language, "Inspection report workspace")}</strong><p>{turnText(language, "Saving inspection details does not change the unit's Ready status or create an electronic signature. Preview and draft downloads include unsaved edits. Resident PDFs use saved, completed inspection records only.")}</p>{item?.unitReady ? <p>{turnText(language, "You can return here from Table > Ready Units > open unit > Edit / download final-walk report, even after the unit leaves My Work.")}</p> : null}</div>
     {error ? <p role="alert">{error}</p> : null}{message ? <p role="status">{message}</p> : null}
-    {item?.unitReady ? <div className="final-report-download"><button type="button" className="button button-primary" data-testid="final-report-resident-pdf" disabled={busy || settingsDirty || draftDirty || !savedDraft.version} onClick={residentPdf}>{turnText(language, "Download resident PDF")}</button><p>{turnText(language, "Save changes first. Requires recorded technician and final-walk checks, inspection date, confirmed handoff counts and no unresolved corrections. Missing records are never inferred from Ready status.")}</p></div> : null}
+    {item?.unitReady && !item.stockInspection ? <div className="final-report-download"><button type="button" className="button button-primary" data-testid="final-report-resident-pdf" disabled={busy || settingsDirty || draftDirty || !savedDraft.version} onClick={residentPdf}>{turnText(language, "Download resident PDF")}</button><p>{turnText(language, "Save changes first. Requires recorded technician and final-walk checks, inspection date, confirmed handoff counts and no unresolved corrections. Missing records are never inferred from Ready status.")}</p></div> : null}
     <fieldset disabled={busy} className="final-report-form">
       <label>{turnText(language, "Property")}<input readOnly value={`${initial.property.code} / ${initial.property.name}`} /></label>
       <label>{turnText(language, "Turn to inspect")}<select disabled={!initial.canEditSettings} data-testid="final-report-unit" value={item?.id ?? ""} onChange={event => {
         const id = event.target.value;
         if (draftDirty && !window.confirm(turnText(language, "Discard unsaved inspection changes before selecting another turn?"))) return;
-        void run(async () => { const data = await getFinalReport(initial.property.id, id || undefined); setItem(data.item); setSavedDraft(data.draft); setDraft(data.draft.value); });
+        void run(async () => { const data = await getFinalReport(initial.property.id, id || undefined); setItem(data.item); setSavedDraft(data.draft); setDraft(datedInspection(data.draft.value, Boolean(data.item))); });
       }}><option value="">{turnText(language, "Branding preview only (no inspection)")}</option>{initial.items.map(turn => <option key={turn.id} value={turn.id}>{turn.unitNumber} / {turn.boardGroup}</option>)}</select></label>
       {initial.canEditSettings ? <details open><summary>{turnText(language, "Report wording & style / this property")}</summary>
         <label>{turnText(language, "Report title")}<input data-testid="final-report-title" value={settings.title} maxLength={80} onChange={event => updateSettings({ title: event.target.value })} /></label>
@@ -111,18 +115,20 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
       </details> : <p>{turnText(language, "Report wording, style and logos use the property's saved admin settings.")}</p>}
       {item ? <>
         <fieldset className="final-report-form" disabled={!initial.canEditDraft}><legend>{turnText(language, "Inspection details")}</legend>
+        {item.stockInspection ? <div data-testid="stock-inspection-notice"><strong>{turnText(language, "Stock-ready inspection / no move-in scheduled")}</strong><p>{turnText(language, "Inspect the unit's condition now. The move-in folder, resident codes and key handoff confirmation are deferred until a resident is assigned. Existing findings still need resolution.")}</p></div> : null}
         <p className="helper-copy">{turnText(language, "Assigned tech:")} {item.technician || turnText(language, "Unassigned")}{turnText(language, ". Assigned final reviewer:")} {item.reviewer || turnText(language, "Unassigned")}{turnText(language, ". These names are not signatures.")}</p>
         <label>{turnText(language, "Inspection date")}<input data-testid="final-report-date" type="date" value={draft.inspectionDate} onChange={event => updateDraft({ inspectionDate: event.target.value })} /></label>
+        <small>{turnText(language, "Defaults to today for an undated inspection. Saved dates stay unchanged; adjust the date if needed.")}</small>
         <details><summary>{turnText(language, "Existing turn checklist records (reference only)")}</summary><p>{turnText(language, "Existing completion flags are shown for reference, not automatically copied as verified inspection results.")}</p>{item.checklists.length ? item.checklists.map(list => <section key={list.id}><h4>{list.name}</h4><ul>{list.items.map(check => <li key={check.id}>{check.title}: {check.completed ? turnText(language, "Recorded complete") : turnText(language, "Not complete")}{check.completedAt ? ` / ${check.completedAt.slice(0,10)}` : ""}</li>)}</ul></section>) : <p>{turnText(language, "No checklist records on this turn.")}</p>}</details>
         <p className="helper-copy">{turnText(language, "A short presentation walk: cleanliness, freshness, comfort and resident handoff. Technical preparation belongs to the technician in Work. Only exceptions need a written reason.")}</p>
         <details><summary>{turnText(language, "Technician preparation (read-only reference)")}</summary>{initial.technicianChecks.map(check => <p key={check.id}>{turnText(language, check.label)}: <strong>{turnText(language, ({ NOT_CHECKED: "Not checked", CHECKED: "Done", ATTENTION: "Needs attention", NA: "Not applicable" })[draft.technicianResults[check.id]?.status ?? "NOT_CHECKED"])}</strong>{draft.technicianResults[check.id]?.note ? ` / ${draft.technicianResults[check.id].note}` : ""}</p>)}</details>
-        {initial.sections.map(section => <details open key={section.id}><summary>{turnText(language, section.title)}<small>{initial.checks.filter(check => check.section === section.id && result(check.id).status !== "NOT_CHECKED").length} / {initial.checks.filter(check => check.section === section.id).length} {turnText(language, "recorded")}</small></summary>
-          {initial.checks.filter(check => check.section === section.id).map(check => <div key={check.id} className="final-report-check" data-check-status={result(check.id).status}>
+        {initial.sections.map(section => <details open key={section.id}><summary>{turnText(language, section.title)}<small>{visibleChecks.filter(check => check.section === section.id && result(check.id).status !== "NOT_CHECKED").length} / {visibleChecks.filter(check => check.section === section.id).length} {turnText(language, "recorded")}</small></summary>
+          {visibleChecks.filter(check => check.section === section.id).map(check => <div key={check.id} className="final-report-check" data-check-status={result(check.id).status}>
             <label>{turnText(language, check.label)}<select data-testid={`final-report-result-${check.id}`} value={result(check.id).status} onChange={event => updateResult(check.id, { status: event.target.value as FinalReportResult["status"] })}><option value="NOT_CHECKED">{turnText(language, "Not checked")}</option><option value="CHECKED">{turnText(language, "Checked")}</option><option value="ATTENTION">{turnText(language, "Needs attention")}</option><option value="NA">{turnText(language, "Not applicable")}</option></select></label>
             {["ATTENTION", "NA"].includes(result(check.id).status) || result(check.id).note ? <label>{turnText(language, "Reason / detail")}{["ATTENTION", "NA"].includes(result(check.id).status) ? turnText(language, " (required)") : ""}<input maxLength={100} value={result(check.id).note} data-testid={`final-report-note-${check.id}`} onChange={event => updateResult(check.id, { note: event.target.value })} /></label> : null}
           </div>)}
         </details>)}
-        <details open><summary>{turnText(language, "Mailbox & resident handoff details")}</summary>
+        <details open={!item.stockInspection}><summary>{turnText(language, item.stockInspection ? "Optional handoff preparation / for later move-in" : "Mailbox & resident handoff details")}</summary>
           <label>{turnText(language, "Mailbox source")}<select value={draft.mailboxSource ?? "CUSTOM"} onChange={event => updateDraft({ mailboxSource: event.target.value as "DIRECTORY" | "CUSTOM", ...(event.target.value === "DIRECTORY" ? { mailbox: item.directoryMailbox ?? "" } : {}) })}><option value="DIRECTORY">{turnText(language, "Unit mailbox directory (automatic)")}</option><option value="CUSTOM">{turnText(language, "Override for this report only")}</option></select></label>
           <label>{turnText(language, "Mailbox number")}<input data-testid="report-mailbox" maxLength={40} value={draft.mailbox} readOnly={draft.mailboxSource === "DIRECTORY"} onChange={event => updateDraft({ mailbox: event.target.value })}/></label>
           <p>{draft.mailboxSource === "DIRECTORY" ? turnText(language, "Uses the latest saved unit mailbox when previewing or printing. Manage assignments in Turn Details or Setup > Units > Mailbox directory.") : turnText(language, "This override does not change the unit directory.")}</p>

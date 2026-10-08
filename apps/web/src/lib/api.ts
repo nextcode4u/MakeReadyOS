@@ -37,7 +37,7 @@ export type FinalReportData = {
   checks: { id: string; section: string; label: string }[];
   technicianChecks: { id: string; label: string }[];
   items: { id: string; unitNumber: string; boardGroup: string }[];
-  item: { id: string; unitNumber: string; unitReady: boolean; directoryMailbox: string | null; technician: string | null; reviewer: string | null; checklists: { id: string; name: string; items: { id: string; title: string; completed: boolean; completedAt: string | null }[] }[] } | null;
+  item: { id: string; unitNumber: string; unitReady: boolean; stockInspection?: boolean; directoryMailbox: string | null; technician: string | null; reviewer: string | null; checklists: { id: string; name: string; items: { id: string; title: string; completed: boolean; completedAt: string | null }[] }[] } | null;
 };
 export const getFinalReport = (propertyId: string, itemId?: string) => request<FinalReportData>(`/final-walk-reports/${propertyId}${itemId ? `?itemId=${encodeURIComponent(itemId)}` : ""}`);
 export const saveFinalReportSettings = (propertyId: string, input: FinalReportData["settings"]) => request<FinalReportData["settings"]>(`/final-walk-reports/${propertyId}/settings`, { method: "PUT", body: JSON.stringify(input) });

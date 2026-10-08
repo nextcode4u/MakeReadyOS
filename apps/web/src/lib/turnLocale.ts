@@ -363,6 +363,10 @@ export const turnSpanish: Record<string, string> = {
   "work notes in Work & parts": "las notas de trabajo en Trabajo y piezas",
   ". Record inspection corrections in Final walk.": ". Registra las correcciones en Inspección final.",
   "Enter a whole-number count for each item (0 for none):": "Ingresa una cantidad entera para cada artículo (0 si no hay):",
+  "Stock-ready inspection / no move-in scheduled": "Inspección de unidad disponible / sin mudanza programada",
+  "Inspect the unit's condition now. The move-in folder, resident codes and key handoff confirmation are deferred until a resident is assigned. Existing findings still need resolution.": "Inspecciona el estado de la unidad ahora. La carpeta de mudanza, los códigos del residente y la confirmación de entrega de llaves se posponen hasta que se asigne un residente. Los hallazgos existentes aún deben resolverse.",
+  "Optional handoff preparation / for later move-in": "Preparación de entrega opcional / para una mudanza futura",
+  "Defaults to today for an undated inspection. Saved dates stay unchanged; adjust the date if needed.": "Se usa la fecha de hoy si la inspección no tiene fecha. Las fechas guardadas no cambian; ajusta la fecha si es necesario.",
   "After confirming the counts, click Save inspection draft below. Checking this box alone does not save.": "Después de confirmar las cantidades, pulsa Guardar borrador de inspección abajo. Marcar esta casilla no guarda los cambios.",
 };
 

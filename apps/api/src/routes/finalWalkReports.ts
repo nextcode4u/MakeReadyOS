@@ -7,6 +7,7 @@ import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChe
 import { createNotification } from "../lib/notifications.js";
 import { syncTurnCodes } from "../lib/unitAccessCodes.js";
 import { finalWalkCategory } from "../lib/finalWalks.js";
+import { isStockInspection } from "../lib/stockInspection.js";
 import { awaitingFinalWalk, isTurnReady, turnApproved, type TurnStages } from "../lib/turnStatus.js";
 
 async function inspectorAccess(request: FastifyRequest, db: typeof prisma | import("@prisma/client").Prisma.TransactionClient, propertyId: string, itemId?: string, editing = false) {
@@ -112,7 +113,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
       draft: draft.success ? { ...draft.data, value: resolveReportMailbox(draft.data.value, mailbox) } : { version: 0, value: resolveReportMailbox(await initialReportDraft(item), mailbox), updatedAt: null },
       sections: reportSections.map(section => ({ id: section.id, title: section.title })), checks: reportChecks, technicianChecks,
       items: await prisma.makeReadyItem.findMany({ where: { propertyId: property.id, isArchived: false, ...(request.currentUser!.role === "ADMIN" ? {} : { id: itemId }) }, select: { id: true, unitNumber: true, boardGroup: true }, orderBy: { unitNumber: "asc" } }),
-      item: item ? { id: item.id, unitNumber: item.unitNumber, unitReady: isTurnReady(item), directoryMailbox: mailbox, technician: item.assignedTech, reviewer: reviewer?.assignedUser.fullName ?? null, checklists: item.checklistInstances } : null,
+      item: item ? { id: item.id, unitNumber: item.unitNumber, unitReady: isTurnReady(item), stockInspection: isStockInspection(item), directoryMailbox: mailbox, technician: item.assignedTech, reviewer: reviewer?.assignedUser.fullName ?? null, checklists: item.checklistInstances } : null,
     };
   });
   app.put("/final-walk-reports/:propertyId/settings", async (request, reply) => {
@@ -212,7 +213,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     }
     const item = input.itemId ? await findItem(property.id, input.itemId) : null;
     const reviewer = item ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory }, orderBy: { createdAt: "desc" }, select: { assignedUser: { select: { fullName: true } } } }) : null;
-    const html = finalWalkReportHtml({ propertyName: property.name, propertyCode: property.code, propertyLogo: property.branding?.logo ?? null, companyName: property.branding?.managementCompany?.name ?? null, companyLogo: property.branding?.managementCompany?.logo ?? null, unitNumber: item?.unitNumber ?? null, technician: item?.assignedTech ?? null, reviewer: reviewer?.assignedUser.fullName ?? null }, input.settings, item ? resolveReportMailbox(input.draft, await directoryMailbox(item)) : emptyReportDraft());
+    const html = finalWalkReportHtml({ propertyName: property.name, propertyCode: property.code, propertyLogo: property.branding?.logo ?? null, companyName: property.branding?.managementCompany?.name ?? null, companyLogo: property.branding?.managementCompany?.logo ?? null, unitNumber: item?.unitNumber ?? null, technician: item?.assignedTech ?? null, reviewer: reviewer?.assignedUser.fullName ?? null, stockInspection: Boolean(item && isStockInspection(item)) }, input.settings, item ? resolveReportMailbox(input.draft, await directoryMailbox(item)) : emptyReportDraft());
     if (input.format === "html") return { html };
     return { pdfBase64: (await renderPdfFromHtml(html, { blockExternalRequests: true })).toString("base64") };
   });

@@ -2,7 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getTurnReadiness, readinessBlockers } from "./turnReadiness.js";
 import { emptyReportDraft, reportChecks, technicianChecks } from "./finalWalkReport.js";
+import { isStockInspection, moveInFolderCheck } from "./stockInspection.js";
 const base = { isArchived: false, propertyActive: true, assignedTech: "Tech", reviewerName: "Reviewer", materials: [], tasks: [] };
+test("stock readiness defers resident handoff without fabricating completed checks", () => {
+  const item = { vacancyStatus: "VACANT NOT LEASED NOT READY", applicant: null, moveInDate: null };
+  assert.equal(isStockInspection(item), true);
+  for (const patch of [{ applicant: "Demo Resident" }, { moveInDate: "2026-10-15" }, { vacancyStatus: "VACANT LEASED NOT READY" }, { vacancyStatus: "UNKNOWN" }]) assert.equal(isStockInspection({ ...item, ...patch }), false);
+  const value = emptyReportDraft();
+  value.inspectionDate = "2026-10-07";
+  for (const check of technicianChecks) value.technicianResults[check.id] = { status: "CHECKED", note: "" };
+  for (const check of reportChecks.filter(check => check.id !== moveInFolderCheck)) value.results[check.id] = { status: "CHECKED", note: "" };
+  const input = { ...base, inspectionRequired: true, inspection: { version: 1, updatedAt: new Date().toISOString(), value } };
+  assert.deepEqual(readinessBlockers({ ...input, stockInspection: true }), []);
+  assert.equal(readinessBlockers({ ...input, stockInspection: false }).length, 2);
+  assert.equal(value.handoffConfirmed, false);
+  assert.equal(value.results[moveInFolderCheck], undefined);
+  value.results[moveInFolderCheck] = { status: "ATTENTION", note: "Resolve an existing finding" };
+  assert.match(readinessBlockers({ ...input, stockInspection: true }).join(";"), /need attention/);
+});
 test("inspection history cannot be erased by changing the current status label", async () => {
   const item = { isArchived: false, assignedTech: "Tech", materials: [], property: { isActive: true }, checklistInstances: [], finalWalkReportDraft: null, workAssignmentBlocks: [] };
   for (const patch of [
