@@ -185,7 +185,10 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     await send(inspector, inspectorHeaders, "PATCH", "/notifications/preferences/POND_MILESTONE", { enabled: false });
     expect((await (await tech.request.get(`${origin}/api/pond/milestones?propertyId=${property.id}`)).json()).properties[0].completedTurns).toBe(0);
     expect((await tech.request.get(`${origin}/api/pond/milestones?propertyId=outside-scope`)).status()).toBe(403);
-    await send(inspector, inspectorHeaders, "POST", `${itemPath}/mark-ready`, {});
+    await inspector.getByRole("button", { name: "Inspection details / report", exact: true }).click();
+    await report.getByTestId("final-report-mark-ready").click();
+    await expect(report.getByTestId("final-report-completion")).toContainText("Unit marked ready");
+    await report.getByRole("button", { name: "Close dialog" }).click();
     const milestones = await (await tech.request.get(`${origin}/api/pond/milestones`)).json();
     expect(milestones.properties).toHaveLength(1);
     expect(milestones.properties[0]).toMatchObject({ id: property.id, completedTurns: 1 });

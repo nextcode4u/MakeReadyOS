@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("stock inspection defaults today's date and defers move-in handoff", async ({ page }) => {
+test("stock inspection defaults today's date and defers move-in handoff", async ({ page }, testInfo) => {
   test.setTimeout(90000);
   await page.goto("/");
   await page.getByTestId("login-email").fill(process.env.ADMIN_EMAIL || "admin@example.com");
@@ -29,21 +29,50 @@ test("stock inspection defaults today's date and defers move-in handoff", async 
   await page.getByTestId("mobile-details-stock-101").click();
   await page.getByRole("button", { name: "Inspection details / report", exact: true }).click();
   const report = page.getByTestId("final-report-editor");
-  const today = await page.evaluate(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`; });
+  const today = (await (await page.request.get(`/api${reportPath}?itemId=${item.id}`)).json()).inspectionToday;
+  await expect(report.getByTestId("final-report-date")).toHaveValue(today);
+  page.once("dialog", dialog => dialog.accept());
+  await report.getByRole("button", { name: "Reload saved data", exact: true }).click();
   await expect(report.getByTestId("final-report-date")).toHaveValue(today);
   await expect(report.getByTestId("stock-inspection-notice")).toBeVisible();
+  const deferred = report.getByTestId("stock-handoff-deferred");
+  await expect(deferred).toBeVisible();
+  await expect(deferred).toContainText("Not needed for stock-ready");
+  await expect(deferred.locator("input, select, button, summary")).toHaveCount(0);
+  await expect(report.locator("summary").filter({ hasText: "Final condition review" })).toBeVisible();
+  await expect(report.getByLabel("Resident gate code", { exact: true })).toHaveCount(0);
+  await expect(report.getByLabel("I counted and confirmed the home/mailbox keys, fobs and remotes for handoff", { exact: true })).toHaveCount(0);
+  await deferred.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("stock-deferred-mobile.png") });
   await expect(report.locator('[data-testid^="final-report-result-"]')).toHaveCount(8);
   await expect(report.getByLabel("Resident gate code", { exact: true })).not.toBeVisible();
+  const finish = report.getByTestId("final-report-mark-ready");
+  await report.getByTestId("final-report-date").fill("");
+  await finish.click();
+  await expect(report.getByTestId("final-report-ready-error")).toContainText("final-walk checks are not recorded");
+  await expect(report.getByTestId("final-report-date")).toHaveValue(today);
+  expect((await (await page.request.get(`/api${itemPath}`)).json()).completionStatus).toBe("NO");
   for (const select of await report.locator('[data-testid^="final-report-result-"]').all()) await select.selectOption("CHECKED");
-  await report.getByTestId("final-report-save-draft").click();
-  await expect(report.getByTestId("final-report-save-draft")).toBeDisabled();
+  await expect(finish).toHaveText("Save inspection & mark ready");
+  let approvals = 0;
+  page.on("request", request => { if (request.url().endsWith(`${itemPath}/mark-ready`)) approvals++; });
+  await page.route(`**/api${reportPath}/items/${item.id}`, route => route.fulfill({ status: 409, json: { message: "Injected save conflict" } }));
+  await finish.click();
+  await expect(report.getByTestId("final-report-ready-error")).toContainText("Injected save conflict");
+  expect(approvals).toBe(0);
+  await expect(report.locator('[data-testid^="final-report-result-"]').first()).toHaveValue("CHECKED");
+  await page.unroute(`**/api${reportPath}/items/${item.id}`);
+  await finish.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("inspection-finish-mobile.png") });
+  await finish.click();
+  await expect(report.getByTestId("final-report-completion")).toContainText("Unit marked ready");
+  await expect(finish).toHaveCount(0);
   const saved = await (await page.request.get(`/api${reportPath}?itemId=${item.id}`)).json();
   expect(saved.draft.value).toMatchObject({ inspectionDate: today, handoffConfirmed: false, fobs: "" });
   expect(saved.draft.value.results["handoff-v2-2"]).toBeUndefined();
   const preview = await send("POST", `${reportPath}/preview`, { itemId: item.id, settings: saved.settings.value, draft: saved.draft.value, format: "html" });
   expect(preview.html).toContain("Stock-ready inspection / no move-in scheduled.");
   expect(preview.html).toContain("Deferred until move-in");
-  await send("POST", `${itemPath}/mark-ready`, {});
   expect((await (await page.request.get(`/api${itemPath}`)).json()).completionStatus).toBe("YES");
   expect((await page.request.post(`/api${reportPath}/items/${item.id}/resident-pdf`, { headers, data: { version: saved.draft.version } })).status()).toBe(409);
   // Saved inspection dates are never replaced when the editor is reopened.
@@ -53,6 +82,9 @@ test("stock inspection defaults today's date and defers move-in handoff", async 
   await report.getByRole("button", { name: "Close dialog" }).click();
   await page.getByRole("button", { name: "Inspection details / report", exact: true }).click();
   await expect(report.getByTestId("final-report-date")).toHaveValue("2026-09-01");
+  const dated = await (await page.request.get(`/api${reportPath}?itemId=${item.id}`)).json();
+  const cleared = await send("PUT", `${reportPath}/items/${item.id}`, { version: dated.draft.version, value: { ...dated.draft.value, inspectionDate: "" } });
+  expect(cleared.value.inspectionDate).toBe("2026-09-01");
   await send("PATCH", itemPath, { applicant: "Incoming Demo Resident" });
   const moveIn = await (await page.request.get(`/api${reportPath}?itemId=${item.id}`)).json();
   expect(moveIn.item.stockInspection).toBe(false);

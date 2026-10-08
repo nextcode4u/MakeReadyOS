@@ -64,6 +64,13 @@ export const savedReportSettingsSchema = z.object({ version: z.number().int().po
 export const savedReportDraftSchema = z.object({ version: z.number().int().positive(), value: reportDraftSchema, updatedAt: z.string().datetime() });
 export type ReportSettings = z.infer<typeof reportSettingsSchema>;
 export type ReportDraft = z.infer<typeof reportDraftSchema>;
+export function inspectionDateOrToday(entered: string, saved: string | undefined, timezone = "America/Chicago", now = new Date()) {
+  if (entered) return entered;
+  if (saved) return saved;
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const value = (type: string) => parts.find(part => part.type === type)!.value;
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
 export function residentReportBlockers(draft: ReportDraft) {
   return [
     ...(!draft.inspectionDate ? ["Record the inspection date."] : []),

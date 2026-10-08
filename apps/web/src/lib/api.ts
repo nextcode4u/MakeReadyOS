@@ -28,6 +28,7 @@ export type ResidentCodes = { version: number; value: Pick<FinalReportDraft, "re
 export const getResidentCodes = (itemId: string) => request<ResidentCodes>(`/make-ready-items/${itemId}/resident-codes`);
 export const saveResidentCodes = (itemId: string, input: { version: number; value: Partial<ResidentCodes["value"]> }) => request<ResidentCodes>(`/make-ready-items/${itemId}/resident-codes`, { method: "PUT", body: JSON.stringify(input) });
 export type FinalReportData = {
+  inspectionToday?: string;
   canEditSettings: boolean;
   canEditDraft: boolean;
   property: { id: string; name: string; code: string };

@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, technicianChecks, reportDraftSchema, reportSettingsSchema, residentReportBlockers } from "./finalWalkReport.js";
+import { inspectionDateOrToday } from "./finalWalkReport.js";
+
+test("inspection dates use the property day and preserve entered or saved dates", () => {
+  const midnight = new Date("2026-10-09T02:00:00Z");
+  assert.equal(inspectionDateOrToday("", undefined, "America/Chicago", midnight), "2026-10-08");
+  assert.equal(inspectionDateOrToday("", undefined, "Asia/Tokyo", midnight), "2026-10-09");
+  assert.equal(inspectionDateOrToday("", "2026-09-01", "America/Chicago", midnight), "2026-09-01");
+  assert.equal(inspectionDateOrToday("2026-10-07", "2026-09-01", "America/Chicago", midnight), "2026-10-07");
+  assert.equal(inspectionDateOrToday("", undefined, "America/Chicago", new Date("2026-03-08T07:59:00Z")), "2026-03-08");
+  assert.equal(inspectionDateOrToday("", undefined, "America/Chicago", new Date("2026-03-08T08:01:00Z")), "2026-03-08");
+});
 
 test("final-walk separates nine presentation checks from eight technician checks", () => {
   assert.equal(reportChecks.length, 9);

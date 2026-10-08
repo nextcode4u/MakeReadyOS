@@ -8,6 +8,7 @@ import { createNotification } from "../lib/notifications.js";
 import { syncTurnCodes } from "../lib/unitAccessCodes.js";
 import { finalWalkCategory } from "../lib/finalWalks.js";
 import { isStockInspection } from "../lib/stockInspection.js";
+import { inspectionDateOrToday } from "../lib/finalWalkReport.js";
 import { awaitingFinalWalk, isTurnReady, turnApproved, type TurnStages } from "../lib/turnStatus.js";
 
 async function inspectorAccess(request: FastifyRequest, db: typeof prisma | import("@prisma/client").Prisma.TransactionClient, propertyId: string, itemId?: string, editing = false) {
@@ -29,7 +30,7 @@ async function context(request: FastifyRequest, reply: FastifyReply, itemId?: st
   const ids = allowedPropertyIds(request.currentUser!);
   if (ids !== null && !ids.includes(propertyId)) { reply.code(403).send({ message: "Property access denied" }); return null; }
   await inspectorAccess(request, prisma, propertyId, itemId);
-  const property = await prisma.property.findFirst({ where: { id: propertyId, isActive: true }, include: { branding: { include: { managementCompany: true } } } });
+  const property = await prisma.property.findFirst({ where: { id: propertyId, isActive: true }, include: { operatingCalendar: true, branding: { include: { managementCompany: true } } } });
   if (!property) { reply.code(404).send({ message: "Active property not found" }); return null; }
   reply.header("Cache-Control", "no-store");
   return property;
@@ -107,6 +108,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     const reviewer = item ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory }, orderBy: { createdAt: "desc" }, select: { assignedUser: { select: { fullName: true } } } }) : null;
     return {
       canEditSettings: request.currentUser!.role === "ADMIN",
+      inspectionToday: inspectionDateOrToday("", undefined, property.operatingCalendar?.timezone),
       canEditDraft: request.currentUser!.role === "ADMIN" || Boolean(item && (awaitingFinalWalk(item) || isTurnReady(item))),
       property: { id: property.id, name: property.name, code: property.code },
       settings: settings.success ? settings.data : { version: 0, value: defaultReportSettings },
@@ -145,7 +147,8 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
       if ((current.success ? current.data.version : 0) !== input.version) throw Object.assign(new Error("Inspection draft changed in another session. Reload before saving."), { statusCode: 409 });
       const previous = current.success ? current.data.value : await initialReportDraft(item);
       if (input.value.handoffConfirmed && [input.value.homeKeys, input.value.mailboxKeys, input.value.fobs, input.value.remotes].some(count => !/^\d{1,4}$/.test(count))) throw Object.assign(new Error("Record each key/fob/remote count (use 0 for none) before confirming handoff"), { statusCode: 400 });
-      const draft = { version: input.version + 1, value: { ...input.value, technicianResults: previous.technicianResults, technicianResolution: previous.technicianResolution, correctionPending: previous.correctionPending }, updatedAt: new Date().toISOString() };
+      const calendar = await db.operatingCalendar.findUnique({ where: { propertyId: property.id }, select: { timezone: true } });
+      const draft = { version: input.version + 1, value: { ...input.value, inspectionDate: inspectionDateOrToday(input.value.inspectionDate, previous.inspectionDate, calendar?.timezone), technicianResults: previous.technicianResults, technicianResolution: previous.technicianResolution, correctionPending: previous.correctionPending }, updatedAt: new Date().toISOString() };
       await db.finalWalkReportDraft.upsert({ where: { itemId: item.id }, create: { itemId: item.id, payload: draft }, update: { payload: draft } });
       await syncTurnCodes(db, item, input.value);
       await db.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: property.id, entityType: "MAKE_READY_ITEM", entityId: item.id, action: "FINAL_WALK_REPORT_DRAFT_SAVED", message: "Saved inspection draft; no sign-off or ready-status change", metadata: { version: draft.version } } });

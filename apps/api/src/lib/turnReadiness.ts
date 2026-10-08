@@ -4,7 +4,7 @@ import { reportChecks, technicianChecks, savedReportDraftSchema } from "./finalW
 import { repairsDone, pendingTurnStages, turnApproved } from "./turnStatus.js";
 import { isStockInspection, moveInFolderCheck } from "./stockInspection.js";
 
-export function readinessBlockers(input: { isArchived: boolean; propertyActive: boolean; assignedTech: string | null; reviewerName: string; materials: unknown; tasks: Array<{ title: string; required: boolean; completed: boolean }>; inspectionRequired?: boolean; inspection?: unknown; stockInspection?: boolean }) {
+export function readinessBlockers(input: { isArchived: boolean; propertyActive: boolean; assignedTech: string | null; reviewerName: string; materials: unknown; tasks: Array<{ title: string; required: boolean; completed: boolean }>; inspectionRequired?: boolean; inspection?: unknown; stockInspection?: boolean; dateOnApproval?: boolean }) {
   const blockers: string[] = [];
   if (input.isArchived || !input.propertyActive) blockers.push("Archived turns or properties cannot be marked ready. Restore them explicitly first.");
   if (input.assignedTech?.trim().toLocaleLowerCase() === input.reviewerName.trim().toLocaleLowerCase()) blockers.push("The assigned repair technician cannot approve their own final walk. Ask an independent inspector or manager.");
@@ -16,7 +16,7 @@ export function readinessBlockers(input: { isArchived: boolean; propertyActive: 
     const inspection = savedReportDraftSchema.safeParse(input.inspection);
     if (!inspection.success) blockers.push("Save the detailed final-walk inspection report before marking ready.");
     else {
-      if (!inspection.data.value.inspectionDate) blockers.push("Record the final-walk inspection date.");
+      if (!inspection.data.value.inspectionDate && !input.dateOnApproval) blockers.push("Record the final-walk inspection date.");
       const preparation = technicianChecks.filter(check => !["CHECKED", "NA"].includes(inspection.data.value.technicianResults[check.id]?.status ?? ""));
       if (preparation.length) blockers.push(`${preparation.length} technician preparation checks need completion by the technician in Work, not the final-walk inspector.`);
       if (!input.stockInspection && !inspection.data.value.handoffConfirmed) blockers.push("Final-walk inspector must confirm the home/mailbox key, fob and remote counts.");
@@ -30,9 +30,9 @@ export function readinessBlockers(input: { isArchived: boolean; propertyActive: 
   return blockers;
 }
 
-export async function getTurnReadiness(db: Prisma.TransactionClient, id: string, reviewerName: string) {
+export async function getTurnReadiness(db: Prisma.TransactionClient, id: string, reviewerName: string, dateOnApproval = false) {
   const item = await db.makeReadyItem.findUniqueOrThrow({ where: { id }, include: { finalWalkReportDraft: true, workAssignmentBlocks: { where: { category: "FINAL_WALK_INSPECTION" }, select: { id: true }, take: 1 }, property: { select: { isActive: true } }, checklistInstances: { include: { items: { select: { title: true, required: true, completed: true } } } } } });
   const inspectionRequired = repairsDone(item) && !turnApproved(item) || Boolean(item.finalWalkReportDraft) || item.workAssignmentBlocks.length > 0;
-  const blockers = readinessBlockers({ ...item, stockInspection: isStockInspection(item), propertyActive: item.property.isActive, reviewerName, tasks: item.checklistInstances.flatMap(checklist => checklist.items), inspectionRequired, inspection: item.finalWalkReportDraft?.payload });
+  const blockers = readinessBlockers({ ...item, dateOnApproval, stockInspection: isStockInspection(item), propertyActive: item.property.isActive, reviewerName, tasks: item.checklistInstances.flatMap(checklist => checklist.items), inspectionRequired, inspection: item.finalWalkReportDraft?.payload });
   return [...pendingTurnStages(item), ...blockers];
 }

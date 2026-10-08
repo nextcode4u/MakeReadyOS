@@ -47,7 +47,7 @@ export async function finalWalkRoutes(app: FastifyInstance) {
     const reportAvailable = !item.isArchived && ((isTurnReady(item) && ["ADMIN", "MANAGER", "LEASING"].includes(request.currentUser!.role)) || ((block ?? completedBlock)?.assignedUserId === request.currentUser!.id && item.assignedTech?.trim().toLowerCase() !== request.currentUser!.fullName.trim().toLowerCase()));
     const nextId = block && nextInspector(block.inspectorQueue, block.assignedUserId, independentInspectors(staff, item.assignedTech).map(user => user.id));
     const unitReady = isTurnReady(item);
-    return { block, reportAvailable, unitReady, ready: awaitingFinalWalk(item), blockers: unitReady ? [] : await getTurnReadiness(prisma, id, request.currentUser!.fullName), next: staff.find(user => user.id === nextId) ?? null };
+    return { block, reportAvailable, unitReady, ready: awaitingFinalWalk(item), blockers: unitReady ? [] : await getTurnReadiness(prisma, id, request.currentUser!.fullName, true), next: staff.find(user => user.id === nextId) ?? null };
   });
   app.post("/make-ready-items/:id/final-walk/handoff", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);

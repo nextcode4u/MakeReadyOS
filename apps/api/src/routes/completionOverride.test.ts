@@ -18,7 +18,7 @@ test("completion override is scoped, managerial, explicit, audited, and preserve
     makeReadyStatus: "DONE", completionStatus: "NO", vacancyStatus: "VACANT NOT LEASED NOT READY",
     boardGroup: "MAKE_READY", isArchived: false, paintStatus: null, cleaningStatus: null, materials: [],
     property: { isActive: true }, checklistInstances: [], workAssignmentBlocks: [], finalWalkReportDraft: null };
-  let item = { ...initial };
+  let item: any = { ...initial };
   let role = "ADMIN";
   let access = ["property"];
   let active = true;
@@ -83,4 +83,20 @@ test("completion override is scoped, managerial, explicit, audited, and preserve
   item = { ...initial }; failAudit = true;
   assert.equal((await submit()).statusCode, 500);
   assert.equal(item.completionStatus, "NO", "audit failure rolls back completion");
+  const { emptyReportDraft } = await import("../lib/finalWalkReport.js");
+  failAudit = false;
+  item = { ...initial, finalWalkReportDraft: { payload: { version: 1, updatedAt: new Date().toISOString(), value: emptyReportDraft() } } };
+  let dateWrites = 0;
+  stub(prisma.operatingCalendar, "findUnique", async () => ({ timezone: "America/Chicago" }));
+  stub(prisma.finalWalkReportDraft, "update", async ({ data }: any) => {
+    dateWrites++;
+    assert.match(data.payload.value.inspectionDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal(data.payload.version, 2);
+    item = { ...item, finalWalkReportDraft: { payload: data.payload } };
+    return item.finalWalkReportDraft;
+  });
+  assert.equal((await submit({})).statusCode, 409);
+  assert.equal(dateWrites, 1);
+  assert.equal(item.finalWalkReportDraft.payload.value.inspectionDate, "", "blocked approval rolls back automatic dating");
+  assert.equal(item.finalWalkReportDraft.payload.version, 1);
 });

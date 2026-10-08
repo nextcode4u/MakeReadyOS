@@ -2,6 +2,7 @@ import { stringify } from "csv-stringify/sync";
 import { customExportHeaders } from "../lib/exportHeaders.js";
 import { readyVacancyStatus } from "../lib/readyVacancyStatus.js";
 import { archiveOccupiedTurn } from "../lib/archiveOccupiedTurn.js";
+import { inspectionDateOrToday, savedReportDraftSchema } from "../lib/finalWalkReport.js";
 import { projectedTurnStart } from "../lib/turnStartProjection.js";
 import { Prisma, UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -1485,12 +1486,25 @@ export async function makeReadyRoutes(app: FastifyInstance) {
     }
     await prisma.$transaction(async db => {
     await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.propertyId}), 824018)::text`;
-    const current = await db.makeReadyItem.findUniqueOrThrow({ where: { id } });
+    const current = await db.makeReadyItem.findUniqueOrThrow({ where: { id }, include: { finalWalkReportDraft: true } });
     const property = await db.property.findUnique({ where: { id: current.propertyId }, select: { isActive: true } });
     if (current.isArchived || !property?.isActive) throw Object.assign(new Error("Restore the unit and property before marking it ready."), { statusCode: 409 });
     if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
       const assigned = await db.workAssignmentBlock.findFirst({ where: { itemId: id, category: finalWalkCategory, assignedUserId: user.id, status: { in: pendingWalkStatuses } } });
       if (!assigned || !awaitingFinalWalk(current) || current.isArchived) throw Object.assign(new Error("Only the assigned inspector can sign off this pending final walk"), { statusCode: 403 });
+    }
+    // Date only an existing inspection during explicit approval, never a board read.
+    // Any later blocker rolls this write back with the approval transaction.
+    if (!overrideReason) {
+      await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${id}), 824020)::text`;
+      const saved = savedReportDraftSchema.safeParse(current.finalWalkReportDraft?.payload);
+      if (saved.success && !saved.data.value.inspectionDate) {
+        const calendar = await db.operatingCalendar.findUnique({ where: { propertyId: current.propertyId }, select: { timezone: true } });
+        const inspectionDate = inspectionDateOrToday("", undefined, calendar?.timezone);
+        const payload = { ...saved.data, version: saved.data.version + 1, updatedAt: new Date().toISOString(), value: { ...saved.data.value, inspectionDate } };
+        await db.finalWalkReportDraft.update({ where: { itemId: id }, data: { payload } });
+        await db.auditLog.create({ data: { actorUserId: user.id, propertyId: current.propertyId, entityType: "MAKE_READY_ITEM", entityId: id, action: "FINAL_WALK_DATE_ASSIGNED", message: "Assigned the property-local inspection date during Ready approval", metadata: { inspectionDate, version: payload.version } } });
+      }
     }
     const blockers = await getTurnReadiness(db, id, user.fullName);
     if (blockers.length && !overrideReason) throw Object.assign(new Error(`Cannot mark ready: ${blockers.slice(0, 8).join("; ")}${blockers.length > 8 ? `; plus ${blockers.length - 8} more. Review completion blockers in turn details.` : ""}`), { statusCode: 409 });

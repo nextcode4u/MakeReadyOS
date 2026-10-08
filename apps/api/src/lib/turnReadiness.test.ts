@@ -56,6 +56,8 @@ test("final walk requires a dated complete inspection with no unresolved finding
   assert.equal(readinessBlockers(input).length, 1);
   const inspection = { version: 1, updatedAt: new Date().toISOString(), value: emptyReportDraft() };
   assert.equal(readinessBlockers({ ...input, inspection }).length, 4);
+  assert.equal(readinessBlockers({ ...input, inspection, dateOnApproval: true }).length, 3);
+  assert.equal(readinessBlockers({ ...input, dateOnApproval: true }).length, 1, "a missing inspection is never fabricated");
   inspection.value.inspectionDate = "2026-09-08";
   for (const check of reportChecks) inspection.value.results[check.id] = { status: "CHECKED", note: "" };
   for (const check of technicianChecks) inspection.value.technicianResults[check.id] = { status: "CHECKED", note: "" };
