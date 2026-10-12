@@ -935,8 +935,28 @@ mkdir -p "$LOG_DIR"
       for (const [unit,status,type] of [["SEP-NOT-READY","VACANT NOT LEASED NOT READY","MAKE_READY"],["SEP-READY","VACANT NOT LEASED READY","READY"],["SEP-NTV","NTV NOT LEASED","MAKE_READY"]]) {
         const turn=turns.find(item=>item.unitNumber===unit);
         if (!turn || turn.vacancyStatus!==status || turn.boardGroup!==sections.find(section=>section.sectionType===type)?.key) throw new Error(`Incorrect imported status/section for ${unit}`);
+        if (turn.makeReadyStatus) throw new Error(`Market availability must not complete technician work for ${unit}`);
       }
     ' /tmp/makereadyos-availability-turns.json /tmp/makereadyos-sections.json
+    echo "Checking availability imports preserve local work statuses, including explicit source Done"
+    WORKFLOW_IMPORT_STATUS="$(curl -s -o /tmp/makereadyos-availability-workflow.json -b "$COOKIE_JAR" -w "%{http_code}" \
+      -H "Content-Type: application/json" -H "X-CSRF-Token: $ADMIN_CSRF_TOKEN" \
+      -d "{\"propertyId\":\"$TEST_PROPERTY_ID\",\"overrideConflicts\":true,\"rows\":[{\"number\":\"SEP-NOT-READY\",\"availabilityStatus\":\"vacant_not_leased_not_ready\",\"makeReadyStatus\":\"DONE\"},{\"number\":\"SEP-READY\",\"availabilityStatus\":\"vacant-not-leased-ready\",\"makeReadyStatus\":\"DONE\"}]}" \
+      "http://localhost:${API_PORT:-4000}/api/operations/availability/import")"
+    if [ "$WORKFLOW_IMPORT_STATUS" != "200" ]; then cat /tmp/makereadyos-availability-workflow.json; exit 1; fi
+    curl -fsS -b "$COOKIE_JAR" "http://localhost:${API_PORT:-4000}/api/make-ready-items?propertyId=$TEST_PROPERTY_ID" > /tmp/makereadyos-availability-workflow-turns.json
+    node -e '
+      const fs=require("fs");
+      const before=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+      const after=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));
+      for (const unit of ["SEP-NOT-READY","SEP-READY"]) {
+        const original=before.find(item=>item.unitNumber===unit);
+        const updated=after.find(item=>item.unitNumber===unit);
+        for (const field of ["makeReadyStatus","paintStatus","cleaningStatus","completionStatus"]) {
+          if (!updated || updated[field]!==original[field]) throw new Error(`Availability changed local ${field} for ${unit}`);
+        }
+      }
+    ' /tmp/makereadyos-availability-turns.json /tmp/makereadyos-availability-workflow-turns.json
     echo "Checking missing directory occupancy remains unknown and does not replace existing facts"
     for DIRECTORY_ROWS in '[{"number":"DIR-UNKNOWN"},{"number":"DIR-OCC","occupancyStatus":"OCCUPIED"}]' '[{"number":"DIR-UNKNOWN"},{"number":"DIR-OCC"}]'; do
       DIRECTORY_IMPORT_STATUS="$(curl -s -o /tmp/makereadyos-directory-unknown.json -b "$COOKIE_JAR" -w "%{http_code}" \

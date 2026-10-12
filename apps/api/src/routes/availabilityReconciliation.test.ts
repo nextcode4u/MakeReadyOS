@@ -1,6 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+test("availability readiness is separate from technician completion", async () => {
+  process.env.DATABASE_URL ||= "postgresql://unused:unused@127.0.0.1:1/unused";
+  process.env.ADMIN_USERNAME ||= "availability-test";
+  process.env.ADMIN_PASSWORD ||= "Test-Only-Password!123";
+  process.env.SESSION_COOKIE_SECRET ||= "test-only-session-secret-12345678901234567890";
+  const { buildAvailabilityConflict } = await import("./operations.js");
+  const turn = {
+    id: "demo-turn", unitNumber: "101", vacancyStatus: "VACANT NOT LEASED NOT READY",
+    applicant: null, moveOutDate: null, vacatedDate: null, makeReadyDate: null, moveInDate: null,
+    makeReadyStatus: "DONE", completionStatus: "NO", boardGroup: "make-ready", daysVacant: 5,
+    createdAt: new Date("2026-10-01"), updatedAt: new Date("2026-10-10"),
+  };
+  const row = { number: "101", makeReadyStatus: "NOT READY", reportDate: "2026-10-09" };
+  assert.equal(buildAvailabilityConflict(turn, row, turn.vacancyStatus, turn.boardGroup), null,
+    "Technician Done must not conflict with a not-ready report, even after local work updates");
+  assert.equal(buildAvailabilityConflict({ ...turn, makeReadyStatus: null }, { ...row, makeReadyStatus: "DONE" }, turn.vacancyStatus, turn.boardGroup), null,
+    "Report workflow labels are not technician progress");
+  assert.equal(buildAvailabilityConflict({ ...turn, completionStatus: "YES" }, { ...row, makeReadyStatus: "DONE" }, turn.vacancyStatus, turn.boardGroup)?.conflictKind, "LOCAL_AHEAD_READY",
+    "Real final approval still needs review even when report says Make Ready Done");
+  assert.equal(buildAvailabilityConflict({ ...turn, vacancyStatus: "VACANT_READY" }, row, turn.vacancyStatus, turn.boardGroup)?.conflictKind, "LOCAL_AHEAD_READY");
+  assert.equal(buildAvailabilityConflict(turn, { ...row, applicant: "New Demo Applicant" }, turn.vacancyStatus, turn.boardGroup)?.conflictKind, "LOCAL_NEWER",
+    "Unrelated stale availability edits remain protected");
+});
+
 test("full availability imports preview and atomically archive missing ready units; partial imports do not", async t => {
   process.env.DATABASE_URL = "postgresql://unused:unused@127.0.0.1:1/unused";
   process.env.ADMIN_USERNAME = "availability-test";

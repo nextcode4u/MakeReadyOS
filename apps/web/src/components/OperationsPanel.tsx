@@ -16,6 +16,7 @@ import { PropertyBrandingPanel } from "./PropertyBrandingPanel";
 import { MailboxDirectoryPanel } from "./MailboxDirectoryPanel";
 import { AccessCodesPanel } from "./AccessCodesPanel";
 import { statusDisplayName } from "../lib/statusDisplayName";
+import { isTurnReady } from "../lib/turnStatus";
 
 function floorPlanLabel(plan: Pick<FloorPlan, "code" | "name">) {
   return plan.name && plan.name !== plan.code ? `${plan.code} - ${plan.name}` : plan.code;
@@ -367,11 +368,6 @@ function parseNumberCell(value: string) {
 function isMeaningfulDaysVacantDifference(currentValue: number | null | undefined, importedValue: number | null | undefined) {
   if (importedValue === undefined || importedValue === null) return false;
   return Math.abs(Number(importedValue) - Number(currentValue ?? 0)) > 1;
-}
-
-function isDoneLikeMakeReadyStatus(value: string | null | undefined) {
-  const raw = String(value ?? "").trim().toUpperCase();
-  return raw === "DONE" || raw === "YES" || raw === "GOOD";
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -1374,16 +1370,15 @@ export function OperationsPanel({
         const turn = existingTurnsByUnit.get(row.number.toUpperCase());
         if (!turn) return [];
         const reportStatus = row.vacancyStatus ?? normalizeOccupancy(row.availabilityStatus ?? "");
-        const localReady = isReadyLikeOccupancy(turn.vacancyStatus) || isDoneLikeMakeReadyStatus(turn.makeReadyStatus);
-        const reportReady = isReadyLikeOccupancy(reportStatus) || isDoneLikeMakeReadyStatus(row.makeReadyStatus ?? null);
+        const localReady = isReadyLikeOccupancy(turn.vacancyStatus) || isTurnReady(turn);
+        const reportReady = isReadyLikeOccupancy(reportStatus);
         if (localReady === reportReady) return [];
         return [{
           unit: row.number,
           type: localReady && !reportReady ? "LOCAL_AHEAD" as const : "REPORT_AHEAD" as const,
           localVacancyStatus: turn.vacancyStatus ?? "",
-          localMakeReadyStatus: turn.makeReadyStatus ?? "",
+          localCompletionStatus: turn.completionStatus ?? "",
           reportVacancyStatus: reportStatus,
-          reportMakeReadyStatus: row.makeReadyStatus ?? "",
           updatedAt: turn.updatedAt,
           reportDate: row.reportDate ?? null,
         }];
@@ -1418,7 +1413,7 @@ export function OperationsPanel({
       if (lines.length) lines.push("");
       lines.push(isSpanish ? `Todas las ${availabilityImportPreview.parityAlerts.length} alertas de paridad listo/no listo:` : `All ${availabilityImportPreview.parityAlerts.length} ready-status parity alerts:`);
       for (const alert of availabilityImportPreview.parityAlerts) {
-        lines.push(`${alert.unit}: ${alert.type === "LOCAL_AHEAD" ? "LOCAL_AHEAD" : "REPORT_AHEAD"} | Local ${alert.localVacancyStatus} / ${alert.localMakeReadyStatus || "unset"} | Report ${alert.reportVacancyStatus} / ${alert.reportMakeReadyStatus || "unset"} | Updated ${formatDateTime(alert.updatedAt)} | Report date ${normalizePreviewDate(alert.reportDate) || "Unknown"}`);
+        lines.push(`${alert.unit}: ${alert.type === "LOCAL_AHEAD" ? "LOCAL_AHEAD" : "REPORT_AHEAD"} | Local ${alert.localVacancyStatus} | Final approval ${alert.localCompletionStatus || "unset"} | Report ${alert.reportVacancyStatus} | Updated ${formatDateTime(alert.updatedAt)} | Report date ${normalizePreviewDate(alert.reportDate) || "Unknown"}`);
       }
     }
     return lines.join("\n");
@@ -1897,6 +1892,11 @@ export function OperationsPanel({
                 </ul>
               </div>
             ) : null}
+            <p className="helper-copy">
+              {isSpanish
+                ? 'En RealPage, "lista" significa lista para el mercado. En MakeReadyOS, Make Ready completado solo significa reparaciones terminadas; pintura, limpieza e inspección final son independientes. Esta importación conserva el progreso de esos trabajos.'
+                : 'RealPage ready means market-ready. MakeReadyOS Make Ready Done means technician repairs are complete; painting, cleaning and final approval are separate. This import preserves that work progress.'}
+            </p>
             {availabilityImportPreview?.parityAlerts.length ? (
               <div className="admin-message warning" data-testid="availability-import-parity-alerts">
                 <strong>{availabilityImportPreview.parityAlerts.length}</strong>{" "}
@@ -1912,10 +1912,11 @@ export function OperationsPanel({
                             ? `MakeReadyOS ya muestra la unidad como lista o terminada, pero el reporte todavía no. Actualice el sistema fuente antes de importar si MakeReadyOS es correcto.`
                             : `MakeReadyOS already shows this unit as ready/completed, but the report does not. Update the source system before importing if MakeReadyOS is correct.`)
                         : (isSpanish
-                            ? `El reporte muestra la unidad como lista, pero MakeReadyOS todavía no. Confirme si el tablero local está atrasado antes de sobrescribirlo.`
-                            : `The report shows this unit as ready, but MakeReadyOS does not yet. Confirm whether the local board is behind before overwriting it.`)}{" "}
-                      {isSpanish ? "Local" : "Local"}: {occupancyLabel(alert.localVacancyStatus, language)} / {(alert.localMakeReadyStatus || (isSpanish ? "sin estado" : "unset"))}.{" "}
-                      {isSpanish ? "Reporte" : "Report"}: {occupancyLabel(alert.reportVacancyStatus, language)} / {(alert.reportMakeReadyStatus || (isSpanish ? "sin estado" : "unset"))}.{" "}
+                            ? `El reporte muestra la unidad lista para el mercado. Confirme el cambio de disponibilidad; esto no completa reparaciones, pintura, limpieza ni aprobación final.`
+                            : `The report shows this unit as market-ready. Confirm the availability change; this does not complete repairs, painting, cleaning or final approval.`)}{" "}
+                      {isSpanish ? "Disponibilidad local" : "Local availability"}: {occupancyLabel(alert.localVacancyStatus, language)}.{" "}
+                      {isSpanish ? "Aprobación final" : "Final approval"}: {alert.localCompletionStatus || (isSpanish ? "sin estado" : "unset")}.{" "}
+                      {isSpanish ? "Reporte" : "Report"}: {occupancyLabel(alert.reportVacancyStatus, language)}.{" "}
                       {isSpanish ? "Último cambio local" : "Last local change"}: {formatDateTime(alert.updatedAt)}.{" "}
                       {isSpanish ? "Fecha del reporte" : "Report date"}: {normalizePreviewDate(alert.reportDate) || "Unknown"}.
                     </li>

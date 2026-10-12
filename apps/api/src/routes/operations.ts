@@ -9,6 +9,7 @@ import { evaluateAndPersistItemRisk } from "../lib/risk.js";
 import { isReadyAvailabilityStatus } from "../lib/availabilityStatus.js";
 import { ensureDefaultTurnScheduling } from "../lib/defaultTurnScheduling.js";
 import { availabilityArchivePlan } from "../lib/availabilityReconciliation.js";
+import { turnApproved } from "../lib/turnStatus.js";
 
 export const operationsQuerySchema = z.object({
   includeArchived: z.enum(["true", "false"]).optional().transform((value) => value === "true"),
@@ -310,10 +311,6 @@ function normalizeDateString(value: Date | string | null | undefined) {
   return date.toISOString().slice(0, 10);
 }
 
-function isDoneLikeStatus(value: string | null | undefined) {
-  return ["DONE", "YES", "GOOD", "MADE", "COMPLETE", "COMPLETED"].includes(String(value ?? "").trim().toUpperCase());
-}
-
 function normalizeImportedDaysVacant(value: number | null | undefined, occupancyStatus: string) {
   if (value === null || value === undefined || !Number.isFinite(value)) return undefined;
   if (value < 0) {
@@ -354,7 +351,7 @@ function sanitizeAvailabilityImportRow(row: z.infer<typeof availabilityImportRow
   };
 }
 
-function buildAvailabilityConflict(existingTurn: {
+export function buildAvailabilityConflict(existingTurn: {
   id: string;
   unitNumber: string;
   vacancyStatus: string | null;
@@ -364,6 +361,7 @@ function buildAvailabilityConflict(existingTurn: {
   makeReadyDate: Date | null;
   moveInDate: Date | null;
   makeReadyStatus: string | null;
+  completionStatus: string | null;
   boardGroup: string;
   daysVacant: number;
   updatedAt: Date;
@@ -380,9 +378,6 @@ function buildAvailabilityConflict(existingTurn: {
   const reportMakeReady = row.makeReadyDate !== undefined ? normalizeDateString(row.makeReadyDate) : normalizeDateString(existingTurn.makeReadyDate);
   const reportMoveIn = row.moveInDate !== undefined ? normalizeDateString(row.moveInDate) : normalizeDateString(existingTurn.moveInDate);
   const reportApplicant = row.applicant !== undefined ? (row.applicant ?? "") : (existingTurn.applicant ?? "");
-  const reportMakeReadyStatus = row.makeReadyStatus !== undefined
-    ? (row.makeReadyStatus ?? "")
-    : (existingTurn.makeReadyStatus ?? (isReadyAvailabilityStatus(status) ? "DONE" : ""));
 
   if (nextVacancyStatus !== (existingTurn.vacancyStatus ?? "")) {
     const change = `Vacancy: ${existingTurn.vacancyStatus ?? "blank"} -> ${nextVacancyStatus}`;
@@ -414,11 +409,6 @@ function buildAvailabilityConflict(existingTurn: {
     fieldChanges.push(change);
     blockingFieldChanges.push(change);
   }
-  if (reportMakeReadyStatus !== (existingTurn.makeReadyStatus ?? "")) {
-    const change = `Make ready status: ${existingTurn.makeReadyStatus || "blank"} -> ${reportMakeReadyStatus || "blank"}`;
-    fieldChanges.push(change);
-    blockingFieldChanges.push(change);
-  }
   if (projectedBoardGroup !== existingTurn.boardGroup) {
     const change = `Board section will change from ${existingTurn.boardGroup} to ${projectedBoardGroup}`;
     fieldChanges.push(change);
@@ -427,12 +417,11 @@ function buildAvailabilityConflict(existingTurn: {
   if (row.daysVacant !== undefined && row.daysVacant !== null && Math.abs(Number(row.daysVacant) - Number(existingTurn.daysVacant ?? 0)) > 1) {
     fieldChanges.push(`Days vacant: ${Number(existingTurn.daysVacant ?? 0)} -> ${Number(row.daysVacant)}`);
   }
-  if (fieldChanges.length === 0) return null;
-
   const reportDate = parseOptionalDate(row.reportDate);
-  const localReadyRegression = (isDoneLikeStatus(existingTurn.makeReadyStatus) || isReadyAvailabilityStatus(existingTurn.vacancyStatus) || projectedBoardGroup !== existingTurn.boardGroup && isReadyAvailabilityStatus(existingTurn.vacancyStatus))
-    && !isReadyAvailabilityStatus(nextVacancyStatus)
-    && !isDoneLikeStatus(reportMakeReadyStatus);
+  // Technician repair completion is not market readiness or final approval.
+  const localReadyRegression = (turnApproved(existingTurn) || isReadyAvailabilityStatus(existingTurn.vacancyStatus))
+    && !isReadyAvailabilityStatus(nextVacancyStatus);
+  if (localReadyRegression) fieldChanges.push("Report says not market-ready; local availability or final approval says ready.");
   const localChangeAfterReport = reportDate ? existingTurn.updatedAt.getTime() > reportDate.getTime() : existingTurn.updatedAt.getTime() > existingTurn.createdAt.getTime();
 
   if (blockingFieldChanges.length === 0 && !localReadyRegression) return null;
@@ -1455,7 +1444,7 @@ export async function operationsRoutes(app: FastifyInstance) {
           vacatedDate: parsedVacatedDate ?? (!noticeStatus ? parsedMoveOutDate : null),
           makeReadyDate: parseOptionalDate(row.makeReadyDate),
           moveInDate: parseOptionalDate(row.moveInDate),
-          makeReadyStatus: row.makeReadyStatus ?? (status === "VACANT_READY" || status === "VACANT NOT LEASED READY" || status === "VACANT LEASED READY" ? "DONE" : null),
+          makeReadyStatus: null,
           scopeLevel: scopeFromMakeReadyStatus(row.makeReadyStatus) ?? row.scopeLevel ?? null,
           notes: null,
         };
@@ -1484,14 +1473,12 @@ export async function operationsRoutes(app: FastifyInstance) {
               : existingTurn.vacatedDate,
             makeReadyDate: row.makeReadyDate !== undefined ? parseOptionalDate(row.makeReadyDate) : existingTurn.makeReadyDate,
             moveInDate: row.moveInDate !== undefined ? parseOptionalDate(row.moveInDate) : existingTurn.moveInDate,
-            makeReadyStatus: row.makeReadyStatus !== undefined
-              ? row.makeReadyStatus
-              : existingTurn.makeReadyStatus ?? (status === "VACANT_READY" || status === "VACANT NOT LEASED READY" || status === "VACANT LEASED READY" ? "DONE" : null),
+            // Do not write work statuses: availability is not technician progress.
             scopeLevel: scopeFromMakeReadyStatus(row.makeReadyStatus) ?? (row.scopeLevel !== undefined ? row.scopeLevel : existingTurn.scopeLevel),
             notes: cleanedNotes,
           };
           const updateDerived = {
-            ...computeDerivedFields(updateTurnData),
+            ...computeDerivedFields({ ...existingTurn, ...updateTurnData }),
             ...(row.daysVacant !== undefined ? { daysVacant: row.daysVacant } : {}),
           };
           const updated = await tx.makeReadyItem.update({
