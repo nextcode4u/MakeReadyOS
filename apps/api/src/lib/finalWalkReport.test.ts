@@ -3,6 +3,21 @@ import { test } from "node:test";
 import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, technicianChecks, reportDraftSchema, reportSettingsSchema, residentReportBlockers } from "./finalWalkReport.js";
 import { inspectionDateOrToday } from "./finalWalkReport.js";
 
+test("welcome information can use a separate page without changing older settings or exposing markup", () => {
+  const context = { propertyName: "Demo", propertyCode: "DEMO", propertyLogo: null, companyName: null, companyLogo: null, unitNumber: "101", technician: null, reviewer: null };
+  const { residentInfoNewPage: ignored, ...legacy } = defaultReportSettings;
+  assert.equal(reportSettingsSchema.parse(legacy).residentInfoNewPage, false);
+  const settings = reportSettingsSchema.parse({ ...legacy, residentInfoNewPage: true, footer: "Office information\n<script>unsafe</script>" });
+  const html = finalWalkReportHtml(context, settings, emptyReportDraft());
+  assert.match(html, /<section class="welcome-page">/);
+  assert.match(html, /break-before:page/);
+  assert.match(html, /Office information\n&lt;script&gt;unsafe&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>unsafe/);
+  assert.doesNotMatch(finalWalkReportHtml(context, { ...settings, footer: "" }, emptyReportDraft()), /<section class="welcome-page">/);
+  assert.doesNotMatch(finalWalkReportHtml(context, defaultReportSettings, emptyReportDraft()), /<section class="welcome-page">/);
+  assert.equal(ignored, false);
+});
+
 test("inspection dates use the property day and preserve entered or saved dates", () => {
   const midnight = new Date("2026-10-09T02:00:00Z");
   assert.equal(inspectionDateOrToday("", undefined, "America/Chicago", midnight), "2026-10-08");

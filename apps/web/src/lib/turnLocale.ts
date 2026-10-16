@@ -85,6 +85,8 @@ export const turnSpanish: Record<string, string> = {
   "Report title": "Título del informe",
   "Introduction": "Introducción",
   "Resident footer": "Texto al pie para el residente",
+  "Start resident information on a separate welcome page": "Iniciar la información para residentes en una página de bienvenida separada",
+  "Uses the resident footer above with larger text on a separate page in the same PDF. Saved once for this property; no additional inspection checks.": "Usa el texto para residentes de arriba con letra más grande en una página separada del mismo PDF. Se guarda una vez para esta propiedad; no agrega verificaciones a la inspección.",
   "Introduction and resident footer must each be 20,000 characters or fewer. Your text has not been removed.": "La introducción y el texto al pie deben tener un máximo de 20,000 caracteres cada uno. Tu texto no se ha eliminado.",
   "Accent color": "Color de acento",
   "Save report settings": "Guardar configuración del informe",
