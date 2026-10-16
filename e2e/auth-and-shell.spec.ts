@@ -167,11 +167,38 @@ test("device push controls enable test and disable without automatic permission 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(controls.getByRole("button", { name: "Disable on this device" })).toBeInViewport();
   await controls.getByRole("button", { name: "Disable on this device" }).click();
-  await expect(controls.getByRole("button", { name: "Enable on this device" })).toBeVisible();
+  await expect(controls.getByRole("button", { name: "Reconnect this device" })).toBeVisible();
   await expect(prompt).toBeHidden();
   await page.reload();
   await expect(page.getByTestId("property-filter")).toBeVisible();
   await expect(prompt).toHaveCount(0);
+});
+
+test("device push reconnects granted subscriptions without repeated onboarding", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "PushManager", { value: class {}, configurable: true });
+    Object.defineProperty(window, "Notification", { value: { permission: "granted", requestPermission: async () => { throw new Error("Already granted; must not prompt again"); } }, configurable: true });
+    const subscription = { endpoint: "https://fcm.googleapis.com/existing-device", toJSON: () => ({ endpoint: "https://fcm.googleapis.com/existing-device", keys: { p256dh: "test", auth: "test" } }) };
+    Object.defineProperty(navigator.serviceWorker, "getRegistration", { value: async () => (window as any).workerAvailable ? { active: {}, pushManager: { getSubscription: async () => subscription } } : undefined, configurable: true });
+  });
+  let endpoints: string[] = [], saves = 0;
+  await page.route("**/api/push", async route => {
+    if (route.request().method() === "POST") { saves++; endpoints = [route.request().postDataJSON().endpoint]; }
+    await route.fulfill({ json: route.request().method() === "GET" ? { configured: true, publicKey: "B".repeat(87), endpoints } : { ok: true } });
+  });
+  await login(page, adminEmail, adminPassword);
+  await page.getByTestId("notifications-button").click();
+  const controls = page.getByTestId("device-push-settings");
+  await expect(controls.getByRole("button", { name: "Reconnect this device" })).toBeVisible();
+  await expect(page.getByTestId("device-push-onboarding")).toHaveCount(0);
+  await page.evaluate(() => { (window as any).workerAvailable = true; navigator.serviceWorker.dispatchEvent(new Event("controllerchange")); });
+  await expect(controls.getByRole("button", { name: "Disable on this device" })).toBeVisible();
+  expect(saves).toBeGreaterThan(0);
+  await expect(page.getByTestId("device-push-onboarding")).toHaveCount(0);
+  endpoints = [];
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect.poll(() => endpoints).toEqual(["https://fcm.googleapis.com/existing-device"]);
+  await expect(controls.getByRole("button", { name: "Disable on this device" })).toBeVisible();
 });
 
 test("device push onboarding remembers dismissal and respects blocked permissions", async ({ page }) => {
