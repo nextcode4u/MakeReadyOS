@@ -22,7 +22,7 @@ export function FinalWalkReportEditor({ propertyId, propertyName, itemId, onClos
   return <Modal open title={`${turnText(language, "Final-walk report")} / ${propertyName}`} testId="final-report-editor" onClose={() => { if (!busy && (!dirty || window.confirm(turnText(language, "Discard unsaved report changes?")))) onClose(); }}>
     {query.isPending ? <p>{turnText(language, "Loading report settings...")}</p> : !query.data || accessRejected ? <p role="alert">{turnText(language, "Could not load report settings.")} <button type="button" onClick={() => void query.refetch()}>{turnText(language, "Retry")}</button></p> : <>
       {query.isError ? <p role="alert" data-testid="report-refresh-warning">{turnText(language, "Saved report data could not refresh. Your current form is preserved; it may differ from the latest saved record.")} <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>{turnText(language, "Retry report refresh")}</button></p> : null}
-      <ReportEditor language={language} initial={query.data} onDirty={setDirty} onBusy={setBusy} onReturned={() => { setDirty(false); onClose(); }} />
+      <ReportEditor key={`${propertyId}:${itemId ?? "settings"}`} language={language} initial={query.data} onDirty={setDirty} onBusy={setBusy} onReturned={() => { setDirty(false); onClose(); }} />
     </>}
   </Modal>;
 }
@@ -39,6 +39,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
   const [error, setError] = useState("");
   const [html, setHtml] = useState("");
   const [scale, setScale] = useState(1);
+  const [showCodes, setShowCodes] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
   const actionPending = useRef(false);
   const settingsDirty = JSON.stringify(settings) !== JSON.stringify(savedSettings.value);
@@ -146,10 +147,11 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
           <label><input type="checkbox" style={{ width: "auto" }} disabled={invalidCounts.length > 0} checked={draft.handoffConfirmed} onChange={event => updateDraft({ handoffConfirmed: event.target.checked })} />{turnText(language, "I counted and confirmed the home/mailbox keys, fobs and remotes for handoff")}</label>
           <p>{turnText(language, "After confirming the counts, click Save inspection draft below. Checking this box alone does not save.")}</p>
           <p>{turnText(language, "Door/unit codes must be resident-specific. Gate/pedestrian codes may be resident-issued community codes. Never enter staff, vendor or master codes. No access codes are copied from the property access wiki.")}</p>
-          <label>{turnText(language, "Resident-only door code")}<input data-testid="report-door-code" type="password" autoComplete="new-password" maxLength={60} value={draft.residentDoorCode} onChange={event => updateDraft({ residentDoorCode: event.target.value })}/></label>
-          <label>{turnText(language, "Resident-only access code")}<input type="password" autoComplete="new-password" maxLength={60} value={draft.residentAccessCode} onChange={event => updateDraft({ residentAccessCode: event.target.value })}/></label>
-          <label>{turnText(language, "Resident gate code")}<input type="password" autoComplete="new-password" maxLength={60} value={draft.gateCode} onChange={event => updateDraft({ gateCode: event.target.value })} /></label>
-          <label>{turnText(language, "Resident pedestrian access code")}<input type="password" autoComplete="new-password" maxLength={60} value={draft.pedestrianCode} onChange={event => updateDraft({ pedestrianCode: event.target.value })} /></label>
+          <button type="button" className="button button-secondary" data-testid="report-code-visibility" aria-pressed={showCodes} onClick={() => setShowCodes(value => !value)}>{turnText(language, showCodes ? "Hide codes" : "Show codes")}</button>
+          <label>{turnText(language, "Resident-only door code")}<input data-testid="report-door-code" type={showCodes ? "text" : "password"} autoComplete="new-password" maxLength={60} value={draft.residentDoorCode} onChange={event => updateDraft({ residentDoorCode: event.target.value })}/></label>
+          <label>{turnText(language, "Resident-only access code")}<input type={showCodes ? "text" : "password"} autoComplete="new-password" maxLength={60} value={draft.residentAccessCode} onChange={event => updateDraft({ residentAccessCode: event.target.value })}/></label>
+          <label>{turnText(language, "Resident gate code")}<input type={showCodes ? "text" : "password"} autoComplete="new-password" maxLength={60} value={draft.gateCode} onChange={event => updateDraft({ gateCode: event.target.value })} /></label>
+          <label>{turnText(language, "Resident pedestrian access code")}<input type={showCodes ? "text" : "password"} autoComplete="new-password" maxLength={60} value={draft.pedestrianCode} onChange={event => updateDraft({ pedestrianCode: event.target.value })} /></label>
           <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input style={{ width: "auto" }} type="checkbox" checked={draft.includeResidentCodes} onChange={event => updateDraft({ includeResidentCodes: event.target.checked })}/>{turnText(language, "I confirm all codes here may be issued to this resident; include them on this report")}</label>
         </details>}
         <label>{turnText(language, "Internal follow-up for technician")}<textarea rows={3} maxLength={1000} value={draft.technicianFollowUp} onChange={event => updateDraft({ technicianFollowUp: event.target.value })}/></label>
