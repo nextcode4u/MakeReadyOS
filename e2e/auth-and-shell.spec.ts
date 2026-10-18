@@ -1683,11 +1683,14 @@ test("admin final-walk report editor saves drafts, uses real branding and pagina
   const bytes = readFileSync("/tmp/mros-final-report-live-data.pdf");
   expect(bytes.subarray(0,4).toString()).toBe("%PDF");
   expect((bytes.toString("latin1").match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
+  await expect(preview.locator(".resident-information")).toHaveCSS("break-before", "auto");
+  await expect(preview.locator(".resident-information .report-text")).toHaveCSS("font-size", "11px");
   await modal.getByLabel("Start resident information on a separate welcome page", { exact: true }).check();
   await modal.getByRole("button", { name: "Save report settings", exact: true }).click();
   await expect(modal.getByRole("status").filter({ hasText: "Report settings saved" })).toBeVisible();
   await modal.getByTestId("final-report-preview").click();
   await expect(preview.locator(".welcome-page")).toHaveCSS("break-before", "page");
+  await expect(preview.locator(".welcome-page .report-text")).toHaveCSS("font-size", "11px");
   await expect(preview.locator(".welcome-page h2")).toContainText(property.name);
   const welcomeDownload = page.waitForEvent("download");
   await modal.getByTestId("final-report-pdf").click();

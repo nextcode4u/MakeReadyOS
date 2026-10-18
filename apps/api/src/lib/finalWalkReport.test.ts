@@ -18,6 +18,15 @@ test("welcome information can use a separate page without changing older setting
   assert.equal(ignored, false);
 });
 
+test("flowing resident information keeps readable text without forcing a new page", () => {
+  const context = { propertyName: "Demo", propertyCode: "DEMO", propertyLogo: null, companyName: null, companyLogo: null, unitNumber: "101", technician: null, reviewer: null };
+  const html = finalWalkReportHtml(context, { ...defaultReportSettings, footer: "Community information\nOffice hours and resident services." }, emptyReportDraft());
+  assert.match(html, /<section class="resident-information"><p class="note report-text">Community information/);
+  assert.match(html, /\.resident-information \.report-text,\.welcome-page \.report-text\{font-size:11px;line-height:1.4\}/);
+  assert.doesNotMatch(html, /<section class="welcome-page">/);
+  assert.doesNotMatch(finalWalkReportHtml(context, { ...defaultReportSettings, footer: "" }, emptyReportDraft()), /<section class="resident-information">/);
+});
+
 test("inspection dates use the property day and preserve entered or saved dates", () => {
   const midnight = new Date("2026-10-09T02:00:00Z");
   assert.equal(inspectionDateOrToday("", undefined, "America/Chicago", midnight), "2026-10-08");
