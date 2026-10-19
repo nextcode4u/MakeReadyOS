@@ -3960,6 +3960,50 @@ test("assigned work shows upcoming unassigned starts without creating assignment
   expect(saved.customFieldValues).toHaveLength(0);
 });
 
+test("availability extension returns an assigned turn to My Work upcoming without losing its assignment", async ({ page }) => {
+  await login(page, adminEmail, adminPassword);
+  const { csrfToken, user } = await (await page.request.get("/api/auth/me")).json();
+  const headers = { "x-csrf-token": csrfToken };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`/api${path}`, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  };
+  const { property } = await post("/operations/properties", { code: `EX${Date.now()}`, name: "Extended notice fixture" });
+  const { unit } = await post("/operations/units", { propertyId: property.id, number: "EXT-1" });
+  const meta = await (await page.request.get("/api/meta")).json();
+  const section = meta.boardSections.find((entry: any) => entry.propertyId === property.id && entry.sectionType === "MAKE_READY");
+  const item = await post("/make-ready-items", { propertyId: property.id, unitId: unit.id, boardGroup: section.key, itemName: unit.number, unitNumber: unit.number, assignedTech: user.fullName, moveOutDate: "2000-01-01", vacancyStatus: "NTV LEASED", completionStatus: "NO", notes: "Keep the existing work notes" });
+  const startField = meta.customFields.find((field: any) => field.fieldKey === "turnMaintenanceDate");
+  expect((await page.request.put(`/api/make-ready-items/${item.id}/custom-fields/${startField.id}`, { headers, data: { value: "2000-01-03" } })).ok()).toBeTruthy();
+  const before = await (await page.request.get("/api/my-work")).json();
+  expect(before.items.some((turn: any) => turn.id === item.id)).toBe(true);
+  await post("/work-sessions/start", { sourceType: "MAKE_READY_ITEM", sourceId: item.id });
+  await post("/operations/availability/import", { propertyId: property.id, overrideConflicts: true, rows: [{ number: unit.number, availabilityStatus: "NTV Leased", moveOutDate: "2099-09-10" }] });
+  const after = await (await page.request.get("/api/my-work")).json();
+  expect(after.items.some((turn: any) => turn.id === item.id)).toBe(false);
+  expect(after.stats.total).toBe(before.stats.total - 1);
+  const upcoming = after.forecast.turns.find((turn: any) => turn.id === item.id);
+  expect(upcoming).toMatchObject({ confirmedAssignment: true, projectedStart: true });
+  expect(upcoming.expectedStartDate.slice(0, 10) > "2099-09-10").toBe(true);
+  const saved = await (await page.request.get(`/api/make-ready-items/${item.id}`)).json();
+  expect(saved.assignedTech).toBe(user.fullName);
+  expect(saved.notes).toContain("Keep the existing work notes");
+  expect(saved.customFieldValues.find((field: any) => field.customFieldId === startField.id).value).toBe("2000-01-03");
+  await page.reload();
+  await page.getByTestId("tab-my-work").click();
+  await expect(page.getByTestId(`my-work-item-${item.id}`)).toHaveCount(0);
+  await expect(page.getByTestId(`my-work-forecast-${item.id}`)).toContainText("Awaiting move-out");
+  await expect(page.getByTestId(`my-work-forecast-${item.id}`)).not.toContainText("Tentative assignment");
+  await expect(page.getByTestId(`my-work-forecast-${item.id}`)).toContainText("A work timer is still running");
+  await page.getByTestId(`my-work-forecast-${item.id}`).getByRole("button", { name: "End Work", exact: true }).click();
+  await expect(page.getByTestId(`my-work-forecast-${item.id}`)).not.toContainText("A work timer is still running");
+  // A later report confirming vacancy returns the same assignment to active work.
+  await post("/operations/availability/import", { propertyId: property.id, overrideConflicts: true, rows: [{ number: unit.number, availabilityStatus: "Vacant Leased Not Ready", vacatedDate: "2000-01-01" }] });
+  const vacant = await (await page.request.get("/api/my-work")).json();
+  expect(vacant.items.some((turn: any) => turn.id === item.id)).toBe(true);
+  expect(vacant.forecast.turns.some((turn: any) => turn.id === item.id)).toBe(false);
+});
+
 test("My Work forecasts personal upcoming turns without confirming assignments", async ({ page }) => {
   const session = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
   await login(page, adminEmail, adminPassword);

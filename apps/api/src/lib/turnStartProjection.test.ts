@@ -3,10 +3,26 @@ import test from "node:test";
 process.env.ADMIN_USERNAME = "projection-test";
 process.env.ADMIN_PASSWORD = "Test-Only-Password!123";
 process.env.SESSION_COOKIE_SECRET = "test-only-session-secret-12345678901234567890";
-const { projectedTurnStart, plannedTurnStart } = await import("./turnStartProjection.js");
+const { projectedTurnStart, plannedTurnStart, isUpcomingNotice } = await import("./turnStartProjection.js");
 
 const item = { isArchived: false, vacancyStatus: "NTV LEASED", completionStatus: "NO", moveOutDate: new Date(2026, 8, 11), vacatedDate: null };
 const day = (value: string | null) => value ? new Date(value).getDate() : null;
+
+test("extended notice moves assigned work back to upcoming and supersedes an obsolete saved start", () => {
+  const now = new Date(2026, 8, 9, 12);
+  assert.equal(isUpcomingNotice(item, now), true);
+  assert.equal(isUpcomingNotice({ ...item, vacancyStatus: "NTV_NOT_LEASED", vacatedDate: new Date(2020, 0, 1) }, now), true);
+  assert.equal(isUpcomingNotice(item, new Date(2026, 8, 11, 12)), true);
+  assert.equal(isUpcomingNotice(item, new Date(2026, 8, 12, 12)), false);
+  for (const vacancyStatus of ["OCCUPIED", "VACANT NOT LEASED NOT READY", "VACANT LEASED READY"]) {
+    assert.equal(isUpcomingNotice({ ...item, vacancyStatus }, now), false);
+  }
+  assert.equal(isUpcomingNotice({ ...item, isArchived: true }, now), false);
+  assert.equal(isUpcomingNotice({ ...item, moveOutDate: null }, now), false);
+  assert.equal(plannedTurnStart(item, "2026-09-07")?.projected, true);
+  assert.equal(day(plannedTurnStart(item, "2026-09-11")?.date ?? null), 14);
+  assert.equal(plannedTurnStart({ ...item, vacancyStatus: "VACANT NOT LEASED NOT READY" }, "2026-09-07")?.projected, false);
+});
 
 test("planning prefers saved starts, forecasts missing starts, and excludes finished turns", () => {
   assert.deepEqual(plannedTurnStart(item, "2026-09-22"), { date: "2026-09-22", projected: false });

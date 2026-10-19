@@ -19,9 +19,18 @@ export function isPlannableTurn(item: ProjectionItem) {
 
 export function plannedTurnStart(item: ProjectionItem, saved: unknown, calendar?: OperatingCalendarPolicy | null) {
   if (!isPlannableTurn(item)) return null;
-  if (typeof saved === "string" && saved && Number.isFinite(Date.parse(saved))) return { date: saved, projected: false };
+  const notice = (item.vacancyStatus ?? "").trim().toUpperCase().startsWith("NTV");
+  // Keep the saved date for history, but do not plan work before a revised notice ends.
+  const beforeVacancy = notice && item.moveOutDate && typeof saved === "string" && saved.slice(0, 10) <= item.moveOutDate.toISOString().slice(0, 10);
+  if (typeof saved === "string" && saved && Number.isFinite(Date.parse(saved)) && !beforeVacancy) return { date: saved, projected: false };
   const date = projectedTurnStart(item, calendar);
   return date ? { date, projected: true } : null;
+}
+
+export function isUpcomingNotice(item: ProjectionItem, now = new Date()) {
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return isPlannableTurn(item) && (item.vacancyStatus ?? "").trim().toUpperCase().startsWith("NTV")
+    && Boolean(item.moveOutDate && item.moveOutDate.toISOString().slice(0, 10) >= today);
 }
 
 export function projectedTurnStart(item: ProjectionItem, calendar?: OperatingCalendarPolicy | null) {

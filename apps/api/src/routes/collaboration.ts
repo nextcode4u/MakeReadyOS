@@ -17,6 +17,7 @@ import { renderPdfFromHtml } from "../lib/pdf.js";
 import { prisma } from "../lib/prisma.js";
 import { plannedTurnStart } from "../lib/turnStartProjection.js";
 import { myWorkForecast } from "../lib/myWorkForecast.js";
+import { isUpcomingNotice } from "../lib/turnStartProjection.js";
 import { ensureStoredUploadParent, removeStoredUpload, resolveStoredUploadPath, unitTurnStoredName } from "../lib/uploadStorage.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 import { lockTurnProperty } from "../lib/turnMutationGuard.js";
@@ -1627,7 +1628,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
       orderBy: [{ overdue: "desc" }, { moveInDate: "asc" }, { updatedAt: "desc" }],
     });
     const statusNow = new Date();
-    const items = storedItems.filter(item => !isDownTurn(item) && !isTurnReady(item)).map(item => withLiveTurnFields(item, statusNow))
+    const items = storedItems.filter(item => !isDownTurn(item) && !isTurnReady(item) && !isUpcomingNotice(item, statusNow)).map(item => withLiveTurnFields(item, statusNow))
       .sort((left, right) => Number(right.overdue) - Number(left.overdue));
     const projectItems = await prisma.projectRecord.findMany({
       where: {
@@ -1715,7 +1716,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
     soonCutoff.setDate(soonCutoff.getDate() + 7);
     return {
       target: { id: target.id, fullName: target.fullName },
-      forecast: await myWorkForecast(target.id, scopedProperties),
+      forecast: await myWorkForecast(target, scopedProperties),
       stats: {
         total: items.length + projectItems.length + pestItems.length + leaseComplianceItems.length + pmTasks.length,
         overdue: items.filter((entry) => entry.overdue).length

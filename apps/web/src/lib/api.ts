@@ -1399,7 +1399,7 @@ export type ItemCollaboration = {
 };
 
 export type MyWorkResponse = {
-  forecast?: { turns: Array<{ id: string; title: string; propertyName: string; expectedStartDate: string; projectedStart: boolean; percent: number }>; warnings: string[] };
+  forecast?: { turns: Array<{ id: string; title: string; propertyName: string; expectedStartDate: string; projectedStart: boolean; percent?: number; confirmedAssignment?: boolean }>; warnings: string[] };
   target: { id: string; fullName: string };
   stats: { total: number; overdue: number; dueSoon: number; openChecklistTasks: number };
   items: Array<MakeReadyItem & { expectedStart?: { date: string; projected: boolean } | null; checklistInstances: ChecklistInstance[]; workAssignmentBlocks?: WorkAssignmentBlock[] }>;
