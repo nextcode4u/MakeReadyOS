@@ -6294,6 +6294,50 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("calendar-view")).toBeVisible();
   });
 
+  test("schedule picture exports current month and layout on desktop and mobile and recovers from failure", async ({ page }, testInfo) => {
+    test.setTimeout(120000);
+    await login(page, adminEmail, adminPassword);
+    await page.getByTestId("tab-calendar").click();
+    await expect(page.getByTestId("calendar-panel-0")).toBeVisible();
+    await page.getByTestId("calendar-panel-0").getByRole("button", { name: "Next", exact: true }).click();
+    const month = await page.getByTestId("calendar-panel-0").locator(".calendar-nav strong").innerText();
+    for (const [width, layout, panels] of [[1280, "single", 1], [1280, "grid", 4], [412, "split", 2]] as const) {
+      await page.setViewportSize({ width, height: 915 });
+      await page.getByTestId("calendar-layout-select").selectOption(layout);
+      await expect(page.locator(".calendar-panel")).toHaveCount(panels);
+      const size = await page.locator(".calendar-panels").boundingBox();
+      const fullGridWidth = await page.locator(".calendar-grid").first().evaluate(element => element.scrollWidth);
+      const downloadPromise = page.waitForEvent("download");
+      await page.getByTestId("calendar-export-picture").click();
+      const download = await downloadPromise;
+      await download.saveAs(testInfo.outputPath(`calendar-${width}-${layout}.png`));
+      expect(download.suggestedFilename()).toMatch(new RegExp(`^makereadyos-schedule-\\d{4}-\\d{2}-${layout}\\.png$`));
+      const bytes = readFileSync((await download.path())!);
+      expect(bytes.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+      expect(bytes.readUInt32BE(16)).toBeGreaterThanOrEqual(Math.floor(size!.width * 0.5));
+      expect(bytes.readUInt32BE(16)).toBeGreaterThanOrEqual(fullGridWidth);
+      expect(bytes.readUInt32BE(20)).toBeGreaterThanOrEqual(Math.floor(size!.height * 0.5));
+      expect(bytes.length).toBeGreaterThan(10000);
+      await expect(page.getByTestId("calendar-export-picture")).toBeEnabled();
+      await expect(page.getByTestId("calendar-panel-0").locator(".calendar-nav strong")).toHaveText(month);
+      await expect(page.locator(".calendar-panels")).not.toHaveAttribute("inert", "");
+    }
+    await page.evaluate(() => {
+      const original = HTMLCanvasElement.prototype.toBlob;
+      HTMLCanvasElement.prototype.toBlob = function (callback) {
+        HTMLCanvasElement.prototype.toBlob = original;
+        callback(null);
+      };
+    });
+    await page.getByTestId("calendar-export-picture").click();
+    await expect(page.getByRole("alert").filter({ hasText: "Could not create the picture" })).toBeVisible();
+    await expect(page.getByTestId("calendar-export-picture")).toBeEnabled();
+    const retry = page.waitForEvent("download");
+    await page.getByTestId("calendar-export-picture").click();
+    await retry;
+    await expect(page.getByRole("alert").filter({ hasText: "Could not create the picture" })).toHaveCount(0);
+  });
+
   test("risk dashboard drilldown shows board risk indicators and drawer reasons", async ({ page }) => {
     await login(page, adminEmail, adminPassword);
     await page.getByTestId("tab-dashboard").click();
@@ -6309,7 +6353,7 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("history-coverage-notice")).toContainText("This is not a full audit");
   });
 
-  test("schedule exposes NTV terminology and an active custom date track", async ({ page }) => {
+  test("schedule exposes NTV terminology and an active custom date track", async ({ page }, testInfo) => {
     const fieldLabel = `QA Cleaning Date ${Date.now()}`;
     const fieldKey = customFieldKey(fieldLabel);
     const month = new Date().toISOString().slice(0, 7);
@@ -6373,6 +6417,13 @@ test.describe("MakeReadyOS browser flows", () => {
     await expect(page.getByTestId("calendar-panel-1")).toBeVisible();
     await page.getByTestId("calendar-layout-select").selectOption("grid");
     await expect(page.getByTestId("calendar-panel-3")).toBeVisible();
+    const picture = page.waitForEvent("download");
+    await page.getByTestId("calendar-export-picture").click();
+    const filteredPicture = await picture;
+    expect(filteredPicture.suggestedFilename()).toContain("-grid.png");
+    await filteredPicture.saveAs(testInfo.outputPath("calendar-filtered.png"));
+    await expect(page.getByTestId("active-filter-bar")).toContainText(`${fieldLabel}: Before ${month}-15`);
+    await expect(page.getByTestId("calendar-panel-track-0").locator("option:checked")).toHaveText(fieldLabel);
   });
 
   test("admin can create a user, update role, deactivate, and reactivate", async ({ page }) => {

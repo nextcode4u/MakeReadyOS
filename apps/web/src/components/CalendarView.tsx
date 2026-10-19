@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { downloadCalendarImage } from "../lib/calendarImage";
 import type { LabelDefinition, ScheduleTrack, UserLanguage } from "../lib/api";
 import { formatDateInput, todayInputValue } from "../lib/dateTime";
 import { LabelPill } from "./LabelPill";
@@ -144,9 +145,9 @@ function CalendarPanel({ track, events, labelsByField, month, onMonthChange, ind
           {options.map((option) => <option key={option.id} value={option.id}>{option.displayName}</option>)}
         </select>
         <div className="calendar-nav">
-          <button className="tab" onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>{isSpanish ? "Anterior" : "Prev"}</button>
+          <button data-calendar-export-exclude="true" className="tab" onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>{isSpanish ? "Anterior" : "Prev"}</button>
           <strong>{month.toLocaleString(isSpanish ? "es-ES" : "en-US", { month: "long", year: "numeric" })}</strong>
-          <button className="tab" onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>{isSpanish ? "Siguiente" : "Next"}</button>
+          <button data-calendar-export-exclude="true" className="tab" onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>{isSpanish ? "Siguiente" : "Next"}</button>
         </div>
       </div>
       {!events.length ? <div className="calendar-legend" role="status" data-testid={`calendar-empty-${index}`}>
@@ -222,6 +223,24 @@ function CalendarPanel({ track, events, labelsByField, month, onMonthChange, ind
 export function CalendarView({ eventsByTrack, labelsByField, fieldOptions, layout, language, selectedFields, onLayoutChange, onFieldChange, onOpenItem, startDateSourceField, onSetupScheduling }: Props) {
   const isSpanish = language === "es";
   const [month, setMonth] = useState(() => new Date());
+  const panelsRef = useRef<HTMLDivElement>(null);
+  const exportLock = useRef(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState(false);
+  async function exportPicture() {
+    if (!panelsRef.current || exportLock.current) return;
+    exportLock.current = true;
+    setExporting(true);
+    setExportError(false);
+    try {
+      await downloadCalendarImage(panelsRef.current, `makereadyos-schedule-${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}-${layout}.png`);
+    } catch {
+      setExportError(true);
+    } finally {
+      exportLock.current = false;
+      setExporting(false);
+    }
+  }
   const startTrack = fieldOptions.find(track => track.sourceField === startDateSourceField);
   const today = todayInputValue();
   const pastDueStarts = (startTrack ? eventsByTrack[startTrack.id] ?? [] : [])
@@ -232,10 +251,14 @@ export function CalendarView({ eventsByTrack, labelsByField, fieldOptions, layou
     <section className={`calendar-shell calendar-layout-${layout}`} data-testid="calendar-view">
       <div className="schedule-layout-toolbar">
         <strong>{isSpanish ? "Diseno de calendario" : "Schedule Layout"}</strong>
-        <select data-testid="calendar-layout-select" value={layout} onChange={(event) => onLayoutChange(event.target.value as Layout)}>
+        <select data-testid="calendar-layout-select" disabled={exporting} value={layout} onChange={(event) => onLayoutChange(event.target.value as Layout)}>
           <option value="single">{isSpanish ? "1 calendario" : "1 calendar"}</option><option value="split">{isSpanish ? "2 calendarios divididos" : "2 calendar split"}</option><option value="grid">{isSpanish ? "Cuadricula de 4 calendarios" : "4 calendar grid"}</option><option value="auto">{isSpanish ? "Auto adaptable" : "Auto responsive"}</option>
         </select>
+        <button type="button" className="button button-secondary" data-testid="calendar-export-picture" disabled={exporting} onClick={() => void exportPicture()} title={isSpanish ? "Descarga PNG del mes, pistas, colores y filtros actuales." : "Download a PNG of the current month, tracks, colors and filters."}>
+          {exporting ? (isSpanish ? "Creando imagen..." : "Creating picture...") : (isSpanish ? "Exportar imagen" : "Export picture")}
+        </button>
       </div>
+      {exportError ? <p role="alert">{isSpanish ? "No se pudo crear la imagen. Reintenta o selecciona menos calendarios." : "Could not create the picture. Try again or select fewer calendars."}</p> : null}
       <p className="muted" data-testid="calendar-date-guide">{isSpanish ? "Muestra todas las unidades accesibles con los filtros actuales, no solo tus asignaciones. Sin inicio guardado, se proyecta el siguiente día laboral tras la salida prevista o desocupación. Expected Finish es una fecha distinta." : "Shows all accessible units matching your filters, not just your assignments. Without a saved start, Projected uses the next working day after NTV / Expected Vacate or Vacated, respecting property weekday restrictions. Expected Finish is separate. Projections update with vacate dates; saved starts are preserved."}</p>
       {pastDueStarts.length ? <details className="calendar-legend" open data-testid="calendar-past-due-starts">
         <summary><strong>{isSpanish ? "Inicios vencidos" : "Past-due starts"} ({pastDueStarts.length})</strong></summary>
@@ -247,7 +270,7 @@ export function CalendarView({ eventsByTrack, labelsByField, fieldOptions, layou
           </button>)}
         </div>
       </details> : null}
-      <div className="calendar-panels">
+      <div className="calendar-panels" ref={panelsRef} aria-busy={exporting} inert={exporting}>
         {Array.from({ length: count }, (_, index) => {
           const id = selectedFields[index] ?? fieldOptions[index]?.id ?? fieldOptions[0]?.id;
           const track = fieldOptions.find((option) => option.id === id) ?? fieldOptions[0];
