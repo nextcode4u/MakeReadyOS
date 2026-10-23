@@ -1,0 +1,72 @@
+import { expect, test } from "@playwright/test";
+
+test("report preview fits the full document and supports zoom, drag and keyboard scrolling", async ({ page }) => {
+  test.setTimeout(90000);
+  await page.goto("/");
+  await page.getByTestId("login-email").fill(process.env.ADMIN_EMAIL || "admin@example.com");
+  await page.getByTestId("login-password").fill(process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456");
+  await page.getByTestId("login-submit").click();
+  await expect(page.getByTestId("property-filter")).toBeVisible();
+  const items = await (await page.request.get("/api/make-ready-items")).json();
+  const item = items.find((entry: { unitNumber: string }) => entry.unitNumber === "DG-111") ?? items[0];
+  await page.getByTestId("property-filter").selectOption(item.propertyId);
+  await page.getByRole("button", { name: `Open details for ${item.unitNumber}`, exact: true }).click();
+  await page.getByRole("button", { name: "Inspection details / report", exact: true }).click();
+  const editor = page.getByTestId("final-report-editor");
+  const footer = Array.from({ length: 120 }, (_, i) => `Welcome information ${i + 1}: contact the office for assistance.`).join("\n");
+  await editor.getByRole("textbox", { name: "Resident footer", exact: true }).fill(footer);
+  await editor.getByTestId("final-report-preview").click();
+  const viewport = editor.getByTestId("final-report-viewport");
+  const iframe = viewport.locator("iframe");
+  await expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
+  await expect.poll(() => iframe.evaluate(element => element.clientHeight)).toBeGreaterThan(2000);
+  const frame = editor.frameLocator("iframe");
+  await expect(frame.locator(".report-text").last()).toContainText("Welcome information 120");
+  await expect(frame.locator("body")).toHaveCSS("padding-left", "38.4px");
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await editor.getByRole("button", { name: "Fit width", exact: true }).click();
+    await expect.poll(() => viewport.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+    await editor.getByRole("button", { name: "Actual size", exact: true }).click();
+    await expect(editor.locator("output")).toHaveText("100%");
+    await editor.getByRole("button", { name: "Zoom in", exact: true }).click();
+    await expect(editor.locator("output")).toHaveText("125%");
+    await viewport.scrollIntoViewIfNeeded();
+    const bounds = (await viewport.boundingBox())!;
+    const before = await viewport.evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }));
+    await page.mouse.move(bounds.x + bounds.width * 0.7, bounds.y + 180);
+    await page.mouse.down();
+    await page.mouse.move(bounds.x + bounds.width * 0.7 - 80, bounds.y + 100, { steps: 8 });
+    await page.mouse.up();
+    const after = await viewport.evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }));
+    expect(after.x).toBeGreaterThan(before.x);
+    expect(after.y).toBeGreaterThan(before.y);
+    await expect(viewport).toHaveAttribute("data-dragging", "false");
+    await viewport.focus();
+    await page.keyboard.press("ArrowDown");
+    await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBeGreaterThan(after.y);
+    if (width === 390) {
+      const touch = await page.context().newCDPSession(page);
+      const top = await viewport.evaluate(element => element.scrollTop);
+      await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: bounds.x + bounds.width / 2, y: bounds.y + 180 }] });
+      await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: bounds.x + bounds.width / 2, y: bounds.y + 100 }] });
+      await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBeGreaterThan(top);
+      await touch.detach();
+    }
+    await editor.getByRole("button", { name: "Zoom out", exact: true }).click();
+    await expect(editor.locator("output")).toHaveText("100%");
+    await editor.getByRole("button", { name: "Fit width", exact: true }).click();
+    await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBe(0);
+    await page.screenshot({ path: `/tmp/final-report-preview-${width}.png` });
+    await editor.getByTestId("final-report-completion").scrollIntoViewIfNeeded();
+    const completion = (await editor.getByTestId("final-report-completion").boundingBox())!;
+    const preview = (await editor.locator(".final-report-preview-content").boundingBox())!;
+    expect(preview.y + preview.height).toBeLessThanOrEqual(completion.y);
+  }
+  await editor.getByRole("textbox", { name: "Resident footer", exact: true }).fill("Updated draft");
+  await expect(viewport).toHaveCount(0);
+  await editor.getByTestId("final-report-preview").click();
+  await expect(viewport).toBeVisible();
+  await expect(editor.locator("output")).not.toHaveText("125%");
+});

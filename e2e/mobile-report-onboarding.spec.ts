@@ -1,0 +1,57 @@
+import { expect, test } from "@playwright/test";
+
+test("optional property onboarding shortcuts persist and resident download stays at the bottom", async ({ page }) => {
+  test.setTimeout(90000);
+  await page.goto("/");
+  await page.getByTestId("login-email").fill(process.env.ADMIN_EMAIL || "admin@example.com");
+  await page.getByTestId("login-password").fill(process.env.ADMIN_PASSWORD || "ChangeThisAdmin!23456");
+  const login = page.waitForResponse(response => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
+  await page.getByTestId("login-submit").click();
+  const { csrfToken } = await (await login).json();
+  const headers = { "x-csrf-token": csrfToken };
+  await expect(page.getByTestId("property-filter")).toBeVisible();
+  const items = await (await page.request.get("/api/make-ready-items")).json();
+  const item = items.find((entry: { unitNumber: string }) => entry.unitNumber === "DG-111") ?? items[0];
+  const root = `/api/final-walk-reports/${item.propertyId}`;
+  const original = await (await page.request.get(`${root}?itemId=${item.id}`)).json();
+  try {
+    await page.getByTestId("property-filter").selectOption(item.propertyId);
+    await page.getByRole("button", { name: `Open details for ${item.unitNumber}`, exact: true }).click();
+    await page.getByRole("button", { name: "Inspection details / report", exact: true }).click();
+    const editor = page.getByTestId("final-report-editor");
+    const onboarding = editor.getByTestId("final-report-onboarding");
+    await onboarding.getByText("Manage onboarding buttons / this property", { exact: true }).click();
+    await onboarding.getByRole("button", { name: "Add onboarding button", exact: true }).click();
+    await onboarding.getByLabel("Button name", { exact: true }).last().fill("Gate onboarding");
+    await onboarding.getByLabel("HTTPS link", { exact: true }).last().fill("javascript:alert(1)");
+    await onboarding.getByRole("button", { name: "Save onboarding buttons", exact: true }).click();
+    await expect(onboarding.getByRole("alert")).toContainText("HTTPS link");
+    await onboarding.getByLabel("HTTPS link", { exact: true }).last().fill("https://example.com/onboarding");
+    await onboarding.getByRole("button", { name: "Save onboarding buttons", exact: true }).click();
+    const shortcut = onboarding.getByRole("link", { name: /Gate onboarding/ });
+    await expect(shortcut).toHaveAttribute("href", "https://example.com/onboarding");
+    await expect(shortcut).toHaveAttribute("target", "_blank");
+    await expect(shortcut).toHaveAttribute("rel", "noopener noreferrer");
+    await expect(editor.getByTestId("final-report-pdf")).not.toBeVisible();
+    await expect(editor.getByTestId("final-report-resident-pdf")).toBeVisible();
+    expect(await editor.getByTestId("final-report-resident-download").evaluate(element => element === element.parentElement?.lastElementChild)).toBeTruthy();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    expect(await onboarding.evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy();
+    await editor.getByTestId("final-report-resident-download").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: "/tmp/final-report-onboarding-mobile.png" });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    expect(await onboarding.evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy();
+    await editor.getByTestId("final-report-resident-download").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: "/tmp/final-report-onboarding-desktop.png" });
+    const saved = await (await page.request.get(`${root}?itemId=${item.id}`)).json();
+    expect(saved.settings.value.onboardingLinks.at(-1)).toEqual({ label: "Gate onboarding", url: "https://example.com/onboarding" });
+    expect(saved.draft).toEqual(original.draft);
+    await onboarding.getByRole("button", { name: "Remove onboarding button: Gate onboarding", exact: true }).click();
+    await onboarding.getByRole("button", { name: "Save onboarding buttons", exact: true }).click();
+    await expect(shortcut).toHaveCount(0);
+  } finally {
+    const current = await (await page.request.get(`${root}?itemId=${item.id}`)).json();
+    const restored = await page.request.put(`${root}/settings`, { headers, data: { version: current.settings.version, value: original.settings.value } });
+    expect(restored.ok()).toBeTruthy();
+  }
+});

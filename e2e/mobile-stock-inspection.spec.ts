@@ -31,6 +31,7 @@ test("stock inspection defaults today's date and defers move-in handoff", async 
   const report = page.getByTestId("final-report-editor");
   const today = (await (await page.request.get(`/api${reportPath}?itemId=${item.id}`)).json()).inspectionToday;
   await expect(report.getByTestId("final-report-date")).toHaveValue(today);
+  await report.getByText("Draft tools / not the resident copy", { exact: true }).click();
   page.once("dialog", dialog => dialog.accept());
   await report.getByRole("button", { name: "Reload saved data", exact: true }).click();
   await expect(report.getByTestId("final-report-date")).toHaveValue(today);

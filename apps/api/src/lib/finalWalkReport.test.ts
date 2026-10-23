@@ -3,6 +3,24 @@ import { test } from "node:test";
 import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, technicianChecks, reportDraftSchema, reportSettingsSchema, residentReportBlockers } from "./finalWalkReport.js";
 import { inspectionDateOrToday } from "./finalWalkReport.js";
 
+test("optional onboarding links validate secure URLs and stay out of resident reports", () => {
+  const { onboardingLinks: ignored, ...legacy } = defaultReportSettings;
+  assert.deepEqual(reportSettingsSchema.parse(legacy).onboardingLinks, []);
+  const link = { label: "Gate onboarding", url: "https://example.com/staff/onboarding" };
+  const settings = reportSettingsSchema.parse({ ...legacy, onboardingLinks: [link] });
+  assert.deepEqual(settings.onboardingLinks, [link]);
+  for (const url of ["javascript:alert(1)", "data:text/html,test", "http://example.com", "https://user:password@example.com", "/relative", "invalid"]) {
+    assert.equal(reportSettingsSchema.safeParse({ ...legacy, onboardingLinks: [{ ...link, url }] }).success, false, url);
+  }
+  assert.equal(reportSettingsSchema.safeParse({ ...legacy, onboardingLinks: [{ ...link, label: " " }] }).success, false);
+  assert.equal(reportSettingsSchema.safeParse({ ...legacy, onboardingLinks: Array(13).fill(link) }).success, false);
+  const context = { propertyName: "Demo", propertyCode: "DEMO", propertyLogo: null, companyName: null, companyLogo: null, unitNumber: "101", technician: null, reviewer: null };
+  const html = finalWalkReportHtml(context, settings, emptyReportDraft());
+  assert.ok(!html.includes(link.url));
+  assert.ok(!html.includes(link.label));
+  assert.deepEqual(ignored, []);
+});
+
 test("welcome information can use a separate page without changing older settings or exposing markup", () => {
   const context = { propertyName: "Demo", propertyCode: "DEMO", propertyLogo: null, companyName: null, companyLogo: null, unitNumber: "101", technician: null, reviewer: null };
   const { residentInfoNewPage: ignored, ...legacy } = defaultReportSettings;

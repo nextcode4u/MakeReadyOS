@@ -1596,6 +1596,7 @@ test("mailbox directory imports populate turn reports and isolate resident codes
   await editor.getByTestId("final-report-save-draft").click();
   await expect(editor.getByRole("status")).toContainText("Inspection draft saved");
   const download = page.waitForEvent("download");
+  await editor.getByText("Draft tools / not the resident copy", { exact: true }).click();
   await editor.getByTestId("final-report-pdf").click();
   const file = await download; expect(await file.failure()).toBeNull();
   const pdf = readFileSync((await file.path())!).toString("latin1");
@@ -1677,6 +1678,7 @@ test("admin final-walk report editor saves drafts, uses real branding and pagina
   await expect(preview.locator(".draft")).toContainText("NOT FOR RESIDENT ISSUE");
   await modal.screenshot({ path: "/tmp/mros-final-report-desktop.png" });
   const download = page.waitForEvent("download");
+  await modal.getByText("Draft tools / not the resident copy", { exact: true }).click();
   await modal.getByTestId("final-report-pdf").click();
   const pdf = await download;
   await pdf.saveAs("/tmp/mros-final-report-live-data.pdf");
@@ -3601,6 +3603,7 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
         await expect(preview.locator("body")).toContainText("UNIT-0482");
         await expect(preview.locator("body")).toContainText("MB-42");
         const download = staffPage.waitForEvent("download");
+        await report.getByText("Draft tools / not the resident copy", { exact: true }).click();
         await report.getByTestId("final-report-pdf").click();
         const pdf = await download;
         await pdf.saveAs(testInfo.outputPath("leasing-inspection-draft.pdf"));

@@ -43,9 +43,15 @@ export const reportSettingsSchema = z.object({
   introduction: text(20000),
   footer: text(20000),
   residentInfoNewPage: z.boolean().default(false),
+  onboardingLinks: z.array(z.object({
+    label: text(60).min(1),
+    url: text(2000).url().refine(value => {
+      try { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password; } catch { return false; }
+    }, "Use an HTTPS link without embedded credentials"),
+  }).strict()).max(12).default([]),
   accent: z.string().regex(/^#[0-9a-fA-F]{6}$/),
 }).strict();
-export const defaultReportSettings = { title: "Your Home Preparation Checklist", introduction: "Recorded preparation checks and final presentation review for your home.", footer: "Please complete your move-in condition form and report concerns to the property team. This summary is not a safety certification or a guarantee of future performance.", residentInfoNewPage: false, accent: "#174d49" };
+export const defaultReportSettings = { title: "Your Home Preparation Checklist", introduction: "Recorded preparation checks and final presentation review for your home.", footer: "Please complete your move-in condition form and report concerns to the property team. This summary is not a safety certification or a guarantee of future performance.", residentInfoNewPage: false, onboardingLinks: [] as { label: string; url: string }[], accent: "#174d49" };
 const resultSchema = z.object({ status: z.enum(["NOT_CHECKED", "CHECKED", "ATTENTION", "NA"]), note: text(100) }).strict();
 export const reportDraftSchema = z.object({
   inspectionDate: z.union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => { const d = new Date(`${value}T12:00:00Z`); return Number.isFinite(d.getTime()) && d.toISOString().slice(0,10) === value; }, "Enter a valid date")]),
