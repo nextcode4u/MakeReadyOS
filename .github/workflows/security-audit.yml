@@ -20,6 +20,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Audit locked production dependencies
+      - name: Audit all locked dependencies, including build and test tools
         working-directory: ${{ matrix.directory }}
-        run: npm audit --omit=dev --package-lock-only
+        run: npm audit --package-lock-only

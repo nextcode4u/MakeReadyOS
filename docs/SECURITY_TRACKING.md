@@ -13,9 +13,23 @@ The [Zod upstream fix](https://github.com/colinhacks/zod/pull/6652) checks colle
 
 Exploit-DB check for CVE-2023-54404: no matching indexed result found on 2026-10-23; direct lookup was unavailable. Public exploit status remains unverified. Do not interpret this as evidence that no exploit exists. No exploit code was run against a deployment.
 
+### Development Dependencies
+
+Enabling repository dependency alerts also surfaced build/development-tool findings. These are still worth fixing even when they are not shipped as application runtime dependencies. The lockfiles now resolve the following patched versions; all-dependency npm audits (without `--omit=dev`) are clean at this checkpoint.
+
+| Advisory | Patched lockfile resolution |
+| --- | --- |
+| [CVE-2026-102422: shell-quote command injection](https://github.com/advisories/GHSA-pqg4-j6r4-53mv) | shell-quote 1.12.0 via concurrently 9.2.5 |
+| [CVE-2026-102277](https://github.com/advisories/GHSA-q2hr-2g5m-vwhr), [recursive brace parsing](https://github.com/advisories/GHSA-qhr7-859c-m2p7), [comma recursion](https://github.com/advisories/GHSA-6j4f-fj2g-mc7p): brace-expansion denial of service | brace-expansion 5.0.12 |
+| [CVE-2026-93749: source-map-js denial of service](https://github.com/advisories/GHSA-68fv-2mgg-jv7q) | source-map-js 1.2.2 |
+| [CVE-2026-112942](https://github.com/advisories/GHSA-587h-7wmj-h5pm), [112943](https://github.com/advisories/GHSA-698v-4r3x-3vcv), [112944](https://github.com/advisories/GHSA-r825-w8mm-5pxw), [112945](https://github.com/advisories/GHSA-9jrq-w75r-8gcw), [112946](https://github.com/advisories/GHSA-rq7h-c2jc-7f22): Vite/development-editor advisories | Vite 7.3.7 |
+| CVE-2023-54404, linked above | Root tooling's transitive Zod also upgraded to 4.6.7 |
+
+Exploit-DB status for these additional findings has not been verified. Do not delay available patches while waiting for a public exploit listing.
+
 ## Review Procedure
 
-1. Run the Dependency Security Audit workflow or `npm audit --omit=dev --package-lock-only` in the repository root, `apps/api` and `apps/web`.
+1. Run the Dependency Security Audit workflow or `npm audit --package-lock-only` in the repository root, `apps/api` and `apps/web`. Include development tools; an audit with `--omit=dev` covers only production dependencies.
 2. Confirm affected and patched versions using the maintainer advisory. Record applicability, severity, remediation and the check date here without production details.
 3. Check [NVD](https://nvd.nist.gov/vuln/search), [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) and [Exploit-DB](https://www.exploit-db.com/) using the exact CVE. Record uncertainty and dates; exploit availability and known active exploitation are different things.
 4. Test upgrades, including validation behavior and import/export compatibility. Do not bypass audit failures or blindly apply `npm audit fix --force`.

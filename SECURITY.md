@@ -34,7 +34,7 @@ MakeReadyOS intentionally does not execute arbitrary imported JavaScript or untr
 
 ## Dependency Monitoring
 
-CI audits production dependencies on pushes and pull requests. The Dependency Security Audit workflow also checks the three lockfiles daily and can be run manually. Dependabot checks npm dependencies and GitHub Actions weekly; upgrades still require review and tests, not automatic merging. Enable GitHub Actions failure notifications and repository Dependabot alerts in your account/repository settings to receive alerts.
+CI audits production dependencies on pushes and pull requests. The Dependency Security Audit workflow checks all dependencies, including build and test tools, in the three lockfiles daily and can be run manually. Dependabot checks npm dependencies and GitHub Actions weekly; upgrades still require review and tests, not automatic merging. Enable GitHub Actions failure notifications and repository Dependabot alerts in your account/repository settings to receive alerts.
 
 Track reviewed findings in [docs/SECURITY_TRACKING.md](docs/SECURITY_TRACKING.md). Use vendor advisories and the GitHub Advisory Database to establish affected versions, then check NVD, CISA KEV and Exploit-DB for additional context. Exploit-DB checks are manual, not part of the scheduled npm audit. No listing does not establish that a vulnerability is unexploitable.
 
