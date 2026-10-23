@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { Prisma } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -15,17 +16,17 @@ export const savedViewSchema = z.object({
   name: z.string().trim().min(2).max(120),
   module: z.string().default("make-ready"),
   viewType: z.enum(["table", "kanban", "calendar", "dashboard"]),
-  filters: z.record(z.unknown()).default({}),
+  filters: z.record(z.string(), z.unknown()).default({}),
   sorts: z.object({
     key: z.string(),
     direction: z.enum(["asc", "desc"]),
   }).nullable().optional(),
-  grouping: z.record(z.unknown()).nullable().optional(),
+  grouping: z.record(z.string(), z.unknown()).nullable().optional(),
   visibleColumns: z.array(z.string()).nullable().optional(),
   isShared: z.boolean().default(false),
 });
 
-export const savedViewUpdateSchema = savedViewSchema.partial().extend({
+export const savedViewUpdateSchema = patchSchema(savedViewSchema).extend({
   name: z.string().trim().min(2).max(120).optional(),
   viewType: z.enum(["table", "kanban", "calendar", "dashboard"]).optional(),
 });

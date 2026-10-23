@@ -189,16 +189,16 @@ const customFieldOptionSchema = z.object({
 const customFieldValueSchema = z.object({
   fieldKey: z.string().min(1),
   itemKey: z.string().min(1),
-  value: z.unknown(),
+  value: z.unknown().optional(),
 });
 
 const savedViewSchema = z.object({
   name: z.string().min(1),
   module: z.string(),
   viewType: z.string(),
-  filters: z.unknown(),
-  sorts: z.unknown().nullable(),
-  grouping: z.unknown().nullable(),
+  filters: z.unknown().optional(),
+  sorts: z.unknown().nullable().optional(),
+  grouping: z.unknown().nullable().optional(),
   visibleColumns: z.array(z.string()).nullable(),
   isShared: z.literal(true),
   isDefault: z.boolean(),
@@ -212,8 +212,8 @@ const automationRuleSchema = z.object({
   triggerType: z.string(),
   enabled: z.boolean(),
   isArchived: z.boolean().default(false),
-  conditions: z.unknown(),
-  actions: z.unknown(),
+  conditions: z.unknown().optional(),
+  actions: z.unknown().optional(),
 });
 
 const checklistTemplateSchema = z.object({
@@ -398,8 +398,8 @@ const propertyTemplateSchema = z.object({
   version: z.number().int(),
   notes: z.string().nullable(),
   sourcePropertyCode: z.string().nullable(),
-  includeConfig: z.unknown(),
-  manifest: z.unknown(),
+  includeConfig: z.unknown().optional(),
+  manifest: z.unknown().optional(),
   isArchived: z.boolean().default(false),
 });
 
@@ -702,7 +702,7 @@ const projectCategoryBackupSchema = z.object({
 const projectRecordBackupSchema = z.object({
   productUrl: productLinkSchema.nullable().optional().default(null),
   quotes: z.array(projectQuoteInput.omit({ expectedVersion: true }).extend({ id: z.string().uuid(), version: z.number().int().positive(), createdAt: z.string().datetime(), updatedAt: z.string().datetime() })).max(500).optional().default([]),
-  costLines: z.array(projectCostInput.innerType().omit({ expectedVersion: true }).extend({ id: z.string().uuid(), version: z.number().int().positive(), createdAt: z.string().datetime(), updatedAt: z.string().datetime() }).refine(line => line.quantity * line.unitCostCents <= 1000000000, "Line estimate exceeds limit")).max(500).optional().default([]),
+  costLines: z.array(z.object(projectCostInput.shape).omit({ expectedVersion: true }).extend({ id: z.string().uuid(), version: z.number().int().positive(), createdAt: z.string().datetime(), updatedAt: z.string().datetime() }).refine(line => line.quantity * line.unitCostCents <= 1000000000, "Line estimate exceeds limit")).max(500).optional().default([]),
   portableKey: z.string().min(1),
   propertyCode: z.string().min(1),
   recordType: z.string().min(1),
@@ -1051,7 +1051,7 @@ const backupSchema = z.object({
 const importSchema = z.object({
   dryRun: z.boolean().default(true),
   mode: z.literal("merge").default("merge"),
-  backup: z.unknown(),
+  backup: z.unknown().optional(),
 });
 
 type NativeBackup = z.infer<typeof backupSchema>;
@@ -2262,7 +2262,7 @@ async function buildExport(): Promise<NativeBackup> {
       })),
       projectRecords: projectRecords.map((record) => ({
         quotes: record.quotes.map(({ recordId: _recordId, ...entry }) => ({ ...entry, status: projectQuoteInput.shape.status.parse(entry.status), createdAt: entry.createdAt.toISOString(), updatedAt: entry.updatedAt.toISOString() })),
-        costLines: record.costLines.map(({ recordId: _recordId, ...entry }) => ({ ...entry, category: projectCostInput.innerType().shape.category.parse(entry.category), createdAt: entry.createdAt.toISOString(), updatedAt: entry.updatedAt.toISOString() })),
+        costLines: record.costLines.map(({ recordId: _recordId, ...entry }) => ({ ...entry, category: projectCostInput.shape.category.parse(entry.category), createdAt: entry.createdAt.toISOString(), updatedAt: entry.updatedAt.toISOString() })),
         portableKey: projectRecordKeysById.get(record.id) ?? projectRecordPortableKey({
           propertyCode: record.property.code,
           recordType: record.recordType,

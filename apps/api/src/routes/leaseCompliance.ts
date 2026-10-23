@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { basename, extname } from "node:path";
@@ -61,7 +62,7 @@ export const leaseComplianceIssueSchema = z.object({
   assignedUserId: z.string().trim().min(1).nullable().optional(),
 });
 
-export const leaseComplianceIssuePatchSchema = leaseComplianceIssueSchema.partial().extend({
+export const leaseComplianceIssuePatchSchema = patchSchema(leaseComplianceIssueSchema).extend({
   expectedUpdatedAt: z.string().datetime().optional(),
 });
 
@@ -538,7 +539,7 @@ export async function leaseComplianceRoutes(app: FastifyInstance) {
   app.patch("/lease-compliance/issue-types/:id", async (request, reply) => {
     if (!requireLeaseComplianceAccess(request, reply, "admin")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = leaseComplianceIssueTypeSchema.partial().parse(request.body);
+    const input = patchSchema(leaseComplianceIssueTypeSchema).parse(request.body);
     const existing = await prisma.leaseComplianceIssueType.findUnique({ where: { id } });
     if (!existing) throw Object.assign(new Error("Lease Compliance issue type not found"), { statusCode: 404 });
     await assertPropertyAccess(request, existing.propertyId);

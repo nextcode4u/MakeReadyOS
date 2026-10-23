@@ -75,7 +75,7 @@ export const operationalLibraryPackSchema = z.object({
       name: z.string().trim().min(2).max(120),
       module: z.string().trim().min(1).max(80),
       viewType: z.string().trim().min(1).max(40),
-      filters: z.record(z.unknown()),
+      filters: z.record(z.string(), z.unknown()),
       sorts: z.unknown().optional(),
       grouping: z.unknown().optional(),
       visibleColumns: z.unknown().optional(),
@@ -88,7 +88,7 @@ export const operationalLibraryPackSchema = z.object({
       category: z.string().trim().max(80).nullable().optional(),
       version: z.number().int().min(1).max(999).default(1),
       notes: z.string().trim().max(2000).nullable().optional(),
-      manifest: z.unknown(),
+      manifest: z.unknown().optional(),
     })).optional(),
   }).optional(),
 }).strict();

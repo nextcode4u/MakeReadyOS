@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { allowedPropertyIds, requireAdmin } from "../lib/auth.js";
@@ -76,7 +77,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
   app.put("/make-ready-items/:itemId/resident-codes", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
     const initial = await codeContext(request, prisma);
-    const input = z.object({ version: z.number().int().nonnegative(), value: residentCodesSchema.partial().strict() }).strict().parse(request.body);
+    const input = z.object({ version: z.number().int().nonnegative(), value: patchSchema(residentCodesSchema).strict() }).strict().parse(request.body);
     return prisma.$transaction(async db => {
       await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${initial.propertyId}), 824018)::text`;
       await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${initial.id}), 824020)::text`;

@@ -1,5 +1,6 @@
-import { zodToJsonSchema } from "zod-to-json-schema";
-import { z, type ZodTypeAny } from "zod";
+import { patchSchema } from "./patchSchema.js";
+import { schemaToOpenApi } from "./schemaToOpenApi.js";
+import { z, type ZodType } from "zod";
 import { projectQuoteInput, projectCostInput } from "./projectBudget.js";
 import { loginSchema } from "../routes/auth.js";
 import { analyticsPropertyQuerySchema, analyticsSnapshotQuerySchema } from "../routes/analytics.js";
@@ -158,7 +159,7 @@ import {
 import { operationalLibraryPackRequestSchema, operationalLibraryPackSchema } from "../routes/operationalLibrary.js";
 import { webhookEventTypes } from "./webhookQueue.js";
 
-const zodSchemas: Record<string, ZodTypeAny> = {
+const zodSchemas: Record<string, ZodType> = {
   AuthLoginRequest: loginSchema,
   AnalyticsPropertyQuery: analyticsPropertyQuerySchema,
   AnalyticsSnapshotQuery: analyticsSnapshotQuerySchema,
@@ -212,23 +213,23 @@ const zodSchemas: Record<string, ZodTypeAny> = {
   VendorAssignmentCreateRequest: vendorAssignmentSchema,
   VendorAssignmentPatchRequest: vendorAssignmentPatchSchema,
   PoolFacilityCreateRequest: poolFacilitySchema,
-  PoolFacilityPatchRequest: poolFacilitySchema.partial(),
+  PoolFacilityPatchRequest: patchSchema(poolFacilitySchema),
   PoolChemicalCreateRequest: poolChemicalSchema,
-  PoolChemicalPatchRequest: poolChemicalSchema.partial(),
+  PoolChemicalPatchRequest: patchSchema(poolChemicalSchema),
   PoolLogEntryCreateRequest: poolLogEntrySchema,
   PreventiveMaintenanceTemplateRequest: preventiveMaintenanceTemplateSchema,
-  PreventiveMaintenanceTemplatePatchRequest: preventiveMaintenanceTemplateSchema.partial(),
+  PreventiveMaintenanceTemplatePatchRequest: patchSchema(preventiveMaintenanceTemplateSchema),
   PreventiveMaintenanceTaskQuery: preventiveMaintenanceTaskQuerySchema,
   PreventiveMaintenanceHistoryQuery: preventiveMaintenanceHistoryQuerySchema,
   PreventiveMaintenanceTaskCompleteRequest: preventiveMaintenanceTaskCompleteSchema,
   PreventiveMaintenanceTaskSkipRequest: preventiveMaintenanceTaskSkipSchema,
   PropertyWikiProfileRequest: propertyWikiProfileSchema,
   PropertyWikiEntryRequest: propertyWikiEntrySchema,
-  PropertyWikiEntryPatchRequest: propertyWikiEntrySchema.partial(),
+  PropertyWikiEntryPatchRequest: patchSchema(propertyWikiEntrySchema),
   PropertyWikiVendorRequest: propertyWikiVendorSchema,
-  PropertyWikiVendorPatchRequest: propertyWikiVendorSchema.partial(),
+  PropertyWikiVendorPatchRequest: patchSchema(propertyWikiVendorSchema),
   PropertyWikiAssetUploadRequest: propertyWikiAssetMetadataSchema,
-  PropertyWikiAssetPatchRequest: propertyWikiAssetMetadataSchema.omit({ propertyId: true, kind: true }).partial(),
+  PropertyWikiAssetPatchRequest: patchSchema(propertyWikiAssetMetadataSchema.omit({ propertyId: true, kind: true })),
   PropertyWikiFavoriteToggleRequest: propertyWikiFavoriteSchema,
   PropertyWikiWorkflowContextQuery: propertyWikiContextQuerySchema,
   PropertyWikiReferenceRequest: propertyWikiReferenceSchema,
@@ -251,7 +252,7 @@ const zodSchemas: Record<string, ZodTypeAny> = {
   RiskPolicyRequest: riskPolicyPayloadSchema,
   ProjectCategoryRequest: projectCategorySchema,
   ProjectRecordRequest: projectRecordSchema,
-  ProjectRecordPatchRequest: projectRecordSchema.partial().extend({ expectedUpdatedAt: z.coerce.date().optional() }),
+  ProjectRecordPatchRequest: patchSchema(projectRecordSchema).extend({ expectedUpdatedAt: z.coerce.date().optional() }),
   ProjectQuoteSaveRequest: projectQuoteInput,
   ProjectCostSaveRequest: projectCostInput,
   ProjectRecordQuery: projectRecordQuerySchema,
@@ -280,7 +281,7 @@ const zodSchemas: Record<string, ZodTypeAny> = {
   LeaseComplianceArchiveRequest: leaseComplianceArchiveSchema,
   LeaseComplianceRecurringDismissRequest: leaseComplianceRecurringDismissSchema,
   RefrigerantTypeRequest: refrigerantTypeSchema,
-  RefrigerantTypePatchRequest: refrigerantTypeSchema.partial(),
+  RefrigerantTypePatchRequest: patchSchema(refrigerantTypeSchema),
   RefrigerantCylinderRequest: refrigerantCylinderSchema,
   RefrigerantCylinderPatchRequest: refrigerantCylinderPatchSchema,
   RefrigerantTransactionRequest: refrigerantTransactionSchema,
@@ -300,7 +301,7 @@ const zodSchemas: Record<string, ZodTypeAny> = {
 const generatedValidationSchemas = Object.fromEntries(
   Object.entries(zodSchemas).map(([name, schema]) => [
     name,
-    zodToJsonSchema(schema, { target: "openApi3" }),
+    schemaToOpenApi(schema),
   ]),
 );
 

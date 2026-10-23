@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { Prisma, UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -22,7 +23,7 @@ export const propertyCreateSchema = z.object({
   occupancyGoalPercent: z.number().min(0).max(100).optional().nullable(),
 });
 
-export const propertyPatchSchema = propertyCreateSchema.partial().refine((value) => Object.keys(value).length > 0, {
+export const propertyPatchSchema = patchSchema(propertyCreateSchema).refine((value) => Object.keys(value).length > 0, {
   message: "Provide a property name or code to update",
 });
 
@@ -84,7 +85,7 @@ export const unitCreateSchema = z.object({
   isBudgeted: z.boolean().optional(),
 });
 
-export const unitPatchSchema = unitCreateSchema.partial().refine((value) => Object.keys(value).length > 0, {
+export const unitPatchSchema = patchSchema(unitCreateSchema).refine((value) => Object.keys(value).length > 0, {
   message: "Provide unit fields to update",
 });
 
@@ -194,7 +195,7 @@ export const scheduleTrackSchema = z.object({
   moveInSoonEnabled: z.boolean().default(true),
   isEnabled: z.boolean().default(true),
 });
-export const scheduleTrackPatchSchema = scheduleTrackSchema.partial().refine((value) => Object.keys(value).length > 0, {
+export const scheduleTrackPatchSchema = patchSchema(scheduleTrackSchema).refine((value) => Object.keys(value).length > 0, {
   message: "Provide schedule track fields to update",
 });
 export const reorderScheduleTracksSchema = z.object({ ids: z.array(z.string()).min(1) });
@@ -226,7 +227,7 @@ export const boardOptionInputSchema = z.object({
   textColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#f4f6fa"),
 });
 
-export const boardOptionPatchSchema = boardOptionInputSchema.omit({ fieldKey: true }).partial().refine((value) => Object.keys(value).length > 0, {
+export const boardOptionPatchSchema = patchSchema(boardOptionInputSchema.omit({ fieldKey: true })).refine((value) => Object.keys(value).length > 0, {
   message: "Provide a display name or color to update",
 });
 
@@ -242,7 +243,7 @@ export const floorPlanCreateSchema = z.object({
   description: z.string().trim().max(500).optional().nullable(),
 });
 
-export const floorPlanPatchSchema = floorPlanCreateSchema.partial().refine((value) => Object.keys(value).length > 0, {
+export const floorPlanPatchSchema = patchSchema(floorPlanCreateSchema).refine((value) => Object.keys(value).length > 0, {
   message: "Provide floor plan fields to update",
 });
 export const sectionPatchSchema = z.object({ displayName: z.string().trim().min(1).max(80) });

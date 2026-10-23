@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { basename, extname } from "node:path";
@@ -629,7 +630,7 @@ export async function preventiveMaintenanceRoutes(app: FastifyInstance) {
   app.patch("/pm/templates/:id", async (request, reply) => {
     if (!requirePmAccess(request, reply, "edit")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = preventiveMaintenanceTemplateSchema.partial().parse(request.body);
+    const input = patchSchema(preventiveMaintenanceTemplateSchema).parse(request.body);
     const existing = await prisma.preventiveMaintenanceTemplate.findUnique({ where: { id } });
     if (!existing) throw Object.assign(new Error("PM template not found"), { statusCode: 404 });
     await assertPropertyAccess(request, existing.propertyId);

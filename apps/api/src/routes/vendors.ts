@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -29,7 +30,7 @@ export const vendorSchema = z.object({
   propertyIds: z.array(z.string()).max(100).optional().default([]),
 });
 
-export const vendorPatchSchema = vendorSchema.partial().extend({
+export const vendorPatchSchema = patchSchema(vendorSchema).extend({
   isActive: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: "Provide vendor fields to update" });
 
@@ -55,7 +56,7 @@ export const vendorAssignmentSchema = z.object({
   invoiceRef: z.string().trim().max(120).nullable().optional(),
 });
 
-export const vendorAssignmentPatchSchema = vendorAssignmentSchema.omit({ vendorId: true, itemId: true }).partial().extend({
+export const vendorAssignmentPatchSchema = patchSchema(vendorAssignmentSchema.omit({ vendorId: true, itemId: true })).extend({
   vendorId: z.string().optional(),
   completedAt: z.string().nullable().optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: "Provide assignment fields to update" });

@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
@@ -144,7 +145,7 @@ export const projectTaskSchema = z.object({
   dueDate: z.coerce.date().nullable().optional(),
 });
 
-export const projectTaskPatchSchema = projectTaskSchema.partial().extend({
+export const projectTaskPatchSchema = patchSchema(projectTaskSchema).extend({
   completedDate: z.coerce.date().nullable().optional(),
 });
 
@@ -736,7 +737,7 @@ export async function projectRoutes(app: FastifyInstance) {
   app.patch("/projects/categories/:id", async (request, reply) => {
     if (!requireProjectsAccess(request, reply, "admin")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = projectCategorySchema.partial().parse(request.body);
+    const input = patchSchema(projectCategorySchema).parse(request.body);
     const category = await prisma.$transaction(async tx => {
       await lockProjectCategories(tx);
       const existing = await tx.projectCategory.findUnique({ where: { id } });
@@ -1014,7 +1015,7 @@ export async function projectRoutes(app: FastifyInstance) {
   app.patch("/projects/records/:id", async (request, reply) => {
     if (!requireProjectsAccess(request, reply, "edit")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const { expectedUpdatedAt, ...input } = projectRecordSchema.partial().extend({ expectedUpdatedAt: z.coerce.date().optional() }).parse(request.body);
+    const { expectedUpdatedAt, ...input } = patchSchema(projectRecordSchema).extend({ expectedUpdatedAt: z.coerce.date().optional() }).parse(request.body);
     const existing = await prisma.projectRecord.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ message: "Project record not found" });
     if (!(await canEditProjectRecord(request, existing))) return reply.code(403).send({ message: "Projects edit access denied" });

@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { stringify } from "csv-stringify/sync";
 import { UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -13,7 +14,7 @@ const cylinderCategories = ["VIRGIN", "CLEAN_RECOVERY", "DIRTY_RECOVERY"] as con
 const cylinderStatuses = ["ACTIVE", "EMPTY_PENDING_RECOVERY", "ARCHIVED"] as const;
 const transactionTypes = ["VIRGIN_CHARGE", "CLEAN_RECOVERY", "DIRTY_RECOVERY", "FINAL_RECOVERY"] as const;
 const numericReading = z.union([z.number(), z.string().trim().min(1)]);
-const weightReading = numericReading.pipe(z.coerce.number().finite().min(0).max(10000));
+const weightReading = numericReading.pipe(z.coerce.number<string | number>().finite().min(0).max(10000));
 
 export const refrigerantTypeSchema = z.object({
   name: z.string().trim().min(2).max(40),
@@ -25,7 +26,7 @@ export const refrigerantCylinderSchema = z.object({
   identifier: z.string().trim().min(1).max(120),
   refrigerantTypeId: z.string(),
   category: z.enum(cylinderCategories),
-  tankSize: numericReading.pipe(z.coerce.number().finite().positive().max(10000)),
+  tankSize: numericReading.pipe(z.coerce.number<string | number>().finite().positive().max(10000)),
   currentWeight: weightReading,
   tareWeight: weightReading.nullable().optional(),
   waterCapacity: weightReading.nullable().optional(),
@@ -35,7 +36,7 @@ export const refrigerantCylinderSchema = z.object({
   overrideActiveVirgin: z.boolean().optional().default(false),
 });
 
-export const refrigerantCylinderPatchSchema = refrigerantCylinderSchema.partial().extend({
+export const refrigerantCylinderPatchSchema = patchSchema(refrigerantCylinderSchema).extend({
   finalRecoveryCompleted: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: "Provide cylinder fields to update" });
 
@@ -699,7 +700,7 @@ export async function refrigerantRoutes(app: FastifyInstance) {
   app.patch("/refrigerant/types/:id", async (request, reply) => {
     if (!requireRefrigerantAccess(request, reply, "admin")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = refrigerantTypeSchema.partial().parse(request.body);
+    const input = patchSchema(refrigerantTypeSchema).parse(request.body);
     const type = await prisma.refrigerantType.update({ where: { id }, data: { name: input.name, notes: input.notes, isActive: input.isActive, updatedById: request.currentUser!.id } });
     await writeAuditLog({ request, actorUserId: request.currentUser!.id, entityType: "REFRIGERANT_TYPE", entityId: type.id, action: "REFRIGERANT_TYPE_UPDATED", message: `Updated refrigerant type ${type.name}` });
     return { type };

@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { unlink } from "node:fs/promises";
@@ -1302,7 +1303,7 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
   app.patch("/property-wiki/entries/:id", async (request) => {
     requireWikiEdit(request);
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = entrySchema.partial().parse(request.body);
+    const input = patchSchema(entrySchema).parse(request.body);
     const { tags, installDate, warrantyExpiresAt, relatedEntryIds, relatedVendorIds, ...rest } = input;
     const existing = await prisma.propertyWikiEntry.findUnique({ where: { id }, include: { property: true, assets: true } });
     if (!existing) throw Object.assign(new Error("Property wiki entry not found"), { statusCode: 404 });
@@ -1406,7 +1407,7 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
   app.patch("/property-wiki/vendors/:id", async (request) => {
     requireWikiEdit(request);
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = vendorSchema.partial().parse(request.body);
+    const input = patchSchema(vendorSchema).parse(request.body);
     const existing = await prisma.propertyWikiVendor.findUnique({ where: { id }, include: { property: true, assets: true } });
     if (!existing) throw Object.assign(new Error("Property wiki vendor not found"), { statusCode: 404 });
     await assertPropertyAccess(request, existing.propertyId);
@@ -1556,7 +1557,7 @@ export async function propertyWikiRoutes(app: FastifyInstance) {
   app.patch("/property-wiki/assets/:id", async (request) => {
     requireWikiEdit(request);
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = assetMetadataSchema.omit({ propertyId: true, kind: true }).partial().parse(request.body);
+    const input = patchSchema(assetMetadataSchema.omit({ propertyId: true, kind: true })).parse(request.body);
     const existing = await prisma.propertyWikiAsset.findUnique({ where: { id }, include: { property: true, entry: true, vendor: true } });
     if (!existing) throw Object.assign(new Error("Property wiki asset not found"), { statusCode: 404 });
     await assertPropertyAccess(request, existing.propertyId);

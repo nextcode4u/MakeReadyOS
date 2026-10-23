@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { CustomFieldType, Prisma } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -22,12 +23,12 @@ export const customFieldCreateSchema = z.object({
   description: z.string().trim().max(280).nullable().optional(),
   options: z.array(customFieldOptionInputSchema).optional(),
 });
-export const customFieldUpdateSchema = customFieldCreateSchema.partial();
+export const customFieldUpdateSchema = patchSchema(customFieldCreateSchema);
 export const customFieldReorderSchema = z.object({
   fieldIds: z.array(z.string()).min(1),
 });
 export const customFieldValueSchema = z.object({
-  value: z.unknown().nullable(),
+  value: z.unknown().nullable().optional(),
 });
 const trashRetentionDays = 7;
 

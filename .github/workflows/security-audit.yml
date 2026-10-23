@@ -1,0 +1,25 @@
+name: Dependency Security Audit
+
+on:
+  schedule:
+    - cron: '23 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        directory: ['.', 'apps/api', 'apps/web']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Audit locked production dependencies
+        working-directory: ${{ matrix.directory }}
+        run: npm audit --omit=dev --package-lock-only

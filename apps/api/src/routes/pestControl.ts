@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { basename, extname } from "node:path";
@@ -62,7 +63,7 @@ export const pestIssueSchema = z.object({
   description: z.string().trim().max(4000).nullable().optional(),
 });
 
-export const pestIssuePatchSchema = pestIssueSchema.partial().extend({
+export const pestIssuePatchSchema = patchSchema(pestIssueSchema).extend({
   expectedUpdatedAt: z.string().datetime().optional(),
 });
 
@@ -959,7 +960,7 @@ export async function pestControlRoutes(app: FastifyInstance) {
   app.patch("/pest/vendors/:id", async (request, reply) => {
     if (!requirePestAccess(request, reply, "edit")) return;
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    const input = pestVendorSchema.partial().parse(request.body);
+    const input = patchSchema(pestVendorSchema).parse(request.body);
     const existing = await prisma.pestVendor.findUnique({ where: { id } });
     if (!existing) throw Object.assign(new Error("Pest vendor not found"), { statusCode: 404 });
     await assertPropertyAccess(request, existing.propertyId);

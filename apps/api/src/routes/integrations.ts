@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -23,7 +24,7 @@ export const webhookCreateSchema = z.object({
   propertyIds: z.array(z.string()).max(100).default([]),
 });
 
-export const webhookPatchSchema = webhookCreateSchema.partial().extend({
+export const webhookPatchSchema = patchSchema(webhookCreateSchema).extend({
   isEnabled: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: "Provide webhook fields to update" });
 

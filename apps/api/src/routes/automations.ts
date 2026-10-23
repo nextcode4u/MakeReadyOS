@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { Prisma, UserRole } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -12,7 +13,7 @@ import { prisma } from "../lib/prisma.js";
 import { executeScheduledAutomationRules } from "../lib/scheduledAutomations.js";
 
 export const automationCreateSchema = createSchema;
-export const automationUpdateSchema = automationRuleBaseSchema.partial().omit({ enabled: true });
+export const automationUpdateSchema = patchSchema(automationRuleBaseSchema).omit({ enabled: true });
 export const automationToggleSchema = z.object({ enabled: z.boolean() });
 export const automationListSchema = z.object({ includeArchived: booleanFlag.default(false) });
 export const automationInstallTemplateSchema = z.object({

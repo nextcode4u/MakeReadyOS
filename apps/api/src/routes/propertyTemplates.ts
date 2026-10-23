@@ -28,7 +28,7 @@ export const propertyTemplateCreateFromPropertySchema = z.object({
   category: z.string().trim().max(80).optional().nullable(),
   version: z.number().int().min(1).max(999).default(1),
   notes: z.string().trim().max(2000).optional().nullable(),
-  include: propertyTemplateIncludeSchema.default({}),
+  include: propertyTemplateIncludeSchema.prefault({}),
 });
 
 export const propertyTemplateApplySchema = z.object({
@@ -52,7 +52,7 @@ export const propertyTemplateLibrarySchema = z.object({
   category: z.string().trim().max(80).optional().nullable(),
   version: z.number().int().min(1).max(999).default(1),
   notes: z.string().trim().max(2000).optional().nullable(),
-  manifest: z.unknown(),
+  manifest: z.unknown().optional(),
 });
 
 export const propertyTemplatePackItemSchema = propertyTemplateLibrarySchema;

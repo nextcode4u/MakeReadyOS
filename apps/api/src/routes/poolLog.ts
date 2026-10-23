@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { unlink } from "node:fs/promises";
@@ -548,7 +549,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
     const existing = await prisma.poolFacility.findUnique({ where: { id: params.id } });
     if (!existing) throw Object.assign(new Error("Pool/spa not found"), { statusCode: 404 });
     await assertPropertyAccess(request, existing.propertyId);
-    const input = poolFacilitySchema.partial().parse(request.body);
+    const input = patchSchema(poolFacilitySchema).parse(request.body);
     if (input.propertyId) await assertPropertyAccess(request, input.propertyId);
     const facility = await prisma.poolFacility.update({ where: { id: params.id }, data: { ...input, updatedById: request.currentUser?.id }, include: { property: true } });
     await writeAuditLog({ request, propertyId: facility.propertyId, entityType: "PoolFacility", entityId: facility.id, action: "Pool Facility Updated", message: `Updated pool/spa ${facility.name}` });
@@ -621,7 +622,7 @@ export async function poolLogRoutes(app: FastifyInstance) {
     const existing = await prisma.poolChemical.findUnique({ where: { id: params.id } });
     if (!existing) throw Object.assign(new Error("Pool chemical not found"), { statusCode: 404 });
     await assertPropertyAccess(request, existing.propertyId);
-    const input = poolChemicalSchema.partial().parse(request.body);
+    const input = patchSchema(poolChemicalSchema).parse(request.body);
     if (input.propertyId) await assertPropertyAccess(request, input.propertyId);
     const existingAllowedUnits = ((existing as { allowedUnits?: string[] }).allowedUnits ?? []);
     const normalizedAllowedUnits = input.unit || input.allowedUnits

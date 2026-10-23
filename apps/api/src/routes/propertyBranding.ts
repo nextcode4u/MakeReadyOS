@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { allowedPropertyIds } from "../lib/auth.js";
@@ -30,7 +31,7 @@ export async function propertyBrandingRoutes(app: FastifyInstance) {
   app.patch("/management-companies/:id", async (request, reply) => {
     if (request.currentUser!.role !== "ADMIN") return reply.code(403).send({ message: "Only admins manage company branding" });
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
-    const input = companyInputSchema.partial().parse(request.body);
+    const input = patchSchema(companyInputSchema).parse(request.body);
     if (!(await prisma.managementCompany.findUnique({ where: { id } }))) return reply.code(404).send({ message: "Company not found" });
     if (input.name && await prisma.managementCompany.findFirst({ where: { name: input.name, id: { not: id } } })) return reply.code(409).send({ message: "A company with that name already exists" });
     const company = await prisma.managementCompany.update({ where: { id }, data: input });

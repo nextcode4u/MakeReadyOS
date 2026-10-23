@@ -53,6 +53,7 @@ import { riskRoutes } from "./routes/risk.js";
 import { savedViewRoutes } from "./routes/savedViews.js";
 import { vendorRoutes } from "./routes/vendors.js";
 import { onCallRoutes, publicOnCallRoutes } from "./routes/onCall.js";
+import { assertValidationBudget } from "./lib/validationBudget.js";
 
 const app = Fastify({
   logger: false,
@@ -109,6 +110,11 @@ await app.register(multipart, {
 app.addHook("onRequest", async (request) => {
   if (isHealthRequest(request.method, request.url)) return;
   await loadSessionUser(request);
+});
+
+app.addHook("preValidation", async (request) => {
+  assertValidationBudget(request.body);
+  assertValidationBudget(request.query);
 });
 
 app.setErrorHandler((error, _request, reply) => {

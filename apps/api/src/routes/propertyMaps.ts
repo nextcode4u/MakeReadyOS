@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { basename, extname } from "node:path";
@@ -32,7 +33,7 @@ export const propertyMapCreateSchema = z.object({
   height: z.coerce.number().int().positive().max(50000).nullable().optional(),
   isDefault: z.boolean().optional(),
 });
-export const propertyMapPatchSchema = propertyMapCreateSchema.omit({ propertyId: true }).partial().extend({
+export const propertyMapPatchSchema = patchSchema(propertyMapCreateSchema.omit({ propertyId: true })).extend({
   isActive: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: "Provide map fields to update" });
 export const unitMapLocationInputSchema = z.object({
@@ -47,7 +48,7 @@ export const unitMapLocationInputSchema = z.object({
   area: z.string().trim().max(80).nullable().optional(),
   floor: z.string().trim().max(40).nullable().optional(),
 });
-export const unitMapLocationPatchSchema = unitMapLocationInputSchema.partial().extend({
+export const unitMapLocationPatchSchema = patchSchema(unitMapLocationInputSchema).extend({
   isActive: z.boolean().optional(),
   isArchived: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: "Provide location fields to update" });
@@ -64,7 +65,7 @@ export const propertyMapAreaInputSchema = z.object({
   expectedUnitCount: z.coerce.number().int().min(0).max(10000).nullable().optional(),
   notes: z.string().trim().max(1200).nullable().optional(),
 });
-export const propertyMapAreaPatchSchema = propertyMapAreaInputSchema.omit({ propertyId: true, mapId: true }).partial().extend({
+export const propertyMapAreaPatchSchema = patchSchema(propertyMapAreaInputSchema.omit({ propertyId: true, mapId: true })).extend({
   isActive: z.boolean().optional(),
   isArchived: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: "Provide area fields to update" });
@@ -90,7 +91,7 @@ export const propertyMapPinInputSchema = z.object({
   tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
   isEmergency: z.boolean().optional(),
 });
-export const propertyMapPinPatchSchema = propertyMapPinInputSchema.omit({ propertyId: true, mapId: true }).partial().extend({
+export const propertyMapPinPatchSchema = patchSchema(propertyMapPinInputSchema.omit({ propertyId: true, mapId: true })).extend({
   isActive: z.boolean().optional(),
   isArchived: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, { message: "Provide pin fields to update" });

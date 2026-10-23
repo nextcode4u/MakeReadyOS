@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { UserRole } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -26,7 +27,7 @@ export const planningBlockSchema = z.object({
   notes: z.string().trim().max(1000).nullable().optional(),
 });
 
-export const planningPatchBlockSchema = planningBlockSchema.partial();
+export const planningPatchBlockSchema = patchSchema(planningBlockSchema);
 export const planningCapacitySchema = z.object({
   defaultDailyHours: z.coerce.number().positive().max(24),
   tradeCategories: z.array(z.string().trim().min(1).max(80)).max(20).optional().default([]),

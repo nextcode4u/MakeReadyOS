@@ -136,7 +136,7 @@ export const makeReadyCreateSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 
-export const makeReadyPatchSchema = z.record(z.unknown());
+export const makeReadyPatchSchema = z.record(z.string(), z.unknown());
 const makeReadyExportQuerySchema = makeReadyQuerySchema
   .omit({ limit: true, offset: true, updatedSince: true })
   .extend({

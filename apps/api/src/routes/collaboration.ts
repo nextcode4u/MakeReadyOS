@@ -1,3 +1,4 @@
+import { patchSchema } from "../lib/patchSchema.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { unlink } from "node:fs/promises";
@@ -83,7 +84,7 @@ export const chargePriceSheetCreateSchema = z.object({
   defaultCents: z.number().int().min(0).max(100000000).nullable().optional(),
   description: z.string().trim().max(1000).nullable().optional(),
 });
-export const chargePriceSheetPatchSchema = chargePriceSheetCreateSchema.omit({ propertyId: true }).partial().extend({
+export const chargePriceSheetPatchSchema = patchSchema(chargePriceSheetCreateSchema.omit({ propertyId: true })).extend({
   isActive: z.boolean().optional(),
   isArchived: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(100000).optional(),
