@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("optional property onboarding shortcuts persist and resident download stays at the bottom", async ({ page }) => {
+test("optional property onboarding shortcuts persist beside compact report actions", async ({ page }) => {
   test.setTimeout(90000);
   await page.goto("/");
   await page.getByTestId("login-email").fill(process.env.ADMIN_EMAIL || "admin@example.com");
@@ -20,7 +20,9 @@ test("optional property onboarding shortcuts persist and resident download stays
     await page.getByRole("button", { name: "Inspection details / report", exact: true }).click();
     const editor = page.getByTestId("final-report-editor");
     const onboarding = editor.getByTestId("final-report-onboarding");
-    await onboarding.getByText("Manage onboarding buttons / this property", { exact: true }).click();
+    await expect(onboarding.locator("details")).not.toHaveAttribute("open", "");
+    await expect(editor.getByText("No onboarding shortcuts configured for this property yet.")).toHaveCount(0);
+    await onboarding.getByText("Onboarding settings", { exact: true }).click();
     await onboarding.getByRole("button", { name: "Add onboarding button", exact: true }).click();
     await onboarding.getByLabel("Button name", { exact: true }).last().fill("Gate onboarding");
     await onboarding.getByLabel("HTTPS link", { exact: true }).last().fill("javascript:alert(1)");
@@ -34,18 +36,26 @@ test("optional property onboarding shortcuts persist and resident download stays
     await expect(shortcut).toHaveAttribute("rel", "noopener noreferrer");
     await expect(editor.getByTestId("final-report-pdf")).not.toBeVisible();
     await expect(editor.getByTestId("final-report-resident-pdf")).toBeVisible();
-    expect(await editor.getByTestId("final-report-resident-download").evaluate(element => element === element.parentElement?.lastElementChild)).toBeTruthy();
+    await expect(editor.getByTestId("final-report-toolbar").getByTestId("final-report-resident-pdf")).toBeVisible();
+    await expect(editor.getByTestId("final-report-toolbar").getByTestId("final-report-preview")).toBeVisible();
+    await expect(editor.getByTestId("final-report-resident-download")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
     expect(await onboarding.evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy();
-    await editor.getByTestId("final-report-resident-download").scrollIntoViewIfNeeded();
+    await onboarding.getByText("Onboarding settings", { exact: true }).click();
+    await onboarding.scrollIntoViewIfNeeded();
     await page.screenshot({ path: "/tmp/final-report-onboarding-mobile.png" });
     await page.setViewportSize({ width: 1440, height: 1000 });
     expect(await onboarding.evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy();
-    await editor.getByTestId("final-report-resident-download").scrollIntoViewIfNeeded();
+    await onboarding.scrollIntoViewIfNeeded();
+    const preview = (await editor.getByTestId("final-report-preview").boundingBox())!;
+    const resident = (await editor.getByTestId("final-report-resident-pdf").boundingBox())!;
+    expect(Math.abs(preview.y - resident.y)).toBeLessThan(2);
+    expect(resident.width).toBeLessThan(250);
     await page.screenshot({ path: "/tmp/final-report-onboarding-desktop.png" });
     const saved = await (await page.request.get(`${root}?itemId=${item.id}`)).json();
     expect(saved.settings.value.onboardingLinks.at(-1)).toEqual({ label: "Gate onboarding", url: "https://example.com/onboarding" });
     expect(saved.draft).toEqual(original.draft);
+    await onboarding.getByText("Onboarding settings", { exact: true }).click();
     await onboarding.getByRole("button", { name: "Remove onboarding button: Gate onboarding", exact: true }).click();
     await onboarding.getByRole("button", { name: "Save onboarding buttons", exact: true }).click();
     await expect(shortcut).toHaveCount(0);

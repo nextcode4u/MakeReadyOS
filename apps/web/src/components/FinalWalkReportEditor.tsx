@@ -80,6 +80,10 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
     const missing = initial.checks.find(check => ["ATTENTION", "NA"].includes(result(check.id).status) && !result(check.id).note.trim());
     if (missing) throw new Error(`${language === "es" ? "Agrega un motivo para" : "Add a reason for"}: ${turnText(language, missing.label)}`);
   };
+  const residentHelp = !item ? "" : turnText(language, item.stockInspection
+    ? "The resident copy becomes available when an applicant or move-in is recorded."
+    : !item.unitReady ? "Complete the inspection and mark the unit Ready before downloading the resident copy."
+    : settingsDirty || draftDirty || !savedDraft.version ? "Save changes before downloading the resident copy." : "");
   const residentPdf = () => void run(async () => {
     if (!item) return;
     const response = await downloadResidentReport(initial.property.id, item.id, savedDraft.version);
@@ -176,8 +180,31 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
         <small>{savedDraft.updatedAt ? `${language === "es" ? "Guardado" : "Saved"} ${new Date(savedDraft.updatedAt).toLocaleString(language === "es" ? "es-US" : "en-US")} / ${language === "es" ? "revisión" : "revision"} ${savedDraft.version}` : turnText(language, "No saved inspection draft yet.")}</small>
         </fieldset>
       </> : <p>{turnText(language, "Choose a turn to enter inspection details. Branding-only previews start with every check unrecorded.")}</p>}
-      <button type="button" className="button" data-testid="final-report-preview" onClick={() => preview("html")}>{turnText(language, "Preview report")}</button>
-      <details><summary>{turnText(language, "Draft tools / not the resident copy")}</summary><p>{turnText(language, "For internal review only. Use Download resident PDF at the bottom for the resident copy.")}</p><div className="final-report-actions"><button type="button" className="button" data-testid="final-report-pdf" onClick={() => preview("pdf")}>{turnText(language, "Download draft PDF")}</button><button type="button" className="button" onClick={() => { if ((settingsDirty || draftDirty) && !window.confirm(turnText(language, "Discard unsaved changes and reload saved report data?"))) return; void run(async () => { const data = await getFinalReport(initial.property.id, item?.id); setSettings(data.settings.value); setSavedSettings(data.settings); setDraft(datedInspection(data.draft.value, Boolean(data.item), data.inspectionToday)); setSavedDraft(data.draft); setItem(data.item); setMessage(turnText(language, "Saved report data reloaded.")); }); }}>{turnText(language, "Reload saved data")}</button></div></details>
+      <div className="final-report-toolbar" data-testid="final-report-onboarding">
+        <div className="final-report-actions" data-testid="final-report-toolbar">
+          <button type="button" className="button" data-testid="final-report-preview" onClick={() => preview("html")}>{turnText(language, "Preview report")}</button>
+          {item ? <span title={residentHelp || turnText(language, "Save changes first. Requires recorded technician and final-walk checks, inspection date, confirmed handoff counts and no unresolved corrections. Missing records are never inferred from Ready status.")}>
+            <button type="button" className="button button-primary" data-testid="final-report-resident-pdf" aria-describedby={residentHelp ? "resident-download-help" : undefined} disabled={busy || settingsDirty || draftDirty || !savedDraft.version || !item.unitReady || item.stockInspection} onClick={residentPdf}>{turnText(language, "Download resident PDF")}</button>
+          </span> : null}
+          {(savedSettings.value.onboardingLinks ?? []).map((link, index) => <a key={index} className="button" href={link.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" title={turnText(language, "Opens in a new tab")} aria-label={`${link.label} (${turnText(language, "Opens in a new tab")})`}>{link.label}</a>)}
+        </div>
+        {item && residentHelp ? <small id="resident-download-help">{residentHelp}</small> : null}
+        {error ? <p role="alert">{error}</p> : null}
+      {initial.canEditSettings ? <details className="final-report-link-settings"><summary>{turnText(language, "Onboarding settings")}</summary>
+        <p>{turnText(language, "Add staff links for gate access, parking or other move-in tasks. These links are not printed on the resident PDF. Do not include passwords, access codes or private tokens in URLs.")}</p>
+        <fieldset disabled={busy} className="final-report-form">
+          {(settings.onboardingLinks ?? []).map((link, index) => <div className="final-report-link-row" key={index}>
+            <label>{turnText(language, "Button name")}<input maxLength={60} value={link.label} onChange={event => updateSettings({ onboardingLinks: settings.onboardingLinks!.map((entry, i) => i === index ? { ...entry, label: event.target.value } : entry) })} /></label>
+            <label>{turnText(language, "HTTPS link")}<input type="url" maxLength={2000} placeholder="https://example.com/onboarding" value={link.url} onChange={event => updateSettings({ onboardingLinks: settings.onboardingLinks!.map((entry, i) => i === index ? { ...entry, url: event.target.value } : entry) })} /></label>
+            <button type="button" className="button" aria-label={`${turnText(language, "Remove onboarding button")}: ${link.label || index + 1}`} onClick={() => updateSettings({ onboardingLinks: settings.onboardingLinks!.filter((_, i) => i !== index) })}>{turnText(language, "Remove")}</button>
+          </div>)}
+          <div className="final-report-actions"><button type="button" className="button" disabled={(settings.onboardingLinks ?? []).length >= 12} onClick={() => updateSettings({ onboardingLinks: [...(settings.onboardingLinks ?? []), { label: "", url: "" }] })}>{turnText(language, "Add onboarding button")}</button><button type="button" className="button button-primary" disabled={!settingsDirty} onClick={saveSettings}>{turnText(language, "Save onboarding buttons")}</button></div>
+          <small>{turnText(language, "Up to 12 buttons per property. Saving also saves any report wording changes above.")}</small>
+          {settingsDirty ? <p>{turnText(language, "Unsaved changes. Preview includes them; Save persists them.")}</p> : null}
+        </fieldset>
+      </details> : null}
+      </div>
+      <details><summary>{turnText(language, "Draft tools / not the resident copy")}</summary><p>{turnText(language, "For internal review only. Use Download resident PDF beside Preview report for the resident copy.")}</p><div className="final-report-actions"><button type="button" className="button" data-testid="final-report-pdf" onClick={() => preview("pdf")}>{turnText(language, "Download draft PDF")}</button><button type="button" className="button" onClick={() => { if ((settingsDirty || draftDirty) && !window.confirm(turnText(language, "Discard unsaved changes and reload saved report data?"))) return; void run(async () => { const data = await getFinalReport(initial.property.id, item?.id); setSettings(data.settings.value); setSavedSettings(data.settings); setDraft(datedInspection(data.draft.value, Boolean(data.item), data.inspectionToday)); setSavedDraft(data.draft); setItem(data.item); setMessage(turnText(language, "Saved report data reloaded.")); }); }}>{turnText(language, "Reload saved data")}</button></div></details>
       <small>{settingsDirty || draftDirty ? turnText(language, "Unsaved changes. Preview includes them; Save persists them.") : turnText(language, "No unsaved changes.")} {turnText(language, "Long reports continue onto additional pages in the PDF. Scroll inside the preview to read all text.")}</small>
     </fieldset>
     <section className="final-report-preview" ref={previewRef} aria-label={turnText(language, "Report preview")}>
@@ -186,7 +213,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
       {html ? <FinalReportPreview key={html} html={html} language={language} /> : <p>{turnText(language, "Click Preview report to see the current draft. Changing a field clears the old preview.")}</p>}
       </div>
     </section>
-    {item && initial.canEditDraft ? <section className="final-report-completion" data-testid="final-report-completion">
+    {item && initial.canEditDraft ? <section className="final-report-completion" data-ready={item.unitReady} data-testid="final-report-completion">
       <h3>{turnText(language, item.unitReady ? "Unit marked ready" : "Finish this inspection")}</h3>
       {item.unitReady ? <p role="status">{turnText(language, "This unit is recorded Ready. Further report edits do not change its status.")}</p> : <>
         <p>{turnText(language, "Finished the walk? Save your inspection and mark the unit Ready here. Any remaining blockers will be shown below.")}</p>
@@ -208,35 +235,6 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
         {error ? <p role="alert" data-testid="final-report-ready-error">{error}</p> : null}
       </>}
     </section> : null}
-    {item || initial.canEditSettings ? <section className="final-report-onboarding" data-testid="final-report-onboarding">
-      <h3>{turnText(language, "Move-in onboarding / optional shortcuts")}</h3>
-      <p>{turnText(language, "Use these shortcuts when preparing for move-in, even if the inspection was completed earlier. They open another service in a new tab; they do not send resident details, confirm setup or block Ready status.")}</p>
-      <div className="final-report-actions">{(savedSettings.value.onboardingLinks ?? []).map((link, index) => <a key={index} className="button" href={link.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" title={turnText(language, "Opens in a new tab")}>{link.label} <small>({turnText(language, "Opens in a new tab")})</small></a>)}</div>
-      {!(savedSettings.value.onboardingLinks ?? []).length ? <p>{turnText(language, "No onboarding shortcuts configured for this property yet.")}</p> : null}
-      {initial.canEditSettings ? <details className="final-report-link-settings"><summary>{turnText(language, "Manage onboarding buttons / this property")}</summary>
-        <p>{turnText(language, "Add staff links for gate access, parking or other move-in tasks. These links are not printed on the resident PDF. Do not include passwords, access codes or private tokens in URLs.")}</p>
-        <fieldset disabled={busy} className="final-report-form">
-          {(settings.onboardingLinks ?? []).map((link, index) => <div className="final-report-link-row" key={index}>
-            <label>{turnText(language, "Button name")}<input maxLength={60} value={link.label} onChange={event => updateSettings({ onboardingLinks: settings.onboardingLinks!.map((entry, i) => i === index ? { ...entry, label: event.target.value } : entry) })} /></label>
-            <label>{turnText(language, "HTTPS link")}<input type="url" maxLength={2000} placeholder="https://example.com/onboarding" value={link.url} onChange={event => updateSettings({ onboardingLinks: settings.onboardingLinks!.map((entry, i) => i === index ? { ...entry, url: event.target.value } : entry) })} /></label>
-            <button type="button" className="button" aria-label={`${turnText(language, "Remove onboarding button")}: ${link.label || index + 1}`} onClick={() => updateSettings({ onboardingLinks: settings.onboardingLinks!.filter((_, i) => i !== index) })}>{turnText(language, "Remove")}</button>
-          </div>)}
-          <div className="final-report-actions"><button type="button" className="button" disabled={(settings.onboardingLinks ?? []).length >= 12} onClick={() => updateSettings({ onboardingLinks: [...(settings.onboardingLinks ?? []), { label: "", url: "" }] })}>{turnText(language, "Add onboarding button")}</button><button type="button" className="button button-primary" disabled={!settingsDirty} onClick={saveSettings}>{turnText(language, "Save onboarding buttons")}</button></div>
-          <small>{turnText(language, "Up to 12 buttons per property. Saving also saves any report wording changes above.")}</small>
-          {settingsDirty ? <p>{turnText(language, "Unsaved changes. Preview includes them; Save persists them.")}</p> : null}
-          {error ? <p role="alert">{error}</p> : null}
-        </fieldset>
-      </details> : null}
-    </section> : null}
-    {item ? <section className="final-report-download" data-testid="final-report-resident-download">
-      <h3>{turnText(language, "Resident copy / ready for move-in")}</h3>
-      <p>{turnText(language, "Before printing, review the resident codes and handoff details above and save any changes. You can return here closer to move-in.")}</p>
-      <button type="button" className="button button-primary" data-testid="final-report-resident-pdf" disabled={busy || settingsDirty || draftDirty || !savedDraft.version || !item.unitReady || item.stockInspection} onClick={residentPdf}>{turnText(language, "Download resident PDF")}</button>
-      {item.stockInspection ? <p>{turnText(language, "The resident copy becomes available when an applicant or move-in is recorded.")}</p> : !item.unitReady ? <p>{turnText(language, "Complete the inspection and mark the unit Ready before downloading the resident copy.")}</p> : null}
-      {settingsDirty || draftDirty ? <p>{turnText(language, "Save changes before downloading the resident copy.")}</p> : null}
-      <small>{turnText(language, "Save changes first. Requires recorded technician and final-walk checks, inspection date, confirmed handoff counts and no unresolved corrections. Missing records are never inferred from Ready status.")}</small>
-      {error ? <p role="alert">{error}</p> : null}
-      {message ? <p>{message}</p> : null}
-    </section> : null}
+
   </div>;
 }

@@ -3,6 +3,8 @@ import type { UserLanguage } from "./api";
 // Source-text keys also cover fixed checklist labels supplied by the API.
 // Never pass resident notes, names, or other user-authored text through this map.
 export const turnSpanish: Record<string, string> = {
+  "Onboarding settings": "Configuración de incorporación",
+  "For internal review only. Use Download resident PDF beside Preview report for the resident copy.": "Solo para revisión interna. Usa Descargar PDF del residente junto a Vista previa del informe para obtener la copia del residente.",
   "Preview zoom controls": "Controles de zoom de la vista previa",
   "Zoom out": "Alejar",
   "Zoom in": "Acercar",
