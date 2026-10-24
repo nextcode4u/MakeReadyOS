@@ -22,6 +22,8 @@ test("photo batch reports rejected files without skipping later photos or ZIP ev
   await page.reload();
   await page.getByTestId("property-filter").selectOption(property.id);
   await page.getByRole("button", { name: `Open details for ${unit.number}`, exact: true }).click();
+  await page.getByTestId("drawer-pane-photos").click();
+  await expect(page.getByTestId("initial-walk-zip")).toBeVisible();
   const photo = await page.evaluate(() => { const canvas = document.createElement("canvas"); canvas.width = 32; canvas.height = 32; canvas.getContext("2d")!.fillRect(0, 0, 32, 32); return canvas.toDataURL("image/png").split(",")[1]; });
   let calls = 0;
   await page.route(`**/make-ready-items/${item.id}/attachments?*`, async route => {
