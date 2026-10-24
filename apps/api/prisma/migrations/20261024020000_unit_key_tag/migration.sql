@@ -1,0 +1,1 @@
+ALTER TABLE "UnitAccessCode" ADD COLUMN "keyTag" TEXT NOT NULL DEFAULT '';

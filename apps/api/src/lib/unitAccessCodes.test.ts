@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseCodeCsv, unitMatchKey, accessCodeValues } from "./unitAccessCodes.js";
+import { parseCodeCsv, unitMatchKey, accessCodeValues, syncUnitCodes } from "./unitAccessCodes.js";
 
 test("code imports preserve zeros, punctuation and quoted values without executing formulas", () => {
   assert.deepEqual(parseCodeCsv('unit,doorCode,accessCode,keyCode\n011,0042#,"a,b",=1+1'), [{ number: "011", doorCode: "0042#", accessCode: "a,b", keyCode: "=1+1" }]);
@@ -9,8 +9,27 @@ test("code imports preserve zeros, punctuation and quoted values without executi
   assert.notEqual(unitMatchKey("001A"), unitMatchKey("1A"));
   assert.throws(() => parseCodeCsv('unit,doorCode,accessCode,keyCode\n11,"unfinished,,'));
   assert.throws(() => parseCodeCsv('unit,doorCode,accessCode,keyCode\n11,"line\nbreak",,'));
-  assert.throws(() => parseCodeCsv('unit,doorCode\n11,1234'));
+  assert.deepEqual(parseCodeCsv('unit,doorCode\n11,1234'), [{ number: "11", doorCode: "1234", accessCode: "", keyCode: "" }]);
   assert.equal(accessCodeValues.safeParse({ doorCode: "a".repeat(61), accessCode: "", keyCode: "" }).success, false);
+});
+
+test("key tag imports accept standalone and reordered columns while preserving identifiers", () => {
+  assert.deepEqual(parseCodeCsv('Key Tag,Unit\n001-A,011'), [{ number: "011", doorCode: "", accessCode: "", keyCode: "", keyTag: "001-A" }]);
+  assert.deepEqual(parseCodeCsv('unit\tkey_tag\n011\t0002'), [{ number: "011", doorCode: "", accessCode: "", keyCode: "", keyTag: "0002" }]);
+  assert.throws(() => parseCodeCsv('unit,keyTag,Key Tag\n011,A,B'));
+  assert.throws(() => parseCodeCsv('unit,typo\n011,A'));
+  assert.throws(() => parseCodeCsv('unit,keyTag\n011,' + 'A'.repeat(61)));
+  assert.throws(() => parseCodeCsv('unit,keyTag\n011,A,extra'));
+  assert.equal(accessCodeValues.parse({ doorCode: "", accessCode: "", keyCode: "" }).keyTag, undefined);
+});
+
+test("creating a tag-only record does not clear resident report codes", async () => {
+  let saved: any;
+  await syncUnitCodes({ unitAccessCode: {
+    findUnique: async () => null,
+    upsert: async (args: any) => { saved = args.create; return { doorCode: "", accessCode: "", ...saved }; },
+  } } as any, "unit", { doorCode: "", accessCode: "", keyCode: "", keyTag: "001-A" });
+  assert.equal(saved.keyTag, "001-A");
 });
 
 test("code lookup and transfer reject excluded roles and cross-property users before reading data", async () => {

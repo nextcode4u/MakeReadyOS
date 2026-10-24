@@ -22,7 +22,7 @@ export async function accessCodeRoutes(app: FastifyInstance) {
   app.get("/access-codes/:propertyId", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
     const property = await access(request);
-    const units = await prisma.unit.findMany({ where: { propertyId: property.id, isActive: true }, select: { id: true, number: true, mailboxNumber: true, accessCodes: { select: { version: true, updatedAt: true } } }, orderBy: { number: "asc" } });
+    const units = await prisma.unit.findMany({ where: { propertyId: property.id, isActive: true }, select: { id: true, number: true, mailboxNumber: true, accessCodes: { select: { version: true, updatedAt: true, keyTag: true } } }, orderBy: { number: "asc" } });
     return { property, units, canManage: ["ADMIN", "MANAGER"].includes(request.currentUser!.role) };
   });
   app.get("/access-codes/:propertyId/units/:unitId", async (request, reply) => {
@@ -32,7 +32,7 @@ export async function accessCodeRoutes(app: FastifyInstance) {
     const unit = await prisma.unit.findFirst({ where: { id: unitId, propertyId: property.id, isActive: true }, include: { accessCodes: true } });
     if (!unit) return reply.code(404).send({ message: "Unit not found" });
     await prisma.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: property.id, entityType: "UNIT", entityId: unit.id, action: "ACCESS_CODES_VIEWED", message: "Viewed unit access codes (values excluded from audit)" } });
-    return { version: unit.accessCodes?.version ?? 0, value: accessCodeValues.parse(unit.accessCodes ? { doorCode: unit.accessCodes.doorCode, accessCode: unit.accessCodes.accessCode, keyCode: unit.accessCodes.keyCode } : { doorCode: "", accessCode: "", keyCode: "" }) };
+    return { version: unit.accessCodes?.version ?? 0, value: accessCodeValues.parse(unit.accessCodes ? { doorCode: unit.accessCodes.doorCode, accessCode: unit.accessCodes.accessCode, keyCode: unit.accessCodes.keyCode, keyTag: unit.accessCodes.keyTag } : { doorCode: "", accessCode: "", keyCode: "", keyTag: "" }) };
   });
   app.put("/access-codes/:propertyId/units/:unitId", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
@@ -53,7 +53,7 @@ export async function accessCodeRoutes(app: FastifyInstance) {
     const property = await access(request, true);
     const units = await prisma.unit.findMany({ where: { propertyId: property.id, isActive: true }, include: { accessCodes: true }, orderBy: { number: "asc" } });
     // A JSON download avoids spreadsheet formula execution and preserves exact codes/zeros.
-    const rows = units.map(unit => ({ unit: unit.number, doorCode: unit.accessCodes?.doorCode ?? "", accessCode: unit.accessCodes?.accessCode ?? "", keyCode: unit.accessCodes?.keyCode ?? "" }));
+    const rows = units.map(unit => ({ unit: unit.number, doorCode: unit.accessCodes?.doorCode ?? "", accessCode: unit.accessCodes?.accessCode ?? "", keyCode: unit.accessCodes?.keyCode ?? "", keyTag: unit.accessCodes?.keyTag ?? "" }));
     await prisma.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: property.id, entityType: "PROPERTY", entityId: property.id, action: "ACCESS_CODES_EXPORTED", message: `Exported ${rows.length} unit code records (values excluded from audit)` } });
     return { propertyCode: property.code, format: "makereadyos-access-codes-v1", rows };
   });
@@ -61,7 +61,7 @@ export async function accessCodeRoutes(app: FastifyInstance) {
     reply.header("Cache-Control", "no-store");
     const property = await access(request, true);
     const input = z.object({ text: z.string().min(1).max(1000000), overwrite: z.boolean().default(false), skipInvalid: z.boolean().default(false), token: z.string().optional() }).strict().parse(request.body);
-    let rows: Array<{ number: string; doorCode: string; accessCode: string; keyCode: string }>;
+    let rows: Array<{ number: string; doorCode: string; accessCode: string; keyCode: string; keyTag?: string }>;
     try {
       if (input.text.trimStart().startsWith("{")) {
         const file = z.object({ format: z.literal("makereadyos-access-codes-v1"), propertyCode: z.string(), rows: z.array(accessCodeValues.extend({ unit: z.string().min(1) })).min(1).max(5000) }).strict().parse(JSON.parse(input.text));
@@ -79,9 +79,9 @@ export async function accessCodeRoutes(app: FastifyInstance) {
         const matches = units.filter(unit => unitMatchKey(unit.number) === key);
         if (matches.length !== 1 || rows.filter(other => unitMatchKey(other.number) === key).length !== 1) { errors.push(`Row ${index + 2}: unknown, ambiguous or duplicate unit ${row.number}`); continue; }
         const unit = matches[0];
-        const old = unit.accessCodes ?? { doorCode: "", accessCode: "", keyCode: "", version: 0 };
-        const value = { doorCode: old.doorCode, accessCode: old.accessCode, keyCode: old.keyCode };
-        for (const name of ["doorCode", "accessCode", "keyCode"] as const) if (row[name] && (input.overwrite || !old[name])) value[name] = row[name];
+        const old = unit.accessCodes ?? { doorCode: "", accessCode: "", keyCode: "", keyTag: "", version: 0 };
+        const value = { doorCode: old.doorCode, accessCode: old.accessCode, keyCode: old.keyCode, keyTag: old.keyTag };
+        for (const name of ["doorCode", "accessCode", "keyCode", "keyTag"] as const) if (row[name] && (input.overwrite || !old[name])) value[name] = row[name]!;
         if (Object.keys(value).some(name => value[name as keyof typeof value] !== old[name as keyof typeof value])) changes.push({ id: unit.id, number: unit.number, version: old.version, value });
       }
       const token = createHmac("sha256", secret).update(JSON.stringify({ propertyId: property.id, changes, errors })).digest("hex");

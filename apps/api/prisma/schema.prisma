@@ -194,6 +194,7 @@ model UnitAccessCode {
   doorCode String @default("")
   accessCode String @default("")
   keyCode String @default("")
+  keyTag String @default("")
   version Int @default(1)
   updatedAt DateTime @updatedAt
 }

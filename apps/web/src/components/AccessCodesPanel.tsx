@@ -5,16 +5,16 @@ import "./accessCodes.css";
 import { UnitMailboxEditor } from "./UnitMailboxEditor";
 import { SearchSelect } from "./SearchSelect";
 
-type Values = { doorCode: string; accessCode: string; keyCode: string };
+type Values = { doorCode: string; accessCode: string; keyCode: string; keyTag: string };
 type Codes = { version: number; value: Values };
-type Directory = { property: { code: string; name: string }; canManage: boolean; units: { id: string; number: string; mailboxNumber: string | null; accessCodes: { updatedAt: string } | null }[] };
+type Directory = { property: { code: string; name: string }; canManage: boolean; units: { id: string; number: string; mailboxNumber: string | null; accessCodes: { updatedAt: string; keyTag: string } | null }[] };
 type Plan = { token: string; units: string[]; errors: string[]; applied: boolean };
 
 export function AccessCodesPanel({ properties, selectedPropertyId, role, keycodeAccess = false, initialUnit = "" }: { properties: { id: string; code: string; name: string }[]; selectedPropertyId: string; role: UserRole; keycodeAccess?: boolean; initialUnit?: string }) {
   const [chosen, setChosen] = useState(selectedPropertyId);
   const propertyId = properties.some(property => property.id === chosen) ? chosen : "";
   if (!canViewKeycodes({ role, keycodeAccess })) return null;
-  return <section className="panel access-codes-panel" data-testid="access-codes-panel"><h2>Keys &amp; Access</h2><p>Look up a unit's mailbox number, current door code, resident access code or key cutting reference. Not a directory for staff/master codes.</p>
+  return <section className="panel access-codes-panel" data-testid="access-codes-panel"><h2>Keys &amp; Access</h2><p>Search by unit or key tag to look up mailbox numbers, current door codes, resident access codes or key cutting references. Key tags identify the labeled keys in your shop; they are separate from key cutting codes. Not a directory for staff/master codes.</p>
     <label>Property for code lookup<select value={propertyId} onChange={event => setChosen(event.target.value)}><option value="">Choose a property</option>{properties.map(property => <option key={property.id} value={property.id}>{property.code} / {property.name}</option>)}</select></label>
     {propertyId ? <DirectoryEditor key={propertyId} propertyId={propertyId} initialUnit={initialUnit} /> : <p>Select a property to view its directory.</p>}
   </section>;
@@ -55,10 +55,10 @@ function DirectoryEditor({ propertyId, initialUnit }: { propertyId: string; init
     <p>Codes stay hidden until you select a unit and reveal them. Reveals and exports are logged without recording code values. Keep downloaded files private.</p>
     {query.isError ? <p role="alert">Could not load directory. <button onClick={() => void query.refetch()}>Retry</button></p> : null}
     <label style={{ gridColumn: "1 / -1" }}>Unit for code lookup<SearchSelect
-      options={units.map(unit => ({ value: unit.id, label: `${unit.number}${unit.accessCodes ? " / codes recorded" : " / not recorded"}`, keywords: [unit.number] }))}
+      options={units.map(unit => ({ value: unit.id, label: `${unit.number}${unit.accessCodes?.keyTag ? ` / Key tag: ${unit.accessCodes.keyTag}` : ""}${unit.accessCodes ? " / codes recorded" : " / not recorded"}`, keywords: [unit.number, unit.accessCodes?.keyTag ?? ""] }))}
       value={selected}
       onChange={value => { setSelected(value); setCodes(null); }}
-      placeholder="Search and select a unit..."
+      placeholder="Search unit or key tag..."
       emptyLabel="Choose a unit"
       noMatchesLabel="No matching units"
       clearLabel="Clear selected unit"
@@ -68,15 +68,15 @@ function DirectoryEditor({ propertyId, initialUnit }: { propertyId: string; init
     <button type="button" disabled={!selected || busy} onClick={() => codes ? setCodes(null) : void run(async () => setCodes(await accessCodeRequest<Codes>(propertyId, `/units/${selected}`)))}>{codes ? "Hide codes" : "Reveal unit codes"}</button>
     {codes ? <fieldset disabled={busy}><legend>Unit {query.data?.units.find(unit => unit.id === selected)?.number}</legend>
       <p>Last code update: {query.data?.units.find(unit => unit.id === selected)?.accessCodes?.updatedAt ? new Date(query.data.units.find(unit => unit.id === selected)!.accessCodes!.updatedAt).toLocaleString() : "Not recorded"}. Confirm older codes before relying on them.</p>
-      {([['doorCode', 'Door code'], ['accessCode', 'Resident access code'], ['keyCode', 'Key cutting code / reference']] as const).map(([key, label]) => <label key={key}>{label}<input autoComplete="off" readOnly={!query.data?.canManage} value={codes.value[key]} maxLength={60} onChange={event => setCodes({ ...codes, value: { ...codes.value, [key]: event.target.value } })} /></label>)}
+      {([['keyTag', 'Key tag'], ['doorCode', 'Door code'], ['accessCode', 'Resident access code'], ['keyCode', 'Key cutting code / reference']] as const).map(([key, label]) => <label key={key}>{label}<input autoComplete="off" readOnly={!query.data?.canManage} value={codes.value[key] ?? ""} maxLength={60} onChange={event => setCodes({ ...codes, value: { ...codes.value, [key]: event.target.value } })} /></label>)}
       <p>Hidden automatically after two minutes of inactivity or when leaving this browser tab. Blank means not recorded, not unrestricted access.</p>
       {query.data?.canManage ? <button type="button" onClick={() => void run(async () => { await accessCodeRequest(propertyId, `/units/${selected}`, "PUT", codes); setCodes(null); refreshReports(); await query.refetch(); setMessage("Codes saved. Current turn reports were updated too."); })}>Save unit codes</button> : null}
     </fieldset> : null}
-    {query.data?.canManage ? <details><summary>Import / export unit keycodes</summary><p><strong>Target: {query.data.property.code} / {query.data.property.name}</strong></p><p>Import any subset of units. CSV/TSV columns: <code>unit,doorCode,accessCode,keyCode</code>. Blank cells keep existing codes. Numeric unit 11 matches 011 only when unique. Export uses JSON to preserve leading zeros and prevent spreadsheet formulas.</p>
+    {query.data?.canManage ? <details><summary>Import / export key tags and codes</summary><p><strong>Target: {query.data.property.code} / {query.data.property.name}</strong></p><p>Import any subset of units. CSV/TSV columns: <code>unit,doorCode,accessCode,keyCode,keyTag</code>. Only unit and the columns you want to update are needed. For key tags alone, use <code>unit,keyTag</code> (Key Tag is also accepted). Blank or omitted cells keep existing values. Numeric unit 11 matches 011 only when unique. Export uses JSON to preserve leading zeros and prevent spreadsheet formulas.</p>
       <fieldset disabled={busy}>
         <label>Code directory file<input type="file" accept=".csv,.tsv,.json,.txt" onChange={event => { const file = event.target.files?.[0]; if (!file) return; if (file.size > 1000000) { setError("File must be under 1 MB"); return; } void run(async () => { setText(await file.text()); setPlan(null); }); }} /></label>
-        <label>Paste code directory<textarea rows={4} value={text} onChange={event => { setText(event.target.value); setPlan(null); }} placeholder={'unit,doorCode,accessCode,keyCode\n011,0042#,,A12'} /></label>
-        <label><input type="checkbox" checked={overwrite} onChange={event => { setOverwrite(event.target.checked); setPlan(null); }} />Replace existing nonblank codes</label>
+        <label>Paste code directory<textarea rows={4} value={text} onChange={event => { setText(event.target.value); setPlan(null); }} placeholder={'unit,keyTag\n011,001-A'} /></label>
+        <label><input type="checkbox" checked={overwrite} onChange={event => { setOverwrite(event.target.checked); setPlan(null); }} />Replace existing nonblank codes or key tags</label>
         <button type="button" disabled={!text.trim()} onClick={() => void run(() => importCodes(false))}>Preview code import</button>
         {plan && !plan.applied ? <div><p>{plan.units.length} units to update: {plan.units.join(", ") || "None"}</p>{plan.errors.map((error, index) => <p key={index}>{error}</p>)}{plan.errors.length ? <label><input type="checkbox" checked={skipInvalid} onChange={event => setSkipInvalid(event.target.checked)} />Skip invalid rows and import valid units only</label> : null}<button type="button" disabled={!plan.units.length || Boolean(plan.errors.length && !skipInvalid)} onClick={() => void run(() => importCodes(true))}>Apply code import to {query.data.property.code}</button></div> : null}
         <button type="button" onClick={() => { if (!window.confirm(`Download sensitive codes for ${query.data?.property.code}? Store this file securely and do not share it publicly.`)) return; void run(async () => { const data = await accessCodeRequest(propertyId, "/export", "POST", {}); const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "unit-access-codes.json"; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }); }}>Export keycodes (sensitive)</button>
