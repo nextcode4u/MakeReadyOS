@@ -3672,7 +3672,7 @@ test("connection banner clears after verified recovery but not a failed retry", 
 
 test("brief connection failures recover quietly without a banner or reload", async ({ page }) => {
   await login(page, adminEmail, adminPassword);
-  await page.route("**/api/auth/me?connection-check=*", route => route.fulfill({ json: { user: { id: "health-check" } } }));
+  await page.route("**/api/auth/me?connection-check=*", route => route.continue());
   await page.evaluate(() => {
     window.dispatchEvent(new Event("offline"));
     window.dispatchEvent(new Event("online"));
@@ -3683,6 +3683,7 @@ test("brief connection failures recover quietly without a banner or reload", asy
   await expect(page.getByTestId("connection-banner")).toHaveCount(0);
   await expect(page.locator("#app-error-notice")).toHaveCount(0);
   await expect(page.getByText("Back online", { exact: true })).toHaveCount(0);
+  await expect(page.getByTestId("property-filter")).toBeVisible();
 });
 
 test("property turn splits assign 25/75 and 100 percent independently with safe retries", async ({ page }) => {
@@ -5911,9 +5912,9 @@ test.describe("MakeReadyOS browser flows", () => {
     if (await quickStatus.count()) {
       await expect(quickStatus).toBeVisible();
     }
-    await page.evaluate(() => window.dispatchEvent(new Event("offline")));
-    await expect(page.getByTestId("connection-banner")).toContainText("offline", { timeout: 10000 });
-    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await page.context().setOffline(true);
+    await expect(page.getByTestId("connection-banner")).toContainText("offline", { timeout: 20000 });
+    await page.context().setOffline(false);
     await expect(page.getByTestId("connection-banner")).toHaveCount(0);
     await page.getByTestId("tab-dashboard").click();
     await page.getByTestId("dashboard-layout").selectOption("focus");

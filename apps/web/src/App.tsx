@@ -1,6 +1,7 @@
-import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { recoverableLazy as lazy } from "./lib/recoverableLazy";
 import { canViewKeycodes } from "./lib/api";
-import { getVerifiedSession, isCurrentSession, requireVerifiedUserId, verifiedSessionEventName } from "./lib/verifiedSession";
+import { clearVerifiedSession, getVerifiedSession, isCurrentSession, requireVerifiedUserId, verifiedSessionEventName } from "./lib/verifiedSession";
 import { onlineManager, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isReadyLikeOccupancy } from "./lib/availabilityStatus";
 import { repairStageDisplay } from "./lib/repairStageDisplay";
@@ -9,7 +10,7 @@ import { PasswordForm } from "./components/PasswordForm";
 import { BoardTable } from "./components/BoardTable";
 import { CommandPalette, type CommandPaletteWorkspaceGroup } from "./components/CommandPalette";
 import { ConnectionStatus } from "./components/ConnectionStatus";
-import { startConnectionRecovery } from "./lib/connectionRecovery";
+import { createConnectionRecovery } from "./lib/connectionRecovery";
 import { FilterBar, type ThemeMode } from "./components/FilterBar";
 import { LoginScreen } from "./components/LoginScreen";
 import { Modal } from "./components/Modal";
@@ -708,11 +709,10 @@ function App() {
   const [onboardingSkipped, setOnboardingSkipped] = useState(() => readStorageFlag(onboardingSkippedStorageKey));
   const [myWorkUserId, setMyWorkUserId] = useState("");
   const [defaultWorkspaceAppliedForUser, setDefaultWorkspaceAppliedForUser] = useState<string | null>(null);
-  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
+  const [isOnline, setIsOnline] = useState(true);
   const [apiDegraded, setApiDegraded] = useState(false);
-  const connectionIssueVersion = useRef(0);
+  const connectionRecovery = useRef<ReturnType<typeof createConnectionRecovery> | null>(null);
   const confirmedApiReachable = useRef(false);
-  const [connectionCheckRequested, setConnectionCheckRequested] = useState(0);
   const [lastConnectionIssueAt, setLastConnectionIssueAt] = useState<string | null>(null);
   const [offlineQueuePendingCount, setOfflineQueuePendingCount] = useState(0);
   const [unattributedOfflineWork, setUnattributedOfflineWork] = useState(false);
@@ -818,8 +818,7 @@ function App() {
   };
 
   const retryConnection = () => {
-    setApiDegraded(true);
-    setConnectionCheckRequested(value => value + 1);
+    connectionRecovery.current?.check(true);
   };
 
   const refreshOfflineQueueState = async () => {
@@ -3252,21 +3251,62 @@ function App() {
     };
   }, []);
 
+  const onConnectionRecovered = useEffectEvent((refresh: boolean) => {
+    confirmedApiReachable.current = true;
+    setIsOnline(true);
+    setApiDegraded(false);
+    setLastConnectionIssueAt(null);
+    onlineManager.setOnline(true);
+    if (refresh) void queryClient.invalidateQueries();
+    if (!forceLoggedOut && getVerifiedSession().userId) void syncQueuedOfflineChanges();
+  });
+  const onConnectionExpired = useEffectEvent(() => {
+    confirmedApiReachable.current = false;
+    setIsOnline(true);
+    setApiDegraded(false);
+    setLastConnectionIssueAt(null);
+    if (getVerifiedSession().userId) clearVerifiedSession();
+    if (meQuery.data?.user && !forceLoggedOut) handleSessionExpired();
+  });
+
   useEffect(() => {
-    if (!apiDegraded && isOnline) return;
-    return startConnectionRecovery(async signal => {
-      const version = connectionIssueVersion.current;
-      const healthy = await probeApiConnection(signal);
-      return healthy && version === connectionIssueVersion.current;
-    }, () => {
-      confirmedApiReachable.current = true;
-      setIsOnline(true);
-      setApiDegraded(false);
-      onlineManager.setOnline(true);
-      void queryClient.invalidateQueries();
-      void syncQueuedOfflineChanges();
+    const recovery = createConnectionRecovery(probeApiConnection, {
+      visible: () => document.visibilityState !== "hidden",
+      reachable: refresh => onConnectionRecovered(refresh),
+      unauthenticated: () => onConnectionExpired(),
+      unreachable: () => {
+        confirmedApiReachable.current = false;
+        setIsOnline(navigator.onLine);
+        setApiDegraded(true);
+        setLastConnectionIssueAt(new Date().toISOString());
+      },
     });
-  }, [apiDegraded, isOnline, connectionCheckRequested, queryClient]);
+    connectionRecovery.current = recovery;
+    const suspect = () => {
+      confirmedApiReachable.current = false;
+      recovery.check(true);
+    };
+    const resume = () => {
+      if (document.visibilityState !== "hidden") recovery.check();
+    };
+    window.addEventListener("online", suspect);
+    window.addEventListener("offline", suspect);
+    window.addEventListener("makereadyos:api-unreachable", suspect);
+    window.addEventListener("focus", resume);
+    window.addEventListener(verifiedSessionEventName, resume);
+    document.addEventListener("visibilitychange", resume);
+    recovery.check(!navigator.onLine);
+    return () => {
+      recovery.stop();
+      connectionRecovery.current = null;
+      window.removeEventListener("online", suspect);
+      window.removeEventListener("offline", suspect);
+      window.removeEventListener("makereadyos:api-unreachable", suspect);
+      window.removeEventListener("focus", resume);
+      window.removeEventListener(verifiedSessionEventName, resume);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isOnline || apiDegraded || offlineQueuePendingCount === 0) return;
@@ -3276,45 +3316,6 @@ function App() {
     }, 15_000);
     return () => window.clearInterval(timer);
   }, [isOnline, apiDegraded, offlineQueuePendingCount, queryClient]);
-
-  useEffect(() => {
-    const online = () => {
-      setIsOnline(true);
-      setApiDegraded(true);
-      void queryClient.invalidateQueries();
-      void syncQueuedOfflineChanges();
-    };
-    const offline = () => {
-      connectionIssueVersion.current++;
-      confirmedApiReachable.current = false;
-      setIsOnline(false);
-      setLastConnectionIssueAt(new Date().toISOString());
-    };
-    const unreachable = (event: Event) => {
-      connectionIssueVersion.current++;
-      confirmedApiReachable.current = false;
-      const detail = event instanceof CustomEvent ? event.detail as { at?: string } | null : null;
-      setApiDegraded(true);
-      setLastConnectionIssueAt(detail?.at ?? new Date().toISOString());
-    };
-    const resume = () => {
-      if (document.visibilityState === "hidden") return;
-      retryConnection();
-    };
-    window.addEventListener("online", online);
-    window.addEventListener("offline", offline);
-    window.addEventListener("makereadyos:api-unreachable", unreachable);
-    window.addEventListener("focus", resume);
-    document.addEventListener("visibilitychange", resume);
-    void syncQueuedOfflineChanges();
-    return () => {
-      window.removeEventListener("online", online);
-      window.removeEventListener("offline", offline);
-      window.removeEventListener("makereadyos:api-unreachable", unreachable);
-      window.removeEventListener("focus", resume);
-      document.removeEventListener("visibilitychange", resume);
-    };
-  }, [queryClient]);
 
   useEffect(() => {
     const possible401Errors = [

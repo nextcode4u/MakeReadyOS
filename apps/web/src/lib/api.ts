@@ -1,4 +1,5 @@
 import { localDateStamp } from "./dateTime";
+import type { ConnectionProbeResult } from "./connectionRecovery";
 import { acceptVerifiedSession, clearVerifiedSession, getVerifiedSession, isCurrentSession } from "./verifiedSession";
 
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api";
@@ -3405,12 +3406,19 @@ export async function getCurrentUser() {
   return response;
 }
 
-export async function probeApiConnection(signal: AbortSignal) {
+export async function probeApiConnection(signal: AbortSignal): Promise<ConnectionProbeResult> {
+  const session = getVerifiedSession();
   // Auth routes bypass the service worker's offline cache. HTML/proxy responses are not recovery.
   const response = await fetch(`${apiBaseUrl}/auth/me?connection-check=${Date.now()}`, { credentials: "include", cache: "no-store", signal });
-  if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) return false;
+  if (!isCurrentSession(session)) return "stale";
+  if (!response.headers.get("content-type")?.includes("application/json")) return "unreachable";
+  if (response.status === 401) return "unauthenticated";
+  if (!response.ok) return "unreachable";
   const body = await response.json();
-  return typeof body?.user?.id === "string" && body.user.id.length > 0;
+  if (!isCurrentSession(session)) return "stale";
+  if (typeof body?.user?.id !== "string" || !body.user.id.length) return "unreachable";
+  if (session.userId && session.userId !== body.user.id) return "unauthenticated";
+  return "reachable";
 }
 
 export function passwordAction(action: "forgot-password" | "reset-password" | "change-password", payload: Record<string, string>) {

@@ -48,6 +48,37 @@ function worker(extras = {}) {
   };
 }
 
+test("overlapping same-user session checks do not manufacture network failures", async () => {
+  const sw = worker();
+  const releases = [];
+  sw.network(() => new Promise(resolve => releases.push(resolve)));
+  const first = sw.request("/api/auth/me?connection-check=1");
+  const second = sw.request("/api/auth/me");
+  releases[0](Response.json({ user: { id: "same-user" } }));
+  assert.equal((await first).status, 200);
+  releases[1](Response.json({ user: { id: "same-user" } }));
+  assert.equal((await second).status, 200);
+});
+
+test("old session check cannot restore an identity after logout or a switch", async () => {
+  const sw = worker();
+  sw.network(async () => Response.json({ user: { id: "old" } }));
+  await sw.request("/api/auth/me");
+  let release;
+  sw.network(() => new Promise(resolve => { release = resolve; }));
+  const late = sw.request("/api/auth/me");
+  sw.network(async () => Response.json({ user: { id: "new" } }));
+  assert.equal((await sw.request("/api/auth/me")).status, 200);
+  release(Response.json({ user: { id: "old" } }));
+  assert.equal((await late).status, 0);
+  sw.network(() => new Promise(resolve => { release = resolve; }));
+  const beforeLogout = sw.request("/api/auth/me");
+  sw.network(async () => Response.json({ ok: true }));
+  await sw.request("/api/auth/logout", "POST");
+  release(Response.json({ user: { id: "new" } }));
+  assert.equal((await beforeLogout).status, 0);
+});
+
 test("on-call schedules and protected guides never use offline API caching", async () => {
   const instance = worker();
   for (const path of ["/api/on-call", "/api/on-call/share"]) {

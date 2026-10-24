@@ -3,6 +3,7 @@ const APP_SHELL = ["/", "/manifest.webmanifest", "/icons/pwa/makereadyos.svg"];
 const NETWORK_ONLY_PREFIXES = ["/api/", "/uploads/"];
 const API_CACHE_NAME = "makereadyos-api-v2";
 let apiCacheEpoch = 0;
+let authRequestEpoch = 0;
 let activeUserId;
 let apiCacheUsable = true;
 
@@ -19,16 +20,21 @@ async function clearApiCache() {
 
 async function authenticationRequest(request, url) {
   if (request.method !== "GET") {
+    authRequestEpoch++;
     activeUserId = undefined;
     await clearApiCache();
   }
-  const epoch = apiCacheEpoch;
+  const epoch = authRequestEpoch;
+  const startedUserId = activeUserId;
   const response = await fetch(request);
   if (url.pathname === "/api/auth/me") {
-    if (epoch !== apiCacheEpoch) return Response.error();
+    if (epoch !== authRequestEpoch) return Response.error();
     if (response.ok) {
       const userId = (await response.clone().json()).user?.id ?? null;
-      if (epoch !== apiCacheEpoch) return Response.error();
+      if (epoch !== authRequestEpoch) return Response.error();
+      // Same-account checks may overlap after mobile wake. Discard only a
+      // conflicting identity arriving after another check or a sign-out.
+      if (activeUserId !== startedUserId && userId !== activeUserId) return Response.error();
       if (userId !== activeUserId) {
         activeUserId = userId;
         await clearApiCache();
