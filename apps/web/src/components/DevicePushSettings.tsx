@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AndroidPushSettings } from "./AndroidPushSettings";
 import { disableDevicePush, getDevicePush, saveDevicePush, testDevicePush, type DevicePushState } from "../lib/api";
 
 async function registration() {
@@ -13,7 +14,10 @@ function promptDismissed(userId: string) {
   try { return localStorage.getItem(dismissalKey(userId)) === "true"; } catch { return false; }
 }
 
-export function DevicePushSettings({ userId, language, onboarding = false }: { userId: string; language: "en" | "es"; onboarding?: boolean }) {
+export function DevicePushSettings(props: { userId: string; language: "en" | "es"; onboarding?: boolean }) {
+  return import.meta.env.VITE_ANDROID_SHELL === "true" ? <AndroidPushSettings {...props} /> : <BrowserPushSettings {...props} />;
+}
+function BrowserPushSettings({ userId, language, onboarding = false }: { userId: string; language: "en" | "es"; onboarding?: boolean }) {
   const es = language === "es";
   const supported = window.isSecureContext && "Notification" in window && "PushManager" in window && "serviceWorker" in navigator;
   const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone;

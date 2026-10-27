@@ -2,13 +2,13 @@
 
 ## Status
 
-**SDK preparation only.** Android 0.1.0-beta.3 and the current MakeReadyOS API do not
-implement native FCM delivery. Creating a project or downloading a configuration
-file does not enable notifications. Existing VAPID settings support browsers,
-not the Android WebView. Do not invent FCM environment variables for the current
-Compose deployment; no server configuration contract has shipped yet.
+The implementation now includes session-bound Android registration, an HTTP v1
+sender through the existing delivery queue, and native background alerts and
+foreground toasts. Android 0.1.0-beta.3 remains SDK-only: a new APK containing this
+implementation is required. Live delivery requires matching client/server Firebase
+configuration and verification on a Google Play services device.
 
-The planned path is existing MakeReadyOS API -> FCM -> Android notification.
+The delivery path is existing MakeReadyOS API -> FCM -> Android notification.
 MakeReadyOS remains the authority for accounts, work, permissions and preferences.
 Firebase is a delivery dependency, not another deployment of the application.
 See [FCM architecture](https://firebase.google.com/docs/cloud-messaging/fcm-architecture).
@@ -44,7 +44,7 @@ hiding that file. Avoid downloading broad administrator credentials prematurely.
 For a self-hosted sender, prepare a dedicated service account with only the
 permissions needed to send FCM messages in the matching project. Prefer keyless
 credentials where the host supports them; otherwise store a protected key outside
-the repository and mount it read-only into the API once support is implemented.
+the repository and mount it read-only into the API.
 See [HTTP v1 authorization](https://firebase.google.com/docs/cloud-messaging/send/v1-api).
 
 Never put a service-account key in a VITE_* variable or use a legacy server key.
@@ -53,7 +53,32 @@ Each distribution needs an explicit matching client-project/sender configuration
 The domain-entry screen is not permission to register a phone with arbitrary
 projects or bypass the selected server's normal authentication.
 
-## Implementation Gates
+## Server Setup
+
+Apply database migrations before starting the updated API. Set `FCM_PROJECT_ID`
+to the Android client's project and `FCM_SERVICE_ACCOUNT_FILE` to the credential
+path **inside** the API container. Both variables default to empty (disabled).
+Use a private Compose override, outside the repository, to mount the service-account
+file read-only. For example, mount `/private/firebase-sender.json` on the host at
+`/run/secrets/firebase-sender.json` in the API container and set the latter path
+as `FCM_SERVICE_ACCOUNT_FILE`. Ensure the API process can read it; do not widen
+permissions to other host users. Never mount the secret in the web container.
+
+Build Android with `-PfirebaseNotifications=true` and the current web bundle.
+Sign in, open Alerts, and choose Enable notifications. If Android asks permission,
+allow it and tap Enable again. Send test notification queues a rate-limited test;
+preferences and quiet hours still apply. Disable stops local display immediately.
+Logout clears the local binding; server session expiry/revocation stops sending.
+Tokens are refreshed when the signed-in app opens or notification status is checked.
+Registration never exposes another user's tokens. Tokens are stored server-side
+and must be protected like browser push subscriptions in backups and database access.
+
+Messages contain only an opaque binding, notification identifier and short expiry.
+They do not contain record details or navigation URLs. A previously accepted message
+can arrive shortly after remote session revocation, but opening the app still requires
+valid authentication. This is not a live remote-wipe protocol.
+
+## Release Gates
 
 Before publishing a notification-enabled release:
 

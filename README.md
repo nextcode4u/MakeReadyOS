@@ -2,6 +2,8 @@
 
 MakeReadyOS helps property teams take an apartment from move-out through repairs, cleaning, and an independent final walk. Technicians, supervisors, vendors, and leasing can see what needs doing and who acts next, while the property controls its own installation and data.
 
+**Android companion app:** [MakeReadyOS Android](https://github.com/nextcode4u/makereadyos-android) lives in a separate repository, with its own APK releases and build instructions.
+
 ## A Typical Turn
 
 1. **Find your work.** My Work shows personal assignments, move-in dates and approaching deadlines. Counts and attention indicators help distinguish waiting work from overdue work and final-walk corrections.
@@ -142,6 +144,8 @@ Local dev endpoints:
 For disposable local databases, `npm --prefix apps/api run db:push` can be used as a fast schema-sync fallback. For shared or production-like environments, use versioned Prisma migrations.
 
 ## Mobile Install
+
+For the native Android companion, visit the [app repository](https://github.com/nextcode4u/makereadyos-android) and its [beta releases](https://github.com/nextcode4u/makereadyos-android/releases). The app connects to your own MakeReadyOS installation; review the release notes for compatibility and current limitations. Browser installation remains available below.
 
 On supported mobile browsers, MakeReadyOS can be installed to the home screen as a Progressive Web App. Android/Chrome shows an optional install prompt when available, with a `Continue in browser` bypass. iOS users can use the browser share menu and choose `Add to Home Screen`.
 

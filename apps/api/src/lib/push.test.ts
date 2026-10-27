@@ -70,4 +70,23 @@ test("push worker respects current access, unread state, sessions, quiet hours a
   await deliverPushBatch((async () => { throw { statusCode: 410 }; }) as any); assert.equal(removed, 1);
   updates = []; await deliverPushBatch((async () => { throw { statusCode: 503 }; }) as any); assert.ok(updates.at(-1).nextAttemptAt > now); assert.equal(updates.at(-1).status, undefined);
   fresh.attempts = 5; await deliverPushBatch((async () => { throw { statusCode: 503 }; }) as any); assert.equal(updates.at(-1).status, "FAILED");
+  delete process.env.VAPID_PUBLIC_KEY;
+  const androidBase = () => {
+    fresh = base();
+    Object.assign(fresh.subscription, { transport: "ANDROID", endpoint: "android:opaque", fcmToken: "test-token", bindingId: "binding", fcmProjectId: "test-project" });
+  };
+  androidBase();
+  let nativeSent = 0;
+  const nativeSend = async (_device: unknown, id: string, expiry: number) => {
+    nativeSent++; assert.equal(id, `notice_${now.getTime()}`); assert.ok(expiry <= fresh.subscription.session.expiresAt.getTime());
+  };
+  const config = { projectId: "test-project", credentialsFile: "not-used" };
+  await deliverPushBatch(transport, nativeSend, config);
+  assert.equal(nativeSent, 1); assert.equal(updates.at(-1).status, "SENT");
+  fresh.subscription.session.user.id = "other";
+  await deliverPushBatch(transport, nativeSend, config); assert.equal(nativeSent, 1);
+  androidBase(); fresh.notification.category = "STATUS_CHANGE";
+  await deliverPushBatch(transport, nativeSend, config); assert.equal(nativeSent, 1);
+  androidBase(); Object.assign(fresh.subscription, { fcmProjectId: "wrong-project" });
+  await deliverPushBatch(transport, nativeSend, config); assert.equal(nativeSent, 1);
 });

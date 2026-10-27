@@ -1,3 +1,4 @@
+import { clearNativePush } from "./nativePush";
 export type VerifiedSession = Readonly<{ userId: string | null; revision: number }>;
 export const verifiedSessionEventName = "makereadyos:verified-session-changed";
 let current: VerifiedSession = { userId: null, revision: 0 };
@@ -6,6 +7,7 @@ export function getVerifiedSession() { return current; }
 export function isCurrentSession(snapshot: VerifiedSession) { return snapshot === current; }
 
 function publish(userId: string | null) {
+  if (!userId) clearNativePush();
   current = { userId, revision: current.revision + 1 };
   if (typeof window !== "undefined") window.dispatchEvent(new Event(verifiedSessionEventName));
 }

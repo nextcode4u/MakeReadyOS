@@ -1,6 +1,7 @@
 import webpush from "web-push";
 import { prisma } from "./prisma.js";
 import { notificationEnabledByDefault } from "./notificationPolicy.js";
+import { fcmConfiguration, sendFcm } from "./fcm.js";
 
 export function validPushEndpoint(endpoint: string) {
   try {
@@ -33,8 +34,9 @@ export function retryPush(statusCode: number | undefined, attempts: number) {
 
 type Transport = typeof webpush.sendNotification;
 // Fan-out is committed before delivery. A crashed worker's two-minute lease expires.
-export async function deliverPushBatch(send: Transport = webpush.sendNotification) {
-  if (!pushConfiguration()) return;
+export async function deliverPushBatch(send: Transport = webpush.sendNotification, androidSend = sendFcm, androidConfig = fcmConfiguration()) {
+  const webConfigured = Boolean(pushConfiguration());
+  if (!webConfigured && !androidConfig) return;
   const now = new Date();
   await prisma.$transaction(async db => {
     const lock = await db.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_try_advisory_xact_lock(824090, 1) AS locked`;
@@ -71,13 +73,17 @@ export async function deliverPushBatch(send: Transport = webpush.sendNotificatio
     const allowed = note.category !== "POND_MILESTONE" && user.isActive && user.id === note.userId && device.session.expiresAt > current && !note.isRead
       && note.createdAt.getTime() === fresh.eventAt.getTime() && current.getTime() - fresh.eventAt.getTime() < 86400000
       && (!note.propertyId || user.role === "ADMIN" || user.propertyAccess.some(access => access.propertyId === note.propertyId))
-      && (pref?.enabled ?? notificationEnabledByDefault(note.category)) && !quiet && validPushEndpoint(device.endpoint);
+      && (pref?.enabled ?? notificationEnabledByDefault(note.category)) && !quiet
+      && (device.transport === "ANDROID"
+        ? Boolean(androidConfig && device.fcmProjectId === androidConfig.projectId && device.fcmToken && device.bindingId)
+        : webConfigured && validPushEndpoint(device.endpoint));
     if (!allowed) {
       await prisma.pushDelivery.updateMany({ where: { id: job.id, nextAttemptAt: lease }, data: { status: "SKIPPED" } });
       continue;
     }
     try {
-      await send({ endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } }, pushPayload(note), { TTL: 300, timeout: 5000, urgency: "normal" });
+      if (device.transport === "ANDROID") await androidSend(device, `${note.id}_${fresh.eventAt.getTime()}`, Math.min(Date.now() + 300000, device.session.expiresAt.getTime()));
+      else await send({ endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } }, pushPayload(note), { TTL: 300, timeout: 5000, urgency: "normal" });
       await prisma.pushDelivery.updateMany({ where: { id: job.id, nextAttemptAt: lease }, data: { status: "SENT" } });
     } catch (error) {
       const code = (error as { statusCode?: number }).statusCode;

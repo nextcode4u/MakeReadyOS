@@ -1406,6 +1406,10 @@ model PushSubscription {
   endpoint String @unique
   p256dh String
   auth String
+  transport String @default("WEB")
+  fcmToken String?
+  fcmProjectId String?
+  bindingId String?
   createdAt DateTime @default(now())
   deliveries PushDelivery[]
   @@index([sessionId])

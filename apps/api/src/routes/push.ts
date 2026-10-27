@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ECDH } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { pushConfiguration, validPushEndpoint } from "../lib/push.js";
+import { androidPushRoutes } from "./androidPush.js";
 
 const endpointSchema = z.string().max(2048).refine(validPushEndpoint, "Unsupported push service");
 const subscriptionSchema = z.object({
@@ -17,6 +18,7 @@ const subscriptionSchema = z.object({
 });
 
 export async function pushRoutes(app: FastifyInstance) {
+  await androidPushRoutes(app);
   await app.register(async scoped => {
     scoped.addHook("preHandler", async (request, reply) => {
       reply.header("Cache-Control", "no-store");
@@ -25,7 +27,7 @@ export async function pushRoutes(app: FastifyInstance) {
     scoped.get("/push", async request => ({
       configured: Boolean(pushConfiguration()),
       publicKey: pushConfiguration()?.publicKey ?? null,
-      endpoints: (await prisma.pushSubscription.findMany({ where: { sessionId: request.sessionId! }, select: { endpoint: true } })).map(device => device.endpoint),
+      endpoints: (await prisma.pushSubscription.findMany({ where: { sessionId: request.sessionId!, transport: "WEB" }, select: { endpoint: true } })).map(device => device.endpoint),
     }));
     scoped.post("/push", async (request, reply) => {
       if (!pushConfiguration()) return reply.code(503).send({ message: "Device notifications are not configured on this server" });

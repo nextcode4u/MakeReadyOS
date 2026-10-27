@@ -808,6 +808,19 @@ function App() {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   };
 
+  useEffect(() => {
+    const open = () => setNotificationsOpen(true);
+    const alert = () => {
+      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      const id = Date.now();
+      setToasts(current => [...current.slice(-2), { id, title: language === "es" ? "Nueva alerta de trabajo" : "New work alert", message: language === "es" ? "Abre Alertas para ver los detalles." : "Open Alerts to view details.", tone: "info" }]);
+      window.setTimeout(() => setToasts(current => current.filter(toast => toast.id !== id)), 6000);
+    };
+    window.addEventListener("makereadyos-native-alert", alert);
+    window.addEventListener("makereadyos-open-alerts", open);
+    return () => { window.removeEventListener("makereadyos-native-alert", alert); window.removeEventListener("makereadyos-open-alerts", open); };
+  }, [language, queryClient]);
+
   const handleSessionExpired = (message = t(meQuery.data?.user.language ?? "en", "auth.sessionExpiredCopy")) => {
     if (sessionMessage === message) {
       return;
