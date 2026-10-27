@@ -6,7 +6,9 @@ import ts from "../apps/api/node_modules/typescript/lib/typescript.js";
 
 function load(file, extras = {}) {
   const exports = {};
-  const source = readFileSync(file, "utf8").replaceAll("import.meta.env.VITE_API_BASE_URL", '"/api"');
+  const source = readFileSync(file, "utf8")
+    .replaceAll("import.meta.env.VITE_API_BASE_URL", '"/api"')
+    .replaceAll("import.meta.env.VITE_ANDROID_SHELL", '"false"');
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText,
     { exports, require: name => name === "./verifiedSession" ? load("apps/web/src/lib/verifiedSession.ts") : {}, Error, FormData, Headers, AbortController, setTimeout, clearTimeout, ...extras });
   return exports;
