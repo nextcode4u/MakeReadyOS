@@ -1,5 +1,6 @@
 import { Suspense, useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { recoverableLazy as lazy } from "./lib/recoverableLazy";
+import { OfflineWorkReader } from "./components/OfflineWorkSnapshot";
 import { canViewKeycodes } from "./lib/api";
 import { clearVerifiedSession, getVerifiedSession, isCurrentSession, requireVerifiedUserId, verifiedSessionEventName } from "./lib/verifiedSession";
 import { onlineManager, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -3800,6 +3801,18 @@ function App() {
         <StatusState title="Checking session" description="Restoring your last active workspace and permissions." />
       </main>
     );
+  }
+
+  if (import.meta.env.VITE_ANDROID_SHELL === "true" && !currentUser && meQuery.isError
+      && (!isApiError(meQuery.error) || meQuery.error.status === 0 || meQuery.error.status >= 500)) {
+    const startupLanguage = navigator.language.toLowerCase().startsWith("es") ? "es" : "en";
+    return <main className="login-shell"><section className="login-panel">
+      <p className="eyebrow">MakeReadyOS</p>
+      <StatusState title={t(startupLanguage, "connection.bundledStartupTitle")}
+        description={t(startupLanguage, "connection.bundledStartupCopy")}
+        action={{ label: t(startupLanguage, "connection.retryNow"), onClick: () => { void meQuery.refetch(); } }} />
+      <OfflineWorkReader language={startupLanguage} onReconnect={() => { void meQuery.refetch(); }} />
+    </section></main>;
   }
 
   if (!currentUser) {

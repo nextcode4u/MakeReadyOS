@@ -1,4 +1,5 @@
 import { patchSchema } from "../lib/patchSchema.js";
+import { attachmentRetryId, fileDigest } from "../lib/attachmentRetry.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { unlink } from "node:fs/promises";
@@ -1005,9 +1006,9 @@ export async function collaborationRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.post("/make-ready-items/:id/attachments", async (request, reply) => {
+  const uploadAttachment = async (request: FastifyRequest, reply: FastifyReply) => {
     if (!canWriteOperations(request.currentUser!)) return reply.code(403).send({ message: "This role cannot upload attachments" });
-    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const { id, uploadId } = z.object({ id: z.string(), uploadId: z.uuid().optional() }).parse(request.params);
     const item = await getScopedItem(request, reply, id);
     if (!item) return;
     const { inspectionStage } = z.object({ inspectionStage: z.enum(["GENERAL", "INITIAL_WALK"]).default("GENERAL") }).parse(request.query);
@@ -1023,7 +1024,8 @@ export async function collaborationRoutes(app: FastifyInstance) {
     const storedName = unitTurnStoredName(item, `${randomUUID()}-${safeName}`, inspectionStage);
     await ensureStoredUploadParent(storedName);
     const path = resolveStoredUploadPath(storedName);
-    await pipeline(file.file, (await import("node:fs")).createWriteStream(path));
+    try { await pipeline(file.file, (await import("node:fs")).createWriteStream(path)); }
+    catch (error) { await unlink(path).catch(() => undefined); throw error; }
     if (file.file.truncated) {
       await unlink(path).catch(() => undefined);
       return reply.code(413).send({
@@ -1033,8 +1035,25 @@ export async function collaborationRoutes(app: FastifyInstance) {
       });
     }
     const user = request.currentUser!;
-    const attachment = await prisma.itemAttachment.create({
+    const retryId = uploadId ? attachmentRetryId(user.id, id, uploadId) : undefined;
+    const replay = async (existing: NonNullable<Awaited<ReturnType<typeof prisma.itemAttachment.findUnique>>>) => {
+      try {
+        const matches = existing.itemId === id && existing.uploadedById === user.id
+          && existing.originalName === safeName && existing.mimeType === file.mimetype
+          && existing.inspectionStage === inspectionStage && existing.sizeBytes === file.file.bytesRead
+          && await fileDigest(resolveStoredUploadPath(existing.storedName)) === await fileDigest(path);
+        if (!matches) return reply.code(409).send({ message: "Upload retry does not match the previously saved attachment. Review the gallery before trying again." });
+        return { attachment: existing };
+      } finally { await unlink(path).catch(() => undefined); }
+    };
+    if (retryId) {
+      const existing = await prisma.itemAttachment.findUnique({ where: { id: retryId } });
+      if (existing) return replay(existing);
+    }
+    let attachment;
+    try { attachment = await prisma.itemAttachment.create({
       data: {
+        ...(retryId ? { id: retryId } : {}),
         itemId: id,
         propertyId: item.propertyId,
         uploadedById: user.id,
@@ -1045,7 +1064,14 @@ export async function collaborationRoutes(app: FastifyInstance) {
         sizeBytes: file.file.bytesRead,
         inspectionStage,
       },
-    });
+    }); } catch (error) {
+      if (retryId && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const existing = await prisma.itemAttachment.findUnique({ where: { id: retryId } });
+        if (existing) return replay(existing);
+      }
+      await unlink(path).catch(() => undefined);
+      throw error;
+    }
     await writeAuditLog({ request, actorUserId: user.id, propertyId: item.propertyId, entityType: "ITEM_ATTACHMENT", entityId: attachment.id, action: "ITEM_ATTACHMENT_UPLOADED", message: `Uploaded ${safeName} to ${item.unitNumber}` });
     await queueWebhookEvent({
       eventType: "attachment.created",
@@ -1063,7 +1089,10 @@ export async function collaborationRoutes(app: FastifyInstance) {
     });
     reply.code(201);
     return { attachment };
-  });
+  };
+  app.post("/make-ready-items/:id/attachments", uploadAttachment);
+  // A distinct endpoint fails closed on older servers instead of silently ignoring a retry token.
+  app.post("/make-ready-items/:id/attachment-uploads/:uploadId", uploadAttachment);
 
   app.get("/attachments/:id/download", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);

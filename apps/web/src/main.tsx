@@ -11,7 +11,8 @@ const OnCallPanel = React.lazy(() => import("./components/OnCallPanel").then(mod
 const removeErrorHandlers = installAppErrorHandlers();
 if (import.meta.hot) import.meta.hot.dispose(removeErrorHandlers);
 
-if ("serviceWorker" in navigator && import.meta.env.PROD) {
+// Native builds ship their complete shell atomically in the APK, not a second SW cache.
+if ("serviceWorker" in navigator && import.meta.env.PROD && import.meta.env.VITE_ANDROID_SHELL !== "true") {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register(`/sw.js?v=${import.meta.env.VITE_SW_VERSION}`, { updateViaCache: "none" }).catch((error) => {
       console.warn("MakeReadyOS service worker registration failed", error);

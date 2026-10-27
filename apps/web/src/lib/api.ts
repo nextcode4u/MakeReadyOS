@@ -1,6 +1,7 @@
 import { localDateStamp } from "./dateTime";
 import type { ConnectionProbeResult } from "./connectionRecovery";
 import { acceptVerifiedSession, clearVerifiedSession, getVerifiedSession, isCurrentSession } from "./verifiedSession";
+import { checkSnapshotOwner, clearWorkSnapshot, updateWorkSnapshot } from "./offlineWorkSnapshot";
 
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api";
 export const accessCodeRequest = <T,>(propertyId: string, suffix = "", method = "GET", data?: unknown) => request<T>(`/access-codes/${encodeURIComponent(propertyId)}${suffix}`, { method, cache: "no-store", ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
@@ -2536,6 +2537,7 @@ async function request<T>(path: string, init?: RequestInit & Partial<AccountBoun
   }
 
   if (!response.ok) {
+    if (import.meta.env.VITE_ANDROID_SHELL === "true" && isCurrentSession(sessionAtStart) && (response.status === 401 || response.status === 403)) clearWorkSnapshot();
     let message = `Request failed: ${response.status}`;
     let details: unknown;
     try {
@@ -2549,6 +2551,7 @@ async function request<T>(path: string, init?: RequestInit & Partial<AccountBoun
     }
 
     if (isCurrentSession(sessionAtStart) && (response.status === 401 || (details as { code?: string } | undefined)?.code === "SESSION_ACCOUNT_CHANGED")) {
+      if (import.meta.env.VITE_ANDROID_SHELL === "true") clearWorkSnapshot();
       csrfToken = null;
       clearVerifiedSession();
     }
@@ -2718,10 +2721,11 @@ export function deleteItemComment(itemId: string, commentId: string, account?: A
   return request<{ ok: true }>(`/make-ready-items/${itemId}/comments/${commentId}`, { ...account, method: "DELETE" });
 }
 
-export function uploadItemAttachment(itemId: string, file: File, inspectionStage?: "INITIAL_WALK", account?: AccountBoundRequest) {
+export function uploadItemAttachment(itemId: string, file: File, inspectionStage?: "INITIAL_WALK", account?: AccountBoundRequest, uploadId?: string) {
   const data = new FormData();
   data.append("file", file);
-  return request<{ attachment: ItemAttachment }>(`/make-ready-items/${itemId}/attachments${inspectionStage ? `?inspectionStage=${inspectionStage}` : ""}`, { ...account, method: "POST", body: data });
+  const route = uploadId ? `attachment-uploads/${encodeURIComponent(uploadId)}` : "attachments";
+  return request<{ attachment: ItemAttachment }>(`/make-ready-items/${itemId}/${route}${inspectionStage ? `?inspectionStage=${inspectionStage}` : ""}`, { ...account, method: "POST", body: data });
 }
 
 export function attachmentDownloadUrl(id: string) {
@@ -2797,9 +2801,15 @@ export function updateChecklistItem(id: string, input: { completed?: boolean; no
   return request<{ checklistItem: ChecklistInstance["items"][number] }>(`/checklist-items/${id}`, { ...account, method: "PATCH", body: JSON.stringify(input) });
 }
 
-export function getMyWork(userId?: string) {
+export async function getMyWork(userId?: string) {
+  const session = getVerifiedSession();
   const params = userId ? `?userId=${encodeURIComponent(userId)}` : "";
-  return request<MyWorkResponse>(`/my-work${params}`);
+  const data = await request<MyWorkResponse>(`/my-work${params}`);
+  if (import.meta.env.VITE_ANDROID_SHELL === "true" && isCurrentSession(session) && data.target.id === session.userId) {
+    // A cache failure must not turn a successful live read into a failed API request.
+    void updateWorkSnapshot(data).catch(() => window.dispatchEvent(new Event("makereadyos:offline-snapshot-failed")));
+  }
+  return data;
 }
 
 export function getAssignedWork(filters: { propertyId?: string; userId?: string } = {}) {
@@ -3401,9 +3411,20 @@ export function makeReadyPdfReportUrl(filters: MakeReadyItemFilters = {}) {
 
 export async function getCurrentUser() {
   const startedWith = getVerifiedSession();
-  const response = await request<{ user: CurrentUser; roles: UserRole[]; csrfToken: string }>("/auth/me");
-  if (!acceptVerifiedSession(response.user.id, startedWith)) throw new ApiError(409, "The account changed while loading. Retry with the current account.");
-  return response;
+  // Bound native cold-start verification, not operational writes or photo uploads.
+  const controller = import.meta.env.VITE_ANDROID_SHELL === "true" ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), 20000) : null;
+  try {
+    const response = await request<{ user: CurrentUser; roles: UserRole[]; csrfToken: string }>("/auth/me", controller ? { signal: controller.signal } : undefined);
+    if (!acceptVerifiedSession(response.user.id, startedWith)) throw new ApiError(409, "The account changed while loading. Retry with the current account.");
+    if (import.meta.env.VITE_ANDROID_SHELL === "true") checkSnapshotOwner(response.user.id);
+    return response;
+  } catch (error) {
+    if (controller?.signal.aborted) throw new ApiError(0, "Session verification timed out. Retry when the connection is available.");
+    throw error;
+  } finally {
+    if (timeout !== null) clearTimeout(timeout);
+  }
 }
 
 export async function probeApiConnection(signal: AbortSignal): Promise<ConnectionProbeResult> {
@@ -3411,6 +3432,7 @@ export async function probeApiConnection(signal: AbortSignal): Promise<Connectio
   // Auth routes bypass the service worker's offline cache. HTML/proxy responses are not recovery.
   const response = await fetch(`${apiBaseUrl}/auth/me?connection-check=${Date.now()}`, { credentials: "include", cache: "no-store", signal });
   if (!isCurrentSession(session)) return "stale";
+  if (import.meta.env.VITE_ANDROID_SHELL === "true" && (response.status === 401 || response.status === 403)) clearWorkSnapshot();
   if (!response.headers.get("content-type")?.includes("application/json")) return "unreachable";
   if (response.status === 401) return "unauthenticated";
   if (!response.ok) return "unreachable";
@@ -3426,6 +3448,7 @@ export function passwordAction(action: "forgot-password" | "reset-password" | "c
 }
 
 export async function login(identifier: string, password: string) {
+  if (import.meta.env.VITE_ANDROID_SHELL === "true") clearWorkSnapshot();
   clearVerifiedSession();
   csrfToken = null;
   const startedWith = getVerifiedSession();
@@ -3438,6 +3461,7 @@ export async function login(identifier: string, password: string) {
 }
 
 export function logout() {
+  if (import.meta.env.VITE_ANDROID_SHELL === "true") clearWorkSnapshot();
   clearVerifiedSession();
   const pending = request<{ ok: true }>("/auth/logout", {
     method: "POST",
@@ -3447,6 +3471,7 @@ export function logout() {
 }
 
 export function logoutAllSessions() {
+  if (import.meta.env.VITE_ANDROID_SHELL === "true") clearWorkSnapshot();
   clearVerifiedSession();
   const pending = request<{ ok: true }>("/auth/logout-all", {
     method: "POST",

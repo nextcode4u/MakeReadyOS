@@ -32,6 +32,7 @@ const storeName = "jobs";
 const queueUpdatedEventName = "makereadyos:offline-queue-updated";
 
 type QueuedBlob = {
+  uploadId?: string;
   name: string;
   mimeType: string;
   lastModified: number;
@@ -481,7 +482,7 @@ async function syncJob(job: OfflineSyncJob) {
       return;
     case "makeReadyUpload": {
       const payload = job.payload;
-      await uploadQueuedFiles(job, payload, file => uploadItemAttachment(payload.itemId, restoreFile(file), payload.inspectionStage, account));
+      await uploadQueuedFiles(job, payload, file => uploadItemAttachment(payload.itemId, restoreFile(file), payload.inspectionStage, account, file.uploadId));
       return;
     }
     case "makeReadyCommentCreate":
@@ -713,12 +714,12 @@ export async function enqueueMakeReadyPatch(ownerUserId: string, itemId: string,
   return enqueue(ownerUserId, { kind: "makeReadyPatch", itemId, data });
 }
 
-export async function enqueueMakeReadyAttachmentUpload(ownerUserId: string, itemId: string, files: File[], inspectionStage?: "INITIAL_WALK") {
+export async function enqueueMakeReadyAttachmentUpload(ownerUserId: string, itemId: string, files: File[], inspectionStage?: "INITIAL_WALK", retrySafe = false) {
   return enqueue(ownerUserId, {
     kind: "makeReadyUpload",
     inspectionStage,
     itemId,
-    files: files.map((file) => buildBlob(file)),
+    files: files.map((file) => ({ ...buildBlob(file), ...(retrySafe ? { uploadId: crypto.randomUUID() } : {}) })),
   });
 }
 

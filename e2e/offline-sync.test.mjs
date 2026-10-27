@@ -5,6 +5,23 @@ import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 import ts from "../apps/api/node_modules/typescript/lib/typescript.js";
 
+test("retry-safe unit uploads retain their token, stage, owner and bytes across queue reload", async () => {
+  const jobs = [];
+  const attempts = [];
+  const first = queue({ jobs, api: { uploadItemAttachment: async (...args) => { attempts.push(args); throw new Error("lost confirmation"); } } });
+  const queued = await first.exports.enqueueMakeReadyAttachmentUpload("owner-a", "unit-turn", [new File(["test bytes"], "photo.jpg", { type: "image/jpeg" })], "INITIAL_WALK", true);
+  await assert.rejects(first.exports.retryOfflineSyncJob(queued.id, { serverReachable: true }));
+  const reloaded = queue({ jobs, api: { uploadItemAttachment: async (...args) => { attempts.push(args); } } });
+  assert.equal((await reloaded.exports.retryOfflineSyncJob(queued.id, { serverReachable: true })).synced, true);
+  assert.equal(attempts.length, 2);
+  assert.match(attempts[0][4], /^[0-9a-f-]{36}$/);
+  assert.equal(attempts[0][4], attempts[1][4]);
+  assert.equal(attempts[1][2], "INITIAL_WALK");
+  assert.equal(attempts[1][3].expectedUserId, "owner-a");
+  assert.equal(await attempts[1][1].text(), "test bytes");
+  assert.equal(jobs.length, 0);
+});
+
 function queue(options = {}) {
   const exports = {};
   let online = false;

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { SaveOfflineWork } from "./OfflineWorkSnapshot";
 import type { CurrentUser, LabelDefinition, MyWorkResponse, StaffOption, WorkSessionSourceType } from "../lib/api";
 import { displayUnitNumber } from "../lib/board";
 import { formatDateDisplay, formatDateTime } from "../lib/dateTime";
@@ -43,8 +44,8 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
   const pestItems = data?.pestItems ?? [];
   const leaseComplianceItems = data?.leaseComplianceItems ?? [];
   const pmTasks = data?.pmTasks ?? [];
-  if (loading) return <StatusState title={t(language, "myWork.loadingTitle")} description={t(language, "myWork.loadingCopy")} />;
-  if (error || !data) return <StatusState title={t(language, "myWork.unavailableTitle")} description={t(language, "myWork.unavailableCopy")} tone="error" action={{ label: t(language, "status.reload"), onClick: onRetry }} />;
+  if (loading && !data) return <StatusState title={t(language, "myWork.loadingTitle")} description={t(language, "myWork.loadingCopy")} />;
+  if (!data) return <StatusState title={t(language, "myWork.unavailableTitle")} description={t(language, "myWork.unavailableCopy")} tone="error" action={{ label: t(language, "status.reload"), onClick: onRetry }} />;
   const canSelectStaff = currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
   const canQuickUpdate = ["ADMIN", "MANAGER", "TECH", "CLEANER"].includes(currentUser.role);
   const makeReadyOptions = Object.values(labelsByField.makeReadyStatus ?? {}).filter((label) => !label.isArchived);
@@ -85,6 +86,8 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
 
   return (
     <section className="my-work-panel" data-testid="my-work-panel">
+      {error ? <p role="status">{language === "es" ? "Mostrando trabajo cargado anteriormente. Puede estar desactualizado." : "Showing previously loaded work. It may be out of date."} <button onClick={onRetry}>{t(language, "status.reload")}</button></p> : null}
+      {import.meta.env.VITE_ANDROID_SHELL === "true" && data.target.id === currentUser.id ? <SaveOfflineWork language={language} /> : null}
       <header className="panel-heading my-work-heading">
         <div><h2>{t(language, "myWork.title")}</h2><p>{tWithVars(language, "myWork.copy", { name: data.target.fullName })}</p></div>
         {canSelectStaff ? (

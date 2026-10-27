@@ -26,6 +26,8 @@ import { awaitingFinalWalk, isTurnReady, turnStageLabel } from "../lib/turnStatu
 import { HelpTip } from "./HelpTip";
 import { TurnHandoffSummary } from "./TurnHandoffSummary";
 import { uploadBatch, type UploadOutcome } from "../lib/uploadBatch";
+import { durableUploadBatch } from "../lib/durableUploadBatch";
+import { retryOfflineSyncJob } from "../lib/offlineSync";
 import { matchesTurnStep, turnNextStep } from "../lib/turnNextAction";
 import { hasActiveCorrections } from "../lib/workCues";
 import { repairStageDisplay } from "../lib/repairStageDisplay";
@@ -495,7 +497,15 @@ export function ItemDrawer({
     setUploadOutcomes([]);
     setUploading(true);
     void operation("attachments-upload", async () => {
-      try { await uploadBatch(selected, {
+      try {
+        if (import.meta.env.VITE_ANDROID_SHELL === "true") {
+          await durableUploadBatch(selected, {
+            current: () => isCurrentSession(session),
+            save: file => enqueueMakeReadyAttachmentUpload(currentUser.id, item.id, [file], inspectionStage, true),
+            deliver: id => retryOfflineSyncJob(id),
+            progress: setUploadOutcomes,
+          });
+        } else await uploadBatch(selected, {
         current: () => isCurrentSession(session),
         upload: file => uploadItemAttachment(item.id, file, inspectionStage, { expectedUserId: currentUser.id }),
         queue: file => enqueueMakeReadyAttachmentUpload(currentUser.id, item.id, [file], inspectionStage),
@@ -1276,7 +1286,7 @@ export function ItemDrawer({
             <p className="helper-copy">ZIPs preserve originals and include an evidence index with uploader, notes, charge candidates and UTC upload timestamps, not verified camera capture times. Suitable for manual document upload or shared-drive backup, not automatic charge posting.</p>
           </div>
           {pendingAttachmentSyncCount ? <p className="drawer-empty" role="status">{t(language, "drawer.pendingAttachmentSync").replace("{count}", String(pendingAttachmentSyncCount))}</p> : null}
-          {uploading ? <p role="status">Uploading selected files. Keep this unit open until the results appear.</p> : null}
+          {uploading ? <p role="status">{import.meta.env.VITE_ANDROID_SHELL === "true" ? "Preparing and uploading files. Keep this unit open until each file shows Saved or Pending upload." : "Uploading selected files. Keep this unit open until the results appear."}</p> : null}
           {uploadOutcomes.length ? <div data-testid="attachment-upload-results" style={{ overflowWrap: "anywhere" }}>
             <p role="status">Last selection: {uploadOutcomes.filter(row => row.status === "UPLOADED").length} server-confirmed / {uploadOutcomes.filter(row => row.status === "QUEUED").length} queued on this device / {uploadOutcomes.filter(row => row.status === "FAILED").length} failed / {uploadOutcomes.filter(row => row.status === "NOT_ATTEMPTED").length} not attempted.</p>
             {uploadOutcomes.some(row => row.status === "UNCONFIRMED") ? <p role="alert">{uploadOutcomes.filter(row => row.status === "UNCONFIRMED").length} upload outcome(s) unconfirmed. Check the refreshed gallery before retrying to avoid duplicates.</p> : null}

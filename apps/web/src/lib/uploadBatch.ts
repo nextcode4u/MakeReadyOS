@@ -1,4 +1,4 @@
-export type UploadOutcome = { name: string; status: "UPLOADED" | "QUEUED" | "FAILED" | "UNCONFIRMED" | "NOT_ATTEMPTED"; message?: string };
+export type UploadOutcome = { name: string; status: "UPLOADING" | "UPLOADED" | "QUEUED" | "FAILED" | "UNCONFIRMED" | "NOT_ATTEMPTED"; message?: string };
 
 export async function uploadBatch<T extends { name: string }>(files: T[], options: {
   current: () => boolean;

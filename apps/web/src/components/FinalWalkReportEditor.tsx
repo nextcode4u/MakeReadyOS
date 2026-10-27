@@ -1,4 +1,6 @@
 import { turnText } from "../lib/turnLocale";
+import { deliverReportPdf } from "../lib/reportPdfDelivery";
+import { getVerifiedSession, isCurrentSession } from "../lib/verifiedSession";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { downloadResidentReport, getFinalReport, isApiError, markMakeReadyItemReady, previewFinalReport, returnFinalWalkToTech, saveFinalReportDraft, saveFinalReportSettings, type FinalReportData, type FinalReportDraft, type FinalReportResult, type FinalReportSettings } from "../lib/api";
@@ -86,24 +88,24 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
     : settingsDirty || draftDirty || !savedDraft.version ? "Save changes before downloading the resident copy." : "");
   const residentPdf = () => void run(async () => {
     if (!item) return;
+    const session = getVerifiedSession();
     const response = await downloadResidentReport(initial.property.id, item.id, savedDraft.version);
-    const bytes = Uint8Array.from(atob(response.pdfBase64), char => char.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-    const link = document.createElement("a"); link.href = url; link.download = `final-walk-${initial.property.code.replace(/[^a-z0-9-]/gi, "_")}-${item.unitNumber.replace(/[^a-z0-9-]/gi, "_")}-r${savedDraft.version}.pdf`; link.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
-    setMessage(turnText(language, "Resident report downloaded from saved inspection records. Unit status was not changed."));
+    if (!isCurrentSession(session)) return;
+    const android = import.meta.env.VITE_ANDROID_SHELL === "true";
+    await deliverReportPdf(response.pdfBase64, `final-walk-${initial.property.code.replace(/[^a-z0-9-]/gi, "_")}-${item.unitNumber.replace(/[^a-z0-9-]/gi, "_")}-r${savedDraft.version}.pdf`, "resident", android);
+    setMessage(android ? (language === "es" ? "PDF del residente preparado. Usa las opciones de Android para guardarlo o compartirlo." : "Resident PDF prepared. Use Android's options to save or share it.") : turnText(language, "Resident report downloaded from saved inspection records. Unit status was not changed."));
   });
   const preview = (format: "html" | "pdf") => void run(async () => {
     validateSettings();
     if (item) validateDraft();
+    const session = getVerifiedSession();
     const response = await previewFinalReport(initial.property.id, { itemId: item?.id, settings, draft, format });
+    if (!isCurrentSession(session)) return;
     if (response.html) { setHtml(response.html); setMessage(turnText(language, "Preview uses current form values and saved property/company logos. Unsaved edits are not saved by previewing.")); }
     if (response.pdfBase64) {
-      const bytes = Uint8Array.from(atob(response.pdfBase64), char => char.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-      const link = document.createElement("a"); link.href = url; link.download = `final-walk-DRAFT-${initial.property.code.replace(/[^a-z0-9-]/gi,"_")}-${(item?.unitNumber ?? "branding").replace(/[^a-z0-9-]/gi,"_")}.pdf`; link.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
-      setMessage(turnText(language, "Draft PDF downloaded. It is not a finalized inspection record."));
+      const android = import.meta.env.VITE_ANDROID_SHELL === "true";
+      await deliverReportPdf(response.pdfBase64, `final-walk-DRAFT-${initial.property.code.replace(/[^a-z0-9-]/gi,"_")}-${(item?.unitNumber ?? "branding").replace(/[^a-z0-9-]/gi,"_")}.pdf`, "draft", android);
+      setMessage(android ? (language === "es" ? "Borrador preparado para Android. No es la copia del residente." : "Draft prepared for Android. It is not the resident copy.") : turnText(language, "Draft PDF downloaded. It is not a finalized inspection record."));
     }
   });
   return <div className="final-report-workspace">
