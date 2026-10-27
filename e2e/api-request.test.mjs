@@ -12,7 +12,9 @@ function client() {
   vm.runInNewContext(ts.transpileModule(readFileSync("apps/web/src/lib/verifiedSession.ts", "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, { exports: session });
-  const source = readFileSync("apps/web/src/lib/api.ts", "utf8").replace("import.meta.env.VITE_API_BASE_URL", '"/api"');
+  const source = readFileSync("apps/web/src/lib/api.ts", "utf8")
+    .replaceAll("import.meta.env.VITE_API_BASE_URL", '"/api"')
+    .replaceAll("import.meta.env.VITE_ANDROID_SHELL", '"false"');
   vm.runInNewContext(ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText + "\nexports.testRequest = request;", {
