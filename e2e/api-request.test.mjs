@@ -11,7 +11,10 @@ function client() {
   let respond = null;
   vm.runInNewContext(ts.transpileModule(readFileSync("apps/web/src/lib/verifiedSession.ts", "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, { exports: session });
+  }).outputText, { exports: session, require: name => {
+    assert.equal(name, "./nativePush");
+    return { clearNativePush() {} };
+  } });
   const source = readFileSync("apps/web/src/lib/api.ts", "utf8")
     .replaceAll("import.meta.env.VITE_API_BASE_URL", '"/api"')
     .replaceAll("import.meta.env.VITE_ANDROID_SHELL", '"false"');

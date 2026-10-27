@@ -10,7 +10,7 @@ function load(file, extras = {}) {
     .replaceAll("import.meta.env.VITE_API_BASE_URL", '"/api"')
     .replaceAll("import.meta.env.VITE_ANDROID_SHELL", '"false"');
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText,
-    { exports, require: name => name === "./verifiedSession" ? load("apps/web/src/lib/verifiedSession.ts") : {}, Error, FormData, Headers, AbortController, setTimeout, clearTimeout, ...extras });
+    { exports, require: name => name === "./verifiedSession" ? load("apps/web/src/lib/verifiedSession.ts") : name === "./nativePush" ? load("apps/web/src/lib/nativePush.ts") : {}, Error, FormData, Headers, AbortController, setTimeout, clearTimeout, ...extras });
   return exports;
 }
 

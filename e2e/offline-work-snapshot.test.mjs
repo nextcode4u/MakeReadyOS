@@ -23,7 +23,9 @@ test('encrypted allowlisted copy unlocks without accepting a session', async () 
   const { api, storage } = setup();
   await api.enableWorkSnapshot(data, phrase);
   const raw = storage.get(api.snapshotKey);
-  for (const secret of ['PRIVATE RESIDENT', 'SECRET CODE', 'PRIVATE NOTES', '105', 'MAKE_READY']) assert.ok(!raw.includes(secret));
+  // A short unit number may occur coincidentally in timestamps or random ciphertext.
+  assert.deepEqual(Object.keys(JSON.parse(raw)).sort(), ['ciphertext', 'expiresAt', 'iv', 'origin', 'owner', 'salt', 'savedAt', 'version']);
+  for (const secret of ['PRIVATE RESIDENT', 'SECRET CODE', 'PRIVATE NOTES', '"unit":"105"', 'MAKE_READY']) assert.ok(!raw.includes(secret));
   const result = await api.openWorkSnapshot(phrase);
   assert.equal(result.rows[0].unit, '105');
   assert.deepEqual(Object.keys(result.rows[0]).sort(), ['cleaning', 'id', 'moveIn', 'paint', 'preparation', 'property', 'status', 'unit']);
