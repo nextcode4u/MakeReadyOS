@@ -1,5 +1,5 @@
 import { turnText } from "../lib/turnLocale";
-import { type MouseEvent, useEffect, useMemo, useState } from "react";
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { getVerifiedSession, isCurrentSession } from "../lib/verifiedSession";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BoardColumnDefinition, BoardSection, ChargePriceSheetImportSummary, ChargePriceSheetItem, ChargeReport, ChargeReportGroup, CurrentUser, CustomField, FloorPlan, ItemCollaboration, LabelDefinition, MakeReadyItem, StaffOption, UnitHistoryResponse, Vendor, VendorAssignment, WorkAssignmentBlock } from "../lib/api";
@@ -27,7 +27,7 @@ import { HelpTip } from "./HelpTip";
 import { TurnHandoffSummary } from "./TurnHandoffSummary";
 import { uploadBatch, type UploadOutcome } from "../lib/uploadBatch";
 import { durableUploadBatch } from "../lib/durableUploadBatch";
-import { retryOfflineSyncJob } from "../lib/offlineSync";
+import { retryOfflineSyncJob, offlineJobCompletedEvent, type CompletedOfflineJob } from "../lib/offlineSync";
 import { matchesTurnStep, turnNextStep } from "../lib/turnNextAction";
 import { hasActiveCorrections } from "../lib/workCues";
 import { repairStageDisplay } from "../lib/repairStageDisplay";
@@ -238,6 +238,7 @@ export function ItemDrawer({
   const [vendorDraft, setVendorDraft] = useState({ vendorId: "", trade: "", scheduledDate: "", dueDate: "", notes: "" });
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [pendingAttachmentSyncCount, setPendingAttachmentSyncCount] = useState(0);
+  const confirmedUploadIds = useRef(new Set<string>());
   const [uploadOutcomes, setUploadOutcomes] = useState<UploadOutcome[]>([]);
   const [uploading, setUploading] = useState(false);
   const [pendingChecklistItemIds, setPendingChecklistItemIds] = useState<string[]>([]);
@@ -503,7 +504,7 @@ export function ItemDrawer({
             current: () => isCurrentSession(session),
             save: file => enqueueMakeReadyAttachmentUpload(currentUser.id, item.id, [file], inspectionStage, true),
             deliver: id => retryOfflineSyncJob(id),
-            progress: setUploadOutcomes,
+            progress: rows => setUploadOutcomes(rows.map(row => row.jobId && confirmedUploadIds.current.has(row.jobId) ? { ...row, status: "UPLOADED", message: "Saved. The server confirmed this attachment." } : row)),
           });
         } else await uploadBatch(selected, {
         current: () => isCurrentSession(session),
@@ -561,6 +562,19 @@ export function ItemDrawer({
     window.addEventListener(queueEventName, handleQueueUpdate as EventListener);
     return () => window.removeEventListener(queueEventName, handleQueueUpdate as EventListener);
   }, [item.id, collaborationQuery.data]);
+
+  useEffect(() => {
+    const completed = (event: Event) => {
+      const detail = (event as CustomEvent<CompletedOfflineJob>).detail;
+      if (detail.ownerUserId !== getVerifiedSession().userId || detail.itemId !== item.id) return;
+      if (detail.kind === "makeReadyUpload") confirmedUploadIds.current.add(detail.id);
+      setUploadOutcomes(rows => rows.map(row => row.jobId === detail.id ? { ...row, status: "UPLOADED", message: "Saved. The server confirmed this attachment." } : row));
+      void queryClient.invalidateQueries({ queryKey: ["collaboration", item.id] });
+      void queryClient.invalidateQueries({ queryKey: ["my-work"] });
+    };
+    window.addEventListener(offlineJobCompletedEvent, completed);
+    return () => { window.removeEventListener(offlineJobCompletedEvent, completed); confirmedUploadIds.current.clear(); };
+  }, [item.id, queryClient]);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {

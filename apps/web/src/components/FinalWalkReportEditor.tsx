@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { downloadResidentReport, getFinalReport, isApiError, markMakeReadyItemReady, previewFinalReport, returnFinalWalkToTech, saveFinalReportDraft, saveFinalReportSettings, type FinalReportData, type FinalReportDraft, type FinalReportResult, type FinalReportSettings } from "../lib/api";
 import { Modal } from "./Modal";
+import { CompletionNotice } from "./CompletionNotice";
 import "./finalWalkReportEditor.css";
 import { todayInputValue } from "../lib/dateTime";
 import { FinalReportPreview } from "./FinalReportPreview";
@@ -33,6 +34,7 @@ export function FinalWalkReportEditor({ propertyId, propertyName, itemId, onClos
 function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { initial: FinalReportData; onDirty: (dirty: boolean) => void; onBusy: (busy: boolean) => void; onReturned: () => void; language: string }) {
   const client = useQueryClient();
   const [savedSettings, setSavedSettings] = useState(initial.settings);
+  const [pdfPending, setPdfPending] = useState(false);
   const [settings, setSettings] = useState(initial.settings.value);
   const [savedDraft, setSavedDraft] = useState(initial.draft);
   const [draft, setDraft] = useState(() => datedInspection(initial.draft.value, Boolean(initial.item), initial.inspectionToday));
@@ -88,12 +90,15 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
     : settingsDirty || draftDirty || !savedDraft.version ? "Save changes before downloading the resident copy." : "");
   const residentPdf = () => void run(async () => {
     if (!item) return;
+    setPdfPending(true);
+    try {
     const session = getVerifiedSession();
     const response = await downloadResidentReport(initial.property.id, item.id, savedDraft.version);
     if (!isCurrentSession(session)) return;
     const android = import.meta.env.VITE_ANDROID_SHELL === "true";
     await deliverReportPdf(response.pdfBase64, `final-walk-${initial.property.code.replace(/[^a-z0-9-]/gi, "_")}-${item.unitNumber.replace(/[^a-z0-9-]/gi, "_")}-r${savedDraft.version}.pdf`, "resident", android);
     setMessage(android ? (language === "es" ? "PDF del residente preparado. Usa las opciones de Android para guardarlo o compartirlo." : "Resident PDF prepared. Use Android's options to save or share it.") : turnText(language, "Resident report downloaded from saved inspection records. Unit status was not changed."));
+    } finally { setPdfPending(false); }
   });
   const preview = (format: "html" | "pdf") => void run(async () => {
     validateSettings();
@@ -177,7 +182,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
           onReturned();
         })}>{turnText(language, "Save and send corrections to technician")}</button>
         <button type="button" className="button button-primary" data-testid="final-report-save-draft" disabled={!draftDirty} onClick={() => void run(async () => { validateDraft(); const saved = await saveFinalReportDraft(initial.property.id, item.id, { version: savedDraft.version, value: draft }); setSavedDraft(saved); setDraft(saved.value); void client.invalidateQueries({ queryKey: ["final-walk", item.id] }); void client.invalidateQueries({ queryKey: ["resident-codes", item.id] }); setMessage(turnText(language, "Inspection draft saved. Unit status and sign-offs were not changed.")); })}>{turnText(language, "Save inspection draft")}</button>
-        {error ? <p role="alert" data-testid="final-report-save-error">{error}</p> : null}
+        {error ? <CompletionNotice error message={error} language={language} testId="final-report-save-error" /> : null}
         {draftDirty ? <p>{turnText(language, "Unsaved changes. Preview includes them; Save persists them.")}</p> : null}
         <small>{savedDraft.updatedAt ? `${language === "es" ? "Guardado" : "Saved"} ${new Date(savedDraft.updatedAt).toLocaleString(language === "es" ? "es-US" : "en-US")} / ${language === "es" ? "revisión" : "revision"} ${savedDraft.version}` : turnText(language, "No saved inspection draft yet.")}</small>
         </fieldset>
@@ -186,12 +191,13 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
         <div className="final-report-actions" data-testid="final-report-toolbar">
           <button type="button" className="button" data-testid="final-report-preview" onClick={() => preview("html")}>{turnText(language, "Preview report")}</button>
           {item ? <span title={residentHelp || turnText(language, "Save changes first. Requires recorded technician and final-walk checks, inspection date, confirmed handoff counts and no unresolved corrections. Missing records are never inferred from Ready status.")}>
-            <button type="button" className="button button-primary" data-testid="final-report-resident-pdf" aria-describedby={residentHelp ? "resident-download-help" : undefined} disabled={busy || settingsDirty || draftDirty || !savedDraft.version || !item.unitReady || item.stockInspection} onClick={residentPdf}>{turnText(language, "Download resident PDF")}</button>
+            <button type="button" className="button button-primary" data-testid="final-report-resident-pdf" aria-describedby={residentHelp ? "resident-download-help" : undefined} disabled={busy || settingsDirty || draftDirty || !savedDraft.version || !item.unitReady || item.stockInspection} onClick={residentPdf}>{pdfPending ? (language === "es" ? "Preparando PDF..." : "Preparing PDF...") : turnText(language, "Download resident PDF")}</button>
           </span> : null}
           {(savedSettings.value.onboardingLinks ?? []).map((link, index) => <a key={index} className="button" href={link.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" title={turnText(language, "Opens in a new tab")} aria-label={`${link.label} (${turnText(language, "Opens in a new tab")})`}>{link.label}</a>)}
         </div>
-        {item && residentHelp ? <small id="resident-download-help">{residentHelp}</small> : null}
-        {error ? <p role="alert">{error}</p> : null}
+        {item && residentHelp ? <CompletionNotice id="resident-download-help" message={residentHelp} language={language} /> : null}
+        {pdfPending ? <p role="status">{language === "es" ? "Generando el PDF. Mantén la aplicación abierta; aparecerán las opciones para guardar o compartir." : "Generating the PDF. Keep the app open; save and share options will appear when it is ready."}</p> : message ? <p role="status">{message}</p> : null}
+        {error ? <CompletionNotice error message={error} language={language} /> : null}
       {initial.canEditSettings ? <details className="final-report-link-settings"><summary>{turnText(language, "Onboarding settings")}</summary>
         <p>{turnText(language, "Add staff links for gate access, parking or other move-in tasks. These links are not printed on the resident PDF. Do not include passwords, access codes or private tokens in URLs.")}</p>
         <fieldset disabled={busy} className="final-report-form">
@@ -234,7 +240,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
           if (completed.isArchived) onReturned();
         })}>{turnText(language, busy ? "Saving..." : draftDirty ? "Save inspection & mark ready" : "Mark unit ready")}</button>
         {settingsDirty ? <p>{turnText(language, "Save or reload your report wording changes before marking ready.")}</p> : null}
-        {error ? <p role="alert" data-testid="final-report-ready-error">{error}</p> : null}
+        {error ? <CompletionNotice error message={error} language={language} testId="final-report-ready-error" /> : null}
       </>}
     </section> : null}
 

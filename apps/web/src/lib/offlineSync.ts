@@ -11,6 +11,7 @@ import {
   patchMakeReadyItem,
   skipPreventiveMaintenanceTask,
   updateChecklistItem,
+  saveResidentCodes,
   updateItemComment,
   uploadItemAttachment,
   uploadLeaseComplianceIssuePhoto,
@@ -25,6 +26,9 @@ import {
   type ProjectAttachmentType,
 } from "./api";
 import { getVerifiedSession, isCurrentSession, type VerifiedSession } from "./verifiedSession";
+import { openPendingSave, protectPendingSave } from "./protectedPendingSave";
+export const offlineJobCompletedEvent = "makereadyos:offline-job-completed";
+export type CompletedOfflineJob = { id: string; ownerUserId: string; itemId?: string; kind: OfflineSyncJobPayload["kind"] };
 
 const databaseName = "makereadyos-offline-sync";
 const databaseVersion = 1;
@@ -59,6 +63,7 @@ type QueuedCaptionedAttachment = QueuedBlob & {
 };
 
 type OfflineSyncJobPayload =
+  | { kind: "makeReadyResidentSave"; itemId: string; protected: Awaited<ReturnType<typeof protectPendingSave>> }
   | {
       kind: "makeReadyPatch";
       itemId: string;
@@ -302,6 +307,8 @@ function restoreFile(file: QueuedBlob) {
 
 function jobTitle(payload: OfflineSyncJobPayload) {
   switch (payload.kind) {
+    case "makeReadyResidentSave":
+      return `Item ${payload.itemId} preparation and resident details`;
     case "makeReadyPatch":
       return `Item ${payload.itemId}`;
     case "makeReadyUpload":
@@ -341,6 +348,7 @@ function jobTitle(payload: OfflineSyncJobPayload) {
 
 function jobModule(payload: OfflineSyncJobPayload): OfflineSyncJobSummary["module"] {
   switch (payload.kind) {
+    case "makeReadyResidentSave":
     case "makeReadyPatch":
     case "makeReadyUpload":
     case "makeReadyCommentCreate":
@@ -477,6 +485,13 @@ async function syncJob(job: OfflineSyncJob) {
   }
   const account = { expectedUserId: job.ownerUserId };
   switch (job.payload.kind) {
+    case "makeReadyResidentSave": {
+      let input: Parameters<typeof saveResidentCodes>[1];
+      try { input = await openPendingSave(job.ownerUserId, job.payload.itemId, job.payload.protected); }
+      catch { throw new ApiError(409, "Cannot unlock this device's pending save. Review saved unit details before discarding it."); }
+      await saveResidentCodes(job.payload.itemId, input, account);
+      return;
+    }
     case "makeReadyPatch":
       await patchMakeReadyItem(job.payload.itemId, job.payload.data, account);
       return;
@@ -635,6 +650,9 @@ function deliverQueuedJob(id: string) {
         await checkpointJob(job);
       }
       await withStore("readwrite", (store) => deleteJob(store, id));
+      if (isCurrentSession(session) && typeof window !== "undefined") window.dispatchEvent(new CustomEvent<CompletedOfflineJob>(offlineJobCompletedEvent, {
+        detail: { id, ownerUserId: session.userId!, itemId: "itemId" in job.payload ? job.payload.itemId : undefined, kind: job.payload.kind },
+      }));
       return isCurrentSession(session);
     } catch (error) {
       await updateFailedJob(job, error);
@@ -741,6 +759,14 @@ export async function enqueueMakeReadyChecklistAttach(ownerUserId: string, itemI
 
 export async function enqueueMakeReadyChecklistUpdate(ownerUserId: string, itemId: string, checklistItemId: string, input: Parameters<typeof updateChecklistItem>[1]) {
   return enqueue(ownerUserId, { kind: "makeReadyChecklistUpdate", itemId, checklistItemId, input });
+}
+
+export async function enqueueResidentSave(ownerUserId: string, itemId: string, input: Parameters<typeof saveResidentCodes>[1]) {
+  const session = getVerifiedSession();
+  if (session.userId !== ownerUserId) throw new Error("Sign in again before saving.");
+  const protectedInput = await protectPendingSave(ownerUserId, itemId, input);
+  if (!isCurrentSession(session)) throw new Error("Account changed. Your entries have not been queued.");
+  return enqueue(ownerUserId, { kind: "makeReadyResidentSave", itemId, protected: protectedInput });
 }
 
 export async function enqueueProjectCreate(ownerUserId: string, input: {

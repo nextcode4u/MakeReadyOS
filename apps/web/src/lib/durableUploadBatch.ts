@@ -17,7 +17,7 @@ export async function durableUploadBatch<T extends { name: string }>(files: T[],
       try {
         const job = await options.save(file);
         jobs.push({ id: job.id, index: outcomes.length });
-        outcomes.push({ name: file.name, status: "QUEUED", message: "Pending upload. Saved on this device, not yet confirmed by the server." });
+        outcomes.push({ jobId: job.id, name: file.name, status: "QUEUED", message: "Pending upload. Saved on this device, not yet confirmed by the server." });
       } catch {
         outcomes.push({ name: file.name, status: "FAILED", message: "Could not save this file on the device. Nothing was sent. Check storage and select it again." });
       }

@@ -2,6 +2,9 @@ import { turnText } from "../lib/turnLocale";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getResidentCodes, isApiError, saveResidentCodes, type ResidentCodes, type FinalReportResult } from "../lib/api";
+import { enqueueResidentSave, getOfflineSyncJobs, getOfflineSyncEventName, offlineJobCompletedEvent, retryOfflineSyncJob, type CompletedOfflineJob } from "../lib/offlineSync";
+import { getVerifiedSession, isCurrentSession } from "../lib/verifiedSession";
+import { openPendingSave } from "../lib/protectedPendingSave";
 
 export function ResidentCodesPanel({ itemId, status, language }: { itemId: string; status: string | null; language: string }) {
   const client = useQueryClient();
@@ -12,9 +15,44 @@ export function ResidentCodesPanel({ itemId, status, language }: { itemId: strin
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [pending, setPending] = useState(false);
+  const [pendingValues, setPendingValues] = useState<Partial<ResidentCodes["value"]> | null>(null);
+  const android = import.meta.env.VITE_ANDROID_SHELL === "true";
+  useEffect(() => {
+    let active = true;
+    let refreshNumber = 0;
+    const refresh = async () => {
+      const sequence = ++refreshNumber;
+      const session = getVerifiedSession();
+      const jobs = await getOfflineSyncJobs();
+      const job = jobs.find(job => job.payload.kind === "makeReadyResidentSave" && job.payload.itemId === itemId);
+      if (!active || sequence !== refreshNumber || !isCurrentSession(session)) return;
+      setPending(Boolean(job));
+      if (job?.payload.kind === "makeReadyResidentSave" && session.userId) {
+        try {
+          const input = await openPendingSave(session.userId, itemId, job.payload.protected);
+          if (active && sequence === refreshNumber && isCurrentSession(session)) setPendingValues(input.value);
+        } catch { if (active && sequence === refreshNumber && isCurrentSession(session)) setPendingValues(null); }
+      } else setPendingValues(null);
+    };
+    const completed = (event: Event) => {
+      const detail = (event as CustomEvent<CompletedOfflineJob>).detail;
+      if (detail.kind !== "makeReadyResidentSave" || detail.itemId !== itemId || detail.ownerUserId !== getVerifiedSession().userId) return;
+      setError("");
+      setMessage(language === "es" ? "Preparación y datos del residente guardados en el servidor." : "Preparation and resident details saved on the server.");
+      void client.invalidateQueries({ queryKey: ["resident-codes", itemId] });
+      void client.invalidateQueries({ queryKey: ["final-walk", itemId] });
+      void client.invalidateQueries({ queryKey: ["final-report"] });
+      void refresh();
+    };
+    void refresh();
+    window.addEventListener(getOfflineSyncEventName(), refresh);
+    window.addEventListener(offlineJobCompletedEvent, completed);
+    return () => { active = false; window.removeEventListener(getOfflineSyncEventName(), refresh); window.removeEventListener(offlineJobCompletedEvent, completed); };
+  }, [itemId, client, language]);
   const accessDenied = isApiError(query.error) && [401, 403, 404].includes(query.error.status);
-  const current = accessDenied ? null : edit ?? query.data;
-  const preparationReadOnly = query.data?.preparationReadOnly ?? query.data?.readOnly;
+  const current = accessDenied ? null : edit ?? (query.data && pendingValues ? { ...query.data, value: { ...query.data.value, ...pendingValues } } : query.data);
+  const preparationReadOnly = pending || (query.data?.preparationReadOnly ?? query.data?.readOnly);
   useEffect(() => {
     if (!edit) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
@@ -27,6 +65,8 @@ export function ResidentCodesPanel({ itemId, status, language }: { itemId: strin
   };
   return <section className="drawer-section" data-testid="resident-codes-panel">
     <h3>{turnText(language, "Technician preparation & resident handoff")}</h3>
+    {android ? <p className="helper-copy">{language === "es" ? "Pulsa Guardar antes de cerrar. Sin conexión, el guardado queda cifrado en este dispositivo hasta que el servidor lo confirme. La copia sin conexión de Mi trabajo es solo de lectura." : "Press Save before closing. Without a connection, the save stays encrypted on this device until the server confirms it. The offline My Work copy is read-only."}</p> : null}
+    {pending ? <p role="status">{language === "es" ? "Guardado pendiente en este dispositivo. Conéctate e inicia sesión con la misma cuenta. Si hay un conflicto, revísalo en Sincronización pendiente antes de editar otra vez." : "Pending save on this device. Reconnect and sign in with the same account. Review any conflict in Pending sync before editing again."}</p> : null}
     <p className="helper-copy">{turnText(language, "Enter the new code assigned to this resident's unit during the make-ready. Never enter shared gate, staff, or master codes. These are the same fields used by the Final-Walk Report.")}</p>
     {query.isPending ? <p role="status">{turnText(language, "Loading resident codes...")}</p> : null}
     {query.isError ? <p role="alert">{turnText(language, "Could not load resident codes.")} <button type="button" onClick={() => void query.refetch()}>{turnText(language, "Retry")}</button></p> : null}
@@ -38,8 +78,27 @@ export function ResidentCodesPanel({ itemId, status, language }: { itemId: strin
         return;
       }
       setBusy(true); setError(""); setMessage("");
+      const session = getVerifiedSession();
       try {
-        const result = await saveResidentCodes(itemId, { version: edit.version, value: query.data?.readOnly ? { technicianResults: edit.value.technicianResults } : edit.value });
+        const input = { version: edit.version, value: query.data?.readOnly ? { technicianResults: edit.value.technicianResults } : edit.value };
+        if (android) {
+          if (!session.userId) throw new Error("Sign in again before saving.");
+          const job = await enqueueResidentSave(session.userId, itemId, input);
+          if (!isCurrentSession(session)) return;
+          setPendingValues(input.value); setEdit(null); setShow(false); setPending(true);
+          setMessage(language === "es" ? "Copia cifrada guardada en este dispositivo; pendiente de confirmación del servidor." : "Encrypted retry copy saved on this device; awaiting server confirmation.");
+          try {
+            const outcome = await retryOfflineSyncJob(job.id);
+            if (isCurrentSession(session) && outcome.synced) { setPending(false); setMessage(language === "es" ? "Preparación y datos del residente guardados en el servidor." : "Preparation and resident details saved on the server."); }
+          } catch {
+            if (isCurrentSession(session)) setError(language === "es" ? "El guardado sigue pendiente. Revisa Sincronización pendiente si requiere atención." : "Your save is still pending. Check Pending sync if it needs attention.");
+          }
+          const remaining = await getOfflineSyncJobs();
+          if (isCurrentSession(session)) setPending(remaining.some(row => row.payload.kind === "makeReadyResidentSave" && row.payload.itemId === itemId));
+          return;
+        }
+        const result = await saveResidentCodes(itemId, input, { expectedUserId: session.userId ?? "" });
+        if (!isCurrentSession(session)) return;
         client.setQueryData(key, result); setEdit(null); setShow(false);
         void client.invalidateQueries({ queryKey: ["final-report"] });
         void client.invalidateQueries({ queryKey: ["final-walk", itemId] });
@@ -60,7 +119,7 @@ export function ResidentCodesPanel({ itemId, status, language }: { itemId: strin
         <h4>{turnText(language, "Resident door & access codes")}</h4>
         <button type="button" className="button button-secondary" aria-pressed={show} onClick={() => setShow(value => !value)}>{show ? turnText(language, "Hide codes") : turnText(language, "Show codes")}</button>
       </div>
-      <fieldset className="turn-material-fields" disabled={busy || query.data?.readOnly}>
+      <fieldset className="turn-material-fields" disabled={busy || pending || query.data?.readOnly}>
         <label>{turnText(language, "New resident door code")}<input autoComplete="new-password" type={show ? "text" : "password"} maxLength={60} value={current.value.residentDoorCode} onChange={event => change({ residentDoorCode: event.target.value })}/></label>
         <label>{turnText(language, "Resident-specific access code (optional)")}<input autoComplete="new-password" type={show ? "text" : "password"} maxLength={60} value={current.value.residentAccessCode} onChange={event => change({ residentAccessCode: event.target.value })}/></label>
         <label style={{ display: "flex", alignItems: "center" }}><input style={{ width: "auto" }} type="checkbox" checked={current.value.includeResidentCodes} onChange={event => change({ includeResidentCodes: event.target.checked })}/>{turnText(language, "Include these resident-only codes on the Final-Walk Report")}</label>
