@@ -1,5 +1,9 @@
 # Desktop and Mobile Notifications
 
+This guide covers browser/PWA Web Push. It does not enable notifications in the
+native Android APK. For Firebase project preparation and the remaining native
+implementation gates, see [Firebase Android notifications](FIREBASE_ANDROID.md).
+
 Device push uses the existing in-app notification recipients and categories:
 assignments, final-walk readiness/handoffs, parts needing an order, schedule and
 risk alerts, comments, and other workflows that create notifications. It does not

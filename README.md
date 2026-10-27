@@ -200,6 +200,8 @@ Photo uploads are local-first. `MAX_UPLOAD_MB=0` disables MakeReadyOS' per-file 
 
 ## Documentation
 
+Deployment integrations: [Firebase, Resend and Cloudflare Tunnel](docs/EXTERNAL_SERVICES.md).
+
 Start here:
 
 - [Product Overview](docs/PRODUCT_OVERVIEW.md)

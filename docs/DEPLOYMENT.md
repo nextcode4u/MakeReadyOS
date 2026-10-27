@@ -4,6 +4,10 @@ MakeReadyOS is designed for Docker Compose on a Raspberry Pi, mini PC, VM, or VP
 
 ## Basic Deployment
 
+Provider-specific setup and credential handling are documented in
+[External Services](EXTERNAL_SERVICES.md): Cloudflare Tunnel, Resend SMTP, and
+Firebase Android push preparation.
+
 1. Install Docker and Docker Compose.
 2. Copy `.env.example` to `.env`.
 3. Set strong values for `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `POSTGRES_PASSWORD`, `SESSION_COOKIE_SECRET`, and `WEBHOOK_SECRET_ENCRYPTION_KEY`. `ADMIN_EMAIL` remains optional unless you want email-based sign-in or invite emails.

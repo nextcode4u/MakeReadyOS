@@ -3,6 +3,9 @@ dist
 .DS_Store
 .env
 .env.local
+.local/
+google-services.json
+*-firebase-adminsdk-*.json
 apps/api/dev.db
 apps/api/dev.db-journal
 apps/api/generated
