@@ -4255,6 +4255,7 @@ export type AvailabilityImportInput = UnitImportInput & {
 
 export type AvailabilityImportResult = {
   applied?: boolean;
+  preservedUnits?: string[];
   warnings?: string[];
   property: Pick<Property, "id" | "code" | "name">;
   summary: {
@@ -4320,7 +4321,7 @@ export type AvailabilityReconciliationInput = { fullReport?: boolean; reportDate
 export function previewAvailabilityArchives(input: { propertyId: string; rows: AvailabilityImportInput[]; reportDate: string }) {
   return request<{ token: string; candidates: Array<{ id: string; unitNumber: string; moveInDate: string }> }>("/operations/availability/import", { method: "POST", body: JSON.stringify({ ...input, fullReport: true, previewOnly: true }) });
 }
-export function importAvailability(input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting?: boolean; createTurns?: boolean; overrideConflicts?: boolean } & AvailabilityReconciliationInput) {
+export function importAvailability(input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting?: boolean; createTurns?: boolean; overrideConflicts?: boolean; keepLocalConflicts?: boolean } & AvailabilityReconciliationInput) {
   return request<AvailabilityImportResult>("/operations/availability/import", {
     method: "POST",
     body: JSON.stringify(input),

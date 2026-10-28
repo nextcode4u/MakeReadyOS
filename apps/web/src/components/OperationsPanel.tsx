@@ -46,7 +46,7 @@ type Props = {
   onCreateUnit: (input: UnitInput) => Promise<void>;
   onUpdateUnit: (id: string, input: UnitInput) => Promise<void>;
   onImportUnits: (input: { propertyId: string; units: UnitImportInput[]; updateExisting: boolean }) => Promise<UnitImportResult>;
-  onImportAvailability: (input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting: boolean; createTurns: boolean; overrideConflicts?: boolean } & AvailabilityReconciliationInput) => Promise<AvailabilityImportResult>;
+  onImportAvailability: (input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting: boolean; createTurns: boolean; overrideConflicts?: boolean; keepLocalConflicts?: boolean } & AvailabilityReconciliationInput) => Promise<AvailabilityImportResult>;
   onRevertUnitImport: (input: { propertyId: string; createdUnitIds: string[] }) => Promise<void>;
   onArchiveUnit: (id: string, restore: boolean) => Promise<void>;
   onDeleteUnit: (id: string) => Promise<void>;
@@ -1468,7 +1468,7 @@ export function OperationsPanel({
     setLastImport(null);
   };
 
-  const importAvailabilityReport = async (overrideConflicts = false) => {
+  const importAvailabilityReport = async (overrideConflicts = false, keepLocalConflicts = false) => {
     if (!properties.length) {
       setAvailabilityImportError(isSpanish ? "Cree una propiedad antes de importar disponibilidad." : "Create a property before importing availability.");
       return;
@@ -1479,15 +1479,15 @@ export function OperationsPanel({
     }
     try {
       setAvailabilityImportError("");
-      if (!overrideConflicts) setAvailabilityImportConflicts(null);
+      if (!overrideConflicts && !keepLocalConflicts) setAvailabilityImportConflicts(null);
       const parsedRows = parseAvailabilityRows();
       if (availabilityFullReport && availabilityDateInfo.error) throw new Error(availabilityDateInfo.error);
       const archivePreview = availabilityFullReport ? await previewAvailabilityArchives({ propertyId: selectedPropertyId, rows: parsedRows, reportDate: effectiveAvailabilityReportDate }) : null;
       if (archivePreview && !window.confirm(`Full report reconciliation for ${selectedProperty.code} (${effectiveAvailabilityReportDate}):\n${archivePreview.candidates.length ? archivePreview.candidates.map(item => `${item.unitNumber}: move-in ${item.moveInDate.slice(0, 10)} -> Occupied / Archive`).join("\n") : "No missing ready units qualify for archive."}\n\nConfirm this report includes ALL available units for this property, not a filtered or partial list.`)) return;
       if (!window.confirm(isSpanish
-        ? `Importar ${parsedRows.length} filas de disponibilidad a ${selectedProperty.code} - ${selectedProperty.name}? Se actualizaran la ocupacion y el tablero de esta propiedad.${overrideConflicts ? " Se sobrescribiran los conflictos locales." : ""}`
-        : `Import ${parsedRows.length} availability rows into ${selectedProperty.code} - ${selectedProperty.name}? This will update occupancy and board records for this property.${overrideConflicts ? " Local conflicts will be overwritten." : ""}`)) return;
-      const result = await onImportAvailability({ propertyId: selectedPropertyId, rows: parsedRows, updateExisting: true, createTurns: true, overrideConflicts, fullReport: availabilityFullReport, reportDate: effectiveAvailabilityReportDate, archivePreviewToken: archivePreview?.token });
+        ? `Importar ${parsedRows.length} filas de disponibilidad a ${selectedProperty.code} - ${selectedProperty.name}? Se actualizaran la ocupacion y el tablero de esta propiedad.${overrideConflicts ? " Se sobrescribiran los conflictos locales." : keepLocalConflicts ? " Las unidades con conflictos se conservaran sin cambios; se importaran las demas." : ""}`
+        : `Import ${parsedRows.length} availability rows into ${selectedProperty.code} - ${selectedProperty.name}? This will update occupancy and board records for this property.${overrideConflicts ? " Local conflicts will be overwritten." : keepLocalConflicts ? " Conflicting units will stay unchanged; all other rows will be imported." : ""}`)) return;
+      const result = await onImportAvailability({ propertyId: selectedPropertyId, rows: parsedRows, updateExisting: true, createTurns: true, overrideConflicts, keepLocalConflicts, fullReport: availabilityFullReport, reportDate: effectiveAvailabilityReportDate, archivePreviewToken: archivePreview?.token });
       setLastAvailabilityImport(result);
       setAvailabilityImportText("");
       setAvailabilityFullReport(false);
@@ -1928,7 +1928,7 @@ export function OperationsPanel({
               <div className="admin-message warning" data-testid="availability-import-conflicts">
                 <strong>{availabilityImportConflicts.length}</strong> {isSpanish ? `rotaci${availabilityImportConflicts.length === 1 ? "ón" : "ones"} tienen cambios locales más nuevos o más avanzados que este reporte. MakeReadyOS bloqueó la importación para que el reporte antiguo no sobrescriba silenciosamente el progreso local.` : `turn${availabilityImportConflicts.length === 1 ? "" : "s"} have newer or more advanced local board changes than this report. MakeReadyOS blocked the import so the stale report cannot silently overwrite local progress.`}
                 <div className="unit-import-actions">
-                  <span className="helper-copy">{isSpanish ? "Se muestran todos los conflictos bloqueados para revisión antes de sobrescribir." : "All blocked conflicts are shown below for review before overriding."}</span>
+                  <span className="helper-copy">{isSpanish ? "Puede conservar estas unidades sin cambios e importar las demas. Esto conserva todos los valores de cada unidad con conflicto, no solo su estado." : "You can leave these units unchanged and import the rest. This preserves all values for each conflicting unit, not just its status."}</span>
                   <button type="button" className="button button-secondary" onClick={() => void navigator.clipboard?.writeText(availabilityConflictReviewText)}>
                     {isSpanish ? "Copiar conflictos" : "Copy Conflicts"}
                   </button>
@@ -1955,11 +1955,14 @@ export function OperationsPanel({
                   ))}
                 </ul>
                 <div className="unit-import-actions">
-                  <button type="button" className="button button-primary" onClick={() => void importAvailabilityReport(true)}>
+                  <button type="button" disabled={loading} className="button button-secondary" onClick={() => void importAvailabilityReport(true)}>
                     {isSpanish ? "Sobrescribir e importar valores del reporte" : "Override And Import Report Values"}
                   </button>
-                  <button type="button" className="button button-secondary" onClick={() => setAvailabilityImportConflicts(null)}>
-                    {isSpanish ? "Conservar valores locales del tablero" : "Keep Local Board Values"}
+                  <button type="button" disabled={loading} className="button button-primary" data-testid="availability-import-keep-local" onClick={() => void importAvailabilityReport(false, true)}>
+                    {isSpanish ? "Conservar unidades con conflictos e importar las demas" : "Keep conflicting units local & import the rest"}
+                  </button>
+                  <button type="button" disabled={loading} className="button button-secondary" onClick={() => setAvailabilityImportConflicts(null)}>
+                    {isSpanish ? "Cancelar importacion" : "Cancel import"}
                   </button>
                 </div>
               </div>
@@ -1976,6 +1979,12 @@ export function OperationsPanel({
             <label><input type="checkbox" data-testid="availability-full-report" checked={availabilityFullReport} onChange={event => setAvailabilityFullReport(event.target.checked)} /> Full property report: reconcile missing ready units after move-in</label>
             {availabilityFullReport ? <div>{availabilityDateInfo.error ? <p role="alert">{availabilityDateInfo.error}</p> : availabilityDateInfo.date ? <p data-testid="availability-report-date-detected">Report date: <strong>{availabilityDateInfo.date}</strong> (from your file)</p> : <label>Report date (not supplied in file)<input type="date" data-testid="availability-report-date" value={availabilityReportDate} onChange={event => setAvailabilityReportDate(event.target.value)} /></label>}<small>Use only a complete, unfiltered report. Missing ready units with move-in dates before this date will be previewed, marked occupied, and archived. Partial imports never archive omitted units.</small></div> : null}
             {lastAvailabilityImport?.summary.turnsArchived ? <p>{lastAvailabilityImport.summary.turnsArchived} missing ready units marked occupied and archived.</p> : null}
+            {lastAvailabilityImport?.preservedUnits?.length ? (
+              <p role="status" className="admin-message warning" data-testid="availability-import-preserved">
+                {isSpanish ? "Importacion completada. Unidades conservadas sin cambios locales" : "Import completed. Units kept unchanged with local values"}: {lastAvailabilityImport.preservedUnits.join(", ")}.
+                {" "}{isSpanish ? "Las demas filas se importaron. Puede actualizar estas unidades con un reporte corregido mas adelante." : "Other rows were imported. You can update these units later with a corrected report."}
+              </p>
+            ) : null}
             {lastAvailabilityImport?.summary.errors.length ? (
               <div role="alert" className="admin-message warning" data-testid="availability-import-row-errors">
                 <strong>{isSpanish ? "Importacion con filas omitidas: revise estos problemas antes de continuar." : "Import completed with skipped rows: review these issues before continuing."}</strong>

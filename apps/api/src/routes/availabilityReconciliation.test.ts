@@ -1,6 +1,61 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+test("keeping local conflicts imports other rows and never treats preserved units as missing", async t => {
+  process.env.DATABASE_URL ||= "postgresql://unused:unused@127.0.0.1:1/unused";
+  process.env.ADMIN_USERNAME ||= "availability-test";
+  process.env.ADMIN_PASSWORD ||= "Test-Only-Password!123";
+  process.env.SESSION_COOKIE_SECRET ||= "test-only-session-secret-12345678901234567890";
+  const { prisma } = await import("../lib/prisma.js");
+  const { operationsRoutes, availabilityImportSchema } = await import("./operations.js");
+  const { default: Fastify } = await import("fastify");
+  const stub = (delegate: any, key: string, fn: (...args: any[]) => unknown) => {
+    const original = delegate[key]; delegate[key] = fn; t.after(() => { delegate[key] = original; });
+  };
+  const ready = (number: string) => ({
+    id: `turn-${number}`, unitId: `unit-${number}`, unitNumber: number, propertyId: "demo", isArchived: false,
+    boardGroup: "ready", vacancyStatus: "VACANT LEASED READY", completionStatus: "YES", makeReadyStatus: "DONE",
+    applicant: null, moveOutDate: null, vacatedDate: null, makeReadyDate: null, daysVacant: 0,
+    moveInDate: new Date("2020-01-01"), createdAt: new Date("2019-01-01"), updatedAt: new Date("2020-01-01"),
+    unit: { isActive: true, occupancyStatus: "VACANT LEASED READY" },
+  });
+  const units = [ready("101"), ready("103")];
+  const updates: string[] = []; const audits: any[] = [];
+  stub(prisma.property, "findUnique", async () => ({ id: "demo", code: "DG", name: "Demo Gardens", isActive: true }));
+  stub(prisma.boardSection, "findMany", async () => [{ key: "ready", sectionType: "READY" }, { key: "work", sectionType: "MAKE_READY" }, { key: "archive", sectionType: "ARCHIVE" }]);
+  // Unit 103 becomes a conflict after the initial review; the transaction must protect it too.
+  stub(prisma.makeReadyItem, "findMany", async ({ where }: any) => where.unitNumber ? [units[0]] : units);
+  stub(prisma.makeReadyItem, "findFirst", async ({ where }: any) => units.find(item => item.unitNumber === where.OR[0].unitNumber) ?? null);
+  stub(prisma.floorPlan, "findMany", async () => []);
+  stub(prisma.unit, "findUnique", async ({ where }: any) => ({ id: `unit-${where.propertyId_number.number}` }));
+  stub(prisma.unit, "update", async ({ where }: any) => { updates.push(where.id); return { id: where.id }; });
+  stub(prisma.makeReadyItem, "update", async () => { throw new Error("A preserved turn must not change or be archived"); });
+  stub(prisma.auditLog, "create", async ({ data }: any) => { audits.push(data); return data; });
+  stub(prisma, "$queryRaw", async () => []);
+  stub(prisma, "$transaction", async (fn: any) => fn(prisma));
+  const app = Fastify(); app.decorateRequest("currentUser", null);
+  app.addHook("onRequest", async request => { request.currentUser = { id: "manager", role: "MANAGER", propertyAccess: [{ propertyId: "demo" }] } as any; });
+  await app.register(operationsRoutes); t.after(() => app.close());
+  const input = { propertyId: "demo", createTurns: false, rows: ["101", "102", "103"].map(number => ({ number, vacancyStatus: "VACANT NOT LEASED NOT READY" })) };
+  const submit = (extra: object) => app.inject({ method: "POST", url: "/operations/availability/import", payload: { ...input, ...extra } });
+  assert.equal(availabilityImportSchema.safeParse({ ...input, keepLocalConflicts: true, overrideConflicts: true }).success, false);
+  assert.equal((await submit({})).statusCode, 409);
+  assert.deepEqual(updates, [], "Review alone must not apply rows");
+  const preview = await submit({ fullReport: true, previewOnly: true, reportDate: "2026-01-01" });
+  assert.equal(preview.statusCode, 200, preview.body);
+  assert.deepEqual(preview.json().candidates, []);
+  const result = await submit({ keepLocalConflicts: true, fullReport: true, reportDate: "2026-01-01", archivePreviewToken: preview.json().token });
+  assert.equal(result.statusCode, 200, result.body);
+  assert.deepEqual(result.json().preservedUnits, ["101", "103"]);
+  assert.deepEqual(updates, ["unit-102"]);
+  assert.equal(result.json().summary.skipped, 2);
+  assert.equal(result.json().summary.turnsArchived, 0);
+  assert.deepEqual(audits.at(-1).metadata.preservedUnits, ["101", "103"]);
+  updates.length = 0;
+  assert.equal((await submit({ overrideConflicts: true })).statusCode, 200);
+  assert.deepEqual(updates, ["unit-101", "unit-102", "unit-103"], "Explicit override still works");
+});
+
 test("availability readiness is separate from technician completion", async () => {
   process.env.DATABASE_URL ||= "postgresql://unused:unused@127.0.0.1:1/unused";
   process.env.ADMIN_USERNAME ||= "availability-test";

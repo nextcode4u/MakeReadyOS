@@ -140,11 +140,12 @@ export const availabilityImportSchema = z.object({
   updateExisting: z.boolean().default(true),
   createTurns: z.boolean().default(true),
   overrideConflicts: z.boolean().default(false),
+  keepLocalConflicts: z.boolean().default(false),
   fullReport: z.boolean().default(false),
   reportDate: z.string().optional(),
   previewOnly: z.boolean().default(false),
   archivePreviewToken: z.string().optional(),
-});
+}).refine(input => !(input.overrideConflicts && input.keepLocalConflicts), "Choose either overwrite or keep local conflicts, not both.");
 
 export const unitImportRevertSchema = z.object({
   propertyId: z.string(),
@@ -1251,6 +1252,7 @@ export async function operationsRoutes(app: FastifyInstance) {
       errors: [] as string[],
     };
     const createdItemIds: string[] = [];
+    const preservedUnits: string[] = [];
     const updatedItemIds: string[] = [];
     const availabilityActivity: Array<{
       itemId: string;
@@ -1314,7 +1316,7 @@ export async function operationsRoutes(app: FastifyInstance) {
       const plan = await availabilityArchivePlan(prisma, payload);
       return { token: plan.token, candidates: plan.candidates.map(item => ({ id: item.id, unitNumber: item.unitNumber, moveInDate: item.moveInDate })) };
     }
-    if (conflicts.length > 0 && !payload.overrideConflicts) {
+    if (conflicts.length > 0 && !payload.overrideConflicts && !payload.keepLocalConflicts) {
       reply.code(409);
       return {
         message: `Availability import found ${conflicts.length} board conflict${conflicts.length === 1 ? "" : "s"}. Review local-vs-report differences before overwriting.`,
@@ -1372,10 +1374,25 @@ export async function operationsRoutes(app: FastifyInstance) {
 
       for (const row of sanitizedRows) {
         const status = normalizeAvailabilityStatus(row);
-        const floorPlan = await resolveImportedFloorPlan(row);
         const existingUnit = await tx.unit.findUnique({
           where: { propertyId_number: { propertyId: payload.propertyId, number: row.number } },
         });
+        // Recheck inside the transaction, before changing either the unit or its turn.
+        if (payload.keepLocalConflicts && payload.updateExisting) {
+          const currentTurn = await tx.makeReadyItem.findFirst({
+            where: {
+              propertyId: payload.propertyId, isArchived: false,
+              OR: [{ unitNumber: row.number }, ...(existingUnit ? [{ unitId: existingUnit.id }] : [])],
+            },
+            orderBy: { updatedAt: "desc" },
+          });
+          if (currentTurn && buildAvailabilityConflict(currentTurn, row, status, preferredSectionKeyForStatus(status))) {
+            summary.skipped += 1;
+            preservedUnits.push(row.number);
+            continue;
+          }
+        }
+        const floorPlan = await resolveImportedFloorPlan(row);
         const unitData = {
           currentResidentMoveInDate: row.currentResidentMoveInDate ?? (status === "OCCUPIED" ? parseOptionalDate(row.moveInDate) : null),
           currentResidentName: row.currentResidentName ?? null,
@@ -1540,6 +1557,7 @@ export async function operationsRoutes(app: FastifyInstance) {
         message: `Imported availability rows for ${property.code}: ${summary.turnsCreated} turns created, ${summary.turnsUpdated} turns updated`,
         metadata: {
           ...summary,
+          preservedUnits,
           receiptVersion: 1,
           fullReport: payload.fullReport,
           reportDate: archivePlan?.reportDate ?? null,
@@ -1562,6 +1580,7 @@ export async function operationsRoutes(app: FastifyInstance) {
       warnings: failedRefreshes ? [`Import saved. Risk or notification refresh failed for ${failedRefreshes} turn(s). Do not repeat the import to retry these checks.`] : [],
       property: { id: property.id, code: property.code, name: property.name },
       summary,
+      preservedUnits,
       createdItemIds,
       updatedItemIds,
     };

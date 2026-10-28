@@ -267,6 +267,26 @@ Keep findings here so there is one queue rather than competing TODO documents.
 - Fix: show returned row warnings for both imports without changing import policy.
 - Evidence: `user-admin-workflows.spec.ts`, duplicate-file upload scenario.
 
+### UI-013: One Availability Conflict Blocks Unrelated Unit Updates
+
+- Status: **UI-retested**. Priority: P1 operational workflow.
+- Steps: import a report containing a conflicting local turn and other changed/new
+  units; choose Keep Local Board Values.
+- Actual: the button only dismissed the conflict review. No rows were imported.
+- Fix: an explicit keep-local-and-import-rest action preserves the entire conflicting
+  unit row, imports other rows, and lists preserved units in the result and audit
+  receipt. Explicit overwrite and cancel remain separate choices.
+- Safety: recheck conflicts inside the transaction before changing unit or turn
+  data. Retain every report row for full-report reconciliation so a preserved unit
+  cannot be mistaken for a missing unit and archived.
+- Evidence: `user-import-conflicts.spec.ts` covers confirmation cancel/accept,
+  retained local status/notes, updated dates and a new unit after reload;
+  `availabilityReconciliation.test.ts` covers late conflicts, original report
+  membership, audit evidence and explicit override.
+- Verification: ten targeted desktop/mobile import, permission and alert scenarios
+  passed, plus the three backend reconciliation tests and lint. Full-suite and
+  physical-device coverage are not implied by this targeted pass.
+
 ## Module Simplification TODO - 2026-10-02
 
 Approved implementation queue. Track local implementation separately from browser
