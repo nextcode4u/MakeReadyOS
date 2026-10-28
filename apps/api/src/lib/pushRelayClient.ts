@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
-import { fcmConfiguration, sendFcm } from "./fcm.js";
+import { fcmConfiguration, sendFcm, type PushSummary } from "./fcm.js";
 
 export function resolveRelayOrigin(explicitUrl = process.env.PUSH_RELAY_URL, appUrl = process.env.APP_URL): string | null {
   try {
@@ -50,8 +50,8 @@ export async function relayRequest<T>(path: string, input: unknown): Promise<T> 
   return await response.json() as T;
 }
 
-export async function sendAndroid(device: Parameters<typeof sendFcm>[0] & { transport?: string }, notificationId: string, expiresAt: number) {
+export async function sendAndroid(device: Parameters<typeof sendFcm>[0] & { transport?: string }, notificationId: string, expiresAt: number, summary?: PushSummary) {
   if (device.transport === "ANDROID_RELAY") {
-    await relayRequest("/v1/send", { handle: device.fcmToken, notificationId, expiresAt });
-  } else await sendFcm(device, notificationId, expiresAt);
+    await relayRequest("/v1/send", { handle: device.fcmToken, notificationId, expiresAt, ...(summary ? { title: summary.title.slice(0, 100), body: summary.body.slice(0, 240) } : {}) });
+  } else await sendFcm(device, notificationId, expiresAt, summary);
 }

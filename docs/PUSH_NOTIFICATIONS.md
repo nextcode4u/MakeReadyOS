@@ -40,7 +40,7 @@ can delay or suppress alerts. Push is best effort, not an emergency paging syste
 
 ## Privacy and Lifecycle
 
-- Lock-screen alerts contain generic text only, never resident names or unit codes.
+- Notifications identify the event and property/unit where available, without free-form notes, resident names or access codes. Android uses private lock-screen visibility; device settings control whether previews are shown.
 - Clicking opens Alerts in the app; normal authentication and access checks apply.
 - Subscriptions belong to a login session. Logout, password/session revocation,
   expiration, and user deactivation stop further delivery. Enable again after a

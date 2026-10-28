@@ -105,13 +105,15 @@ export function createRelay(db: DatabaseSync, projectId: string, send: RelaySend
       return { ok: true };
     });
     routes.post("/v1/send", async request => {
-      const input = z.object({ handle: hex, notificationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), expiresAt: z.number().int() }).strict().parse(request.body);
+      const input = z.object({ handle: hex, notificationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), expiresAt: z.number().int(),
+        title: z.string().trim().min(1).max(100).optional(), body: z.string().trim().min(1).max(240).optional() }).strict().parse(request.body);
       const row = db.prepare("SELECT * FROM devices WHERE handle=? AND tenant=?").get(input.handle, tenants.get(request)!.id) as Device | undefined;
       const now = clock();
       if (!row || row.expires <= now) throw error(410);
       if (input.expiresAt <= now || input.expiresAt > now + 310000) throw error(400);
       limit("device:" + row.handle, 10, 60000);
-      try { await send(row.token, { origin: tenants.get(request)!.origin, bindingId: row.binding, notificationId: input.notificationId, expiresAt: String(Math.min(input.expiresAt, row.expires)) }, false); }
+      try { await send(row.token, { origin: tenants.get(request)!.origin, bindingId: row.binding, notificationId: input.notificationId, expiresAt: String(Math.min(input.expiresAt, row.expires)),
+        ...(input.title ? { title: input.title } : {}), ...(input.body ? { body: input.body } : {}) }, false); }
       catch (err) {
         if ((err as { statusCode?: number }).statusCode === 410) { db.prepare("DELETE FROM devices WHERE handle=?").run(row.handle); throw error(410); }
         throw error(503);

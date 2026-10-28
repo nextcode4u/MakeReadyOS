@@ -28,9 +28,14 @@ test("relay verifies device possession, isolates tenants, expires registrations 
   assert.equal((await post("confirm", confirmation)).statusCode, 409);
   const send = { handle: registered.json().handle, notificationId: "event_123", expiresAt: now + 300000 };
   assert.equal((await post("send", send, b.credential)).statusCode, 410);
-  assert.equal((await post("send", { ...send, title: "untrusted content" })).statusCode, 400);
+  assert.equal((await post("send", { ...send, title: "x".repeat(101) })).statusCode, 400);
+  assert.equal((await post("send", { ...send, body: "x".repeat(241) })).statusCode, 400);
+  assert.equal((await post("send", { ...send, url: "https://example.test" })).statusCode, 400);
   assert.equal((await post("send", send)).statusCode, 200);
   assert.deepEqual(Object.keys(messages[1].data).sort(), ["bindingId", "expiresAt", "notificationId", "origin"]);
+  assert.equal((await post("send", { ...send, title: "MakeReadyOS - DG 102", body: "Final walk corrections requested" })).statusCode, 200);
+  assert.equal(messages[2].data.title, "MakeReadyOS - DG 102");
+  assert.equal(messages[2].data.body, "Final walk corrections requested");
   await post("revoke", { handle: send.handle }, b.credential);
   assert.equal((await post("send", send)).statusCode, 200);
   const replacement = rotateTenant(db, a.id);

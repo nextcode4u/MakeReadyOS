@@ -152,8 +152,14 @@ Tokens are refreshed when the signed-in app opens or notification status is chec
 Registration never exposes another user's tokens. Tokens are stored server-side
 and must be protected like browser push subscriptions in backups and database access.
 
-Messages contain only an opaque binding, notification identifier and short expiry.
-They do not contain record details or navigation URLs. A previously accepted message
+Messages contain an opaque binding, notification identifier, short expiry and a bounded
+event summary (event heading and property/unit identity). Free-form messages, resident
+names, access codes and navigation URLs are not included. Google and, when configured,
+the relay receive these summaries. Android uses private lock-screen visibility.
+Deploy the updated relay before the API, then install the updated Firebase-enabled APK
+to display summaries. Older APKs still show generic text; updated APKs retain a generic
+fallback for older servers. Foreground toasts also require the updated web UI.
+A previously accepted message
 can arrive shortly after remote session revocation, but opening the app still requires
 valid authentication. This is not a live remote-wipe protocol.
 
@@ -165,7 +171,7 @@ Before publishing a notification-enabled release:
 - Request Android notification permission only after a user action, with enable/disable/test controls and no repeated prompts.
 - Bind device tokens to the authenticated server/account/session, handle rotation, and stop delivery after logout, revocation or account changes.
 - Send only need-to-know alerts through the existing recipient, category, property-access and quiet-hours checks; suppress routine status noise.
-- Prefer generic lock-screen text. Never include resident names, access codes, private notes or full record payloads.
+- Use concise event headings and property/unit context. Never include resident names, access codes, private notes or full record payloads.
 - Tapping opens the correct workspace and revalidates authentication and record access; a push message is not authorization.
 - Show foreground alerts once as accessible in-app feedback rather than duplicate toasts and system notifications.
 - Handle expired tokens and bounded retries without logging tokens, keys or resident data.

@@ -22,10 +22,14 @@ export function pushConfiguration() {
   return { publicKey };
 }
 
-export function pushPayload(note: { id: string; title?: string; itemId?: string | null; property?: { code: string } | null; item?: { unitNumber: string } | null }) {
+export function pushSummary(note: { title?: string; property?: { code: string } | null; item?: { unitNumber: string } | null }) {
   const context = [note.property?.code, note.item?.unitNumber].filter(Boolean).join(" ");
   // Send event headings and unit identity, never free-form messages, notes or access codes.
-  return JSON.stringify({ title: context ? `MakeReadyOS - ${context}`.slice(0, 100) : "MakeReadyOS", body: `${note.title?.slice(0, 160) || "New work alert"}. Tap to view details.`, tag: `mros-${note.id}`, notificationId: note.id, itemId: note.itemId ?? null });
+  return { title: context ? `MakeReadyOS - ${context}`.slice(0, 100) : "MakeReadyOS", body: `${note.title?.slice(0, 160) || "New work alert"}. Tap to view details.` };
+}
+
+export function pushPayload(note: Parameters<typeof pushSummary>[0] & { id: string; itemId?: string | null }) {
+  return JSON.stringify({ ...pushSummary(note), tag: `mros-${note.id}`, notificationId: note.id, itemId: note.itemId ?? null });
 }
 
 export function retryPush(statusCode: number | undefined, attempts: number) {
@@ -83,7 +87,7 @@ export async function deliverPushBatch(send: Transport = webpush.sendNotificatio
       continue;
     }
     try {
-      if (device.transport === "ANDROID" || device.transport === "ANDROID_RELAY") await androidSend(device, `${note.id}_${fresh.eventAt.getTime()}`, Math.min(Date.now() + 300000, device.session.expiresAt.getTime()));
+      if (device.transport === "ANDROID" || device.transport === "ANDROID_RELAY") await androidSend(device, `${note.id}_${fresh.eventAt.getTime()}`, Math.min(Date.now() + 300000, device.session.expiresAt.getTime()), pushSummary(note));
       else await send({ endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } }, pushPayload(note), { TTL: 300, timeout: 5000, urgency: "normal" });
       await prisma.pushDelivery.updateMany({ where: { id: job.id, nextAttemptAt: lease }, data: { status: "SENT" } });
     } catch (error) {

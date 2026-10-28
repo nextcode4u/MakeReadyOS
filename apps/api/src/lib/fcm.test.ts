@@ -3,12 +3,21 @@ import test from "node:test";
 import { fcmFailure, fcmPayload, fcmConfiguration } from "./fcm.js";
 import { retryPush } from "./push.js";
 
-test("FCM sends only opaque routing metadata with short TTL", () => {
+test("FCM supports legacy routing metadata with short TTL", () => {
   const payload = fcmPayload("test-token", "binding", "notice", 1234);
   assert.deepEqual(payload.message.data, { bindingId: "binding", notificationId: "notice", expiresAt: "1234" });
   assert.equal(payload.message.android.ttl, "300s");
   assert.equal(payload.message.android.restricted_package_name, "com.makereadyos.android");
   assert.equal("notification" in payload.message, false);
+});
+test("FCM carries a bounded summary as data, not an automatic notification", () => {
+  const payload = fcmPayload("token", "binding", "notice", 1234, { title: "MakeReadyOS - DG 102", body: "Final walk corrections requested" });
+  assert.equal(payload.message.data.title, "MakeReadyOS - DG 102");
+  assert.equal(payload.message.data.body, "Final walk corrections requested");
+  assert.equal("notification" in payload.message, false);
+  const bounded = fcmPayload("token", "binding", "notice", 1234, { title: "x".repeat(200), body: "x".repeat(500) });
+  assert.equal(bounded.message.data.title?.length, 100);
+  assert.equal(bounded.message.data.body?.length, 240);
 });
 test("only typed UNREGISTERED removes FCM subscriptions", () => {
   assert.equal(fcmFailure(404, { error: { message: "missing project" } }).statusCode, 400);

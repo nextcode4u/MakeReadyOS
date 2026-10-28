@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import webpush from "web-push";
 import { prisma } from "./prisma.js";
-import { deliverPushBatch, pushConfiguration, pushPayload, retryPush, validPushEndpoint } from "./push.js";
+import { deliverPushBatch, pushConfiguration, pushPayload, pushSummary, retryPush, validPushEndpoint } from "./push.js";
 import { relayScope } from "./pushRelayClient.js";
 
 test("push endpoints reject local, credentialed, and deceptive destinations", () => {
@@ -33,7 +33,7 @@ test("push worker respects current access, unread state, sessions, quiet hours a
   });
   const now = new Date();
   const base = () => ({ id: "job", attempts: 1, eventAt: now,
-    notification: { id: "notice", userId: "user", propertyId: "property", category: "ASSIGNMENT", createdAt: now, isRead: false },
+    notification: { id: "notice", userId: "user", propertyId: "property", category: "ASSIGNMENT", createdAt: now, isRead: false, title: "Final walk returned for corrections", property: { code: "DG" }, item: { unitNumber: "102" }, message: "Private notes and access codes" },
     subscription: { id: "device", endpoint: "https://fcm.googleapis.com/token", p256dh: "key", auth: "auth", session: { expiresAt: new Date(Date.now() + 60000), user: { id: "user", isActive: true, role: "TECH", propertyAccess: [{ propertyId: "property" }] } } },
   });
   let fresh = base(), preferences: any[] = [], settings: any = null, sent = 0, removed = 0;
@@ -79,8 +79,12 @@ test("push worker respects current access, unread state, sessions, quiet hours a
   };
   androidBase();
   let nativeSent = 0;
-  const nativeSend = async (_device: unknown, id: string, expiry: number) => {
+  const nativeSend = async (_device: unknown, id: string, expiry: number, summary?: { title: string; body: string }) => {
     nativeSent++; assert.equal(id, `notice_${now.getTime()}`); assert.ok(expiry <= fresh.subscription.session.expiresAt.getTime());
+    assert.deepEqual(summary, pushSummary(fresh.notification));
+    assert.equal(summary?.title, "MakeReadyOS - DG 102");
+    assert.equal(summary?.body, "Final walk returned for corrections. Tap to view details.");
+    assert.ok(!JSON.stringify(summary).includes("Private notes"));
   };
   const config = { projectId: "test-project", credentialsFile: "not-used" };
   await deliverPushBatch(transport, nativeSend, config);

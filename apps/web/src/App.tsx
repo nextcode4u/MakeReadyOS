@@ -810,10 +810,13 @@ function App() {
 
   useEffect(() => {
     const open = () => setNotificationsOpen(true);
-    const alert = () => {
+    const alert = (event: Event) => {
       void queryClient.invalidateQueries({ queryKey: ["notifications"] });
       const id = Date.now();
-      setToasts(current => [...current.slice(-2), { id, title: language === "es" ? "Nueva alerta de trabajo" : "New work alert", message: language === "es" ? "Abre Alertas para ver los detalles." : "Open Alerts to view details.", tone: "info" }]);
+      const detail = (event as CustomEvent<{ title?: unknown; body?: unknown }>).detail;
+      const title = typeof detail?.title === "string" ? detail.title.trim().slice(0, 100) : "";
+      const message = typeof detail?.body === "string" ? detail.body.trim().slice(0, 240) : "";
+      setToasts(current => [...current.slice(-2), { id, title: title || (language === "es" ? "Nueva alerta de trabajo" : "New work alert"), message: message || (language === "es" ? "Abre Alertas para ver los detalles." : "Open Alerts to view details."), tone: "info" }]);
       window.setTimeout(() => setToasts(current => current.filter(toast => toast.id !== id)), 6000);
     };
     window.addEventListener("makereadyos-native-alert", alert);

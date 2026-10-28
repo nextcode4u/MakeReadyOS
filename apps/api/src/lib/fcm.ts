@@ -14,8 +14,9 @@ export function fcmConfiguration(): FcmConfiguration | null {
   return { projectId, credentialsFile };
 }
 
-export function fcmPayload(token: string, bindingId: string, notificationId: string, expiresAt: number) {
-  return { message: { token, data: { bindingId, notificationId, expiresAt: String(expiresAt) },
+export type PushSummary = { title: string; body: string };
+export function fcmPayload(token: string, bindingId: string, notificationId: string, expiresAt: number, summary?: PushSummary) {
+  return { message: { token, data: { bindingId, notificationId, expiresAt: String(expiresAt), ...(summary ? { title: summary.title.slice(0, 100), body: summary.body.slice(0, 240) } : {}) },
     android: { priority: "high", ttl: "300s", restricted_package_name: "com.makereadyos.android" } } };
 }
 
@@ -27,12 +28,12 @@ export function fcmFailure(status: number, body: unknown) {
 }
 
 let auth: { key: string; client: GoogleAuth } | undefined;
-export async function sendFcm(device: { fcmToken: string | null; bindingId: string | null; fcmProjectId: string | null }, notificationId: string, expiresAt: number) {
+export async function sendFcm(device: { fcmToken: string | null; bindingId: string | null; fcmProjectId: string | null }, notificationId: string, expiresAt: number, summary?: PushSummary) {
   const config = fcmConfiguration();
   if (!config || device.fcmProjectId !== config.projectId || !device.fcmToken || !device.bindingId) {
     throw Object.assign(new Error("Android push unavailable"), { statusCode: 400 });
   }
-  await sendFcmData(config, fcmPayload(device.fcmToken, device.bindingId, notificationId, expiresAt));
+  await sendFcmData(config, fcmPayload(device.fcmToken, device.bindingId, notificationId, expiresAt, summary));
 }
 
 export async function sendFcmData(config: FcmConfiguration, payload: unknown) {

@@ -65,8 +65,10 @@ test("authenticated API completes relay proof, stores only a handle, sends and d
   assert.equal(registered.statusCode, 200, registered.body);
   assert.equal(saved.transport, "ANDROID_RELAY"); assert.notEqual(saved.fcmToken, input.token);
   assert.match(saved.fcmToken, /^[a-f0-9]{64}$/); assert.ok(!JSON.stringify(saved).includes(input.token));
-  await sendAndroid(saved, "notice_123", Date.now() + 300000);
+  await sendAndroid(saved, "notice_123", Date.now() + 300000, { title: "MakeReadyOS - DG 102", body: "Final walk corrections requested" });
   assert.equal(messages[1].notificationId, "notice_123");
+  assert.equal(messages[1].title, "MakeReadyOS - DG 102");
+  assert.equal(messages[1].body, "Final walk corrections requested");
   const removed = await app.inject({ method: "DELETE", url: "/push/android", payload: { bindingId: input.bindingId } });
   assert.equal(removed.statusCode, 200);
   assert.equal((db.prepare("SELECT count(*) AS n FROM devices").get() as { n: number }).n, 0);
