@@ -1,5 +1,11 @@
 type Assignment = { category: string; status: string };
 
+export function turnWorkCategory(blocks?: Assignment[]) {
+  if (hasActiveCorrections(blocks)) return "follow-ups";
+  if (blocks?.some(block => block.category === "FINAL_WALK_INSPECTION" && ["PLANNED", "IN_PROGRESS"].includes(block.status))) return "inspections";
+  return "make-ready";
+}
+
 export function moveInCountdown(days: number | null, language: "en" | "es") {
   if (days === null || !Number.isInteger(days)) return "";
   if (days === 0) return language === "es" ? "Mudanza hoy" : "Move-in today";

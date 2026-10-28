@@ -1,4 +1,5 @@
 import { patchSchema } from "../lib/patchSchema.js";
+import { validateFollowUpPhotos } from "../lib/finalWalkPhotos.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { allowedPropertyIds, requireAdmin } from "../lib/auth.js";
@@ -72,7 +73,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     if (item.finalWalkReportDraft && !parsed.success) throw Object.assign(new Error("Saved report could not be read. Ask an admin to review it before editing codes."), { statusCode: 409 });
     const mailbox = await directoryMailbox(item);
     const preparationReadOnly = item.isArchived || !item.property.isActive || request.currentUser!.role === "TECH" && item.assignedTech?.trim().toLowerCase() !== request.currentUser!.fullName.trim().toLowerCase();
-    return { version: parsed.success ? parsed.data.version : 0, value: residentCodesSchema.parse(resolveReportMailbox(parsed.success ? parsed.data.value : await initialReportDraft(item), mailbox)), technicianChecks, technicianFollowUp: parsed.success ? parsed.data.value.technicianFollowUp : "", correctionPending: parsed.success && parsed.data.value.correctionPending, updatedAt: parsed.success ? parsed.data.updatedAt : null, preparationReadOnly, readOnly: preparationReadOnly || codesReadOnly(item, request.currentUser!.role) };
+    return { technicianPhotoIds: parsed.success ? parsed.data.value.technicianPhotoIds ?? [] : [], version: parsed.success ? parsed.data.version : 0, value: residentCodesSchema.parse(resolveReportMailbox(parsed.success ? parsed.data.value : await initialReportDraft(item), mailbox)), technicianChecks, technicianFollowUp: parsed.success ? parsed.data.value.technicianFollowUp : "", correctionPending: parsed.success && parsed.data.value.correctionPending, updatedAt: parsed.success ? parsed.data.updatedAt : null, preparationReadOnly, readOnly: preparationReadOnly || codesReadOnly(item, request.currentUser!.role) };
   });
   app.put("/make-ready-items/:itemId/resident-codes", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
@@ -96,7 +97,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
       await syncTurnCodes(db, item, input.value);
       if (resolved) await db.workAssignmentBlock.updateMany({ where: { itemId: item.id, category: "FINAL_WALK_CORRECTION", status: { in: ["PLANNED", "IN_PROGRESS"] } }, data: { status: "DONE" } });
       await db.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: item.propertyId, entityType: "MAKE_READY_ITEM", entityId: item.id, action: "RESIDENT_CODES_UPDATED", message: "Updated resident handoff codes, mailbox details and report inclusion. Code values are hidden from activity history.", metadata: { version: draft.version, includeResidentCodes: input.value.includeResidentCodes } } });
-      return { version: draft.version, value: residentCodesSchema.parse(resolveReportMailbox(draft.value, await directoryMailbox(item))), technicianChecks, technicianFollowUp: draft.value.technicianFollowUp, correctionPending: draft.value.correctionPending, updatedAt: draft.updatedAt, preparationReadOnly: false, readOnly: codesReadOnly(item, request.currentUser!.role) };
+      return { technicianPhotoIds: draft.value.technicianPhotoIds ?? [], version: draft.version, value: residentCodesSchema.parse(resolveReportMailbox(draft.value, await directoryMailbox(item))), technicianChecks, technicianFollowUp: draft.value.technicianFollowUp, correctionPending: draft.value.correctionPending, updatedAt: draft.updatedAt, preparationReadOnly: false, readOnly: codesReadOnly(item, request.currentUser!.role) };
     });
   });
   app.get("/final-walk-reports/:propertyId", async (request, reply) => {
@@ -149,7 +150,9 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
       const previous = current.success ? current.data.value : await initialReportDraft(item);
       if (input.value.handoffConfirmed && [input.value.homeKeys, input.value.mailboxKeys, input.value.fobs, input.value.remotes].some(count => !/^\d{1,4}$/.test(count))) throw Object.assign(new Error("Record each key/fob/remote count (use 0 for none) before confirming handoff"), { statusCode: 400 });
       const calendar = await db.operatingCalendar.findUnique({ where: { propertyId: property.id }, select: { timezone: true } });
-      const draft = { version: input.version + 1, value: { ...input.value, inspectionDate: inspectionDateOrToday(input.value.inspectionDate, previous.inspectionDate, calendar?.timezone), technicianResults: previous.technicianResults, technicianResolution: previous.technicianResolution, correctionPending: previous.correctionPending }, updatedAt: new Date().toISOString() };
+      const technicianPhotoIds = input.value.technicianPhotoIds ?? previous.technicianPhotoIds ?? [];
+      await validateFollowUpPhotos(db, item.id, technicianPhotoIds);
+      const draft = { version: input.version + 1, value: { ...input.value, technicianPhotoIds, inspectionDate: inspectionDateOrToday(input.value.inspectionDate, previous.inspectionDate, calendar?.timezone), technicianResults: previous.technicianResults, technicianResolution: previous.technicianResolution, correctionPending: previous.correctionPending }, updatedAt: new Date().toISOString() };
       await db.finalWalkReportDraft.upsert({ where: { itemId: item.id }, create: { itemId: item.id, payload: draft }, update: { payload: draft } });
       await syncTurnCodes(db, item, input.value);
       await db.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: property.id, entityType: "MAKE_READY_ITEM", entityId: item.id, action: "FINAL_WALK_REPORT_DRAFT_SAVED", message: "Saved inspection draft; no sign-off or ready-status change", metadata: { version: draft.version } } });
@@ -168,6 +171,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
       if (item.isArchived || !awaitingFinalWalk(item) || turnApproved(item)) throw Object.assign(new Error("Only a pending final walk can be returned to the technician"), { statusCode: 409 });
       const current = savedReportDraftSchema.parse(item.finalWalkReportDraft?.payload);
       if (current.version !== input.version) throw Object.assign(new Error("Report changed. Reload before returning work."), { statusCode: 409 });
+      await validateFollowUpPhotos(db, itemId, current.value.technicianPhotoIds ?? []);
       const findings = reportChecks.filter(check => current.value.results[check.id]?.status === "ATTENTION").map(check => `${check.label}: ${current.value.results[check.id].note}`);
       const note = [current.value.technicianFollowUp, ...findings].filter(Boolean).join("\n").slice(0, 1000);
       if (note.trim().length < 3) throw Object.assign(new Error("Record a deficiency or technician follow-up first"), { statusCode: 400 });

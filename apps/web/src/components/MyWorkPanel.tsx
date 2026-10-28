@@ -11,7 +11,7 @@ import { LabelPill } from "./LabelPill";
 import { statusDisplayName } from "../lib/statusDisplayName";
 import { awaitingFinalWalk, normalizeTurnStatus } from "../lib/turnStatus";
 import { StatusState } from "./StatusState";
-import { hasActiveCorrections, moveInCountdown, workCategoryLabel } from "../lib/workCues";
+import { hasActiveCorrections, moveInCountdown, turnWorkCategory, workCategoryLabel } from "../lib/workCues";
 
 type Props = {
   data?: MyWorkResponse;
@@ -41,6 +41,15 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
     return { item, tasks, done: tasks.filter((task) => task.completed).length };
   }), [data?.items]);
   const projectItems = data?.projectItems ?? [];
+  const workGroups = [
+    { id: "follow-ups", label: language === "es" ? "Seguimientos / correcciones" : "Follow-ups / corrections" },
+    { id: "inspections", label: language === "es" ? "Inspecciones finales" : "Final-walk inspections" },
+    { id: "make-ready", label: language === "es" ? "Preparación de unidades" : "Make-ready work" },
+    { id: "waiting", label: language === "es" ? "En espera de inspección final" : "Awaiting final walk" },
+  ].map(group => ({ ...group, items: workItems.filter(({ item }) => {
+    const category = turnWorkCategory(item.workAssignmentBlocks);
+    return group.id === (category === "make-ready" && awaitingFinalWalk(item) ? "waiting" : category);
+  }) })).filter(group => group.items.length);
   const pestItems = data?.pestItems ?? [];
   const leaseComplianceItems = data?.leaseComplianceItems ?? [];
   const pmTasks = data?.pmTasks ?? [];
@@ -107,10 +116,14 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
       </div>
       <h3>{language === "es" ? "Asignaciones confirmadas" : "Confirmed assignments"}</h3>
       {data.items.length === 0 && projectItems.length === 0 && pestItems.length === 0 && leaseComplianceItems.length === 0 && pmTasks.length === 0 ? <p className="empty-copy">{t(language, "myWork.empty")}</p> : (
-        <div className="my-work-list">
-          {workItems.map(({ item, tasks, done }) => {
+        <div className="my-work-sections">
+          {workGroups.map(group => <section key={group.id} className={`my-work-category${group.id === "follow-ups" ? " my-work-follow-ups" : ""}`} data-testid={`my-work-group-${group.id}`}>
+            <h3>{group.label} <span>({group.items.length})</span></h3>
+            {group.id === "follow-ups" ? <p className="helper-copy">{language === "es" ? "Trabajo devuelto por el inspector. Revisa las notas y fotos, corrige los pendientes y guarda tu resolución." : "Work returned by the inspector. Review the notes and photos, complete the corrections, and save your resolution."}</p> : null}
+            <div className="my-work-list">
+          {group.items.map(({ item, tasks, done }) => {
             const activeSession = activeSessionBySourceKey.get(`MAKE_READY_ITEM:${item.id}`) ?? null;
-            const isInspection = item.workAssignmentBlocks?.some(block => block.category === "FINAL_WALK_INSPECTION");
+            const isInspection = turnWorkCategory(item.workAssignmentBlocks) === "inspections";
             const pendingFinalWalk = awaitingFinalWalk(item);
             const needsCorrection = hasActiveCorrections(item.workAssignmentBlocks);
             return (
@@ -164,6 +177,9 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
               </article>
             );
           })}
+            </div>
+          </section>)}
+          {projectItems.length ? <section className="my-work-category"><h3>{language === "es" ? "Proyectos" : "Projects"} ({projectItems.length})</h3><div className="my-work-list">
           {projectItems.map((item) => {
             const overdue = Boolean(item.dueDate && new Date(item.dueDate) < new Date() && !["Completed", "Cancelled", "Archived", "Denied"].includes(item.status));
             const openTasks = item.tasks.filter((task) => task.status !== "Completed" && task.status !== "Skipped");
@@ -196,6 +212,8 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
               </article>
             );
           })}
+          </div></section> : null}
+          {pestItems.length ? <section className="my-work-category"><h3>{language === "es" ? "Control de plagas" : "Pest control"} ({pestItems.length})</h3><div className="my-work-list">
           {pestItems.map((item) => {
             const overdue = Boolean(item.followUpDate && new Date(item.followUpDate) < new Date() && item.status === "Needs Follow Up");
             const activeSession = activeSessionBySourceKey.get(`PEST_ISSUE:${item.id}`) ?? null;
@@ -227,6 +245,8 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
               </article>
             );
           })}
+          </div></section> : null}
+          {leaseComplianceItems.length ? <section className="my-work-category"><h3>{language === "es" ? "Cumplimiento del contrato" : "Lease compliance"} ({leaseComplianceItems.length})</h3><div className="my-work-list">
           {leaseComplianceItems.map((item) => {
             const overdue = item.status === "Violation Needed" || (item.noticeStage === "3rd Notice" && !item.violationNeededDate);
             const activeSession = activeSessionBySourceKey.get(`LEASE_COMPLIANCE_ISSUE:${item.id}`) ?? null;
@@ -257,6 +277,8 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
               </article>
             );
           })}
+          </div></section> : null}
+          {pmTasks.length ? <section className="my-work-category"><h3>{language === "es" ? "Mantenimiento preventivo" : "Preventive maintenance"} ({pmTasks.length})</h3><div className="my-work-list">
           {pmTasks.map((task) => {
             const activeSession = activeSessionBySourceKey.get(`PREVENTIVE_MAINTENANCE_TASK:${task.id}`) ?? null;
             const overdue = task.status !== "COMPLETED" && task.status !== "SKIPPED" && new Date(task.dueDate) < new Date();
@@ -283,6 +305,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
               </article>
             );
           })}
+          </div></section> : null}
         </div>
       )}
       <section data-testid="my-work-upcoming">

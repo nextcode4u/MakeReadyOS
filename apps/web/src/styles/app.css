@@ -1140,6 +1140,19 @@
 .my-work-stats span { color: var(--text-muted); font-size: .7rem; font-weight: 500; }
 .my-work-stats .risk { color: var(--danger); }
 .my-work-list { display: grid; gap: .55rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+.my-work-sections { display: grid; gap: 1.25rem; }
+.my-work-category { min-width: 0; border-top: 1px solid var(--border); padding-top: .75rem; }
+.my-work-category > h3 { margin: 0 0 .65rem; }
+.my-work-follow-ups { border-top: 3px solid var(--warning); }
+.my-work-follow-ups > h3 { color: var(--warning); }
+.follow-up-photos { display: grid; gap: .6rem; margin: .75rem 0; min-width: 0; }
+.follow-up-photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: .65rem; }
+.follow-up-photo-grid > div { min-width: 0; }
+.follow-up-photo { padding: 0; width: 100%; border: 1px solid var(--border); border-radius: .4rem; overflow: hidden; background: var(--panel); }
+.follow-up-photo img { display: block; width: 100%; height: 110px; object-fit: cover; }
+.follow-up-photo-grid .button { font-size: .75rem; white-space: normal; }
+.follow-up-photo-full { display: grid; gap: .65rem; overflow: auto; max-height: 75dvh; }
+.follow-up-photo-full img { display: block; max-width: 100%; height: auto; }
 .my-work-card {
   display: grid;
   gap: .58rem;

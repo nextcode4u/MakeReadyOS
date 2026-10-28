@@ -206,7 +206,9 @@ export function ItemDrawer({
         const headerHeight = drawer.querySelector<HTMLElement>(".item-drawer-header")?.offsetHeight ?? 0;
         drawer.scrollTo({ top: drawer.scrollTop + section.getBoundingClientRect().top - drawer.getBoundingClientRect().top - headerHeight - 12 });
       }
-      section?.querySelector<HTMLElement>("textarea, input, select, button")?.focus({ preventScroll: true });
+      const target = section?.querySelector<HTMLElement>("textarea:not(:disabled), input:not(:disabled), select:not(:disabled)")
+        ?? section?.querySelector<HTMLElement>("button:not(:disabled)");
+      target?.focus({ preventScroll: true });
     });
   }
   const [saving, setSaving] = useState<string | null>(null);

@@ -9,6 +9,8 @@ import { CompletionNotice } from "./CompletionNotice";
 import "./finalWalkReportEditor.css";
 import { todayInputValue } from "../lib/dateTime";
 import { FinalReportPreview } from "./FinalReportPreview";
+import { FollowUpPhotos } from "./FollowUpPhotos";
+import { uploadItemAttachment } from "../lib/api";
 
 const datedInspection = (draft: FinalReportDraft, hasItem: boolean, today = todayInputValue()) => hasItem && !draft.inspectionDate ? { ...draft, inspectionDate: today } : draft;
 
@@ -44,6 +46,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
   const [error, setError] = useState("");
   const [html, setHtml] = useState("");
   const [showCodes, setShowCodes] = useState(false);
+  const [photoProgress, setPhotoProgress] = useState<{ done: number; total: number } | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const actionPending = useRef(false);
   const settingsDirty = JSON.stringify(settings) !== JSON.stringify(savedSettings.value);
@@ -171,6 +174,34 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
           <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input style={{ width: "auto" }} type="checkbox" checked={draft.includeResidentCodes} onChange={event => updateDraft({ includeResidentCodes: event.target.checked })}/>{turnText(language, "I confirm all codes here may be issued to this resident; include them on this report")}</label>
         </details>}
         <label>{turnText(language, "Internal follow-up for technician")}<textarea rows={3} maxLength={1000} value={draft.technicianFollowUp} onChange={event => updateDraft({ technicianFollowUp: event.target.value })}/></label>
+        <FollowUpPhotos key={item.id} ids={draft.technicianPhotoIds ?? []} language={language} onRemove={id => updateDraft({ technicianPhotoIds: (draft.technicianPhotoIds ?? []).filter(photo => photo !== id) })} />
+        <label>{language === "es" ? "Agregar fotos del seguimiento (hasta 12)" : "Add follow-up photos (up to 12)"}
+          <input type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif,image/avif" disabled={busy || (draft.technicianPhotoIds?.length ?? 0) >= 12} onChange={event => {
+            const files = Array.from(event.target.files ?? []); event.target.value = "";
+            if (!files.length) return;
+            void run(async () => {
+              const session = getVerifiedSession();
+              if (!session.userId) throw new Error(language === "es" ? "Inicia sesión de nuevo." : "Sign in again.");
+              const ids = [...(draft.technicianPhotoIds ?? [])];
+              if (ids.length + files.length > 12) throw new Error(language === "es" ? "Puedes adjuntar hasta 12 fotos." : "Attach no more than 12 follow-up photos.");
+              if (files.some(file => !["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"].includes(file.type))) throw new Error(language === "es" ? "Selecciona fotos JPG, PNG, WebP, GIF o AVIF." : "Choose JPG, PNG, WebP, GIF or AVIF photos.");
+              setPhotoProgress({ done: 0, total: files.length });
+              try {
+                for (const [index, file] of files.entries()) {
+                  if (!isCurrentSession(session)) return;
+                  const uploaded = await uploadItemAttachment(item.id, file, "FINAL_WALK", { expectedUserId: session.userId }, crypto.randomUUID());
+                  if (!isCurrentSession(session)) return;
+                  ids.push(uploaded.attachment.id);
+                  updateDraft({ technicianPhotoIds: [...ids] });
+                  setPhotoProgress({ done: index + 1, total: files.length });
+                }
+              } finally { setPhotoProgress(null); }
+              setMessage(language === "es" ? "Fotos cargadas. Guarda o envía las correcciones para incluirlas." : "Photos uploaded. Save or send corrections to include them in the follow-up.");
+            });
+          }} />
+        </label>
+        {photoProgress ? <p role="status">{language === "es" ? "Cargando fotos" : "Uploading photos"}: {photoProgress.done} / {photoProgress.total}</p> : null}
+        <small>{language === "es" ? "Se requiere conexión para cargar fotos. Se guardan en la galería interna de la unidad. Quitar una del seguimiento no la elimina de la galería. No aparecen en el PDF del residente." : "Photo uploads require a connection and are saved in the unit's internal gallery. Removing one from the follow-up does not delete it from the gallery. They do not appear on the resident PDF."}</small>
         <p>{turnText(language, "Not printed on the resident report. Send corrections to reopen the technician's work and notify them; painting and cleaning stay unchanged. The final walk must be rechecked afterward.")}</p>
         {draft.technicianResolution ? <p><strong>{turnText(language, "Technician resolution:")}</strong> {draft.technicianResolution}</p> : null}
         <button type="button" disabled={item.unitReady || (!draft.technicianFollowUp.trim() && !initial.checks.some(check => result(check.id).status === "ATTENTION"))} onClick={() => void run(async () => {

@@ -1,4 +1,5 @@
 import { turnText } from "../lib/turnLocale";
+import { FollowUpPhotos } from "./FollowUpPhotos";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getResidentCodes, isApiError, saveResidentCodes, type ResidentCodes, type FinalReportResult } from "../lib/api";
@@ -109,8 +110,14 @@ export function ResidentCodesPanel({ itemId, status, language }: { itemId: strin
       } catch (cause) { setError(cause instanceof Error ? cause.message : turnText(language, "Could not save resident codes. Your entries are preserved.")); }
       finally { setBusy(false); }
     }}>
+      {current.technicianFollowUp || current.correctionPending || current.technicianPhotoIds?.length ? <section data-testid="technician-corrections" className={current.correctionPending ? "work-correction-panel" : undefined}>
+        <h4>{current.correctionPending ? turnText(language, "Final-walk corrections needed") : turnText(language, "Previous final-walk feedback")}</h4>
+        <p style={{ whiteSpace: "pre-wrap" }}>{current.technicianFollowUp || turnText(language, "Review the final-walk findings with your inspector.")}</p>
+        <FollowUpPhotos key={itemId} ids={current.technicianPhotoIds ?? []} language={language} />
+        <label>{turnText(language, "Technician resolution")}<textarea disabled={busy || preparationReadOnly || query.data?.readOnly} maxLength={1000} rows={3} value={current.value.technicianResolution} onChange={event => change({ technicianResolution: event.target.value })} /></label>
+        <p>{turnText(language, "Record what you corrected and save, then mark your repairs Done to request another final walk. Internal notes do not print on the resident report.")}</p>
+      </section> : null}
       <fieldset className="turn-material-fields" disabled={busy || preparationReadOnly}>
-        {current.technicianFollowUp || current.correctionPending ? <section data-testid="technician-corrections" className={current.correctionPending ? "work-correction-panel" : undefined} style={{ gridColumn: "1 / -1" }}><h4>{current.correctionPending ? turnText(language, "Final-walk corrections needed") : turnText(language, "Previous final-walk feedback")}</h4><p style={{ whiteSpace: "pre-wrap" }}>{current.technicianFollowUp || turnText(language, "Review the final-walk findings with your inspector.")}</p><label>{turnText(language, "Technician resolution")}<textarea disabled={query.data?.readOnly} maxLength={1000} rows={3} value={current.value.technicianResolution} onChange={event => change({ technicianResolution: event.target.value })} /></label><p>{turnText(language, "Record what you corrected and save, then mark your repairs Done to request another final walk. Internal notes do not print on the resident report.")}</p></section> : null}
         <section data-testid="technician-preparation-checks" style={{ gridColumn: "1 / -1" }}><h4>{turnText(language, "8 preparation checks / technician only")}</h4><p>{turnText(language, "One check per area, covering all applicable rooms. Record exceptions, not a second room-by-room checklist.")}</p>
           {current.technicianChecks?.map(check => { const result = current.value.technicianResults?.[check.id] ?? { status: "NOT_CHECKED", note: "" }; return <div key={check.id} className="final-report-check" data-check-status={result.status}><label>{turnText(language, check.label)}<select data-testid={`tech-check-${check.id}`} value={result.status} onChange={event => change({ technicianResults: { ...current.value.technicianResults, [check.id]: { ...result, status: event.target.value as FinalReportResult["status"] } } })}><option value="NOT_CHECKED">{turnText(language, "Not checked")}</option><option value="CHECKED">{turnText(language, "Done")}</option><option value="ATTENTION">{turnText(language, "Needs attention")}</option><option value="NA">{turnText(language, "Not applicable")}</option></select></label>{["ATTENTION", "NA"].includes(result.status) || result.note ? <label>{turnText(language, "Exception / detail")}<input maxLength={100} value={result.note} onChange={event => change({ technicianResults: { ...current.value.technicianResults, [check.id]: { ...result, note: event.target.value } } })} /></label> : null}</div>; })}
         </section>

@@ -32,8 +32,8 @@ export const getPropertyBranding = (id: string) => request<{ property: { id: str
 export const savePropertyBranding = (id: string, input: { managementCompanyId: string | null; logo: string | null }) => request<{ branding: PropertyBranding }>(`/property-branding/${id}`, { method: "PUT", body: JSON.stringify(input) });
 export type FinalReportSettings = { title: string; introduction: string; footer: string; accent: string; residentInfoNewPage?: boolean; onboardingLinks?: { label: string; url: string }[] };
 export type FinalReportResult = { status: "NOT_CHECKED" | "CHECKED" | "ATTENTION" | "NA"; note: string };
-export type FinalReportDraft = { inspectionDate: string; results: Record<string, FinalReportResult>; technicianResults: Record<string, FinalReportResult>; handoffConfirmed: boolean; gateCode: string; pedestrianCode: string; technicianFollowUp: string; technicianResolution: string; correctionPending: boolean; mailbox: string; mailboxSource?: "DIRECTORY" | "CUSTOM"; homeKeys: string; mailboxKeys: string; fobs: string; remotes: string; parking: string; followUp: string; residentDoorCode: string; residentAccessCode: string; includeResidentCodes: boolean };
-export type ResidentCodes = { version: number; value: Pick<FinalReportDraft, "residentDoorCode" | "residentAccessCode" | "includeResidentCodes" | "mailbox" | "mailboxSource" | "mailboxKeys" | "homeKeys" | "fobs" | "remotes" | "technicianResults" | "technicianResolution">; technicianChecks: { id: string; label: string }[]; technicianFollowUp: string; correctionPending: boolean; updatedAt: string | null; readOnly: boolean; preparationReadOnly?: boolean };
+export type FinalReportDraft = { technicianPhotoIds?: string[]; inspectionDate: string; results: Record<string, FinalReportResult>; technicianResults: Record<string, FinalReportResult>; handoffConfirmed: boolean; gateCode: string; pedestrianCode: string; technicianFollowUp: string; technicianResolution: string; correctionPending: boolean; mailbox: string; mailboxSource?: "DIRECTORY" | "CUSTOM"; homeKeys: string; mailboxKeys: string; fobs: string; remotes: string; parking: string; followUp: string; residentDoorCode: string; residentAccessCode: string; includeResidentCodes: boolean };
+export type ResidentCodes = { technicianPhotoIds?: string[]; version: number; value: Pick<FinalReportDraft, "residentDoorCode" | "residentAccessCode" | "includeResidentCodes" | "mailbox" | "mailboxSource" | "mailboxKeys" | "homeKeys" | "fobs" | "remotes" | "technicianResults" | "technicianResolution">; technicianChecks: { id: string; label: string }[]; technicianFollowUp: string; correctionPending: boolean; updatedAt: string | null; readOnly: boolean; preparationReadOnly?: boolean };
 export const getResidentCodes = (itemId: string) => request<ResidentCodes>(`/make-ready-items/${itemId}/resident-codes`);
 export const saveResidentCodes = (itemId: string, input: { version: number; value: Partial<ResidentCodes["value"]> }, account?: AccountBoundRequest) => request<ResidentCodes>(`/make-ready-items/${itemId}/resident-codes`, { ...account, method: "PUT", body: JSON.stringify(input) });
 export type FinalReportData = {
@@ -2728,7 +2728,7 @@ export function deleteItemComment(itemId: string, commentId: string, account?: A
   return request<{ ok: true }>(`/make-ready-items/${itemId}/comments/${commentId}`, { ...account, method: "DELETE" });
 }
 
-export function uploadItemAttachment(itemId: string, file: File, inspectionStage?: "INITIAL_WALK", account?: AccountBoundRequest, uploadId?: string) {
+export function uploadItemAttachment(itemId: string, file: File, inspectionStage?: "INITIAL_WALK" | "FINAL_WALK", account?: AccountBoundRequest, uploadId?: string) {
   const data = new FormData();
   data.append("file", file);
   const route = uploadId ? `attachment-uploads/${encodeURIComponent(uploadId)}` : "attachments";

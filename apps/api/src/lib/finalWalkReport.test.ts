@@ -87,8 +87,8 @@ test("inspection draft validation preserves unknowns and requires exception reas
   assert.equal(reportSettingsSchema.safeParse({ ...defaultReportSettings, accent: "red; background:url(https://evil.test)" }).success, false);
 });
 test("report HTML escapes content, rejects remote logos and never fabricates sign-offs", () => {
-  const html = finalWalkReportHtml({ propertyName: "<script>bad</script>", propertyCode: "P", companyName: "A & B", propertyLogo: "https://evil.test/logo.png", companyLogo: null, unitNumber: "101", technician: "Tech", reviewer: "Reviewer" }, defaultReportSettings, { ...emptyReportDraft(), followUp: "legacy private note", technicianFollowUp: "internal deficiency", technicianResolution: "internal resolution" });
-  for (const note of ["legacy private note", "internal deficiency", "internal resolution"]) assert.ok(!html.includes(note));
+  const html = finalWalkReportHtml({ propertyName: "<script>bad</script>", propertyCode: "P", companyName: "A & B", propertyLogo: "https://evil.test/logo.png", companyLogo: null, unitNumber: "101", technician: "Tech", reviewer: "Reviewer" }, defaultReportSettings, { ...emptyReportDraft(), technicianPhotoIds: ["private-follow-up-photo"], followUp: "legacy private note", technicianFollowUp: "internal deficiency", technicianResolution: "internal resolution" });
+  for (const note of ["legacy private note", "internal deficiency", "internal resolution", "private-follow-up-photo"]) assert.ok(!html.includes(note));
   assert.ok(html.includes("&lt;script&gt;bad&lt;/script&gt;"));
   assert.ok(html.includes("A &amp; B"));
   assert.ok(!html.includes("https://evil.test"));

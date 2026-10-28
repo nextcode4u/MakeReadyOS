@@ -60,13 +60,14 @@ export const reportDraftSchema = z.object({
   handoffConfirmed: z.boolean().default(false),
   gateCode: text(60).default(""), pedestrianCode: text(60).default(""),
   technicianFollowUp: text(1000).default(""), technicianResolution: text(1000).default(""), correctionPending: z.boolean().default(false),
+  technicianPhotoIds: z.array(z.string().min(1).max(100).regex(/^[A-Za-z0-9_-]+$/)).max(12).refine(ids => new Set(ids).size === ids.length, "Duplicate follow-up photo").optional(),
   mailbox: text(40), homeKeys: text(20), mailboxKeys: text(20), fobs: text(20), remotes: text(20), parking: text(60),
   mailboxSource: z.enum(["DIRECTORY", "CUSTOM"]).optional(),
   residentDoorCode: text(60).default(""), residentAccessCode: text(60).default(""),
   includeResidentCodes: z.boolean().default(false),
   followUp: text(400),
 }).strict();
-export const emptyReportDraft = () => ({ inspectionDate: "", results: {} as Record<string, z.infer<typeof resultSchema>>, technicianResults: {} as Record<string, z.infer<typeof resultSchema>>, handoffConfirmed: false, gateCode: "", pedestrianCode: "", technicianFollowUp: "", technicianResolution: "", correctionPending: false, mailbox: "", mailboxSource: "DIRECTORY" as const, homeKeys: "", mailboxKeys: "", fobs: "", remotes: "", parking: "", followUp: "", residentDoorCode: "", residentAccessCode: "", includeResidentCodes: false });
+export const emptyReportDraft = () => ({ technicianPhotoIds: [] as string[], inspectionDate: "", results: {} as Record<string, z.infer<typeof resultSchema>>, technicianResults: {} as Record<string, z.infer<typeof resultSchema>>, handoffConfirmed: false, gateCode: "", pedestrianCode: "", technicianFollowUp: "", technicianResolution: "", correctionPending: false, mailbox: "", mailboxSource: "DIRECTORY" as const, homeKeys: "", mailboxKeys: "", fobs: "", remotes: "", parking: "", followUp: "", residentDoorCode: "", residentAccessCode: "", includeResidentCodes: false });
 export const savedReportSettingsSchema = z.object({ version: z.number().int().positive(), value: reportSettingsSchema });
 export const savedReportDraftSchema = z.object({ version: z.number().int().positive(), value: reportDraftSchema, updatedAt: z.string().datetime() });
 export type ReportSettings = z.infer<typeof reportSettingsSchema>;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { hasActiveCorrections, moveInCountdown, workCategoryLabel } from "../apps/web/src/lib/workCues.js";
+import { hasActiveCorrections, moveInCountdown, turnWorkCategory, workCategoryLabel } from "../apps/web/src/lib/workCues.js";
 import { myWorkCue } from "../apps/web/src/lib/myWorkCue.js";
 
 test("move-in countdown distinguishes upcoming, today, past and missing dates", () => {
@@ -22,6 +22,15 @@ test("correction cues apply only to active correction assignments", () => {
   assert.equal(hasActiveCorrections([{ category: "FINAL_WALK_INSPECTION", status: "PLANNED" }]), false);
   assert.equal(workCategoryLabel("FINAL_WALK_CORRECTION", "en"), "Final-walk corrections");
   assert.equal(workCategoryLabel("FINAL_WALK_CORRECTION", "es"), "Correcciones de inspeccion final");
+});
+
+test("My Work places active follow-ups ahead of inspections and ignores finished corrections", () => {
+  const inspection = { category: "FINAL_WALK_INSPECTION", status: "PLANNED" };
+  assert.equal(turnWorkCategory(), "make-ready");
+  assert.equal(turnWorkCategory([inspection]), "inspections");
+  assert.equal(turnWorkCategory([inspection, { category: "FINAL_WALK_CORRECTION", status: "IN_PROGRESS" }]), "follow-ups");
+  assert.equal(turnWorkCategory([inspection, { category: "FINAL_WALK_CORRECTION", status: "DONE" }]), "inspections");
+  assert.equal(turnWorkCategory([{ category: "FINAL_WALK_CORRECTION", status: "CANCELED" }]), "make-ready");
 });
 
 test("My Work badge counts open assignments, not checklist tasks or completed projects", () => {

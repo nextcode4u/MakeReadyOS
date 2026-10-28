@@ -131,6 +131,8 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     await expect(report.locator('.final-report-check[data-check-status="ATTENTION"]')).toHaveCount(1);
     await report.getByTestId("final-report-note-presentation-v2-3").fill("Touch up entry trim");
     await report.getByLabel("Internal follow-up for technician", { exact: true }).fill("Internal correction request");
+    await report.getByLabel("Add follow-up photos (up to 12)", { exact: true }).setInputFiles({ name: "follow-up.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1WQAAAAASUVORK5CYII=", "base64") });
+    await expect(report.getByTestId("follow-up-photos").getByRole("img")).toHaveCount(1);
     await report.getByRole("button", { name: "Save and send corrections to technician", exact: true }).click();
     await expect(report).toBeHidden();
     const returned = await (await tech.request.get(`${origin}/api${itemPath}`)).json();
@@ -138,6 +140,8 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     await tech.reload();
     await expect(tech.getByTestId(`my-work-final-walk-pending-${item.id}`)).toHaveCount(0);
     await expect(tech.getByTestId(`my-work-item-${item.id}`)).toHaveClass(/work-correction-card/);
+    await expect(tech.getByTestId("my-work-group-follow-ups").getByTestId(`my-work-item-${item.id}`)).toBeVisible();
+    await expect(tech.getByTestId("my-work-group-make-ready").getByTestId(`my-work-item-${item.id}`)).toHaveCount(0);
     await expect(tech.getByTestId(`my-work-item-${item.id}`).locator('.work-correction-badge')).toHaveText("Final-walk corrections");
     await expect(tech.getByTestId(`my-work-item-${item.id}`)).not.toContainText("FINAL_WALK_CORRECTION");
     await expect(tech.getByTestId(`my-work-status-${item.id}`)).toHaveValue("IN PROGRESS");
@@ -159,11 +163,17 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     expect(codes.readOnly).toBe(false);
     expect(codes.technicianFollowUp).toContain("Touch up entry trim");
     expect(codes.correctionPending).toBe(true);
+    expect(codes.technicianPhotoIds).toHaveLength(1);
     await tech.getByRole("button", { name: "Open corrections", exact: true }).click();
     await expect(tech.getByTestId("drawer-correction-next-step")).toBeVisible();
     await tech.getByRole("button", { name: "Review corrections", exact: true }).click();
     await expect(prep.getByLabel("Technician resolution", { exact: true })).toBeFocused();
     await expect(prep.locator('.work-correction-panel')).toContainText("Touch up entry trim");
+    await prep.getByRole("button", { name: "Enlarge photo 1", exact: true }).click();
+    const photo = tech.getByRole("dialog", { name: "Follow-up photo", exact: true });
+    await expect(photo).toBeVisible();
+    await expect.poll(() => photo.getByRole("img").evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+    await photo.getByRole("button", { name: "Close dialog", exact: true }).click();
     await prep.getByLabel("Technician resolution", { exact: true }).fill("Entry trim touched up and dry");
     await prep.getByRole("button", { name: "Save preparation & resident details", exact: true }).click();
     await expect(prep.locator('.work-correction-panel')).toHaveCount(0);

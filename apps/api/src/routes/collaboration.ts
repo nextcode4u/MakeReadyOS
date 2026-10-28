@@ -1011,7 +1011,7 @@ export async function collaborationRoutes(app: FastifyInstance) {
     const { id, uploadId } = z.object({ id: z.string(), uploadId: z.uuid().optional() }).parse(request.params);
     const item = await getScopedItem(request, reply, id);
     if (!item) return;
-    const { inspectionStage } = z.object({ inspectionStage: z.enum(["GENERAL", "INITIAL_WALK"]).default("GENERAL") }).parse(request.query);
+    const { inspectionStage } = z.object({ inspectionStage: z.enum(["GENERAL", "INITIAL_WALK", "FINAL_WALK"]).default("GENERAL") }).parse(request.query);
     if (inspectionStage === "INITIAL_WALK" && !["ADMIN", "MANAGER", "TECH"].includes(request.currentUser!.role)) return reply.code(403).send({ message: "Initial-walk capture is for technicians or managers" });
     const file = await request.file();
     if (!file) return reply.code(400).send({ message: "Select a file to upload" });
