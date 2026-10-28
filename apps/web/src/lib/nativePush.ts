@@ -1,6 +1,6 @@
 type Bridge = { postMessage: (message: string) => void; onmessage?: (event: { data: string }) => void };
 declare global { interface Window { MakeReadyOSPush?: Bridge } }
-export type NativePushState = { configured: boolean; projectId?: string; optedIn?: boolean; enabled?: boolean; bindingId?: string; token?: string };
+export type NativePushState = { configured: boolean; projectId?: string; optedIn?: boolean; enabled?: boolean; bindingId?: string; token?: string; nonce?: string; proof?: string; relaySupported?: boolean; registeredToken?: boolean };
 let sequence = 0;
 const pending = new Map<string, { resolve: (value: NativePushState) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 export function nativePushAvailable() { return Boolean(window.MakeReadyOSPush); }

@@ -6,6 +6,8 @@ dist
 .local/
 google-services.json
 *-firebase-adminsdk-*.json
+relay.sqlite*
+push-relay-credential
 apps/api/dev.db
 apps/api/dev.db-journal
 apps/api/generated

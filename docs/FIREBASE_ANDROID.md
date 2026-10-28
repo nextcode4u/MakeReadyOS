@@ -15,6 +15,11 @@ See [FCM architecture](https://firebase.google.com/docs/cloud-messaging/fcm-arch
 
 ## Register the Android App
 
+For a publisher-built app shared by unrelated servers, see
+[Shared Android Push Relay](PUSH_RELAY.md). That optional mode keeps the sender key
+on one relay and gives each approved server a separate revocable credential. The
+steps below describe direct Firebase delivery and the publisher's relay sender.
+
 An owner must complete these steps using their own Google account:
 
 1. Open the [Firebase console](https://console.firebase.google.com/) and create a project owned by your organization.

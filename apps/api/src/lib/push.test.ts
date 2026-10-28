@@ -3,6 +3,7 @@ import test from "node:test";
 import webpush from "web-push";
 import { prisma } from "./prisma.js";
 import { deliverPushBatch, pushConfiguration, pushPayload, retryPush, validPushEndpoint } from "./push.js";
+import { relayScope } from "./pushRelayClient.js";
 
 test("push endpoints reject local, credentialed, and deceptive destinations", () => {
   for (const url of ["https://fcm.googleapis.com/fcm/send/token", "https://updates.push.services.mozilla.com/wpush/v2/token", "https://web.push.apple.com/token", "https://wns2.notify.windows.com/token"]) assert.equal(validPushEndpoint(url), true, url);
@@ -19,7 +20,8 @@ test("push endpoints reject local, credentialed, and deceptive destinations", ()
 });
 
 test("push worker respects current access, unread state, sessions, quiet hours and retries", async t => {
-  const oldEnv = { public: process.env.VAPID_PUBLIC_KEY, private: process.env.VAPID_PRIVATE_KEY, subject: process.env.VAPID_SUBJECT };
+  const oldEnv = { public: process.env.VAPID_PUBLIC_KEY, private: process.env.VAPID_PRIVATE_KEY, subject: process.env.VAPID_SUBJECT, transport: process.env.ANDROID_PUSH_TRANSPORT };
+  process.env.ANDROID_PUSH_TRANSPORT = "direct";
   const keys = webpush.generateVAPIDKeys();
   process.env.VAPID_PUBLIC_KEY = keys.publicKey; process.env.VAPID_PRIVATE_KEY = keys.privateKey; process.env.VAPID_SUBJECT = "mailto:test@example.com";
   assert.ok(pushConfiguration());
@@ -27,7 +29,7 @@ test("push worker respects current access, unread state, sessions, quiet hours a
   function stub(object: any, key: string, value: any) { const original = object[key]; object[key] = value; restore.push(() => { object[key] = original; }); }
   t.after(() => {
     for (const reset of restore.reverse()) reset();
-    for (const [key, value] of Object.entries({ VAPID_PUBLIC_KEY: oldEnv.public, VAPID_PRIVATE_KEY: oldEnv.private, VAPID_SUBJECT: oldEnv.subject })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    for (const [key, value] of Object.entries({ VAPID_PUBLIC_KEY: oldEnv.public, VAPID_PRIVATE_KEY: oldEnv.private, VAPID_SUBJECT: oldEnv.subject, ANDROID_PUSH_TRANSPORT: oldEnv.transport })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
   });
   const now = new Date();
   const base = () => ({ id: "job", attempts: 1, eventAt: now,
@@ -89,4 +91,13 @@ test("push worker respects current access, unread state, sessions, quiet hours a
   await deliverPushBatch(transport, nativeSend, config); assert.equal(nativeSent, 1);
   androidBase(); Object.assign(fresh.subscription, { fcmProjectId: "wrong-project" });
   await deliverPushBatch(transport, nativeSend, config); assert.equal(nativeSent, 1);
+  process.env.ANDROID_PUSH_TRANSPORT = "relay";
+  androidBase();
+  await deliverPushBatch(transport, nativeSend, config); assert.equal(nativeSent, 1);
+  const relay = { projectId: "test-project", url: "https://push.example.test", credential: "a".repeat(64) };
+  Object.assign(fresh.subscription, { transport: "ANDROID_RELAY", fcmToken: "opaque-relay-handle", auth: relayScope(relay) });
+  await deliverPushBatch(transport, nativeSend, relay); assert.equal(nativeSent, 2);
+  await deliverPushBatch(transport, nativeSend, { ...relay, credential: "b".repeat(64) }); assert.equal(nativeSent, 2);
+  fresh.notification.isRead = true;
+  await deliverPushBatch(transport, nativeSend, relay); assert.equal(nativeSent, 2);
 });

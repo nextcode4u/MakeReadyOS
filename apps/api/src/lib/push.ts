@@ -1,7 +1,7 @@
 import webpush from "web-push";
 import { prisma } from "./prisma.js";
 import { notificationEnabledByDefault } from "./notificationPolicy.js";
-import { fcmConfiguration, sendFcm } from "./fcm.js";
+import { androidConfiguration, androidTransport, relayScope, sendAndroid } from "./pushRelayClient.js";
 
 export function validPushEndpoint(endpoint: string) {
   try {
@@ -34,7 +34,7 @@ export function retryPush(statusCode: number | undefined, attempts: number) {
 
 type Transport = typeof webpush.sendNotification;
 // Fan-out is committed before delivery. A crashed worker's two-minute lease expires.
-export async function deliverPushBatch(send: Transport = webpush.sendNotification, androidSend = sendFcm, androidConfig = fcmConfiguration()) {
+export async function deliverPushBatch(send: Transport = webpush.sendNotification, androidSend = sendAndroid, androidConfig = androidConfiguration()) {
   const webConfigured = Boolean(pushConfiguration());
   if (!webConfigured && !androidConfig) return;
   const now = new Date();
@@ -74,15 +74,16 @@ export async function deliverPushBatch(send: Transport = webpush.sendNotificatio
       && note.createdAt.getTime() === fresh.eventAt.getTime() && current.getTime() - fresh.eventAt.getTime() < 86400000
       && (!note.propertyId || user.role === "ADMIN" || user.propertyAccess.some(access => access.propertyId === note.propertyId))
       && (pref?.enabled ?? notificationEnabledByDefault(note.category)) && !quiet
-      && (device.transport === "ANDROID"
-        ? Boolean(androidConfig && device.fcmProjectId === androidConfig.projectId && device.fcmToken && device.bindingId)
+      && (device.transport === "ANDROID" || device.transport === "ANDROID_RELAY"
+        ? Boolean(device.transport === androidTransport() && androidConfig && device.fcmProjectId === androidConfig.projectId && device.fcmToken && device.bindingId
+          && (device.transport !== "ANDROID_RELAY" || ("url" in androidConfig && device.auth === relayScope(androidConfig))))
         : webConfigured && validPushEndpoint(device.endpoint));
     if (!allowed) {
       await prisma.pushDelivery.updateMany({ where: { id: job.id, nextAttemptAt: lease }, data: { status: "SKIPPED" } });
       continue;
     }
     try {
-      if (device.transport === "ANDROID") await androidSend(device, `${note.id}_${fresh.eventAt.getTime()}`, Math.min(Date.now() + 300000, device.session.expiresAt.getTime()));
+      if (device.transport === "ANDROID" || device.transport === "ANDROID_RELAY") await androidSend(device, `${note.id}_${fresh.eventAt.getTime()}`, Math.min(Date.now() + 300000, device.session.expiresAt.getTime()));
       else await send({ endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } }, pushPayload(note), { TTL: 300, timeout: 5000, urgency: "normal" });
       await prisma.pushDelivery.updateMany({ where: { id: job.id, nextAttemptAt: lease }, data: { status: "SENT" } });
     } catch (error) {

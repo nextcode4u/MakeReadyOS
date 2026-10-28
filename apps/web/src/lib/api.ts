@@ -12,9 +12,11 @@ export const uploadOnCallMap = (expectedUserId: string, propertyId: string, vers
 };
 export const saveOnCall = (expectedUserId: string, input: { version: number; data: import("./onCall").OnCallData; externalEnabled: boolean; accessCode?: string; revokeAccess?: boolean; editCode?: string; disableEditing?: boolean }) => request<import("./onCall").OnCallState>("/on-call", { expectedUserId, method: "PUT", body: JSON.stringify(input) });
 export type DevicePushState = { configured: boolean; publicKey: string | null; endpoints: string[] };
-export type AndroidPushState = { configured: boolean; projectId: string | null; sessionKey: string; bindings: string[] };
+export type AndroidPushState = { configured: boolean; projectId: string | null; sessionKey: string; bindings: string[]; transport?: "direct" | "relay" };
 export const getAndroidPush = (expectedUserId: string) => request<AndroidPushState>("/push/android", { expectedUserId, cache: "no-store" });
-export const saveAndroidPush = (expectedUserId: string, input: { token: string; bindingId: string; projectId: string; sessionKey: string }) => request<{ ok: boolean; bindingId: string; expiresAt: number }>("/push/android", { expectedUserId, method: "POST", body: JSON.stringify(input) });
+export type AndroidRegistration = { token: string; bindingId: string; projectId: string; sessionKey: string; challengeId?: string; proof?: string };
+export const challengeAndroidPush = (expectedUserId: string, input: AndroidRegistration & { nonce: string }) => request<{ challengeId: string; expiresAt: number }>("/push/android/challenge", { expectedUserId, method: "POST", body: JSON.stringify(input) });
+export const saveAndroidPush = (expectedUserId: string, input: AndroidRegistration) => request<{ ok: boolean; bindingId: string; expiresAt: number }>("/push/android", { expectedUserId, method: "POST", body: JSON.stringify(input) });
 export const disableAndroidPush = (expectedUserId: string, bindingId: string) => request<{ ok: boolean }>("/push/android", { expectedUserId, method: "DELETE", body: JSON.stringify({ bindingId }) });
 export const testAndroidPush = (expectedUserId: string, bindingId: string) => request<{ ok: boolean }>("/push/android/test", { expectedUserId, method: "POST", body: JSON.stringify({ bindingId }) });
 export const getDevicePush = (expectedUserId: string) => request<DevicePushState>("/push", { expectedUserId });

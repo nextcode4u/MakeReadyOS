@@ -32,13 +32,17 @@ export async function sendFcm(device: { fcmToken: string | null; bindingId: stri
   if (!config || device.fcmProjectId !== config.projectId || !device.fcmToken || !device.bindingId) {
     throw Object.assign(new Error("Android push unavailable"), { statusCode: 400 });
   }
+  await sendFcmData(config, fcmPayload(device.fcmToken, device.bindingId, notificationId, expiresAt));
+}
+
+export async function sendFcmData(config: FcmConfiguration, payload: unknown) {
   const key = config.projectId + ":" + config.credentialsFile;
   if (auth?.key !== key) auth = { key, client: new GoogleAuth({ keyFilename: config.credentialsFile, scopes: ["https://www.googleapis.com/auth/firebase.messaging"], clientOptions: { transporterOptions: { timeout: 10000, retry: false } } }) };
   const token = await auth.client.getAccessToken();
   if (!token) throw Object.assign(new Error("Android push authorization unavailable"), { statusCode: 401 });
   const response = await fetch(`https://fcm.googleapis.com/v1/projects/${config.projectId}/messages:send`, {
     method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(fcmPayload(device.fcmToken, device.bindingId, notificationId, expiresAt)),
+    body: JSON.stringify(payload),
     signal: AbortSignal.timeout(10000), redirect: "error",
   });
   if (!response.ok) throw fcmFailure(response.status, await response.json().catch(() => null));

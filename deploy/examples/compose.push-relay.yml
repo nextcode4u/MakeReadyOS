@@ -1,0 +1,28 @@
+# Independent relay deployment, not an override for the application stack.
+services:
+  push-relay:
+    build:
+      context: ../../apps/api
+      dockerfile: Dockerfile.relay
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3400:3400"
+    environment:
+      FCM_PROJECT_ID: ${FCM_PROJECT_ID:?Set the publisher Firebase project ID}
+      FCM_SERVICE_ACCOUNT_FILE: /run/secrets/firebase-sender.json
+    volumes:
+      - relay-data:/data
+      # Ensure UID 1000 can read this file; never make it world-readable.
+      - ${FCM_SERVICE_ACCOUNT_FILE:?Set an absolute private sender path}:/run/secrets/firebase-sender.json:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    pids_limit: 100
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3400/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  relay-data:

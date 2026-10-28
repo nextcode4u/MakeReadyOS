@@ -1,0 +1,21 @@
+FROM node:24-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY prisma ./prisma
+COPY prisma.config.ts tsconfig.json ./
+RUN npx prisma generate
+COPY src ./src
+RUN npm run build && npm prune --omit=dev
+
+FROM node:24-alpine
+WORKDIR /app
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/dist/relay ./dist/relay
+COPY --from=build /app/dist/lib/fcm.js ./dist/lib/fcm.js
+RUN mkdir /data && chown node:node /data
+USER node
+ENV PUSH_RELAY_DB=/data/relay.sqlite PUSH_RELAY_HOST=0.0.0.0 PUSH_RELAY_PORT=3400
+EXPOSE 3400
+CMD ["node", "dist/relay/main.js", "serve"]

@@ -27,6 +27,7 @@ test("Android registration is session scoped, project matched, and cannot steal 
   };
   stub(prisma, "$transaction", async (fn: any) => fn(db));
   stub(prisma.pushSubscription, "deleteMany", db.pushSubscription.deleteMany);
+  stub(prisma.pushSubscription, "findMany", async () => []);
   await androidPushRoutes(app, () => ({ projectId: "test-project", credentialsFile: "not-used" }));
   const input = { token: "synthetic-device-token-123", bindingId: "d673a280-1ae9-4f6d-8455-464921bc3431", projectId: "test-project", sessionKey: androidSessionKey("session-a") };
   const post = (payload = input) => app.inject({ method: "POST", url: "/push/android", payload });
@@ -40,5 +41,5 @@ test("Android registration is session scoped, project matched, and cannot steal 
   assert.equal(response.json().expiresAt, expiresAt.getTime());
   assert.equal(deleted.where.sessionId, "session-a"); assert.equal(deleted.where.bindingId, input.bindingId);
   const removed = await app.inject({ method: "DELETE", url: "/push/android", payload: { bindingId: input.bindingId } });
-  assert.equal(removed.statusCode, 200); assert.equal(deleted.where.sessionId, "session-a"); assert.equal(deleted.where.transport, "ANDROID");
+  assert.equal(removed.statusCode, 200); assert.equal(deleted.where.sessionId, "session-a"); assert.deepEqual(deleted.where.transport, { in: ["ANDROID", "ANDROID_RELAY"] });
 });

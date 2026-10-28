@@ -6,7 +6,7 @@ MakeReadyOS stays self-hosted. These services have separate, optional roles:
 | --- | --- | --- |
 | Cloudflare Tunnel | Publish the existing web/API origin over HTTPS | Supported deployment topology |
 | Resend | Deliver account invitations and password resets through SMTP | Supported |
-| Firebase Cloud Messaging (FCM) | Deliver native Android work alerts | Optional SDK setup in beta.3; delivery not implemented in Android or the API |
+| Firebase Cloud Messaging (FCM) | Deliver native Android work alerts | Direct session-bound delivery supported in Firebase-enabled builds; optional shared-relay implementation requires operator deployment and live acceptance testing |
 | Browser Web Push | Deliver notifications to supported browsers/installed PWAs | Supported separately with VAPID |
 
 ## Setup Guides
@@ -14,6 +14,7 @@ MakeReadyOS stays self-hosted. These services have separate, optional roles:
 - [Cloudflare Tunnel](CLOUDFLARE_TUNNEL.md): connector, routing, origin settings, recovery.
 - [Resend email](RESEND_EMAIL.md): DNS verification, SMTP, testing and rotation.
 - [Firebase Android notifications](FIREBASE_ANDROID.md): project registration, credential boundaries and implementation gates.
+- [Shared Android push relay](PUSH_RELAY.md): publisher-built app, separate server credentials, enrollment and revocation.
 - [Browser notifications](PUSH_NOTIFICATIONS.md): existing browser/PWA feature, not native APK push.
 
 Configure HTTPS before testing email links or device notifications. Existing
