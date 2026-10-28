@@ -115,6 +115,10 @@ export function NotificationDrawer({ focusId, userId, open, data, loading, onClo
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(false);
   const [quietStart, setQuietStart] = useState("22:00");
   const [quietEnd, setQuietEnd] = useState("07:00");
+  const [quietDirty, setQuietDirty] = useState(false);
+  const [quietBusy, setQuietBusy] = useState(false);
+  const [quietError, setQuietError] = useState("");
+  const [quietMessage, setQuietMessage] = useState("");
   const propertyPreferences = useMemo(
     () => (data?.preferences ?? []).filter((preference) => preference.propertyId === selectedPropertyId),
     [data?.preferences, selectedPropertyId],
@@ -131,10 +135,33 @@ export function NotificationDrawer({ focusId, userId, open, data, loading, onClo
   }, [data?.properties, selectedPropertyId]);
 
   useEffect(() => {
+    if (quietDirty || quietBusy) return;
     setQuietHoursEnabled(Boolean(data?.settings.quietHoursEnabled));
     setQuietStart(minutesToInput(data?.settings.quietHoursStartMinute ?? 1320));
     setQuietEnd(minutesToInput(data?.settings.quietHoursEndMinute ?? 420));
-  }, [data?.settings]);
+  }, [data?.settings, quietDirty, quietBusy]);
+
+  async function saveQuietHours() {
+    if (quietBusy) return;
+    setQuietError("");
+    setQuietMessage("");
+    if (!navigator.onLine) {
+      setQuietError(isSpanish ? "Sin conexion. Tus cambios siguen aqui; vuelve a guardar al conectarte." : "You're offline. Your changes are still here; save again when connected.");
+      return;
+    }
+    if (!quietStart || !quietEnd) {
+      setQuietError(isSpanish ? "Ingresa la hora de inicio y fin." : "Enter both start and end times.");
+      return;
+    }
+    setQuietBusy(true);
+    try {
+      await onSettingsChange({ quietHoursEnabled, quietHoursStartMinute: inputToMinutes(quietStart), quietHoursEndMinute: inputToMinutes(quietEnd) });
+      setQuietDirty(false);
+      setQuietMessage(isSpanish ? "Horas de silencio guardadas." : "Quiet hours saved.");
+    } catch (error) {
+      setQuietError(error instanceof Error ? error.message : (isSpanish ? "No se pudo guardar. Intenta de nuevo." : "Could not save. Please try again."));
+    } finally { setQuietBusy(false); }
+  }
 
   useEffect(() => {
     if (!open || !focusId || loading) return;
@@ -240,16 +267,18 @@ export function NotificationDrawer({ focusId, userId, open, data, loading, onClo
           <div className="notification-pref-block">
             <strong>{isSpanish ? "Horas de silencio" : "Quiet hours"}</strong>
             <label>
-              <input type="checkbox" checked={quietHoursEnabled} onChange={(event) => setQuietHoursEnabled(event.target.checked)} />
+              <input type="checkbox" disabled={quietBusy} checked={quietHoursEnabled} onChange={(event) => { setQuietDirty(true); setQuietMessage(""); setQuietHoursEnabled(event.target.checked); }} />
               {isSpanish ? "Pausar nuevas alertas durante esta ventana" : "Pause new alerts during this window"}
             </label>
             <div className="notification-quiet-grid">
-              <label>{isSpanish ? "Desde" : "Start"}<input type="time" value={quietStart} onChange={(event) => setQuietStart(event.target.value)} /></label>
-              <label>{isSpanish ? "Hasta" : "End"}<input type="time" value={quietEnd} onChange={(event) => setQuietEnd(event.target.value)} /></label>
+              <label>{isSpanish ? "Desde" : "Start"}<input type="time" disabled={quietBusy} value={quietStart} onChange={(event) => { setQuietDirty(true); setQuietMessage(""); setQuietStart(event.target.value); }} /></label>
+              <label>{isSpanish ? "Hasta" : "End"}<input type="time" disabled={quietBusy} value={quietEnd} onChange={(event) => { setQuietDirty(true); setQuietMessage(""); setQuietEnd(event.target.value); }} /></label>
             </div>
-            <button type="button" className="button button-secondary" onClick={() => void onSettingsChange({ quietHoursEnabled, quietHoursStartMinute: inputToMinutes(quietStart), quietHoursEndMinute: inputToMinutes(quietEnd) })}>
-              {isSpanish ? "Guardar horas de silencio" : "Save quiet hours"}
+            <button type="button" className="button button-secondary" disabled={quietBusy || loading || !data} onClick={() => void saveQuietHours()}>
+              {quietBusy ? (isSpanish ? "Guardando..." : "Saving...") : (isSpanish ? "Guardar horas de silencio" : "Save quiet hours")}
             </button>
+            {quietError ? <p role="alert">{quietError}</p> : null}
+            {quietMessage ? <p role="status">{quietMessage}</p> : null}
             <small>{isSpanish ? "Las horas de silencio usan la hora local del servidor de esta instalación." : "Quiet hours use this deployment server's local time."}</small>
           </div>
           <small>{t(language, "notifications.preferencesHelp")}</small>

@@ -1976,6 +1976,12 @@ export function OperationsPanel({
             <label><input type="checkbox" data-testid="availability-full-report" checked={availabilityFullReport} onChange={event => setAvailabilityFullReport(event.target.checked)} /> Full property report: reconcile missing ready units after move-in</label>
             {availabilityFullReport ? <div>{availabilityDateInfo.error ? <p role="alert">{availabilityDateInfo.error}</p> : availabilityDateInfo.date ? <p data-testid="availability-report-date-detected">Report date: <strong>{availabilityDateInfo.date}</strong> (from your file)</p> : <label>Report date (not supplied in file)<input type="date" data-testid="availability-report-date" value={availabilityReportDate} onChange={event => setAvailabilityReportDate(event.target.value)} /></label>}<small>Use only a complete, unfiltered report. Missing ready units with move-in dates before this date will be previewed, marked occupied, and archived. Partial imports never archive omitted units.</small></div> : null}
             {lastAvailabilityImport?.summary.turnsArchived ? <p>{lastAvailabilityImport.summary.turnsArchived} missing ready units marked occupied and archived.</p> : null}
+            {lastAvailabilityImport?.summary.errors.length ? (
+              <div role="alert" className="admin-message warning" data-testid="availability-import-row-errors">
+                <strong>{isSpanish ? "Importacion con filas omitidas: revise estos problemas antes de continuar." : "Import completed with skipped rows: review these issues before continuing."}</strong>
+                <ul className="compact-list">{lastAvailabilityImport.summary.errors.map((error, index) => <li key={index}>{error}</li>)}</ul>
+              </div>
+            ) : null}
             {lastAvailabilityImport?.warnings?.map(warning => <p key={warning} role="alert" className="admin-message warning">{warning}</p>)}
             <button data-testid="availability-import-submit" className="button button-primary" disabled={loading || !properties.length || !selectedPropertyId || !availabilityImportText.trim() || (availabilityFullReport && (!effectiveAvailabilityReportDate || Boolean(availabilityDateInfo.error)))} onClick={() => void importAvailabilityReport()}>{isSpanish ? "Importar disponibilidad y llenar tablero" : "Import Availability & Populate Board"}</button>
           </div>
@@ -2099,6 +2105,12 @@ export function OperationsPanel({
                     {isSpanish ? "Deshacer unidades creadas" : "Undo created units"}
                   </button>
                 ) : <span>{isSpanish ? " No hay unidades creadas para deshacer." : " No created units to undo."}</span>}
+              </div>
+            ) : null}
+            {lastImport?.summary.errors.length ? (
+              <div role="alert" className="admin-message warning" data-testid="unit-import-row-errors">
+                <strong>{isSpanish ? "Importacion con filas omitidas: revise estos problemas antes de continuar." : "Import completed with skipped rows: review these issues before continuing."}</strong>
+                <ul className="compact-list">{lastImport.summary.errors.map((error, index) => <li key={index}>{error}</li>)}</ul>
               </div>
             ) : null}
             <button data-testid="unit-import-submit" className="button button-secondary" disabled={loading || !properties.length || !selectedPropertyId || !unitImportText.trim()} onClick={() => void importUnitDirectory()}>{isSpanish ? "Importar / actualizar directorio" : "Import / Update Directory"}</button>

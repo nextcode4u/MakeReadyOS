@@ -2207,8 +2207,9 @@ function App() {
   });
   const notificationSettingsMutation = useMutation({
     mutationFn: updateNotificationSettings,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    networkMode: "always",
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
       pushToast(
         t(meQuery.data?.user.language ?? "en", "ops.preferenceUpdated"),
         meQuery.data?.user.language === "es" ? "Las horas de silencio se guardaron." : "Quiet hours were saved.",

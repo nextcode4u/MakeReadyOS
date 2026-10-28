@@ -39,7 +39,17 @@ Keep findings here so there is one queue rather than competing TODO documents.
 
 ### Current Pass
 
-- Combined verification checkpoint, 2026-10-27: all twenty UI-only desktop/mobile
+- UI-retested 2026-10-27: directory then availability import, directory re-import
+  preserving current NTV status/date, extended vacate date and retained turn notes;
+  duplicate directory/availability file uploads now show skipped-row explanations.
+  Scoped manager creation, technician/leasing navigation restrictions, technician
+  parts-request delivery to manager/admin, need-to-know preferences, offline quiet
+  hours/reconnect/reload and cancel/confirm clearing were exercised through the UI.
+  This is targeted role-boundary coverage, not an exhaustive authorization audit.
+  Full-report reconciliation, stale/conflicting report review, other file formats,
+  every alert category and physical-device push delivery remain separate checks.
+
+- Combined verification checkpoint, 2026-10-27: all twenty-eight UI-only desktop/mobile
   scenarios passed together, plus lint and 36 service-worker/offline-queue tests.
   This supersedes the earlier per-pass combined-run limitations below, but does
   not close untested scenarios or establish physical-device coverage.
@@ -234,6 +244,28 @@ Keep findings here so there is one queue rather than competing TODO documents.
 - Acceptance: clarify save-view behavior or retain account-scoped last-used
   calendar choices, without overriding explicitly selected saved views or keeping
   unavailable tracks after account/property changes.
+
+### UI-011: Quiet-Hour Saves Give No Offline Feedback
+
+- Status: **UI-retested**. Priority: P2 recovery/usability.
+- Role/viewport: admin, desktop and Pixel 5 browser.
+- Steps: Alerts > Preferences, change Start, disconnect, click Save quiet hours.
+- Actual: no inline failure or save state; the mutation could pause until reconnect.
+- Fix: explicit offline feedback, retained draft, saving guard and inline result.
+  Background notification refreshes no longer replace dirty quiet-hour inputs.
+  These settings are not a durable offline queue; reconnect and save explicitly.
+- Evidence: `user-admin-workflows.spec.ts`, offline/reconnect/save/reload scenario.
+
+### UI-012: Import Results Hide Duplicate-Row Explanations
+
+- Status: **UI-retested**. Priority: P2 import clarity.
+- Role/viewport: admin, desktop and Pixel 5 browser.
+- Steps: Availability & Units, upload a directory CSV containing the same unit twice,
+  confirm import, inspect the result; repeat with availability.
+- Actual: rows are skipped by the importer but its row-specific explanations are
+  not rendered. The directory shows a skipped count; availability only shows totals.
+- Fix: show returned row warnings for both imports without changing import policy.
+- Evidence: `user-admin-workflows.spec.ts`, duplicate-file upload scenario.
 
 ## Module Simplification TODO - 2026-10-02
 
