@@ -10,7 +10,7 @@ import "./finalWalkReportEditor.css";
 import { todayInputValue } from "../lib/dateTime";
 import { FinalReportPreview } from "./FinalReportPreview";
 import { FollowUpPhotos } from "./FollowUpPhotos";
-import { uploadItemAttachment } from "../lib/api";
+import { patchMakeReadyItem, uploadItemAttachment } from "../lib/api";
 
 const datedInspection = (draft: FinalReportDraft, hasItem: boolean, today = todayInputValue()) => hasItem && !draft.inspectionDate ? { ...draft, inspectionDate: today } : draft;
 
@@ -37,6 +37,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
   const client = useQueryClient();
   const [savedSettings, setSavedSettings] = useState(initial.settings);
   const [pdfPending, setPdfPending] = useState(false);
+  const [occupiedResult, setOccupiedResult] = useState<{ archived: boolean } | null>(null);
   const [settings, setSettings] = useState(initial.settings.value);
   const [savedDraft, setSavedDraft] = useState(initial.draft);
   const [draft, setDraft] = useState(() => datedInspection(initial.draft.value, Boolean(initial.item), initial.inspectionToday));
@@ -116,6 +117,11 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
       setMessage(android ? (language === "es" ? "Borrador preparado para Android. No es la copia del residente." : "Draft prepared for Android. It is not the resident copy.") : turnText(language, "Draft PDF downloaded. It is not a finalized inspection record."));
     }
   });
+  if (occupiedResult) return <section data-testid="final-report-occupied-result" role="status">
+    <h3>{turnText(language, "Unit marked occupied")}</h3>
+    <p>{turnText(language, occupiedResult.archived ? "Move-in recorded. The completed turn is archived and the unit is in Occupied units." : "Occupancy updated. The turn is still active; review its remaining work on the board.")}</p>
+    <button type="button" className="button" onClick={onReturned}>{turnText(language, "Close")}</button>
+  </section>;
   return <div className="final-report-workspace">
     <div className="final-report-notice"><strong>{item?.unitReady ? turnText(language, "Completed unit / inspection report") : turnText(language, "Inspection report workspace")}</strong><p>{turnText(language, "Saving inspection details does not change the unit's Ready status or create an electronic signature. Preview and draft downloads include unsaved edits. Resident PDFs use saved, completed inspection records only.")}</p>{item?.unitReady ? <p>{turnText(language, "You can return here from Table > Ready Units > open unit > Edit / download final-walk report, even after the unit leaves My Work.")}</p> : null}</div>
     {error ? <p role="alert">{error}</p> : null}{message ? <p role="status">{message}</p> : null}
@@ -229,6 +235,19 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
         {item && residentHelp ? <CompletionNotice id="resident-download-help" message={residentHelp} language={language} /> : null}
         {pdfPending ? <p role="status">{language === "es" ? "Generando el PDF. Mantén la aplicación abierta; aparecerán las opciones para guardar o compartir." : "Generating the PDF. Keep the app open; save and share options will appear when it is ready."}</p> : message ? <p role="status">{message}</p> : null}
         {error ? <CompletionNotice error message={error} language={language} /> : null}
+        {item && initial.canMarkOccupied ? <div className="final-report-move-in" data-testid="final-report-move-in">
+          <strong>{turnText(language, "Move-in handoff")}</strong>
+          <small>{turnText(language, "You can print the resident PDF ahead of time. Only mark Occupied after the resident has actually moved in; this archives the completed turn.")}</small>
+          <button type="button" className="button button-secondary" data-testid="final-report-mark-occupied" disabled={busy || !item.unitReady || item.stockInspection || settingsDirty || draftDirty} onClick={() => {
+            if (!window.confirm(`${item.unitNumber}: ${turnText(language, "Has the resident actually moved in? Mark this unit Occupied and archive its completed turn? Printing or preparing the folder alone does not mean the unit is occupied.")}`)) return;
+            void run(async () => {
+              const updated = await patchMakeReadyItem(item.id, { vacancyStatus: "OCCUPIED" });
+              setOccupiedResult({ archived: updated.isArchived });
+              void client.invalidateQueries({ predicate: query => query.queryKey[0] !== "final-report" });
+            });
+          }}>{turnText(language, "Confirm move-in / mark occupied")}</button>
+          {!item.unitReady || item.stockInspection || settingsDirty || draftDirty ? <small>{turnText(language, "Save report changes, record an applicant or move-in, and mark the unit Ready before completing move-in handoff.")}</small> : null}
+        </div> : null}
       {initial.canEditSettings ? <details className="final-report-link-settings"><summary>{turnText(language, "Onboarding settings")}</summary>
         <p>{turnText(language, "Add staff links for gate access, parking or other move-in tasks. These links are not printed on the resident PDF. Do not include passwords, access codes or private tokens in URLs.")}</p>
         <fieldset disabled={busy} className="final-report-form">

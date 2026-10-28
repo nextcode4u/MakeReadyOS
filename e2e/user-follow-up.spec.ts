@@ -61,6 +61,7 @@ test("inspector returns a photo correction and technician completes the reinspec
       await inspectionCard.getByRole("button", { name: "Inspect or hand off", exact: true }).click();
       await inspector.getByRole("button", { name: "Inspection details / report", exact: true }).click();
       await expect(report.getByTestId("final-report-date")).not.toHaveValue("");
+      await expect(report.getByTestId("final-report-mark-occupied")).toBeDisabled();
       await report.getByLabel("Internal follow-up for technician", { exact: true }).fill("Replace damaged cabinet face from stock; see photo.");
       const photos = Array.from({ length: 51 }, (_, index) => ({ name: `cabinet-${index}.png`, mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1WQAAAAASUVORK5CYII=", "base64") }));
       const upload = report.getByLabel("Add follow-up photos (up to 50)", { exact: true });
@@ -106,7 +107,36 @@ test("inspector returns a photo correction and technician completes the reinspec
       const download = inspector.waitForEvent("download");
       await report.getByRole("button", { name: "Download resident PDF", exact: true }).click();
       expect(await (await download).failure()).toBeNull();
+      await expect(report.getByTestId("final-report-mark-occupied")).toBeEnabled();
+      await expect(report.getByTestId("final-report-completion")).toContainText("Unit marked ready");
       await info.attach("inspection-ready", { body: await inspector.screenshot(), contentType: "image/png" });
+    });
+    await test.step("Leasing confirms actual move-in separately from printing", async () => {
+      const markOccupied = report.getByTestId("final-report-mark-occupied");
+      inspector.once("dialog", dialog => dialog.dismiss());
+      await markOccupied.click();
+      await expect(markOccupied).toBeEnabled();
+      await inspector.context().setOffline(true);
+      try {
+        inspector.once("dialog", dialog => dialog.accept());
+        await markOccupied.click();
+        await expect(report.getByRole("alert").first()).toBeVisible();
+        await expect(markOccupied).toBeEnabled();
+      } finally { await inspector.context().setOffline(false); }
+      inspector.once("dialog", dialog => dialog.accept());
+      await markOccupied.click();
+      await expect(report.getByTestId("final-report-occupied-result")).toContainText("The completed turn is archived");
+      await page.reload();
+      await page.getByTestId("item-drawer-close").click();
+      await navigate(page, "table");
+      await page.getByTestId("top-archive-mode").selectOption("archived");
+      await page.getByRole("textbox", { name: "Search board items", exact: true }).fill(unit);
+      await page.getByRole("button", { name: `Open details for ${unit}`, exact: true }).click();
+      await page.getByTestId("drawer-pane-all").click();
+      await expect(page.getByTestId("drawer-field-vacancyStatus")).toHaveValue("OCCUPIED");
+      await page.getByTestId("item-drawer-close").click();
+      await page.getByTestId("top-archive-mode").selectOption("occupied");
+      await expect(page.getByText(unit, { exact: true }).locator("visible=true").first()).toBeVisible();
     });
   } finally { await tech.close(); await inspector.close(); }
 });

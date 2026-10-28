@@ -3,6 +3,15 @@ import type { UserLanguage } from "./api";
 // Source-text keys also cover fixed checklist labels supplied by the API.
 // Never pass resident notes, names, or other user-authored text through this map.
 export const turnSpanish: Record<string, string> = {
+  "Close": "Cerrar",
+  "Move-in handoff": "Entrega al residente",
+  "Confirm move-in / mark occupied": "Confirmar ingreso / marcar ocupada",
+  "Unit marked occupied": "Unidad marcada como ocupada",
+  "You can print the resident PDF ahead of time. Only mark Occupied after the resident has actually moved in; this archives the completed turn.": "Puedes imprimir el PDF del residente con anticipación. Marca Ocupada solo cuando el residente haya ingresado; esto archiva la preparación completada.",
+  "Has the resident actually moved in? Mark this unit Occupied and archive its completed turn? Printing or preparing the folder alone does not mean the unit is occupied.": "¿El residente ya ingresó? ¿Marcar esta unidad Ocupada y archivar su preparación completada? Imprimir o preparar la carpeta no significa que la unidad esté ocupada.",
+  "Move-in recorded. The completed turn is archived and the unit is in Occupied units.": "Ingreso registrado. La preparación completada está archivada y la unidad aparece en Unidades ocupadas.",
+  "Occupancy updated. The turn is still active; review its remaining work on the board.": "Ocupación actualizada. La preparación sigue activa; revisa el trabajo pendiente en el tablero.",
+  "Save report changes, record an applicant or move-in, and mark the unit Ready before completing move-in handoff.": "Guarda los cambios del informe, registra un solicitante o fecha de ingreso y marca la unidad Lista antes de completar la entrega.",
   "Onboarding settings": "Configuración de incorporación",
   "For internal review only. Use Download resident PDF beside Preview report for the resident copy.": "Solo para revisión interna. Usa Descargar PDF del residente junto a Vista previa del informe para obtener la copia del residente.",
   "Preview zoom controls": "Controles de zoom de la vista previa",

@@ -39,6 +39,14 @@ Keep findings here so there is one queue rather than competing TODO documents.
 
 ### Current Pass
 
+- UI-retested 2026-10-28: final-walk resident PDF controls now include an explicit
+  move-in handoff for authorized staff. Printing does not change occupancy. The
+  action requires a saved, Ready turn with an applicant or move-in recorded and
+  confirmation that the resident actually moved in. Desktop/mobile click-through
+  tests covered disabled-before-Ready, PDF download, cancellation, offline failure
+  and retry, archiving the completed turn, and finding the unit in Occupied units.
+  These are browser tests, not physical-device coverage.
+
 - UI-retested 2026-10-27: directory then availability import, directory re-import
   preserving current NTV status/date, extended vacate date and retained turn notes;
   duplicate directory/availability file uploads now show skipped-row explanations.

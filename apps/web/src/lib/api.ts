@@ -38,6 +38,7 @@ export const getResidentCodes = (itemId: string) => request<ResidentCodes>(`/mak
 export const saveResidentCodes = (itemId: string, input: { version: number; value: Partial<ResidentCodes["value"]> }, account?: AccountBoundRequest) => request<ResidentCodes>(`/make-ready-items/${itemId}/resident-codes`, { ...account, method: "PUT", body: JSON.stringify(input) });
 export type FinalReportData = {
   inspectionToday?: string;
+  canMarkOccupied?: boolean;
   canEditSettings: boolean;
   canEditDraft: boolean;
   property: { id: string; name: string; code: string };

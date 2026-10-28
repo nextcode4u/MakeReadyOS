@@ -2,7 +2,7 @@ import { patchSchema } from "../lib/patchSchema.js";
 import { validateFollowUpPhotos } from "../lib/finalWalkPhotos.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { allowedPropertyIds, requireAdmin } from "../lib/auth.js";
+import { allowedPropertyIds, canUpdateMakeReadyField, requireAdmin } from "../lib/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { renderPdfFromHtml } from "../lib/pdf.js";
 import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, technicianChecks, reportDraftSchema, reportSections, reportSettingsSchema, residentReportBlockers, resolveReportMailbox, savedReportDraftSchema, savedReportSettingsSchema } from "../lib/finalWalkReport.js";
@@ -110,6 +110,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     const reviewer = item ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory }, orderBy: { createdAt: "desc" }, select: { assignedUser: { select: { fullName: true } } } }) : null;
     return {
       canEditSettings: request.currentUser!.role === "ADMIN",
+      canMarkOccupied: canUpdateMakeReadyField(request.currentUser!, "vacancyStatus"),
       inspectionToday: inspectionDateOrToday("", undefined, property.operatingCalendar?.timezone),
       canEditDraft: request.currentUser!.role === "ADMIN" || Boolean(item && (awaitingFinalWalk(item) || isTurnReady(item))),
       property: { id: property.id, name: property.name, code: property.code },
