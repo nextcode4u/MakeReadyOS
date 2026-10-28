@@ -131,7 +131,7 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     await expect(report.locator('.final-report-check[data-check-status="ATTENTION"]')).toHaveCount(1);
     await report.getByTestId("final-report-note-presentation-v2-3").fill("Touch up entry trim");
     await report.getByLabel("Internal follow-up for technician", { exact: true }).fill("Internal correction request");
-    await report.getByLabel("Add follow-up photos (up to 12)", { exact: true }).setInputFiles({ name: "follow-up.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1WQAAAAASUVORK5CYII=", "base64") });
+    await report.getByLabel("Add follow-up photos (up to 50)", { exact: true }).setInputFiles({ name: "follow-up.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1WQAAAAASUVORK5CYII=", "base64") });
     await expect(report.getByTestId("follow-up-photos").getByRole("img")).toHaveCount(1);
     await report.getByRole("button", { name: "Save and send corrections to technician", exact: true }).click();
     await expect(report).toBeHidden();

@@ -62,8 +62,13 @@ test("inspector returns a photo correction and technician completes the reinspec
       await inspector.getByRole("button", { name: "Inspection details / report", exact: true }).click();
       await expect(report.getByTestId("final-report-date")).not.toHaveValue("");
       await report.getByLabel("Internal follow-up for technician", { exact: true }).fill("Replace damaged cabinet face from stock; see photo.");
-      await report.getByLabel("Add follow-up photos (up to 12)", { exact: true }).setInputFiles({ name: "cabinet.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1WQAAAAASUVORK5CYII=", "base64") });
-      await expect(report.getByTestId("follow-up-photos").getByRole("img")).toHaveCount(1);
+      const photos = Array.from({ length: 51 }, (_, index) => ({ name: `cabinet-${index}.png`, mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1WQAAAAASUVORK5CYII=", "base64") }));
+      const upload = report.getByLabel("Add follow-up photos (up to 50)", { exact: true });
+      await upload.setInputFiles(photos);
+      await expect(report).toContainText("Attach no more than 50 follow-up photos.");
+      await upload.setInputFiles(photos.slice(0, 50));
+      await expect(report.getByTestId("follow-up-photos").getByRole("img")).toHaveCount(50, { timeout: 60000 });
+      await expect(upload).toBeDisabled();
       await report.getByRole("button", { name: "Save and send corrections to technician", exact: true }).click();
       await expect(report).toBeHidden();
       await inspector.getByTestId("item-drawer-close").click();
@@ -75,6 +80,7 @@ test("inspector returns a photo correction and technician completes the reinspec
       await card.getByRole("button", { name: "Open corrections", exact: true }).click();
       await tech.getByRole("button", { name: "Review corrections", exact: true }).click();
       await expect(preparation).toContainText("Replace damaged cabinet face from stock");
+      await expect(preparation.getByTestId("follow-up-photos").getByRole("img")).toHaveCount(50);
       await preparation.getByRole("button", { name: "Enlarge photo 1", exact: true }).click();
       const photo = tech.getByRole("dialog", { name: "Follow-up photo", exact: true });
       await expect(photo.getByRole("img")).toBeVisible();

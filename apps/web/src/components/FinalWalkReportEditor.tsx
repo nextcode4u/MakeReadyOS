@@ -175,15 +175,15 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
         </details>}
         <label>{turnText(language, "Internal follow-up for technician")}<textarea rows={3} maxLength={1000} value={draft.technicianFollowUp} onChange={event => updateDraft({ technicianFollowUp: event.target.value })}/></label>
         <FollowUpPhotos key={item.id} ids={draft.technicianPhotoIds ?? []} language={language} onRemove={id => updateDraft({ technicianPhotoIds: (draft.technicianPhotoIds ?? []).filter(photo => photo !== id) })} />
-        <label>{language === "es" ? "Agregar fotos del seguimiento (hasta 12)" : "Add follow-up photos (up to 12)"}
-          <input type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif,image/avif" disabled={busy || (draft.technicianPhotoIds?.length ?? 0) >= 12} onChange={event => {
+        <label>{language === "es" ? "Agregar fotos del seguimiento (hasta 50)" : "Add follow-up photos (up to 50)"}
+          <input type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif,image/avif" disabled={busy || (draft.technicianPhotoIds?.length ?? 0) >= 50} onChange={event => {
             const files = Array.from(event.target.files ?? []); event.target.value = "";
             if (!files.length) return;
             void run(async () => {
               const session = getVerifiedSession();
               if (!session.userId) throw new Error(language === "es" ? "Inicia sesión de nuevo." : "Sign in again.");
               const ids = [...(draft.technicianPhotoIds ?? [])];
-              if (ids.length + files.length > 12) throw new Error(language === "es" ? "Puedes adjuntar hasta 12 fotos." : "Attach no more than 12 follow-up photos.");
+              if (ids.length + files.length > 50) throw new Error(language === "es" ? "Puedes adjuntar hasta 50 fotos." : "Attach no more than 50 follow-up photos.");
               if (files.some(file => !["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"].includes(file.type))) throw new Error(language === "es" ? "Selecciona fotos JPG, PNG, WebP, GIF o AVIF." : "Choose JPG, PNG, WebP, GIF or AVIF photos.");
               setPhotoProgress({ done: 0, total: files.length });
               try {

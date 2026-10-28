@@ -7,7 +7,10 @@ test("follow-up photo references are bounded, unique and backward compatible", (
   const { technicianPhotoIds: _, ...legacy } = emptyReportDraft();
   assert.ok(reportDraftSchema.safeParse(legacy).success);
   assert.ok(reportDraftSchema.safeParse({ ...legacy, technicianPhotoIds: ["photo-1"] }).success);
-  for (const ids of [["a", "a"], ["https://example.com/private"], Array.from({ length: 13 }, (_, i) => `photo-${i}`)]) {
+  for (const count of [12, 13, 50]) {
+    assert.ok(reportDraftSchema.safeParse({ ...legacy, technicianPhotoIds: Array.from({ length: count }, (_, i) => `photo-${i}`) }).success);
+  }
+  for (const ids of [["a", "a"], ["https://example.com/private"], Array.from({ length: 51 }, (_, i) => `photo-${i}`)]) {
     assert.equal(reportDraftSchema.safeParse({ ...legacy, technicianPhotoIds: ids }).success, false);
   }
 });
