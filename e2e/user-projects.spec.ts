@@ -1,0 +1,32 @@
+import { expect, test } from "@playwright/test";
+
+test("manager creates a simple dog-station idea and edits its total", async ({ page }, info) => {
+  test.skip(!process.env.COMPOSE_PROJECT_NAME?.startsWith("makereadyos-e2e-"), "Disposable demo environment required");
+  test.setTimeout(90000);
+  const title = `Dog stations ${info.project.name}`;
+  await page.goto("/");
+  await page.getByTestId("login-email").fill(process.env.ADMIN_EMAIL!);
+  await page.getByTestId("login-password").fill(process.env.ADMIN_PASSWORD!);
+  await page.getByRole("button", { name: /sign in/i }).click();
+  await page.getByTestId("property-filter").selectOption({ label: "DG · Demo Gardens" });
+  await page.getByRole("button", { name: "Open Projects", exact: true }).click();
+  await page.getByRole("button", { name: "Add project / idea", exact: true }).click();
+  const form = page.getByTestId("projects-quick-capture-form");
+  await form.getByLabel("What is needed?", { exact: true }).fill(title);
+  await form.getByLabel("Product link (optional)", { exact: true }).fill("https://www.amazon.com/dp/EXAMPLE123");
+  await form.getByLabel("Estimated total ($, optional)", { exact: true }).fill("249.95");
+  await form.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText(`${title} saved.`, { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "View Record", exact: true }).click();
+  await page.getByText("Edit title, link & total", { exact: true }).click();
+  await expect(page.getByLabel("Estimated total ($)", { exact: true })).toHaveValue("249.95");
+  await page.getByLabel("Estimated total ($)", { exact: true }).fill("299.95");
+  await page.getByRole("button", { name: "Save basics", exact: true }).click();
+  await expect(page.getByText("Basics saved.", { exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: title, exact: true }).click();
+  await page.getByText("Edit title, link & total", { exact: true }).click();
+  await expect(page.getByLabel("Estimated total ($)", { exact: true })).toHaveValue("299.95");
+  await expect(page.getByLabel("Product link", { exact: true })).toHaveValue("https://www.amazon.com/dp/EXAMPLE123");
+  await info.attach("project-saved", { body: await page.screenshot(), contentType: "image/png" });
+});

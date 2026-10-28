@@ -114,7 +114,6 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
         <strong>{data.stats.dueSoon}<span>{t(language, "myWork.dueSoon")}</span></strong>
         <strong>{data.stats.openChecklistTasks}<span>{t(language, "myWork.openTasks")}</span></strong>
       </div>
-      <h3>{language === "es" ? "Asignaciones confirmadas" : "Confirmed assignments"}</h3>
       {data.items.length === 0 && projectItems.length === 0 && pestItems.length === 0 && leaseComplianceItems.length === 0 && pmTasks.length === 0 ? <p className="empty-copy">{t(language, "myWork.empty")}</p> : (
         <div className="my-work-sections">
           {workGroups.map(group => <section key={group.id} className={`my-work-category${group.id === "follow-ups" ? " my-work-follow-ups" : ""}`} data-testid={`my-work-group-${group.id}`}>

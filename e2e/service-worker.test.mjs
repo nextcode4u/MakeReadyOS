@@ -19,6 +19,10 @@ function worker(extras = {}) {
           store.set(request.url ?? request, response.clone());
         },
         match: async request => store.get(request.url ?? request)?.clone(),
+        delete: async request => {
+          if (deleteFails) throw new Error("Storage unavailable");
+          return store.delete(request.url ?? request);
+        },
       };
     },
     delete: async name => {
@@ -136,6 +140,37 @@ test("admin, export, auth, and no-store responses are not cached", async () => {
   await sw.request("/api/meta");
   sw.network(async () => { throw new Error("Offline"); });
   assert.equal((await sw.request("/api/meta")).status, 0);
+});
+
+test("private responses do not invalidate parallel requests and remove only their old cached entry", async () => {
+  const sw = worker();
+  await sw.request("/api/unit-private");
+  const releases = new Map();
+  sw.network(request => new Promise(resolve => releases.set(new URL(request.url).pathname, resolve)));
+  const first = sw.request("/api/unit-private");
+  const second = sw.request("/api/other-private");
+  const ordinary = sw.request("/api/meta");
+  await new Promise(resolve => setImmediate(resolve));
+  releases.get("/api/unit-private")(Response.json({ secret: true }, { headers: { "cache-control": "no-store" } }));
+  assert.equal((await first).status, 200);
+  releases.get("/api/other-private")(Response.json({ secret: true }, { headers: { "cache-control": "no-store" } }));
+  assert.equal((await second).status, 200);
+  releases.get("/api/meta")(Response.json({ value: "ordinary" }));
+  assert.equal((await ordinary).status, 200);
+  sw.network(async () => { throw new Error("Offline"); });
+  assert.equal((await sw.request("/api/unit-private")).status, 0);
+  assert.equal((await sw.request("/api/other-private")).status, 0);
+  assert.equal((await sw.request("/api/meta")).status, 200);
+});
+
+test("private response deletion failure disables stale offline fallback without losing the fresh response", async () => {
+  const sw = worker();
+  await sw.request("/api/unit-private");
+  sw.failDelete();
+  sw.network(async () => Response.json({ private: true }, { headers: { "cache-control": "no-store" } }));
+  assert.equal((await sw.request("/api/unit-private")).status, 200);
+  sw.network(async () => { throw new Error("Offline"); });
+  assert.equal((await sw.request("/api/unit-private")).status, 0);
 });
 
 test("cache quota failure still returns the fresh server response", async () => {

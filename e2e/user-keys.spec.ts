@@ -1,0 +1,67 @@
+import { expect, test } from "@playwright/test";
+
+test("keys lookup preserves codes during keytag import and guards mailbox changes", async ({ page, context }, info) => {
+  test.skip(!process.env.COMPOSE_PROJECT_NAME?.startsWith("makereadyos-e2e-"), "Disposable demo environment required");
+  test.setTimeout(90000);
+  const unit = info.project.name === "user-mobile" ? "DG-105" : "DG-101";
+  const tag = `SHOP-${info.project.name}`;
+  await page.goto("/");
+  await page.getByTestId("login-email").fill(process.env.ADMIN_EMAIL!);
+  await page.getByTestId("login-password").fill(process.env.ADMIN_PASSWORD!);
+  await page.getByRole("button", { name: /sign in/i }).click();
+  await page.getByTestId("property-filter").selectOption({ label: "DG · Demo Gardens" });
+  await page.getByRole("button", { name: "Keys & Access", exact: true }).click();
+  const panel = page.getByTestId("access-codes-panel");
+  const search = panel.getByPlaceholder("Search unit or key tag...");
+  await search.fill(unit);
+  await panel.getByRole("listbox").getByRole("button", { name: new RegExp(`^${unit} /`) }).click();
+  await expect(panel.getByRole("textbox", { name: "Door code", exact: true })).toHaveCount(0);
+  const mailbox = panel.getByTestId("access-mailbox");
+  await mailbox.getByRole("button", { name: /(?:Add|Change) mailbox assignment/ }).click();
+  await mailbox.getByRole("textbox", { name: "Mailbox number", exact: true }).fill("001-A");
+  page.once("dialog", async dialog => {
+    expect(dialog.message()).toContain("001-A");
+    await dialog.dismiss();
+  });
+  await mailbox.getByRole("button", { name: "Save mailbox assignment", exact: true }).click();
+  await expect(mailbox.getByRole("textbox", { name: "Mailbox number", exact: true })).toHaveValue("001-A");
+  await expect(mailbox.locator("strong")).not.toHaveText("001-A");
+  page.once("dialog", dialog => dialog.accept());
+  await mailbox.getByRole("button", { name: "Save mailbox assignment", exact: true }).click();
+  await expect(mailbox.locator("strong")).toHaveText("001-A");
+  await panel.getByRole("button", { name: "Reveal unit codes", exact: true }).click();
+  await panel.getByRole("textbox", { name: "Door code", exact: true }).fill("004321");
+  await panel.getByRole("textbox", { name: "Key tag", exact: true }).fill(tag);
+  await context.setOffline(true);
+  try {
+    await panel.getByRole("button", { name: "Save unit codes", exact: true }).click();
+    await expect(panel.getByRole("alert")).toBeVisible();
+    await expect(panel.getByRole("textbox", { name: "Door code", exact: true })).toHaveValue("004321");
+  } finally { await context.setOffline(false); }
+  await panel.getByRole("button", { name: "Save unit codes", exact: true }).click();
+  await expect(panel.getByRole("status").filter({ hasText: "Codes saved" })).toBeVisible();
+  await expect(panel.getByRole("textbox", { name: "Door code", exact: true })).toHaveCount(0);
+  await panel.locator("summary").filter({ hasText: "Import / export key tags and codes" }).click();
+  await panel.getByRole("textbox", { name: "Paste code directory", exact: true }).fill(`unit,keyTag\n${unit},${tag}-NEW`);
+  await panel.getByRole("checkbox", { name: "Replace existing nonblank codes or key tags", exact: true }).check();
+  await panel.getByRole("button", { name: "Preview code import", exact: true }).click();
+  await expect(panel).toContainText(`1 units to update: ${unit}`);
+  await panel.getByRole("button", { name: "Apply code import to DG", exact: true }).click();
+  await expect(panel.getByRole("status").filter({ hasText: "Access-code directory updated." })).toBeVisible();
+  await page.reload();
+  await panel.getByRole("combobox", { name: "Property for code lookup", exact: true }).selectOption({ label: "DG / Demo Gardens" });
+  await search.fill(`${tag}-NEW`);
+  await panel.getByRole("listbox").getByRole("button", { name: new RegExp(`^${unit} /`) }).click();
+  await expect(mailbox.locator("strong")).toHaveText("001-A");
+  await panel.getByRole("button", { name: "Reveal unit codes", exact: true }).click();
+  await expect(panel.getByRole("textbox", { name: "Key tag", exact: true })).toHaveValue(`${tag}-NEW`);
+  await expect(panel.getByRole("textbox", { name: "Door code", exact: true })).toHaveValue("004321");
+  await panel.getByRole("button", { name: "Hide codes", exact: true }).click();
+  await expect(panel.getByRole("textbox", { name: "Door code", exact: true })).toHaveCount(0);
+  await info.attach("keys-hidden", { body: await page.screenshot(), contentType: "image/png" });
+  await panel.getByRole("button", { name: "Reveal unit codes", exact: true }).click();
+  await expect(panel.getByRole("textbox", { name: "Door code", exact: true })).toHaveValue("004321");
+  await panel.getByRole("combobox", { name: "Property for code lookup", exact: true }).selectOption({ label: "DS / Demo Springs" });
+  await expect(panel.getByRole("textbox", { name: "Door code", exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Reveal unit codes", exact: true })).toBeDisabled();
+});

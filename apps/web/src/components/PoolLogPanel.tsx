@@ -25,7 +25,7 @@ import {
   type UserLanguage,
   type UserRole,
 } from "../lib/api";
-import { todayInputValue } from "../lib/dateTime";
+import { formatDateDisplay, todayInputValue } from "../lib/dateTime";
 import { t } from "../lib/i18n";
 import { enqueuePoolCreate, enqueuePoolUpload, getOfflineSyncEventName, listOfflineSyncJobs, syncOfflineJobs, type OfflineSyncJobSummary } from "../lib/offlineSync";
 import { PropertyWikiWorkflowPanel } from "./PropertyWikiWorkflowPanel";
@@ -270,10 +270,10 @@ function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: Po
   const dosageLines = evaluation?.dosage ?? [];
   const actionSummary = summarizePoolCorrection(evaluation?.issues?.[0], dosageLines, recommendationLines, language);
   return (
-    <div className="pool-history-row" data-testid="pool-history-row">
+    <div className="pool-history-row pool-log-entry" data-testid="pool-history-row">
       <div>
         <strong>{entry.facility.name}</strong>
-        <span>{entry.property?.code ?? ""} / {new Date(entry.logDate).toLocaleDateString()} {entry.logTime ?? ""}</span>
+        <span>{entry.property?.code ?? ""} / {formatDateDisplay(entry.logDate, undefined, language)} {entry.logTime ?? ""}</span>
       </div>
       <div className="pool-reading-stack">
         <span>pH {entry.ph ?? "-"}</span>
@@ -287,6 +287,13 @@ function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: Po
         ) : null}
       </div>
       <span className={`status-pill ${needsFollowUp ? "risk-high" : ""}`}>{evaluation?.status ?? "Logged"}</span>
+      {entry.notes ? <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><strong>{isSpanish ? "Notas:" : "Notes:"}</strong> {entry.notes}</p> : null}
+      {entry.safetyChecks.some(check => check.value === "FAIL") ? (
+        <div className="pool-reading-stack">
+          <strong>{isSpanish ? "Revisiones de seguridad fallidas" : "Failed safety checks"}</strong>
+          {entry.safetyChecks.filter(check => check.value === "FAIL").map((check, index) => <span key={index}>{check.label}{check.notes ? `: ${check.notes}` : ""}</span>)}
+        </div>
+      ) : null}
       {actionSummary.length ? (
         <div className="pool-reading-stack" style={{ alignItems: "flex-start" }}>
           <span className="muted">
@@ -306,7 +313,7 @@ function PoolEntryRow({ entry, canEdit, onUpload, language = "en" }: { entry: Po
               recordType: "Recommendation",
               title: `${entry.facility.name} follow-up`,
               description: [
-                `Pool log follow-up from ${new Date(entry.logDate).toLocaleDateString()}${entry.logTime ? ` ${entry.logTime}` : ""}.`,
+                `Pool log follow-up from ${formatDateDisplay(entry.logDate, undefined, language)}${entry.logTime ? ` ${entry.logTime}` : ""}.`,
                 actionSummary.length
                   ? `${isSpanish ? "Siguiente paso" : "Next step"}: ${actionSummary.join("; ")}`
                   : "",
@@ -463,10 +470,13 @@ export function PoolLogPanel({ properties, userRole, selectedPropertyId, languag
     onSuccess: invalidate,
   });
   const entryCreateMutation = useMutation({
+    // Let the persistent offline fallback run instead of pausing in memory.
+    networkMode: "always",
     mutationFn: ({ input, ownerUserId }: { input: Parameters<typeof createPoolLogEntry>[0]; ownerUserId: string }) => createPoolLogEntry(input, { expectedUserId: ownerUserId }),
     onSuccess: invalidate,
   });
   const attachmentUploadMutation = useMutation({
+    networkMode: "always",
     mutationFn: async ({ entryId, file }: { entryId: string; file: File }) => {
       const ownerUserId = requireVerifiedUserId();
       try {

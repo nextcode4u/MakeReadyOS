@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { requireVerifiedUserId } from "../lib/verifiedSession";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -161,12 +161,38 @@ function TaskCard({
   task: PreventiveMaintenanceTask;
   canEdit: boolean;
   language: UserLanguage;
-  onComplete: (task: PreventiveMaintenanceTask, outcome: "PASS" | "FAIL" | "COMPLETE", notes: string) => void;
-  onSkip: (task: PreventiveMaintenanceTask, notes: string) => void;
+  onComplete: (task: PreventiveMaintenanceTask, outcome: "PASS" | "FAIL" | "COMPLETE", notes: string) => Promise<unknown>;
+  onSkip: (task: PreventiveMaintenanceTask, notes: string) => Promise<unknown>;
   onUpload: (taskId: string, files: FileList | null) => void;
 }) {
   const isSpanish = language === "es";
   const [notes, setNotes] = useState("");
+  const pending = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
+  async function submit(outcome: "PASS" | "FAIL" | "COMPLETE" | "SKIP") {
+    if (pending.current) return;
+    setActionError("");
+    if (outcome !== "SKIP" && task.notesRequired && !notes.trim()) {
+      setActionError(isSpanish ? "Agrega notas antes de completar esta tarea." : "Add completion notes before completing this task.");
+      return;
+    }
+    if (outcome !== "SKIP" && task.photosRequired && !task.attachments.length) {
+      setActionError(isSpanish ? "Sube la foto requerida antes de completar esta tarea." : "Upload the required photo before completing this task.");
+      return;
+    }
+    pending.current = true;
+    setBusy(true);
+    try {
+      if (outcome === "SKIP") await onSkip(task, notes);
+      else await onComplete(task, outcome, notes);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : (isSpanish ? "No se pudo guardar. Tus notas siguen aquí." : "Could not save. Your notes are still here."));
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  }
   return (
     <article className="pool-card pm-task-card">
       <div className="drawer-section-title">
@@ -203,7 +229,9 @@ function TaskCard({
         </div>
       ) : null}
       {canEdit ? (
-        <>
+        <fieldset className="issue-action-fields" disabled={busy}>
+          {actionError ? <p className="risk-banner" role="alert">{actionError}</p> : null}
+          {busy ? <p role="status">{isSpanish ? "Guardando tarea..." : "Saving task..."}</p> : null}
           <label>{t(language, "pm.completionNotes")}
             <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={t(language, "pm.quickNotesPlaceholder")} />
           </label>
@@ -240,13 +268,13 @@ function TaskCard({
             </label>
             {task.passFailRequired ? (
               <>
-                <button type="button" className="button button-primary" onClick={() => onComplete(task, "PASS", notes)}>{t(language, "pm.pass")}</button>
-                <button type="button" className="button button-secondary" onClick={() => onComplete(task, "FAIL", notes)}>{t(language, "pm.fail")}</button>
+                <button type="button" className="button button-primary" onClick={() => void submit("PASS")}>{t(language, "pm.pass")}</button>
+                <button type="button" className="button button-secondary" onClick={() => void submit("FAIL")}>{t(language, "pm.fail")}</button>
               </>
-            ) : <button type="button" className="button button-primary" onClick={() => onComplete(task, "COMPLETE", notes)}>{t(language, "common.complete")}</button>}
-            <button type="button" className="button button-secondary" onClick={() => onSkip(task, notes)}>{t(language, "common.skip")}</button>
+            ) : <button type="button" className="button button-primary" onClick={() => void submit("COMPLETE")}>{t(language, "common.complete")}</button>}
+            <button type="button" className="button button-secondary" onClick={() => void submit("SKIP")}>{t(language, "common.skip")}</button>
           </div>
-        </>
+        </fieldset>
       ) : null}
       {!canEdit ? <p className="muted">{t(language, "pm.viewOnlyTasks")}</p> : null}
     </article>
@@ -366,6 +394,8 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   });
 
   const completeMutation = useMutation({
+    // These actions persist network failures in the account-owned offline queue.
+    networkMode: "always",
     mutationFn: async ({ id, outcome, notes }: { id: string; outcome: "PASS" | "FAIL" | "COMPLETE"; notes: string }) => {
       const ownerUserId = requireVerifiedUserId();
       try {
@@ -382,6 +412,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   });
 
   const skipMutation = useMutation({
+    networkMode: "always",
     mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
       const ownerUserId = requireVerifiedUserId();
       try {
@@ -398,6 +429,7 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
   });
 
   const uploadMutation = useMutation({
+    networkMode: "always",
     mutationFn: async ({ taskId, file }: { taskId: string; file: File }) => {
       const ownerUserId = requireVerifiedUserId();
       try {
@@ -710,8 +742,8 @@ export function PreventiveMaintenancePanel({ properties, userRole, selectedPrope
                 task={task}
                 canEdit={canEdit && !["COMPLETED", "SKIPPED"].includes(task.status)}
                 language={language}
-                onComplete={(currentTask, outcome, notes) => completeMutation.mutate({ id: currentTask.id, outcome, notes })}
-                onSkip={(currentTask, notes) => skipMutation.mutate({ id: currentTask.id, notes })}
+                onComplete={(currentTask, outcome, notes) => completeMutation.mutateAsync({ id: currentTask.id, outcome, notes })}
+                onSkip={(currentTask, notes) => skipMutation.mutateAsync({ id: currentTask.id, notes })}
                 onUpload={(taskId, files) => {
                   if (!files?.length) return;
                   Array.from(files).forEach((file) => uploadMutation.mutate({ taskId, file }));

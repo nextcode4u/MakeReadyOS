@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useConfirmedIssueAction } from "../lib/useConfirmedIssueAction";
 import { getVerifiedSession, isCurrentSession, requireVerifiedUserId } from "../lib/verifiedSession";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { leaseIssueMatchesLocation } from "../lib/leaseIssueMatching";
@@ -193,16 +194,17 @@ function IssueCard({
   users: Array<{ id: string; fullName: string; role: UserRole }>;
   language: UserLanguage;
   onRefresh: () => Promise<void>;
-  onNote: (id: string, body: string) => void;
-  onPersist: (id: string, notes?: string) => void;
+  onNote: (id: string, body: string) => Promise<unknown>;
+  onPersist: (id: string, notes?: string) => Promise<unknown>;
   onNotice: (id: string, action: LeaseComplianceNoticeAction["action"]) => void;
-  onResolve: (id: string, resolutionNotes: string) => void;
+  onResolve: (id: string, resolutionNotes: string) => Promise<unknown>;
   onArchive: (id: string, notes?: string) => void;
   onDismissRecurring: (id: string, notes: string) => void;
   onUpload: (issueId: string, files: FileList | null) => void;
   onDeletePhoto: (photoId: string) => void;
 }) {
   const [note, setNote] = useState("");
+  const action = useConfirmedIssueAction(language);
   const [resolutionNotes, setResolutionNotes] = useState("");
   const [persistNotes, setPersistNotes] = useState("");
   const [expanded, setExpanded] = useState(false);
@@ -223,6 +225,9 @@ function IssueCard({
 
   return (
     <article className={`pool-card lease-issue-card ${issue.managerReviewRequired ? "pm-task-card" : ""}`} data-testid={`lease-issue-${issue.id}`}>
+      {action.error ? <p role="alert">{action.error}</p> : null}
+      {action.busy ? <p role="status">{language === "es" ? "Guardando; espera la confirmación antes de salir." : "Saving; wait for confirmation before leaving."}</p> : null}
+      <fieldset className="issue-action-fields" disabled={action.busy}>
       <button type="button" className="compact-issue-summary lease-issue-summary" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
         <div className="compact-issue-summary-main">
           <strong>{label} / {issue.issueTypeName}{issue.additionalIssueType ? ` + ${issue.additionalIssueType}` : ""}</strong>
@@ -248,8 +253,7 @@ function IssueCard({
       {compactNoticeActions.length || canResolve ? <div className="lease-issue-actions lease-issue-actions-inline">
         {compactNoticeActions.map(entry => <button key={entry.value} className="button button-secondary button-xs" type="button" onClick={() => onNotice(issue.id, entry.value)}>{noticeActionLabel(entry.value, language)}</button>)}
         {canResolve ? <button className="button button-secondary button-xs" type="button" onClick={() => {
-          onResolve(issue.id, resolutionNotes.trim() || (language === "es" ? "Resuelto desde la lista de incidencias." : "Resolved from issue list."));
-          setResolutionNotes("");
+          void action.run(() => onResolve(issue.id, resolutionNotes.trim() || (language === "es" ? "Resuelto desde la lista de incidencias." : "Resolved from issue list.")), () => setResolutionNotes(""));
         }}>{t(language, "lease.markResolved")}</button> : null}
       </div> : null}
       {expanded ? (
@@ -274,7 +278,7 @@ function IssueCard({
                 <button
                   className="button button-secondary"
                   type="button"
-                  onClick={() => onPersist(issue.id)}
+                  onClick={() => void action.run(() => onPersist(issue.id))}
                 >
                   {t(language, "lease.markStillPersists")}
                 </button>
@@ -286,6 +290,12 @@ function IssueCard({
           </div>
 
           <div className="lease-issue-details-body">
+          {issue.resolutionNotes ? (
+            <section aria-label={t(language, "lease.resolutionNotes")}>
+              <strong>{t(language, "lease.resolutionNotes")}</strong>
+              <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{issue.resolutionNotes}</p>
+            </section>
+          ) : null}
           <div className="issue-detail-shell">
             <div className="issue-detail-main">
               <PropertyWikiWorkflowPanel
@@ -378,13 +388,12 @@ function IssueCard({
 
           {canEdit ? (
             <div className="lease-issue-actions lease-issue-actions-dense">
-              <button className="button button-secondary" type="button" onClick={() => { if (note.trim()) { onNote(issue.id, note.trim()); setNote(""); } }}>{t(language, "lease.addNote")}</button>
+              <button className="button button-secondary" type="button" disabled={!note.trim()} onClick={() => void action.run(() => onNote(issue.id, note.trim()), () => setNote(""))}>{t(language, "lease.addNote")}</button>
               <button
                 className="button button-secondary"
                 type="button"
                 onClick={() => {
-                  onPersist(issue.id, persistNotes.trim() || undefined);
-                  setPersistNotes("");
+                  void action.run(() => onPersist(issue.id, persistNotes.trim() || undefined), () => setPersistNotes(""));
                 }}
               >
                 {t(language, "lease.markStillPersists")}
@@ -394,8 +403,7 @@ function IssueCard({
                 type="button"
                 onClick={() => {
                   if (resolutionNotes.trim()) {
-                    onResolve(issue.id, resolutionNotes.trim());
-                    setResolutionNotes("");
+                    void action.run(() => onResolve(issue.id, resolutionNotes.trim()), () => setResolutionNotes(""));
                   }
                 }}
               >
@@ -407,6 +415,7 @@ function IssueCard({
           </div>
         </>
       ) : null}
+      </fieldset>
     </article>
   );
 }
@@ -1376,10 +1385,10 @@ export function LeaseCompliancePanel({ properties, units, userRole, language, se
                     users={assignableUsers}
                     language={language}
                     onRefresh={invalidate}
-                    onNote={(id, body) => addNoteMutation.mutate({ id, body })}
-                    onPersist={(id, notes) => persistMutation.mutate({ id, notes })}
+                    onNote={(id, body) => addNoteMutation.mutateAsync({ id, body })}
+                    onPersist={(id, notes) => persistMutation.mutateAsync({ id, notes })}
                     onNotice={(id, action) => noticeMutation.mutate({ id, action })}
-                    onResolve={(id, resolutionNotes) => resolveMutation.mutate({ id, resolutionNotes })}
+                    onResolve={(id, resolutionNotes) => resolveMutation.mutateAsync({ id, resolutionNotes })}
                     onArchive={(id, notes) => archiveMutation.mutate({ id, notes })}
                     onDismissRecurring={(id, notes) => dismissRecurringMutation.mutate({ id, notes })}
                     onUpload={(issueId, files) => { if (files?.[0]) uploadMutation.mutate({ issueId, file: files[0] }); }}

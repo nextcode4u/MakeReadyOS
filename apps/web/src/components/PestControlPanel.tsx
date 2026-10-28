@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useConfirmedIssueAction } from "../lib/useConfirmedIssueAction";
 import { getVerifiedSession, isCurrentSession, requireVerifiedUserId } from "../lib/verifiedSession";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -158,9 +159,9 @@ function PestIssueCard({
   vendors: Array<{ id: string; vendorName: string }>;
   assignableUsers: Array<{ id: string; fullName: string; role: UserRole }>;
   language: UserLanguage;
-  onSave: (id: string, input: Partial<Parameters<typeof createPestIssue>[0]>) => void;
-  onNote: (id: string, body: string) => void;
-  onClose: (id: string, closingNotes: string, treatmentDate?: string, followUpDate?: string) => void;
+  onSave: (id: string, input: Partial<Parameters<typeof createPestIssue>[0]>) => Promise<unknown>;
+  onNote: (id: string, body: string) => Promise<unknown>;
+  onClose: (id: string, closingNotes: string, treatmentDate?: string, followUpDate?: string) => Promise<unknown>;
   onArchive: (id: string, notes?: string) => void;
   onDismissRecurring: (id: string, notes: string) => void;
   onUpload: (issueId: string, files: FileList | null) => void;
@@ -168,6 +169,7 @@ function PestIssueCard({
   compact?: boolean;
 }) {
   const [note, setNote] = useState("");
+  const action = useConfirmedIssueAction(language);
   const [closingNotes, setClosingNotes] = useState("");
   const [treatmentDate, setTreatmentDate] = useState(issue.treatmentDate ? issue.treatmentDate.slice(0, 10) : today());
   const [followUpDate, setFollowUpDate] = useState(issue.followUpDate ? issue.followUpDate.slice(0, 10) : "");
@@ -188,40 +190,35 @@ function PestIssueCard({
     setExpanded(!compact);
   }, [compact]);
 
-  const submitSupplementalNote = (body: string) => {
-    const trimmed = body.trim();
-    if (trimmed) {
-      onNote(issue.id, trimmed);
-    }
-  };
-
+  const save = (input: Partial<Parameters<typeof createPestIssue>[0]>) => void action.run(() => onSave(issue.id, input));
   const markTreated = () => {
-    onSave(issue.id, {
-      status: "Treated",
-      treatmentDate: treatmentDate || today(),
-      followUpRequired: false,
-      followUpDate: null,
-    });
-    submitSupplementalNote(closingNotes);
-    setClosingNotes("");
+    void action.run(async () => {
+      await onSave(issue.id, {
+        status: "Treated",
+        treatmentDate: treatmentDate || today(),
+        followUpRequired: false,
+        followUpDate: null,
+      });
+      if (closingNotes.trim()) await onNote(issue.id, closingNotes.trim());
+    }, () => setClosingNotes(""));
   };
 
   const setNeedsFollowUp = () => {
     if (!followUpDate) {
       return;
     }
-    onClose(issue.id, closingNotes.trim() || t(language, "pest.followUpScheduledNote"), treatmentDate || today(), followUpDate);
-    setClosingNotes("");
+    void action.run(() => onClose(issue.id, closingNotes.trim() || t(language, "pest.followUpScheduledNote"), treatmentDate || today(), followUpDate), () => setClosingNotes(""));
   };
 
   const closeIssue = () => {
-    onClose(issue.id, closingNotes.trim() || t(language, "pest.closedAfterTreatmentNote"), treatmentDate || today(), undefined);
-    setClosingNotes("");
-    setFollowUpDate("");
+    void action.run(() => onClose(issue.id, closingNotes.trim() || t(language, "pest.closedAfterTreatmentNote"), treatmentDate || today(), undefined), () => { setClosingNotes(""); setFollowUpDate(""); });
   };
 
   return (
     <article className={`pool-card pest-issue-card ${expanded ? "is-expanded" : "is-collapsed"} ${overdueFollowUp ? "pm-task-card" : ""}`} data-testid={`pest-issue-${issue.id}`}>
+      {action.error ? <p role="alert">{action.error}</p> : null}
+      {action.busy ? <p role="status">{language === "es" ? "Guardando; espera la confirmación antes de salir." : "Saving; wait for confirmation before leaving."}</p> : null}
+      <fieldset className="issue-action-fields" disabled={action.busy}>
       <button type="button" aria-expanded={expanded} className="compact-issue-summary pest-issue-summary" onClick={() => setExpanded((current) => !current)}>
         <div className="compact-issue-summary-main">
           <strong>{label} / {issue.pestType}{issue.additionalPestType ? ` + ${issue.additionalPestType}` : ""}</strong>
@@ -298,12 +295,12 @@ function PestIssueCard({
           {canEdit ? (
             <div className="lease-issue-edit-grid">
               <label>{t(language, "admin.status")}
-                <select value={issue.status} onChange={(event) => onSave(issue.id, { status: event.target.value as PestStatus })}>
+                <select value={issue.status} onChange={(event) => save({ status: event.target.value as PestStatus })}>
                   {pestStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
                 </select>
               </label>
               <label>{t(language, "pest.priority")}
-                <select value={issue.priority} onChange={(event) => onSave(issue.id, { priority: event.target.value as PestPriority })}>
+                <select value={issue.priority} onChange={(event) => save({ priority: event.target.value as PestPriority })}>
                   {pestPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
                 </select>
               </label>
@@ -311,7 +308,7 @@ function PestIssueCard({
                 <SearchSelect
                   options={vendorOptions}
                   value={issue.vendorId ?? ""}
-                  onChange={(vendorId) => onSave(issue.id, { vendorId: vendorId || null })}
+                  onChange={(vendorId) => save({ vendorId: vendorId || null })}
                   placeholder={t(language, "pest.searchVendor")}
                   emptyLabel={t(language, "pest.unassigned")}
                   noMatchesLabel={t(language, "pest.noMatchingVendors")}
@@ -322,7 +319,7 @@ function PestIssueCard({
                 <SearchSelect
                   options={assignableUserOptions}
                   value={issue.assignedUserId ?? ""}
-                  onChange={(assignedUserId) => onSave(issue.id, { assignedUserId: assignedUserId || null })}
+                  onChange={(assignedUserId) => save({ assignedUserId: assignedUserId || null })}
                   placeholder={t(language, "pest.searchUser")}
                   emptyLabel={t(language, "pest.unassigned")}
                   noMatchesLabel={t(language, "common.noMatchingUsers")}
@@ -369,7 +366,7 @@ function PestIssueCard({
       </div>
       {canEdit ? (
         <div className="lease-issue-actions lease-issue-actions-dense">
-          <button className="button button-secondary" type="button" onClick={() => { if (note.trim()) { onNote(issue.id, note.trim()); setNote(""); } }}>{t(language, "pest.addNote")}</button>
+          <button className="button button-secondary" type="button" disabled={!note.trim()} onClick={() => void action.run(() => onNote(issue.id, note.trim()), () => setNote(""))}>{t(language, "pest.addNote")}</button>
           <button
             className="button button-secondary"
             type="button"
@@ -398,6 +395,7 @@ function PestIssueCard({
       ) : null}
         </>
       ) : null}
+      </fieldset>
     </article>
   );
 }
@@ -1148,9 +1146,9 @@ export function PestControlPanel({ properties, units, userRole, language, select
                   vendors={vendors}
                   assignableUsers={assignableUsers}
                   language={language}
-                  onSave={(id, input) => updateIssueMutation.mutate({ id, input })}
-                  onNote={(id, body) => addNoteMutation.mutate({ id, body })}
-                  onClose={(id, closingNotes, treatmentDate, followUpDate) => closeIssueMutation.mutate({ id, closingNotes, treatmentDate, followUpDate })}
+                  onSave={(id, input) => updateIssueMutation.mutateAsync({ id, input })}
+                  onNote={(id, body) => addNoteMutation.mutateAsync({ id, body })}
+                  onClose={(id, closingNotes, treatmentDate, followUpDate) => closeIssueMutation.mutateAsync({ id, closingNotes, treatmentDate, followUpDate })}
                   onArchive={(id, notes) => archiveIssueMutation.mutate({ id, notes })}
                   onDismissRecurring={(id, notes) => dismissRecurringMutation.mutate({ id, notes })}
                   onUpload={(issueId, files) => { if (files?.[0]) uploadMutation.mutate({ issueId, file: files[0] }); }}
@@ -1175,9 +1173,9 @@ export function PestControlPanel({ properties, units, userRole, language, select
                 vendors={vendors}
                 assignableUsers={assignableUsers}
                 language={language}
-                onSave={(id, input) => updateIssueMutation.mutate({ id, input })}
-                onNote={(id, body) => addNoteMutation.mutate({ id, body })}
-                onClose={(id, closingNotes, treatmentDate, followUpDate) => closeIssueMutation.mutate({ id, closingNotes, treatmentDate, followUpDate })}
+                onSave={(id, input) => updateIssueMutation.mutateAsync({ id, input })}
+                onNote={(id, body) => addNoteMutation.mutateAsync({ id, body })}
+                onClose={(id, closingNotes, treatmentDate, followUpDate) => closeIssueMutation.mutateAsync({ id, closingNotes, treatmentDate, followUpDate })}
                 onArchive={(id, notes) => archiveIssueMutation.mutate({ id, notes })}
                 onDismissRecurring={(id, notes) => dismissRecurringMutation.mutate({ id, notes })}
                 onUpload={(issueId, files) => { if (files?.[0]) uploadMutation.mutate({ issueId, file: files[0] }); }}
@@ -1320,9 +1318,9 @@ export function PestControlPanel({ properties, units, userRole, language, select
                 vendors={vendors}
                 assignableUsers={assignableUsers}
                 language={language}
-                onSave={() => undefined}
-                onNote={() => undefined}
-                onClose={() => undefined}
+                onSave={async () => undefined}
+                onNote={async () => undefined}
+                onClose={async () => undefined}
                 onArchive={() => undefined}
                 onDismissRecurring={() => undefined}
                 onUpload={() => undefined}

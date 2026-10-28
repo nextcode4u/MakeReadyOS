@@ -18,6 +18,16 @@ export default defineConfig({
   },
   projects: [
     {
+      name: "user-desktop",
+      testMatch: ["**/user-*.spec.ts"],
+      use: { ...devices["Desktop Chrome"], actionTimeout: 15000, serviceWorkers: "allow", trace: "on", video: "on" },
+    },
+    {
+      name: "user-mobile",
+      testMatch: ["**/user-*.spec.ts"],
+      use: { ...devices["Pixel 5"], actionTimeout: 15000, serviceWorkers: "allow", trace: "on", video: "on" },
+    },
+    {
       name: "chromium",
       testMatch: ["**/auth-and-shell.spec.ts"],
       use: { ...devices["Desktop Chrome"] },

@@ -1120,6 +1120,7 @@
 .template-quick-create textarea { width: 100%; margin-bottom: .4rem; }
 
 .my-work-panel { display: grid; gap: .9rem; padding: .8rem; }
+.issue-action-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
 .dashboard-layout-select { display: grid; gap: .22rem; color: var(--text-muted); font-size: .7rem; }
 .dashboard-layout-focus .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .my-work-heading label { display: grid; gap: .25rem; color: var(--text-muted); font-size: .72rem; }
@@ -1396,8 +1397,11 @@
 .notification-preferences small { display: block; margin-top: .55rem; color: var(--text-muted); }
 
 @media (max-width: 640px), (pointer: coarse) and (hover: none) {
-  .my-work-panel { padding: .45rem; }
+  .my-work-panel { padding: .45rem; gap: .6rem; }
+  .my-work-heading h2 { margin: 0; }
+  .my-work-heading p { margin: .25rem 0 0; font-size: .85rem; }
   .my-work-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .my-work-stats strong { display: flex; align-items: baseline; flex-wrap: wrap; gap: .35rem; padding: .4rem .5rem; font-size: 1rem; }
   .my-work-list { grid-template-columns: 1fr; }
   .my-work-actions {
     display: grid;
@@ -13044,6 +13048,11 @@ textarea {
   overflow-wrap: anywhere;
   margin: 0;
 }
+
+.pool-history-row.pool-log-entry { grid-template-columns: minmax(0, 1fr); }
+.pool-log-entry > div:first-child { display: grid; gap: .25rem; overflow-wrap: anywhere; }
+.pool-log-entry > p { margin: .25rem 0; }
+.pool-log-entry > .status-pill { justify-self: start; }
 
 .pool-row.warning {
   border-color: rgba(251, 191, 36, 0.45);

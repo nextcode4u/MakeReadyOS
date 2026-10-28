@@ -81,8 +81,13 @@ async function networkFirstApi(request) {
     return (await cache?.match(request)) || Response.error();
   }
   if (epoch !== apiCacheEpoch) return Response.error();
-  if (response.status === 401 || response.status === 403 || /no-store/i.test(response.headers.get("cache-control") || "")) {
+  if (response.status === 401 || response.status === 403) {
     await clearApiCache();
+    return response;
+  }
+  if (/no-store/i.test(response.headers.get("cache-control") || "")) {
+    // Privacy applies to this resource, not to the identity of parallel requests.
+    await cache?.delete(request).catch(() => clearApiCache());
     return response;
   }
   if (cache && response.ok) {
