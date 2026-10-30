@@ -39,6 +39,11 @@ Keep findings here so there is one queue rather than competing TODO documents.
 
 ### Current Pass
 
+- PDF exports include the server-side Noto Color Emoji font so emoji in report
+  introductions and resident footers no longer depend on fonts installed on the
+  previewing device. Custom non-Docker API deployments also need an emoji font
+  installed alongside Chromium. Existing PDFs must be downloaded again.
+
 - Ready actions now prompt the acting user to also update RealPage or their other
   property-management system, including normal approval and manager/admin overrides.
   The reminder explicitly does not claim external synchronization; dismissing it

@@ -12,8 +12,9 @@ test("report wording Markdown survives saving and renders in preview and PDF", a
   await page.getByTestId("drawer-pane-all").click();
   await page.getByRole("button", { name: "Inspection details / report", exact: true }).click();
   const report = page.getByTestId("final-report-editor");
-  const introduction = `## Welcome home\n\n**Enjoy your home** and *contact the office*.\nOffice hours below (${info.project.name}).`;
-  const footer = "## Community reminders\n\n- Designated parking only\n- Keep pets leashed\n\n[Resident portal](https://example.com)\n\n" + Array.from({ length: 90 }, (_, i) => `Resident guidance line ${i + 1}.`).join("\n") + "\n\n**End of welcome information**";
+  const emojis = "\u{1F3E0} \u{1F511} \u{1F43E} \u{1F697} \u{1F44B}\u{1F3FD}";
+  const introduction = `## Welcome home\n\n${emojis}\n\n**Enjoy your home** and *contact the office*.\nOffice hours below (${info.project.name}).`;
+  const footer = `## Community reminders\n\n${emojis}\n\n- Designated parking only\n- Keep pets leashed\n\n[Resident portal](https://example.com)\n\n` + Array.from({ length: 90 }, (_, i) => `Resident guidance line ${i + 1}.`).join("\n") + "\n\n**End of welcome information**";
   await report.getByRole("textbox", { name: "Introduction", exact: true }).fill(introduction);
   await report.getByRole("textbox", { name: "Resident footer", exact: true }).fill(footer);
   await report.getByRole("button", { name: "Save report settings", exact: true }).click();
@@ -33,6 +34,9 @@ test("report wording Markdown survives saving and renders in preview and PDF", a
   expect(await file.failure()).toBeNull();
   const text = execFileSync("pdftotext", [path, "-"], { encoding: "utf8" });
   expect(text).toContain("Welcome home");
+  for (const emoji of ["\u{1F3E0}", "\u{1F511}", "\u{1F43E}", "\u{1F697}"]) expect(text.split(emoji).length).toBeGreaterThanOrEqual(3);
+  // Rasterize the actual server PDF too; preview fonts come from the user's device.
+  execFileSync("pdftoppm", ["-f", "1", "-singlefile", "-scale-to", "1600", "-png", path, info.outputPath("emoji-export")]);
   expect(text).toContain("End of welcome information");
   expect(text).not.toContain("**Enjoy");
   expect(text).not.toContain("## Community");

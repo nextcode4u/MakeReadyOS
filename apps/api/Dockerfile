@@ -2,7 +2,8 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont poppler-utils
+# Server-side PDF exports need emoji glyphs independently of the viewer's fonts.
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto-emoji poppler-utils
 
 COPY package*.json ./
 RUN npm ci
