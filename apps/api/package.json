@@ -30,6 +30,7 @@
     "csv-stringify": "^6.8.3",
     "fastify": "^5.12.6",
     "google-auth-library": "^10.9.1",
+    "markdown-it": "^15.0.3",
     "nodemailer": "^10.0.12",
     "playwright-core": "^1.62.1",
     "web-push": "^3.6.7",

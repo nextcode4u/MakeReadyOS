@@ -38,6 +38,8 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
   const [savedSettings, setSavedSettings] = useState(initial.settings);
   const [pdfPending, setPdfPending] = useState(false);
   const [occupiedResult, setOccupiedResult] = useState<{ archived: boolean } | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overrideConfirmed, setOverrideConfirmed] = useState(false);
   const [settings, setSettings] = useState(initial.settings.value);
   const [savedDraft, setSavedDraft] = useState(initial.draft);
   const [draft, setDraft] = useState(() => datedInspection(initial.draft.value, Boolean(initial.item), initial.inspectionToday));
@@ -136,6 +138,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
         <label>{turnText(language, "Report title")}<input data-testid="final-report-title" value={settings.title} maxLength={80} onChange={event => updateSettings({ title: event.target.value })} /></label>
         <label>{turnText(language, "Introduction")}<textarea value={settings.introduction} rows={6} onChange={event => updateSettings({ introduction: event.target.value })} /></label>
         <label>{turnText(language, "Resident footer")}<textarea value={settings.footer} rows={6} onChange={event => updateSettings({ footer: event.target.value })} /></label>
+        <small>{turnText(language, "Markdown supported in both fields: **bold**, *italic*, ## Heading, - bullet, 1. numbered item, and [link](https://example.com). Use Preview report to see formatting. HTML and embedded images are not supported.")}</small>
         <label><input type="checkbox" style={{ width: "auto" }} checked={settings.residentInfoNewPage ?? false} onChange={event => updateSettings({ residentInfoNewPage: event.target.checked })} />{turnText(language, "Start resident information on a separate welcome page")}</label>
         <small>{turnText(language, "Leave unchecked to use the space below the inspection and continue onto another page only when needed. Both layouts use readable text. Saved once for this property; no additional inspection checks.")}</small>
         <small>{turnText(language, "Line breaks are preserved. Each field supports up to 20,000 characters; longer reports continue onto additional pages.")}</small>
@@ -291,6 +294,22 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
         })}>{turnText(language, busy ? "Saving..." : draftDirty ? "Save inspection & mark ready" : "Mark unit ready")}</button>
         {settingsDirty ? <p>{turnText(language, "Save or reload your report wording changes before marking ready.")}</p> : null}
         {error ? <CompletionNotice error message={error} language={language} testId="final-report-ready-error" /> : null}
+        {initial.canOverrideCompletion ? <details className="final-report-move-in" data-testid="final-report-override">
+          <summary>{turnText(language, "Manager / admin override: mark Ready")}</summary>
+          <p>{turnText(language, "Also assigned as the technician? Normal approval requires an independent inspector. As a manager or admin, you can explicitly override this rule and other completion blockers here.")}</p>
+          <p>{turnText(language, "This records Ready status, not an independent inspection. Unfinished checks and report records stay unchanged; pending final-walk assignments are canceled. Your reason and bypassed blockers are recorded in the audit history.")}</p>
+          <label>{turnText(language, "Override reason (at least 10 characters)")}<textarea data-testid="final-report-override-reason" value={overrideReason} maxLength={1000} disabled={busy} onChange={event => setOverrideReason(event.target.value)} /></label>
+          <label><input type="checkbox" data-testid="final-report-override-confirm" checked={overrideConfirmed} disabled={busy} onChange={event => setOverrideConfirmed(event.target.checked)} />{turnText(language, "I confirm this unit should be Ready despite the outstanding requirements.")}</label>
+          {settingsDirty || draftDirty ? <p>{turnText(language, "Save or discard report changes before overriding Ready status. The override does not save the report.")}</p> : null}
+          <button type="button" className="button button-secondary" data-testid="final-report-override-submit" disabled={busy || settingsDirty || draftDirty || !overrideConfirmed || overrideReason.trim().length < 10} onClick={() => void run(async () => {
+            const completed = await markMakeReadyItemReady(item.id, overrideReason.trim());
+            setItem(current => current ? { ...current, unitReady: true } : current);
+            setOverrideReason(""); setOverrideConfirmed(false);
+            setMessage(turnText(language, "Ready status overridden. Inspection records were not changed."));
+            void client.invalidateQueries({ predicate: query => query.queryKey[0] !== "final-report" });
+            if (completed.isArchived) onReturned();
+          })}>{turnText(language, "Override and mark Ready")}</button>
+        </details> : null}
       </>}
     </section> : null}
 

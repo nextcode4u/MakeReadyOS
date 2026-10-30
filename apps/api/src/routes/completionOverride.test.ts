@@ -78,6 +78,7 @@ test("completion override is scoped, managerial, explicit, audited, and preserve
     assert.equal(audit.metadata.role, role);
     assert.equal(audit.metadata.previous.completionStatus, "NO");
     assert.ok(audit.metadata.bypassedBlockers.some((value: string) => value.includes("Painting")));
+    assert.ok(audit.metadata.bypassedBlockers.some((value: string) => value.includes("cannot approve their own final walk")), "manager/admin technician may explicitly override self-inspection, with an audit record");
     assert.equal(audit.metadata.reason, "Correcting historical board data");
   }
   item = { ...initial }; failAudit = true;

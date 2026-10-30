@@ -3,6 +3,15 @@ import type { UserLanguage } from "./api";
 // Source-text keys also cover fixed checklist labels supplied by the API.
 // Never pass resident notes, names, or other user-authored text through this map.
 export const turnSpanish: Record<string, string> = {
+  "Markdown supported in both fields: **bold**, *italic*, ## Heading, - bullet, 1. numbered item, and [link](https://example.com). Use Preview report to see formatting. HTML and embedded images are not supported.": "Ambos campos admiten Markdown: **negrita**, *cursiva*, ## Título, - viñeta, 1. elemento numerado y [enlace](https://example.com). Usa Vista previa del informe para ver el formato. No se admiten HTML ni imágenes incrustadas.",
+  "Manager / admin override: mark Ready": "Excepción de gerente / administrador: marcar Lista",
+  "Also assigned as the technician? Normal approval requires an independent inspector. As a manager or admin, you can explicitly override this rule and other completion blockers here.": "¿También estás asignado como técnico? La aprobación normal requiere un inspector independiente. Como gerente o administrador, puedes autorizar aquí una excepción a esta regla y a otros requisitos pendientes.",
+  "This records Ready status, not an independent inspection. Unfinished checks and report records stay unchanged; pending final-walk assignments are canceled. Your reason and bypassed blockers are recorded in the audit history.": "Esto registra el estado Lista, no una inspección independiente. Las revisiones incompletas y los informes no cambian; las asignaciones de inspección final pendientes se cancelan. El motivo y los requisitos omitidos quedan en el historial de auditoría.",
+  "Override reason (at least 10 characters)": "Motivo de la excepción (al menos 10 caracteres)",
+  "I confirm this unit should be Ready despite the outstanding requirements.": "Confirmo que esta unidad debe estar Lista a pesar de los requisitos pendientes.",
+  "Save or discard report changes before overriding Ready status. The override does not save the report.": "Guarda o descarta los cambios del informe antes de autorizar la excepción. La excepción no guarda el informe.",
+  "Ready status overridden. Inspection records were not changed.": "Estado Lista registrado por excepción. Los registros de inspección no cambiaron.",
+  "Override and mark Ready": "Autorizar excepción y marcar Lista",
   "Close": "Cerrar",
   "Move-in handoff": "Entrega al residente",
   "Confirm move-in / mark occupied": "Confirmar ingreso / marcar ocupada",

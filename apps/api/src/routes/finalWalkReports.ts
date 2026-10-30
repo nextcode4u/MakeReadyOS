@@ -111,6 +111,7 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     return {
       canEditSettings: request.currentUser!.role === "ADMIN",
       canMarkOccupied: canUpdateMakeReadyField(request.currentUser!, "vacancyStatus"),
+      canOverrideCompletion: ["ADMIN", "MANAGER"].includes(request.currentUser!.role),
       inspectionToday: inspectionDateOrToday("", undefined, property.operatingCalendar?.timezone),
       canEditDraft: request.currentUser!.role === "ADMIN" || Boolean(item && (awaitingFinalWalk(item) || isTurnReady(item))),
       property: { id: property.id, name: property.name, code: property.code },

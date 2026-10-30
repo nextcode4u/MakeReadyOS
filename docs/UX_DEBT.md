@@ -39,6 +39,22 @@ Keep findings here so there is one queue rather than competing TODO documents.
 
 ### Current Pass
 
+- UI-retested 2026-10-30: introduction and resident footer accept Markdown source
+  and render headings, emphasis, lists, links and tables in preview/PDF. Desktop
+  and mobile click-through tests verify saving/reopening source text, formatted
+  preview, PDF download and the final paragraph of a multi-page footer. Raw HTML
+  and embedded images are disabled; unsafe link schemes are rejected. Other
+  report fields remain plain text. No production property wording was changed.
+
+- UI-retested 2026-10-30: managers/admins with report access can use an explicit
+  Ready override beside the report's normal approval action. An admin assigned as
+  repair technician is still blocked from normal self-inspection approval, but
+  can enter a reason and confirmation to override. Desktop/mobile UI tests cover
+  offline failure/retry, persisted Ready status and unchanged unfinished report
+  checks. The independent-inspector workflow still passes on both viewports;
+  leasing does not receive the override control. Backend tests verify the audit
+  records the self-inspection blocker and preserves role/property restrictions.
+
 - UI-retested 2026-10-28: final-walk resident PDF controls now include an explicit
   move-in handoff for authorized staff. Printing does not change occupancy. The
   action requires a saved, Ready turn with an applicant or move-in recorded and

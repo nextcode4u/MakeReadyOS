@@ -39,6 +39,7 @@ export const saveResidentCodes = (itemId: string, input: { version: number; valu
 export type FinalReportData = {
   inspectionToday?: string;
   canMarkOccupied?: boolean;
+  canOverrideCompletion?: boolean;
   canEditSettings: boolean;
   canEditDraft: boolean;
   property: { id: string; name: string; code: string };

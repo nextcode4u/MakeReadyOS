@@ -29,7 +29,7 @@ test("welcome information can use a separate page without changing older setting
   const html = finalWalkReportHtml(context, settings, emptyReportDraft());
   assert.match(html, /<section class="welcome-page">/);
   assert.match(html, /break-before:page/);
-  assert.match(html, /Office information\n&lt;script&gt;unsafe&lt;\/script&gt;/);
+  assert.match(html, /Office information<br>\n&lt;script&gt;unsafe&lt;\/script&gt;/);
   assert.doesNotMatch(html, /<script>unsafe/);
   assert.doesNotMatch(finalWalkReportHtml(context, { ...settings, footer: "" }, emptyReportDraft()), /<section class="welcome-page">/);
   assert.doesNotMatch(finalWalkReportHtml(context, defaultReportSettings, emptyReportDraft()), /<section class="welcome-page">/);
@@ -39,7 +39,7 @@ test("welcome information can use a separate page without changing older setting
 test("flowing resident information keeps readable text without forcing a new page", () => {
   const context = { propertyName: "Demo", propertyCode: "DEMO", propertyLogo: null, companyName: null, companyLogo: null, unitNumber: "101", technician: null, reviewer: null };
   const html = finalWalkReportHtml(context, { ...defaultReportSettings, footer: "Community information\nOffice hours and resident services." }, emptyReportDraft());
-  assert.match(html, /<section class="resident-information"><p class="note report-text">Community information/);
+  assert.match(html, /<section class="resident-information"><div class="note report-text"><p>Community information/);
   assert.match(html, /\.resident-information \.report-text,\.welcome-page \.report-text\{font-size:11px;line-height:1.4\}/);
   assert.doesNotMatch(html, /<section class="welcome-page">/);
   assert.doesNotMatch(finalWalkReportHtml(context, { ...defaultReportSettings, footer: "" }, emptyReportDraft()), /<section class="resident-information">/);
@@ -109,7 +109,7 @@ test("report wording preserves long multiline text and escapes markup", () => {
   assert.equal(settings.footer, wording.trim());
   const html = finalWalkReportHtml({ propertyName: "Demo", propertyCode: "DEMO", companyName: "Demo", propertyLogo: null, companyLogo: null, unitNumber: "101", technician: null, reviewer: null }, settings, emptyReportDraft());
   assert.equal((html.match(/Welcome &amp; enjoy your home\./g) ?? []).length, 200);
-  assert.ok(html.includes("\n\nPlease contact &lt;the office&gt;."));
+  assert.ok(html.includes("</p>\n<p>Please contact &lt;the office&gt;."));
   assert.ok(html.includes("white-space:pre-wrap"));
   assert.equal((html.match(/class="note report-text"/g) ?? []).length, 2);
   assert.equal(reportSettingsSchema.safeParse({ ...settings, footer: "x".repeat(20001) }).success, false);

@@ -62,6 +62,7 @@ test("inspector returns a photo correction and technician completes the reinspec
       await inspector.getByRole("button", { name: "Inspection details / report", exact: true }).click();
       await expect(report.getByTestId("final-report-date")).not.toHaveValue("");
       await expect(report.getByTestId("final-report-mark-occupied")).toBeDisabled();
+      await expect(report.getByTestId("final-report-override")).toHaveCount(0);
       await report.getByLabel("Internal follow-up for technician", { exact: true }).fill("Replace damaged cabinet face from stock; see photo.");
       const photos = Array.from({ length: 51 }, (_, index) => ({ name: `cabinet-${index}.png`, mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1WQAAAAASUVORK5CYII=", "base64") }));
       const upload = report.getByLabel("Add follow-up photos (up to 50)", { exact: true });
