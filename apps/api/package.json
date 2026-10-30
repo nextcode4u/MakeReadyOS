@@ -23,16 +23,16 @@
     "uploads:route-existing": "tsx src/routeExistingUploads.ts"
   },
   "dependencies": {
-    "@fastify/cookie": "11.0.0",
-    "@fastify/cors": "^11.3.0",
+    "@fastify/cookie": "11.1.5",
+    "@fastify/cors": "^11.3.1",
     "@fastify/multipart": "^10.1.4",
     "@prisma/client": "^6.8.2",
-    "csv-stringify": "^6.8.3",
+    "csv-stringify": "^6.9.0",
     "fastify": "^5.12.6",
     "google-auth-library": "^10.9.1",
     "markdown-it": "^15.0.3",
     "nodemailer": "^10.0.12",
-    "playwright-core": "^1.62.1",
+    "playwright-core": "^1.64.1",
     "web-push": "^3.6.7",
     "yazl": "^3.3.1",
     "zod": "^4.6.7"
@@ -51,7 +51,7 @@
     "@types/web-push": "^3.6.4",
     "@types/yazl": "^3.3.1",
     "prisma": "^6.8.2",
-    "tsx": "^4.23.9",
+    "tsx": "^4.23.15",
     "typescript": "^5.8.3"
   }
 }
