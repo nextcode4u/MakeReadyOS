@@ -3628,6 +3628,8 @@ test("final walks assign only when ready, appear in My Work and hand off safely"
         await staffPage.getByRole("button", { name: "Final walk passed / mark ready", exact: true }).click();
         const done = await finishing;
         expect(done.ok(), await done.text()).toBeTruthy();
+        await expect(staffPage.getByTestId("external-ready-reminder")).toContainText("RealPage");
+        await staffPage.getByTestId("external-ready-reminder").getByRole("button", { name: "Got it", exact: true }).click();
         expect((await (await context.request.get(assignmentUrl)).json()).block).toBeNull();
         const repeatCompletion = await page.request.patch(`${origin}/api/make-ready-items/${item.id}`, { headers, data: { completionStatus: "YES" } });
         expect(repeatCompletion.ok(), await repeatCompletion.text()).toBeTruthy();

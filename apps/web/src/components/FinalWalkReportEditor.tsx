@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { downloadResidentReport, getFinalReport, isApiError, markMakeReadyItemReady, previewFinalReport, returnFinalWalkToTech, saveFinalReportDraft, saveFinalReportSettings, type FinalReportData, type FinalReportDraft, type FinalReportResult, type FinalReportSettings } from "../lib/api";
 import { Modal } from "./Modal";
 import { CompletionNotice } from "./CompletionNotice";
+import { remindExternalReady } from "./ExternalReadyReminder";
 import "./finalWalkReportEditor.css";
 import { todayInputValue } from "../lib/dateTime";
 import { FinalReportPreview } from "./FinalReportPreview";
@@ -287,6 +288,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
             void client.invalidateQueries({ queryKey: ["resident-codes", item.id] });
           }
           const completed = await markMakeReadyItemReady(item.id);
+          remindExternalReady(item.unitNumber);
           setItem(current => current ? { ...current, unitReady: true } : current);
           setMessage(turnText(language, "Unit marked ready"));
           void client.invalidateQueries({ predicate: query => query.queryKey[0] !== "final-report" });
@@ -303,6 +305,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
           {settingsDirty || draftDirty ? <p>{turnText(language, "Save or discard report changes before overriding Ready status. The override does not save the report.")}</p> : null}
           <button type="button" className="button button-secondary" data-testid="final-report-override-submit" disabled={busy || settingsDirty || draftDirty || !overrideConfirmed || overrideReason.trim().length < 10} onClick={() => void run(async () => {
             const completed = await markMakeReadyItemReady(item.id, overrideReason.trim());
+            remindExternalReady(item.unitNumber);
             setItem(current => current ? { ...current, unitReady: true } : current);
             setOverrideReason(""); setOverrideConfirmed(false);
             setMessage(turnText(language, "Ready status overridden. Inspection records were not changed."));

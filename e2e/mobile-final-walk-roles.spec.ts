@@ -210,6 +210,7 @@ test("compact light defaults and split final walk correction loop", async ({ pag
     expect((await tech.request.get(`${origin}/api/pond/milestones?propertyId=outside-scope`)).status()).toBe(403);
     await inspector.getByRole("button", { name: "Inspection details / report", exact: true }).click();
     await report.getByTestId("final-report-mark-ready").click();
+    await inspector.getByTestId("external-ready-reminder").getByRole("button", { name: "Got it", exact: true }).click();
     await expect(report.getByTestId("final-report-completion")).toContainText("Unit marked ready");
     await report.getByRole("button", { name: "Close dialog" }).click();
     const milestones = await (await tech.request.get(`${origin}/api/pond/milestones`)).json();

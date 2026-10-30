@@ -67,6 +67,7 @@ test("stock inspection defaults today's date and defers move-in handoff", async 
   await page.screenshot({ path: testInfo.outputPath("inspection-finish-mobile.png") });
   await finish.click();
   await expect(report.getByTestId("final-report-completion")).toContainText("Unit marked ready");
+  await page.getByTestId("external-ready-reminder").getByRole("button", { name: "Got it", exact: true }).click();
   await expect(finish).toHaveCount(0);
   const saved = await (await page.request.get(`/api${reportPath}?itemId=${item.id}`)).json();
   expect(saved.draft.value).toMatchObject({ inspectionDate: today, handoffConfirmed: false, fobs: "" });

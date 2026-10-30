@@ -104,6 +104,11 @@ test("inspector returns a photo correction and technician completes the reinspec
       await report.getByLabel("I counted and confirmed the home/mailbox keys, fobs and remotes for handoff", { exact: true }).check();
       await report.getByRole("button", { name: "Save inspection draft", exact: true }).click();
       await report.getByTestId("final-report-mark-ready").click();
+      const crmReminder = inspector.getByTestId("external-ready-reminder");
+      await expect(crmReminder).toContainText(unit);
+      await expect(crmReminder).toContainText("RealPage");
+      await expect(tech.getByTestId("external-ready-reminder")).toHaveCount(0);
+      await crmReminder.getByRole("button", { name: "Got it", exact: true }).click();
       await expect(report.getByTestId("final-report-completion")).toContainText("Unit marked ready");
       const download = inspector.waitForEvent("download");
       await report.getByRole("button", { name: "Download resident PDF", exact: true }).click();

@@ -3,6 +3,10 @@ import type { UserLanguage } from "./api";
 // Source-text keys also cover fixed checklist labels supplied by the API.
 // Never pass resident notes, names, or other user-authored text through this map.
 export const turnSpanish: Record<string, string> = {
+  "Next: update your CRM": "Siguiente: actualiza tu CRM",
+  "Got it": "Entendido",
+  "Please also mark this unit Ready in RealPage or your property's other CRM / property-management system.": "Marca también esta unidad como Lista en RealPage o en el otro CRM / sistema de administración de tu propiedad.",
+  "MakeReadyOS has not updated that system. Dismissing this reminder does not confirm an external update or change this unit's Ready status.": "MakeReadyOS no ha actualizado ese sistema. Cerrar este recordatorio no confirma una actualización externa ni cambia el estado Lista de esta unidad.",
   "Markdown supported in both fields: **bold**, *italic*, ## Heading, - bullet, 1. numbered item, and [link](https://example.com). Use Preview report to see formatting. HTML and embedded images are not supported.": "Ambos campos admiten Markdown: **negrita**, *cursiva*, ## Título, - viñeta, 1. elemento numerado y [enlace](https://example.com). Usa Vista previa del informe para ver el formato. No se admiten HTML ni imágenes incrustadas.",
   "Manager / admin override: mark Ready": "Excepción de gerente / administrador: marcar Lista",
   "Also assigned as the technician? Normal approval requires an independent inspector. As a manager or admin, you can explicitly override this rule and other completion blockers here.": "¿También estás asignado como técnico? La aprobación normal requiere un inspector independiente. Como gerente o administrador, puedes autorizar aquí una excepción a esta regla y a otros requisitos pendientes.",

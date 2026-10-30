@@ -16,6 +16,7 @@ test("admin technician explicitly overrides Ready from the inspection report", a
   const report = page.getByTestId("final-report-editor");
   await report.getByTestId("final-report-mark-ready").click();
   await expect(report.getByTestId("final-report-ready-error")).toContainText("cannot approve their own final walk");
+  await expect(page.getByTestId("external-ready-reminder")).toHaveCount(0);
   const override = report.getByTestId("final-report-override");
   await override.getByText("Manager / admin override: mark Ready", { exact: true }).click();
   const submit = override.getByTestId("final-report-override-submit");
@@ -29,12 +30,19 @@ test("admin technician explicitly overrides Ready from the inspection report", a
     await submit.click();
     await expect(report.getByTestId("final-report-ready-error")).toBeVisible();
     await expect(submit).toBeEnabled();
+    await expect(page.getByTestId("external-ready-reminder")).toHaveCount(0);
   } finally { await page.context().setOffline(false); }
   await submit.click();
+  const reminder = page.getByTestId("external-ready-reminder");
+  await expect(reminder).toContainText(unit);
+  await expect(reminder).toContainText("RealPage");
+  await expect(reminder).toContainText("has not updated that system");
+  await reminder.getByRole("button", { name: "Got it", exact: true }).click();
   await expect(report.getByTestId("final-report-completion")).toContainText("Unit marked ready");
   await expect(report.getByTestId("final-report-override")).toHaveCount(0);
   await expect(report.locator('[data-testid^="final-report-result-"]').first()).toHaveValue("NOT_CHECKED");
   await page.reload();
+  await expect(page.getByTestId("external-ready-reminder")).toHaveCount(0);
   await page.getByTestId("drawer-pane-all").click();
   await expect(page.getByTestId("drawer-field-completionStatus")).toHaveValue("Yes - unit ready");
   await page.getByRole("button", { name: "Inspection details / report", exact: true }).click();

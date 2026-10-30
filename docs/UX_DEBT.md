@@ -39,6 +39,13 @@ Keep findings here so there is one queue rather than competing TODO documents.
 
 ### Current Pass
 
+- Ready actions now prompt the acting user to also update RealPage or their other
+  property-management system, including normal approval and manager/admin overrides.
+  The reminder explicitly does not claim external synchronization; dismissing it
+  does not change Ready status. English and Spanish are supported.
+  UI-retested on desktop and mobile for both inspector approval and admin override,
+  including failure/retry, dismissal, reload, and acting-user-only delivery.
+
 - UI-retested 2026-10-30: introduction and resident footer accept Markdown source
   and render headings, emphasis, lists, links and tables in preview/PDF. Desktop
   and mobile click-through tests verify saving/reopening source text, formatted

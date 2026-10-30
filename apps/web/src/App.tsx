@@ -1,6 +1,7 @@
 import { Suspense, useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { recoverableLazy as lazy } from "./lib/recoverableLazy";
 import { OfflineWorkReader } from "./components/OfflineWorkSnapshot";
+import { ExternalReadyReminder, remindExternalReady } from "./components/ExternalReadyReminder";
 import { canViewKeycodes } from "./lib/api";
 import { clearVerifiedSession, getVerifiedSession, isCurrentSession, requireVerifiedUserId, verifiedSessionEventName } from "./lib/verifiedSession";
 import { onlineManager, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1928,7 +1929,8 @@ function App() {
 
   const markReadyMutation = useMutation({
     mutationFn: ({ id, overrideReason }: { id: string; overrideReason?: string }) => markMakeReadyItemReady(id, overrideReason),
-    onSuccess: async () => {
+    onSuccess: async (item) => {
+      remindExternalReady(item.unitNumber);
       await queryClient.invalidateQueries({ queryKey: ["final-walk"] });
       await queryClient.invalidateQueries({ queryKey: ["my-work"] });
       await queryClient.invalidateQueries({ queryKey: ["planning"] });
@@ -3852,6 +3854,7 @@ function App() {
 
   return (
     <div className={`${compactMode ? "app-shell compact-mode" : "app-shell"}${eyeStrainMode ? " reading-mode" : ""}${dyslexiaMode ? " dyslexia-mode" : ""}`} data-theme={themeMode}>
+      <ExternalReadyReminder language={currentUser.language ?? "en"} />
       <FilterBar
         properties={metaQuery.data?.properties ?? []}
         currentUser={currentUser}
