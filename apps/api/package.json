@@ -47,7 +47,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
-    "@types/nodemailer": "^6.4.24",
+    "@types/nodemailer": "^8.0.2",
     "@types/web-push": "^3.6.4",
     "@types/yazl": "^3.3.1",
     "prisma": "^6.8.2",
