@@ -86,7 +86,7 @@ test("full availability imports preview and atomically archive missing ready uni
   process.env.ADMIN_PASSWORD = "Test-Only-Password!123";
   process.env.SESSION_COOKIE_SECRET = "test-only-session-secret-12345678901234567890";
   const { prisma } = await import("../lib/prisma.js");
-  const { operationsRoutes, unitImportRowSchema } = await import("./operations.js");
+  const { operationsRoutes, unitImportRowSchema, availabilityImportSchema } = await import("./operations.js");
   assert.equal(unitImportRowSchema.safeParse({ number: "101", currentResidentMoveInDate: "2024-02-30" }).success, false);
   assert.equal(unitImportRowSchema.parse({ number: "101", currentResidentMoveInDate: "2024-03-15" }).currentResidentMoveInDate?.toISOString(), "2024-03-15T00:00:00.000Z");
   assert.equal(unitImportRowSchema.parse({ number: "101", currentResidentMoveInDate: "" }).currentResidentMoveInDate, undefined);
@@ -160,4 +160,29 @@ test("full availability imports preview and atomically archive missing ready uni
   assert.deepEqual(savedWithWarning.json().createdItemIds, ["new-turn"]);
   assert.match(savedWithWarning.json().warnings[0], /Import saved.*Do not repeat/);
   assert.equal(audits.filter(audit => audit.action === "AVAILABILITY_IMPORTED").length, receipts.length + 1);
+
+  item = { ...initial, vacancyStatus: "NTV", boardGroup: "work", makeReadyStatus: "IN PROGRESS", completionStatus: "NO", moveInDate: null, applicant: "Canceled applicant", outgoingResidentName: "Continuing resident" } as any;
+  stub(prisma.boardSection, "findFirst", async () => ({ key: "archive" }));
+  stub(prisma.unit, "updateMany", async (args: any) => { unitUpdates.push(args); return { count: 1 }; });
+  const renewalPreview = await submit({ fullReport: true, previewOnly: true });
+  assert.equal(renewalPreview.statusCode, 200, renewalPreview.body);
+  assert.deepEqual(renewalPreview.json().candidates, []);
+  assert.equal(renewalPreview.json().reviewCandidates[0].id, item.id);
+  assert.equal(availabilityImportSchema.safeParse({ ...input, confirmedOccupiedIds: [item.id] }).success, false, "Partial reports cannot close omitted turns");
+  assert.equal((await submit({ fullReport: true, archivePreviewToken: renewalPreview.json().token, confirmedOccupiedIds: ["outside-property"] })).statusCode, 409);
+  assert.equal(item.isArchived, false);
+  const beforeRenewalUpdates = unitUpdates.length;
+  const renewed = await submit({ fullReport: true, archivePreviewToken: renewalPreview.json().token, confirmedOccupiedIds: [item.id] });
+  assert.equal(renewed.statusCode, 200, renewed.body);
+  assert.equal(item.isArchived, true);
+  assert.equal(item.completionStatus, "NO");
+  assert.equal(item.makeReadyStatus, "IN PROGRESS");
+  assert.ok(audits.some(audit => audit.action === "AVAILABILITY_OCCUPIED_CONFIRMED" && audit.actorUserId === "actor"));
+  assert.deepEqual(unitUpdates.slice(beforeRenewalUpdates).find(update => update.where.id === "unit").data, { occupancyStatus: "OCCUPIED" });
+  item = { ...item, isArchived: false, vacancyStatus: "NTV", boardGroup: "work" };
+  const explicitOccupied = await submit({ rows: [{ number: "011", occupancyStatus: "OCCUPIED" }] });
+  assert.equal(explicitOccupied.statusCode, 200, explicitOccupied.body);
+  assert.equal(item.isArchived, true);
+  assert.equal(item.completionStatus, "NO");
+  assert.equal(explicitOccupied.json().summary.turnsArchived, 1);
 });

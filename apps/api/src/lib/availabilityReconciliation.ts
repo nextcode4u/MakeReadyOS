@@ -34,8 +34,16 @@ export async function availabilityArchivePlan(db: Prisma.TransactionClient, inpu
   const sections = await db.boardSection.findMany({ where: { propertyId: input.propertyId, isActive: true } });
   const items = await db.makeReadyItem.findMany({ where: { propertyId: input.propertyId, isArchived: false }, include: { unit: { select: { isActive: true, occupancyStatus: true } } } });
   const candidates = missingReadyTurns(items, sections, input.rows.map(row => row.number), reportDate);
+  const present = new Set(input.rows.map(row => unitKey(row.number)));
+  const reviewCandidates = items.filter(item => !candidates.some(candidate => candidate.id === item.id)
+    && item.unitId && item.unit?.isActive && !present.has(unitKey(item.unitNumber))
+    && day(item.updatedAt) <= reportDate
+    && !["DOWN", "MODEL"].includes(String(item.vacancyStatus ?? "").toUpperCase())
+    && !["DOWN", "MODEL"].includes(String(item.unit.occupancyStatus).toUpperCase())
+    && !sections.some(section => section.key === item.boardGroup && section.sectionType === "DOWN")
+    && items.filter(other => other.unitId === item.unitId || unitKey(other.unitNumber) === unitKey(item.unitNumber)).length === 1);
   const archiveSection = sections.find(section => section.sectionType === "ARCHIVE");
   if (candidates.length && !archiveSection) throw Object.assign(new Error("Configure an Archive section before reconciling missing units."), { statusCode: 409 });
-  const token = createHash("sha256").update(JSON.stringify({ propertyId: input.propertyId, rows: input.rows, reportDate, archiveSection: archiveSection?.key, candidates: candidates.map(item => [item.id, item.updatedAt, item.unit]).sort() })).digest("hex");
-  return { candidates, archiveSection, token, reportDate };
+  const token = createHash("sha256").update(JSON.stringify({ propertyId: input.propertyId, rows: input.rows, reportDate, archiveSection: archiveSection?.key, candidates: candidates.map(item => [item.id, item.updatedAt, item.unit]).sort(), reviewCandidates: reviewCandidates.map(item => [item.id, item.updatedAt, item.unit]).sort() })).digest("hex");
+  return { candidates, reviewCandidates, archiveSection, token, reportDate };
 }

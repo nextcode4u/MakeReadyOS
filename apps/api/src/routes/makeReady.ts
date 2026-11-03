@@ -2,6 +2,7 @@ import { stringify } from "csv-stringify/sync";
 import { customExportHeaders } from "../lib/exportHeaders.js";
 import { readyVacancyStatus } from "../lib/readyVacancyStatus.js";
 import { archiveOccupiedTurn } from "../lib/archiveOccupiedTurn.js";
+import { leaseDateSchema, validateMergedLeaseDates } from "../lib/leaseDates.js";
 import { inspectionDateOrToday, savedReportDraftSchema } from "../lib/finalWalkReport.js";
 import { projectedTurnStart } from "../lib/turnStartProjection.js";
 import { Prisma, UserRole } from "@prisma/client";
@@ -23,6 +24,11 @@ import { ALL_ACCESSIBLE_PROPERTIES_SCOPE_LABEL, propertyScopeLabel } from "../li
 import { evaluateAndPersistItemRisk, riskCategories } from "../lib/risk.js";
 import { queueWebhookEvent } from "../lib/webhookQueue.js";
 import { pondMilestones, recordPondCompletion } from "../lib/pondMilestones.js";
+
+export const renewLeaseSchema = z.object({
+  leaseEndDate: leaseDateSchema,
+  leaseStartDate: leaseDateSchema.optional(),
+}).strict();
 
 const itemSortFields = [
   "boardGroup",
@@ -1567,6 +1573,60 @@ export async function makeReadyRoutes(app: FastifyInstance) {
       },
     });
     return item;
+  });
+
+  app.post("/make-ready-items/:id/renew", async (request, reply) => {
+    const user = request.currentUser!;
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.MANAGER) {
+      return reply.code(403).send({ message: "Manager or admin access required" });
+    }
+    const parsed = renewLeaseSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ message: "Provide a valid leaseEndDate and optional leaseStartDate in YYYY-MM-DD format", issues: parsed.error.issues });
+    const payload = parsed.data;
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const existing = await prisma.makeReadyItem.findUnique({ where: { id } });
+    if (!existing) return reply.code(404).send({ message: "Item not found" });
+    const propertyIds = scopedAllowedPropertyIds(request);
+    if (propertyIds !== null && !propertyIds.includes(existing.propertyId)) {
+      return reply.code(403).send({ message: "Property access denied" });
+    }
+    return prisma.$transaction(async db => {
+      await lockTurnProperty(db, existing.propertyId);
+      const current = await db.makeReadyItem.findUniqueOrThrow({ where: { id } });
+      if (current.propertyId !== existing.propertyId) throw Object.assign(new Error("Item property changed; reload and retry."), { statusCode: 409 });
+      const property = await db.property.findUnique({ where: { id: current.propertyId }, select: { isActive: true } });
+      if (current.isArchived || !property?.isActive) throw Object.assign(new Error("Restore the turn and property before renewing."), { statusCode: 409 });
+      const unit = current.unitId ? await db.unit.findUnique({ where: { id: current.unitId } }) : null;
+      if (!unit || unit.propertyId !== current.propertyId) throw Object.assign(new Error("Renewal requires a linked unit in this property."), { statusCode: 409 });
+      const otherTurn = await db.makeReadyItem.findFirst({ where: { unitId: unit.id, isArchived: false, id: { not: id } } });
+      if (otherTurn) throw Object.assign(new Error("Another active turn exists for this unit; resolve it before renewing."), { statusCode: 409 });
+      const dates = {
+        currentResidentLeaseEndDate: payload.leaseEndDate,
+        ...(payload.leaseStartDate !== undefined ? { currentResidentLeaseStartDate: payload.leaseStartDate } : {}),
+      };
+      validateMergedLeaseDates(unit, dates);
+      if (unit.currentResidentLeaseEndDate && payload.leaseEndDate < unit.currentResidentLeaseEndDate) {
+        throw Object.assign(new Error("Renewal cannot shorten the existing lease end date; use unit editing for historical corrections."), { statusCode: 400 });
+      }
+      const patch = { vacancyStatus: "OCCUPIED" };
+      await archiveOccupiedTurn(db, current, patch, true);
+      await db.unit.update({ where: { id: unit.id }, data: dates });
+      const item = await db.makeReadyItem.update({
+        where: { id }, data: patch,
+        include: { property: true, unit: { include: { floorPlanRecord: true } }, customFieldValues: true },
+      });
+      await writeAuditLog({
+        request, actorUserId: user.id, propertyId: current.propertyId,
+        entityType: "MAKE_READY_ITEM", entityId: id, action: "BOARD_ITEM_RENEWED",
+        message: `${current.unitNumber} lease renewed; obsolete turn archived without completing repairs.`,
+        metadata: { unitId: unit.id,
+          previousLeaseStartDate: unit.currentResidentLeaseStartDate?.toISOString() ?? null,
+          previousLeaseEndDate: unit.currentResidentLeaseEndDate?.toISOString() ?? null,
+          leaseStartDate: (payload.leaseStartDate ?? unit.currentResidentLeaseStartDate)?.toISOString() ?? null,
+          leaseEndDate: payload.leaseEndDate.toISOString() },
+      }, db);
+      return item;
+    });
   });
 
   app.post("/make-ready-items/:id/archive", async (request, reply) => {

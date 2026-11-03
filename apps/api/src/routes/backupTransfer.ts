@@ -102,6 +102,8 @@ const operatingCalendarSchema = z.object({
 });
 
 const unitSchema = z.object({
+  currentResidentLeaseStartDate: z.string().datetime().nullable().optional().default(null),
+  currentResidentLeaseEndDate: z.string().datetime().nullable().optional().default(null),
   currentResidentMoveInDate: z.string().datetime().nullable().optional().default(null),
   currentResidentName: z.string().nullable().optional().default(null),
   propertyCode: z.string().min(1),
@@ -1738,6 +1740,8 @@ async function buildExport(): Promise<NativeBackup> {
         planningNearMoveInDays: policy.planningNearMoveInDays,
       })),
       units: units.map((unit) => ({
+        currentResidentLeaseStartDate: unit.currentResidentLeaseStartDate?.toISOString() ?? null,
+        currentResidentLeaseEndDate: unit.currentResidentLeaseEndDate?.toISOString() ?? null,
         currentResidentMoveInDate: unit.currentResidentMoveInDate?.toISOString() ?? null,
         currentResidentName: unit.currentResidentName,
         propertyCode: unit.property.code,

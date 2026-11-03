@@ -60,7 +60,7 @@ test("partial unit restore preserves existing parents and reports actual outcome
     units: [{ propertyCode: "A", number: "101", currentResidentName: "Resident Demo", floorPlanCode: "one-bed", floorPlan: "1BR", squareFeet: 600, bedrooms: 1, bathrooms: 1, isActive: true, mailboxNumber: "12", accessCodes: { doorCode: "test-door", accessCode: "test-access", keyCode: "test-key" } }],
   } };
   const send = (dryRun: boolean) => app.inject({ method: "POST", url: "/admin/import", payload: { backup, dryRun } });
-  Object.assign(backup.data.units[0], { currentResidentMoveInDate: "2024-03-15T00:00:00.000Z" });
+  Object.assign(backup.data.units[0], { currentResidentMoveInDate: "2024-03-15T00:00:00.000Z", currentResidentLeaseStartDate: "2024-02-29T00:00:00.000Z", currentResidentLeaseEndDate: "2025-02-28T00:00:00.000Z" });
 
   await t.test("preview and apply agree; repeat apply skips without duplicating codes", async () => {
     const preview = await send(true);
@@ -79,6 +79,8 @@ test("partial unit restore preserves existing parents and reports actual outcome
     assert.equal(units[0].mailboxNumber, "12");
     assert.equal(units[0].currentResidentName, "Resident Demo");
     assert.equal(units[0].currentResidentMoveInDate, "2024-03-15T00:00:00.000Z");
+    assert.equal(units[0].currentResidentLeaseStartDate, "2024-02-29T00:00:00.000Z");
+    assert.equal(units[0].currentResidentLeaseEndDate, "2025-02-28T00:00:00.000Z");
     assert.deepEqual(codes, [{ unitId: "unit-a", ...backup.data.units[0].accessCodes }]);
     const repeated = await send(false);
     assert.equal(repeated.statusCode, 200, repeated.body);

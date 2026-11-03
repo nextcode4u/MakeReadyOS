@@ -32,10 +32,17 @@ test("archive previews are property scoped and invalidated by changes to rows or
   const input = { propertyId: "ta", rows: [{ number: "100" }], reportDate: "2026-09-13" };
   const first = await availabilityArchivePlan(db, input);
   assert.equal(first.candidates.length, 1);
+  assert.equal(first.reviewCandidates.length, 0);
   assert.equal(first.archiveSection?.key, "archive");
   assert.equal((await availabilityArchivePlan(db, { ...input, previewOnly: true } as any)).token, first.token);
   assert.notEqual((await availabilityArchivePlan(db, { ...input, rows: [{ number: "11" }] })).token, first.token);
   item = { ...base, updatedAt: date("2026-09-12") };
   assert.notEqual((await availabilityArchivePlan(db, input)).token, first.token);
   await assert.rejects(() => availabilityArchivePlan(db, { ...input, rows: [{ number: "100", reportDate: "2026-09-12" }] }), /match/);
+  item = { ...base, vacancyStatus: "NTV", completionStatus: "NO", makeReadyStatus: "IN PROGRESS", moveInDate: null } as any;
+  const renewal = await availabilityArchivePlan(db, input);
+  assert.equal(renewal.candidates.length, 0);
+  assert.equal(renewal.reviewCandidates.length, 1);
+  assert.notEqual(renewal.token, first.token);
+  assert.equal((await availabilityArchivePlan(db, { ...input, rows: [{ number: "0011" }] })).reviewCandidates.length, 0);
 });

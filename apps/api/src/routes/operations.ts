@@ -10,7 +10,10 @@ import { evaluateAndPersistItemRisk } from "../lib/risk.js";
 import { isReadyAvailabilityStatus } from "../lib/availabilityStatus.js";
 import { ensureDefaultTurnScheduling } from "../lib/defaultTurnScheduling.js";
 import { availabilityArchivePlan } from "../lib/availabilityReconciliation.js";
+import { archiveOccupiedTurn } from "../lib/archiveOccupiedTurn.js";
 import { turnApproved } from "../lib/turnStatus.js";
+import { lockTurnProperty } from "../lib/turnMutationGuard.js";
+import { leaseDateSchema, importedLeaseDateSchema, leaseDatesOrdered, leaseOrderError, validateMergedLeaseDates } from "../lib/leaseDates.js";
 
 export const operationsQuerySchema = z.object({
   includeArchived: z.enum(["true", "false"]).optional().transform((value) => value === "true"),
@@ -68,7 +71,9 @@ const availabilityStatusValues = [
   "UNKNOWN",
 ] as const;
 
-export const unitCreateSchema = z.object({
+const unitCreateBaseSchema = z.object({
+  currentResidentLeaseStartDate: leaseDateSchema.nullable().optional(),
+  currentResidentLeaseEndDate: leaseDateSchema.nullable().optional(),
   currentResidentMoveInDate: z.string().trim().date().transform(value => new Date(`${value}T00:00:00.000Z`)).optional().nullable(),
   currentResidentName: z.string().trim().max(120).optional().nullable(),
   propertyId: z.string(),
@@ -85,11 +90,14 @@ export const unitCreateSchema = z.object({
   isBudgeted: z.boolean().optional(),
 });
 
-export const unitPatchSchema = patchSchema(unitCreateSchema).refine((value) => Object.keys(value).length > 0, {
+export const unitCreateSchema = unitCreateBaseSchema.refine(leaseDatesOrdered, leaseOrderError);
+export const unitPatchSchema = patchSchema(unitCreateBaseSchema).refine(leaseDatesOrdered, leaseOrderError).refine((value) => Object.keys(value).length > 0, {
   message: "Provide unit fields to update",
 });
 
-export const unitImportRowSchema = z.object({
+const unitImportRowBaseSchema = z.object({
+  currentResidentLeaseStartDate: importedLeaseDateSchema,
+  currentResidentLeaseEndDate: importedLeaseDateSchema,
   currentResidentMoveInDate: z.preprocess(value => value === null || value === "" ? undefined : value, z.string().trim().date().transform(value => new Date(`${value}T00:00:00.000Z`)).optional()),
   currentResidentName: z.string().trim().max(120).optional().nullable(),
   number: z.string().trim().min(1).max(30),
@@ -104,13 +112,14 @@ export const unitImportRowSchema = z.object({
   isBudgeted: z.boolean().optional(),
 });
 
+export const unitImportRowSchema = unitImportRowBaseSchema.refine(leaseDatesOrdered, leaseOrderError);
 export const unitImportSchema = z.object({
   propertyId: z.string(),
   units: z.array(unitImportRowSchema).min(1).max(1500),
   updateExisting: z.boolean().default(true),
 });
 
-export const availabilityImportRowSchema = unitImportRowSchema.extend({
+export const availabilityImportRowSchema = unitImportRowBaseSchema.extend({
   vacancyStatus: z.enum(availabilityStatusValues).optional(),
   availabilityStatus: z.string().trim().max(120).optional().nullable(),
   applicant: z.string().trim().max(120).optional().nullable(),
@@ -132,7 +141,7 @@ export const availabilityImportRowSchema = unitImportRowSchema.extend({
   makeReadyStatus: z.string().trim().max(80).optional().nullable(),
   scopeLevel: z.string().trim().max(80).optional().nullable(),
   notes: z.string().trim().max(1000).optional().nullable(),
-});
+}).refine(leaseDatesOrdered, leaseOrderError);
 
 export const availabilityImportSchema = z.object({
   propertyId: z.string(),
@@ -145,7 +154,9 @@ export const availabilityImportSchema = z.object({
   reportDate: z.string().optional(),
   previewOnly: z.boolean().default(false),
   archivePreviewToken: z.string().optional(),
-}).refine(input => !(input.overrideConflicts && input.keepLocalConflicts), "Choose either overwrite or keep local conflicts, not both.");
+  confirmedOccupiedIds: z.array(z.string()).max(1500).default([]),
+}).refine(input => !(input.overrideConflicts && input.keepLocalConflicts), "Choose either overwrite or keep local conflicts, not both.")
+  .refine(input => input.fullReport || !input.confirmedOccupiedIds.length, "Confirming missing occupied units requires a full report.");
 
 export const unitImportRevertSchema = z.object({
   propertyId: z.string(),
@@ -1117,6 +1128,7 @@ export async function operationsRoutes(app: FastifyInstance) {
     });
 
     await prisma.$transaction(async (tx) => {
+      if (payload.units.some(row => row.currentResidentLeaseStartDate !== undefined || row.currentResidentLeaseEndDate !== undefined)) await lockTurnProperty(tx, payload.propertyId);
       const floorPlanCache = new Map<string, { id: string; code: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null }>();
       const existingPlans = await tx.floorPlan.findMany({
         where: { propertyId: payload.propertyId },
@@ -1166,6 +1178,8 @@ export async function operationsRoutes(app: FastifyInstance) {
         });
         const importedPlan = await resolveImportedFloorPlan(row);
         const createData = {
+          currentResidentLeaseStartDate: row.currentResidentLeaseStartDate ?? null,
+          currentResidentLeaseEndDate: row.currentResidentLeaseEndDate ?? null,
           currentResidentMoveInDate: row.currentResidentMoveInDate ?? null,
           currentResidentName: row.currentResidentName ?? null,
           floorPlanId: importedPlan?.id ?? null,
@@ -1185,6 +1199,9 @@ export async function operationsRoutes(app: FastifyInstance) {
             continue;
           }
           const updateData: Prisma.UnitUncheckedUpdateInput = {};
+          validateMergedLeaseDates(existing, row);
+          if (row.currentResidentLeaseStartDate !== undefined) updateData.currentResidentLeaseStartDate = row.currentResidentLeaseStartDate;
+          if (row.currentResidentLeaseEndDate !== undefined) updateData.currentResidentLeaseEndDate = row.currentResidentLeaseEndDate;
           if (row.currentResidentMoveInDate) updateData.currentResidentMoveInDate = row.currentResidentMoveInDate;
           if (row.currentResidentName) updateData.currentResidentName = row.currentResidentName;
           if (importedPlan) {
@@ -1314,7 +1331,7 @@ export async function operationsRoutes(app: FastifyInstance) {
     if (payload.previewOnly) {
       if (!payload.fullReport) return reply.code(400).send({ message: "Select full report to preview missing-unit reconciliation." });
       const plan = await availabilityArchivePlan(prisma, payload);
-      return { token: plan.token, candidates: plan.candidates.map(item => ({ id: item.id, unitNumber: item.unitNumber, moveInDate: item.moveInDate })) };
+      return { token: plan.token, candidates: plan.candidates.map(item => ({ id: item.id, unitNumber: item.unitNumber, moveInDate: item.moveInDate })), reviewCandidates: plan.reviewCandidates.map(item => ({ id: item.id, unitNumber: item.unitNumber, vacancyStatus: item.vacancyStatus })) };
     }
     if (conflicts.length > 0 && !payload.overrideConflicts && !payload.keepLocalConflicts) {
       reply.code(409);
@@ -1329,6 +1346,7 @@ export async function operationsRoutes(app: FastifyInstance) {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${payload.propertyId}), 824018)::text`;
       const archivePlan = payload.fullReport ? await availabilityArchivePlan(tx, payload) : null;
       if (archivePlan && archivePlan.token !== payload.archivePreviewToken) throw Object.assign(new Error("The missing-unit archive preview changed. Preview this full report again before importing."), { statusCode: 409 });
+      if (payload.confirmedOccupiedIds.some(id => !archivePlan?.reviewCandidates.some(item => item.id === id))) throw Object.assign(new Error("An occupied confirmation is no longer eligible. Preview this full report again."), { statusCode: 409 });
       const floorPlanCache = new Map<string, { id: string; code: string; name: string; bedrooms: number | null; bathrooms: number | null; squareFeet: number | null }>();
       const existingPlans = await tx.floorPlan.findMany({
         where: { propertyId: payload.propertyId },
@@ -1394,6 +1412,8 @@ export async function operationsRoutes(app: FastifyInstance) {
         }
         const floorPlan = await resolveImportedFloorPlan(row);
         const unitData = {
+          currentResidentLeaseStartDate: row.currentResidentLeaseStartDate ?? null,
+          currentResidentLeaseEndDate: row.currentResidentLeaseEndDate ?? null,
           currentResidentMoveInDate: row.currentResidentMoveInDate ?? (status === "OCCUPIED" ? parseOptionalDate(row.moveInDate) : null),
           currentResidentName: row.currentResidentName ?? null,
           floorPlanId: floorPlan?.id ?? null,
@@ -1407,6 +1427,7 @@ export async function operationsRoutes(app: FastifyInstance) {
           floor: row.floor || null,
           isBudgeted: row.isBudgeted ?? true,
         };
+        if (existingUnit && payload.updateExisting) validateMergedLeaseDates(existingUnit, row);
         const unit = existingUnit
           ? await tx.unit.update({
               where: { id: existingUnit.id },
@@ -1416,6 +1437,8 @@ export async function operationsRoutes(app: FastifyInstance) {
                 ...(unitData.bedrooms !== null ? { bedrooms: unitData.bedrooms } : {}),
                 ...(unitData.bathrooms !== null ? { bathrooms: unitData.bathrooms } : {}),
                 occupancyStatus: status,
+                ...(payload.updateExisting && row.currentResidentLeaseStartDate !== undefined ? { currentResidentLeaseStartDate: row.currentResidentLeaseStartDate } : {}),
+                ...(payload.updateExisting && row.currentResidentLeaseEndDate !== undefined ? { currentResidentLeaseEndDate: row.currentResidentLeaseEndDate } : {}),
                 ...(payload.updateExisting && unitData.currentResidentMoveInDate ? { currentResidentMoveInDate: unitData.currentResidentMoveInDate } : {}),
                 ...(payload.updateExisting && row.currentResidentName ? { currentResidentName: row.currentResidentName } : {}),
                 ...(row.building ? { building: row.building } : {}),
@@ -1428,6 +1451,15 @@ export async function operationsRoutes(app: FastifyInstance) {
         if (existingUnit) summary.unitsUpdated += 1;
         else summary.unitsCreated += 1;
 
+        if (status === "OCCUPIED" && payload.updateExisting) {
+          const activeTurns = await tx.makeReadyItem.findMany({ where: { propertyId: payload.propertyId, isArchived: false, OR: [{ unitId: unit.id }, { unitNumber: row.number }] } });
+          for (const turn of activeTurns) {
+            const patch: Record<string, unknown> = { vacancyStatus: "OCCUPIED" };
+            await archiveOccupiedTurn(tx, turn, patch, true);
+            await tx.makeReadyItem.update({ where: { id: turn.id }, data: patch });
+            summary.turnsArchived += 1;
+          }
+        }
         if (!payload.createTurns || status === "OCCUPIED" || status === "UNKNOWN") continue;
 
         const boardGroup = await preferredSectionKey(tx, payload.propertyId, status);
@@ -1529,6 +1561,13 @@ export async function operationsRoutes(app: FastifyInstance) {
           message: `${item.unitNumber}: inferred occupied from full availability report ${archivePlan!.reportDate}; ready turn archived.`,
           metadata: { reportDate: archivePlan!.reportDate, moveInDate: item.moveInDate?.toISOString(), previousVacancyStatus: item.vacancyStatus, previousCompletionStatus: item.completionStatus, previousBoardGroup: item.boardGroup, previousOccupancyStatus: item.unit?.occupancyStatus },
         } });
+        summary.turnsArchived += 1;
+      }
+      for (const item of archivePlan?.reviewCandidates.filter(item => payload.confirmedOccupiedIds.includes(item.id)) ?? []) {
+        const patch: Record<string, unknown> = { vacancyStatus: "OCCUPIED" };
+        await archiveOccupiedTurn(tx, item, patch, true);
+        await tx.makeReadyItem.update({ where: { id: item.id }, data: patch });
+        await tx.auditLog.create({ data: { actorUserId: request.currentUser!.id, propertyId: property.id, entityType: "MAKE_READY_ITEM", entityId: item.id, action: "AVAILABILITY_OCCUPIED_CONFIRMED", message: `${item.unitNumber}: staff confirmed occupied / canceled move-out after review of full report ${archivePlan!.reportDate}.`, metadata: { reportDate: archivePlan!.reportDate, previousVacancyStatus: item.vacancyStatus, previousCompletionStatus: item.completionStatus } } });
         summary.turnsArchived += 1;
       }
       for (const entry of availabilityActivity) {
@@ -1661,6 +1700,11 @@ export async function operationsRoutes(app: FastifyInstance) {
       }
     }
     const unit = await prisma.$transaction(async (tx) => {
+      if (payload.currentResidentLeaseStartDate !== undefined || payload.currentResidentLeaseEndDate !== undefined) {
+        await lockTurnProperty(tx, existing.propertyId);
+        const current = await tx.unit.findUniqueOrThrow({ where: { id } });
+        validateMergedLeaseDates(current, payload);
+      }
       const updated = await tx.unit.update({
         where: { id },
         data: {

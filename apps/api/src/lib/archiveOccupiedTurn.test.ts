@@ -6,6 +6,7 @@ test("ready-to-occupied archives in the same property and synchronizes the unit 
   const current = { id: "turn", propertyId: "ta", unitId: "unit", unitNumber: "163", vacancyStatus: "VACANT LEASED READY", completionStatus: "YES", makeReadyStatus: "DONE", isArchived: false } as any;
   let writes = 0;
   const db = {
+    workAssignmentBlock: { updateMany: async () => ({ count: 0 }) },
     boardSection: { findFirst: async ({ where }: any) => { assert.equal(where.propertyId, "ta"); assert.equal(where.sectionType, "ARCHIVE"); return { key: "DG_ARCHIVE" }; } },
     unit: { updateMany: async ({ where, data }: any) => { assert.deepEqual(where, { id: "unit", propertyId: "ta" }); assert.equal(data.occupancyStatus, "OCCUPIED"); writes++; } },
     auditLog: { create: async () => { writes++; } },
@@ -16,7 +17,7 @@ test("ready-to-occupied archives in the same property and synchronizes the unit 
   assert.equal(patch.isArchived, true);
   assert.ok(patch.archivedAt instanceof Date);
   assert.equal(writes, 2);
-  for (const item of [{ ...current, isArchived: true }, { ...current, makeReadyStatus: "FINAL WALK" }, { ...current, vacancyStatus: "VACANT NOT LEASED NOT READY", completionStatus: "NO" }]) {
+  for (const item of [{ ...current, isArchived: true }]) {
     const unchanged = { vacancyStatus: "OCCUPIED" };
     await archiveOccupiedTurn(db as any, item, unchanged);
     assert.deepEqual(unchanged, { vacancyStatus: "OCCUPIED" });
@@ -30,22 +31,23 @@ test("occupied-before-ready archives on approval, but not on unfinished or unrel
   const current = { id: "turn", propertyId: "demo", unitId: "unit", unitNumber: "101", vacancyStatus: "OCCUPIED", completionStatus: "NO", makeReadyStatus: "FINAL WALK", isArchived: false } as any;
   let writes = 0;
   const db = {
+    workAssignmentBlock: { updateMany: async () => ({ count: 0 }) },
     boardSection: { findFirst: async () => ({ key: "DEMO_ARCHIVE" }) },
     unit: { updateMany: async () => { writes++; } },
     auditLog: { create: async () => ({}) },
   };
-  for (const patch of [{ completionStatus: "YES", makeReadyStatus: "DONE" }, { completionStatus: "YES", makeReadyStatus: "DONE", vacancyStatus: "OCCUPIED" }]) {
+  for (const patch of [{ vacancyStatus: "OCCUPIED" }, { completionStatus: "YES", makeReadyStatus: "DONE" }, { completionStatus: "YES", makeReadyStatus: "DONE", vacancyStatus: "OCCUPIED" }]) {
     const data: Record<string, unknown> = { ...patch };
     await archiveOccupiedTurn(db as any, current, data);
     assert.equal(data.isArchived, true);
     assert.equal(data.boardGroup, "DEMO_ARCHIVE");
   }
-  for (const patch of [{ vacancyStatus: "OCCUPIED" }, { makeReadyStatus: "DONE" }, { completionStatus: "YES" }, { applicant: "Demo Resident" }]) {
+  for (const patch of [{ makeReadyStatus: "DONE" }, { completionStatus: "YES" }, { applicant: "Demo Resident" }]) {
     const data = { ...patch };
     await archiveOccupiedTurn(db as any, current, data);
     assert.deepEqual(data, patch);
   }
-  assert.equal(writes, 2);
+  assert.equal(writes, 3);
 });
 
 test("board list archive-only filters both rows and pagination counts", async t => {
@@ -81,6 +83,7 @@ test("occupied handoff uses the incoming name, including a simultaneous correcti
   const updates: any[] = [];
   current.moveInDate = new Date("2025-03-15T00:00:00.000Z");
   const db = {
+    workAssignmentBlock: { updateMany: async () => ({ count: 0 }) },
     boardSection: { findFirst: async () => ({ key: "DEMO_ARCHIVE" }) },
     unit: { updateMany: async ({ data }: any) => { updates.push(data); } },
     auditLog: { create: async () => ({}) },
@@ -91,4 +94,20 @@ test("occupied handoff uses the incoming name, including a simultaneous correcti
   assert.deepEqual(updates.map(update => update.currentResidentName), ["Incoming Demo", "Corrected Demo", null]);
   assert.deepEqual(updates.map(update => update.currentResidentMoveInDate?.toISOString() ?? null), ["2025-03-15T00:00:00.000Z", "2025-03-20T00:00:00.000Z", null]);
   assert.equal(current.outgoingResidentName, "Outgoing Demo");
+});
+
+test("renewal closes unfinished work without approving it or replacing the existing resident", async () => {
+  const current = { id: "renewal", propertyId: "demo", unitId: "unit", unitNumber: "201", vacancyStatus: "NTV", completionStatus: "NO", makeReadyStatus: "IN PROGRESS", isArchived: false, applicant: "Canceled applicant" } as any;
+  const db = {
+    boardSection: { findFirst: async () => ({ key: "ARCHIVE" }) },
+    unit: { updateMany: async ({ data }: any) => { assert.deepEqual(data, { occupancyStatus: "OCCUPIED" }); } },
+    workAssignmentBlock: { updateMany: async ({ where, data }: any) => { assert.equal(where.itemId, "renewal"); assert.deepEqual(where.status.in, ["PLANNED", "IN_PROGRESS"]); assert.equal(data.status, "CANCELED"); } },
+    auditLog: { create: async ({ data }: any) => { assert.equal(data.action, "OCCUPIED_TURN_CLOSED"); } },
+  };
+  const patch: Record<string, unknown> = { vacancyStatus: "OCCUPIED" };
+  await archiveOccupiedTurn(db as any, current, patch);
+  assert.equal(patch.isArchived, true);
+  assert.equal(patch.completionStatus, undefined);
+  assert.equal(patch.makeReadyStatus, undefined);
+  assert.equal(patch.riskLevel, "NONE");
 });

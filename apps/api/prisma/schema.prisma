@@ -164,6 +164,8 @@ model Unit {
   mailboxNumber   String?
   currentResidentName String?
   currentResidentMoveInDate DateTime?
+  currentResidentLeaseStartDate DateTime?
+  currentResidentLeaseEndDate DateTime?
   floorPlan       String?
   squareFeet      Int?
   bedrooms        Int?
