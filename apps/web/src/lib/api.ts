@@ -1410,7 +1410,7 @@ export type ItemCollaboration = {
 };
 
 export type MyWorkResponse = {
-  forecast?: { turns: Array<{ id: string; title: string; propertyName: string; expectedStartDate: string; projectedStart: boolean; percent?: number; confirmedAssignment?: boolean }>; warnings: string[] };
+  forecast?: { turns: Array<{ id: string; title: string; propertyName: string; expectedStartDate: string; moveInDate?: string | null; projectedStart: boolean; percent?: number; confirmedAssignment?: boolean }>; warnings: string[] };
   target: { id: string; fullName: string };
   stats: { total: number; overdue: number; dueSoon: number; openChecklistTasks: number };
   items: Array<MakeReadyItem & { expectedStart?: { date: string; projected: boolean } | null; checklistInstances: ChecklistInstance[]; workAssignmentBlocks?: WorkAssignmentBlock[] }>;
@@ -2287,6 +2287,8 @@ export type CustomField = {
 };
 
 export type Unit = {
+  currentResidentLeaseStartDate?: string | null;
+  currentResidentLeaseEndDate?: string | null;
   currentResidentMoveInDate?: string | null;
   currentResidentName?: string | null;
   id: string;
@@ -4203,6 +4205,8 @@ export function getOperationsUnits(propertyId?: string, includeArchived = true) 
 }
 
 export type UnitWriteInput = {
+  currentResidentLeaseStartDate?: string | null;
+  currentResidentLeaseEndDate?: string | null;
   propertyId: string;
   number: string;
   floorPlanId?: string | null;
@@ -4218,6 +4222,8 @@ export type UnitWriteInput = {
 };
 
 export type UnitImportInput = {
+  currentResidentLeaseStartDate?: string | null;
+  currentResidentLeaseEndDate?: string | null;
   currentResidentMoveInDate?: string | null;
   currentResidentName?: string | null;
   number: string;
@@ -4319,9 +4325,9 @@ export function importUnits(input: { propertyId: string; units: UnitImportInput[
   });
 }
 
-export type AvailabilityReconciliationInput = { fullReport?: boolean; reportDate?: string; archivePreviewToken?: string };
+export type AvailabilityReconciliationInput = { fullReport?: boolean; reportDate?: string; archivePreviewToken?: string; confirmedOccupiedIds?: string[] };
 export function previewAvailabilityArchives(input: { propertyId: string; rows: AvailabilityImportInput[]; reportDate: string }) {
-  return request<{ token: string; candidates: Array<{ id: string; unitNumber: string; moveInDate: string }> }>("/operations/availability/import", { method: "POST", body: JSON.stringify({ ...input, fullReport: true, previewOnly: true }) });
+  return request<{ token: string; candidates: Array<{ id: string; unitNumber: string; moveInDate: string }>; reviewCandidates: Array<{ id: string; unitNumber: string; vacancyStatus: string | null }> }>("/operations/availability/import", { method: "POST", body: JSON.stringify({ ...input, fullReport: true, previewOnly: true }) });
 }
 export function importAvailability(input: { propertyId: string; rows: AvailabilityImportInput[]; updateExisting?: boolean; createTurns?: boolean; overrideConflicts?: boolean; keepLocalConflicts?: boolean } & AvailabilityReconciliationInput) {
   return request<AvailabilityImportResult>("/operations/availability/import", {
@@ -5406,6 +5412,9 @@ export function getWebhookHealth(id: string) {
 export type TurnMaterial = { id: string; name: string; quantity: number; unit: string; status: "NEEDED" | "NEED_TO_ORDER" | "ORDERED" | "ON_HAND" | "USED" | "CANCELLED"; notes: string };
 export type UnitWorkNotes = { notes: string; version: number; readOnly: boolean };
 export function getUnitWorkNotes(id: string) { return request<UnitWorkNotes>(`/make-ready-items/${id}/work-notes`); }
+export function renewMakeReadyItem(id: string, input: { leaseStartDate?: string; leaseEndDate: string }) {
+  return request<MakeReadyItem>(`/make-ready-items/${id}/renew`, { method: "POST", body: JSON.stringify(input) });
+}
 export function saveUnitWorkNotes(id: string, input: { notes: string; version: number }) { return request<UnitWorkNotes>(`/make-ready-items/${id}/work-notes`, { method: "PUT", body: JSON.stringify(input) }); }
 export type TurnMaterials = { rows: TurnMaterial[]; version: number; readOnly: boolean };
 export function getTurnMaterials(id: string) { return request<TurnMaterials>(`/make-ready-items/${id}/materials`); }

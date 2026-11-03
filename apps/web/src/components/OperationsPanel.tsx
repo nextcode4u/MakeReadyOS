@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getUnitHistory, isApiError, previewAvailabilityArchives, type AvailabilityReconciliationInput, type AvailabilityImportConflict, type AvailabilityImportConflictResponse, type AvailabilityImportInput, type AvailabilityImportResult, type BoardSection, type FloorPlan, type LabelDefinition, type MakeReadyItem, type OperatingCalendar, type OperatingCalendarInput, type Property, type RiskPolicy, type StaffOption, type Unit, type UserRole } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { Modal } from "./Modal";
 import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
 import { StatusState } from "./StatusState";
 import { HistoryCoverageNotice } from "./HistoryCoverageNotice";
@@ -72,6 +73,8 @@ type Props = {
 };
 
 type UnitInput = {
+  currentResidentLeaseStartDate?: string;
+  currentResidentLeaseEndDate?: string;
   propertyId: string;
   number: string;
   floorPlanId: string | null;
@@ -87,6 +90,8 @@ type UnitInput = {
 };
 
 type UnitImportInput = {
+  currentResidentLeaseStartDate?: string | null;
+  currentResidentLeaseEndDate?: string | null;
   currentResidentMoveInDate?: string | null;
   currentResidentName?: string | null;
   number: string;
@@ -180,13 +185,14 @@ const unitDirectoryAiPrompt = `You are converting a property unit directory or a
 Return a CSV file if your interface supports file attachments. If not, return only one fenced csv block and no extra explanation.
 
 Required header, exactly:
-unit,building,area,floor,floorPlan,beds,baths,sqft,occupancyStatus,budgeted,currentResidentName,currentResidentMoveInDate
+unit,building,area,floor,floorPlan,beds,baths,sqft,occupancyStatus,budgeted,currentResidentName,currentResidentMoveInDate,currentResidentLeaseStartDate,currentResidentLeaseEndDate
 
 Rules:
 - One row per unit only.
 - Include explicitly identified current resident names in currentResidentName. Never use future applicants or resident IDs; leave unknown names blank.
 - Include the current occupant's original move-in date in currentResidentMoveInDate as YYYY-MM-DD, not a future applicant's scheduled date. Leave unknown dates blank.
-- Do not include totals, summaries, page headers, footers, blank lines, rent, lease dates, phone numbers, emails, or private notes.
+- Include the current occupant's lease start/end dates in currentResidentLeaseStartDate/currentResidentLeaseEndDate as YYYY-MM-DD. Leave unknown dates blank; never substitute move-in or future applicant dates.
+- Do not include totals, summaries, page headers, footers, blank lines, rent, phone numbers, emails, or private notes.
 - If the export only has unit, floor plan, and square footage, leave unknown columns blank and set occupancyStatus to UNKNOWN.
 - Preserve leading zeroes in unit numbers.
 - Use building only when the source clearly has a building/building number. Leave blank for properties with unit numbers only.
@@ -667,7 +673,7 @@ export function OperationsPanel({
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget>(null);
   const [propertyDraft, setPropertyDraft] = useState({ name: "", code: "", occupancyGoalPercent: "" });
   const [newProperty, setNewProperty] = useState({ name: "", code: "", occupancyGoalPercent: "" });
-  const [unitDraft, setUnitDraft] = useState({ propertyId: "", number: "", floorPlanId: "", floorPlan: "", squareFeet: "", bedrooms: "", bathrooms: "", occupancyStatus: "OCCUPIED" as Unit["occupancyStatus"], building: "", area: "", floor: "", isBudgeted: true });
+  const [unitDraft, setUnitDraft] = useState({ propertyId: "", number: "", floorPlanId: "", floorPlan: "", squareFeet: "", bedrooms: "", bathrooms: "", occupancyStatus: "OCCUPIED" as Unit["occupancyStatus"], building: "", area: "", floor: "", isBudgeted: true, currentResidentLeaseStartDate: "", currentResidentLeaseEndDate: "" });
   const [newUnit, setNewUnit] = useState({ propertyId: "", number: "", floorPlanId: "", floorPlan: "", squareFeet: "", bedrooms: "", bathrooms: "", occupancyStatus: "OCCUPIED" as Unit["occupancyStatus"], building: "", area: "", floor: "", isBudgeted: true });
   const [unitImportText, setUnitImportText] = useState("");
   const [unitImportError, setUnitImportError] = useState("");
@@ -675,6 +681,8 @@ export function OperationsPanel({
   const [lastImport, setLastImport] = useState<UnitImportResult | null>(null);
   const [availabilityImportText, setAvailabilityImportText] = useState("");
   const [availabilityFullReport, setAvailabilityFullReport] = useState(false);
+  const [occupiedReview, setOccupiedReview] = useState<{ items: Array<{ id: string; unitNumber: string; vacancyStatus: string | null }>; resolve: (ids: string[] | null) => void } | null>(null);
+  const [confirmedOccupiedIds, setConfirmedOccupiedIds] = useState<string[]>([]);
   const [availabilityReportDate, setAvailabilityReportDate] = useState("");
   const [availabilityImportError, setAvailabilityImportError] = useState("");
   const [showAvailabilityImportHelp, setShowAvailabilityImportHelp] = useState(false);
@@ -1033,6 +1041,8 @@ export function OperationsPanel({
       area: selectedUnit.area ?? "",
       floor: selectedUnit.floor ?? "",
       isBudgeted: selectedUnit.isBudgeted,
+      currentResidentLeaseStartDate: normalizeDateOnly(selectedUnit.currentResidentLeaseStartDate),
+      currentResidentLeaseEndDate: normalizeDateOnly(selectedUnit.currentResidentLeaseEndDate),
     });
   }, [selectedUnit]);
 
@@ -1113,7 +1123,7 @@ export function OperationsPanel({
     if (rows.length === 0) throw new Error(language === "es" ? "Pegue filas CSV antes de importar." : "Paste CSV rows before importing.");
     const delimiter = detectDelimitedInput(rows[0]);
     const firstCells = splitDelimitedLine(rows[0], delimiter).map(normalizeHeader);
-    const hasHeader = firstCells.some((cell) => ["unit", "number", "unitnumber", "occupancystatus", "availabilitystatus"].includes(cell));
+    const hasHeader = firstCells.some((cell) => ["unit", "number", "unitnumber", "bldgunit", "occupancystatus", "availabilitystatus"].includes(cell));
     const headers = hasHeader
       ? firstCells
       : inferHeaderlessUnitHeaders(firstCells.length);
@@ -1137,6 +1147,13 @@ export function OperationsPanel({
       const imported: UnitImportInput = { number };
       const currentResidentMoveInDate = normalizeImportedDate(valueAt(cells, ["currentresidentmoveindate", "occupantmoveindate", "residentmoveindate", "moveindate", "movein"]));
       if (currentResidentMoveInDate) imported.currentResidentMoveInDate = currentResidentMoveInDate;
+      for (const [field, aliases] of [
+        ["currentResidentLeaseStartDate", ["currentresidentleasestartdate", "leasestartdate", "leasestart"]],
+        ["currentResidentLeaseEndDate", ["currentresidentleaseenddate", "leaseenddate", "leaseend"]],
+      ] as const) {
+        const value = valueAt(cells, [...aliases]);
+        if (value.trim()) imported[field] = normalizeImportedDate(value);
+      }
       const currentResidentName = cleanImportedTextCell(valueAt(cells, currentResidentHeaders));
       if (currentResidentName) imported.currentResidentName = currentResidentName;
       const floorPlan = cleanImportedTextCell(valueAt(cells, ["floorplan", "floorplancode", "plancode", "plan", "planname", "unittype", "unittypename", "unitplan"]));
@@ -1272,6 +1289,8 @@ export function OperationsPanel({
           summary: [
             unit.currentResidentMoveInDate ? `${isSpanish ? "Fecha de ingreso" : "Moved in"}: ${unit.currentResidentMoveInDate}` : null,
             unit.currentResidentName ? `${isSpanish ? "Residente" : "Resident"}: ${unit.currentResidentName}` : null,
+            unit.currentResidentLeaseStartDate ? `${isSpanish ? "Inicio de contrato" : "Lease start"}: ${unit.currentResidentLeaseStartDate}` : null,
+            unit.currentResidentLeaseEndDate ? `${isSpanish ? "Fin de contrato" : "Lease end"}: ${unit.currentResidentLeaseEndDate}` : null,
             unit.building ? `${isSpanish ? "Edificio" : "Building"} ${unit.building}` : null,
             unit.floorPlan ? `${isSpanish ? "Plano" : "Plan"} ${unit.floorPlan}` : null,
             unit.squareFeet ? `${unit.squareFeet} ${isSpanish ? "pies²" : "sq ft"}` : null,
@@ -1283,6 +1302,9 @@ export function OperationsPanel({
         const existingUnit = existingByNumber.get(row.number.toUpperCase());
         if (!existingUnit) return [];
         const changedFields: string[] = [];
+        for (const [field, label] of [["currentResidentLeaseStartDate", isSpanish ? "Inicio de contrato" : "Lease start"], ["currentResidentLeaseEndDate", isSpanish ? "Fin de contrato" : "Lease end"]] as const) {
+          if (row[field] && normalizePreviewDate(row[field]) !== normalizePreviewDate(existingUnit[field])) changedFields.push(`${label}: ${normalizePreviewDate(existingUnit[field]) || "-"} -> ${row[field]}`);
+        }
         if (row.currentResidentMoveInDate && normalizePreviewDate(row.currentResidentMoveInDate) !== normalizePreviewDate(existingUnit.currentResidentMoveInDate)) changedFields.push(`${isSpanish ? "Fecha de ingreso" : "Occupant move-in"}: ${normalizePreviewDate(existingUnit.currentResidentMoveInDate) || "-"} -> ${row.currentResidentMoveInDate}`);
         if (row.currentResidentName && row.currentResidentName !== existingUnit.currentResidentName) changedFields.push(`${isSpanish ? "Residente" : "Resident"}: ${existingUnit.currentResidentName || "-"} -> ${row.currentResidentName}`);
         if (hasImportedValue(row.floorPlan) && (row.floorPlan ?? "") !== (existingUnit.floorPlan ?? "")) changedFields.push(`${isSpanish ? "Plano" : "Floor plan"}: ${existingUnit.floorPlan || (isSpanish ? "vacío" : "blank")} -> ${row.floorPlan}`);
@@ -1297,6 +1319,17 @@ export function OperationsPanel({
       }).sort((left, right) => compareUnitLike(left.unit, right.unit));
       return {
         rows: parsed.length,
+        residentRows: parsed.map(row => {
+          const existingUnit = existingByNumber.get(row.number.toUpperCase());
+          return {
+            number: row.number,
+            name: row.currentResidentName || existingUnit?.currentResidentName || "",
+            dates: (["currentResidentMoveInDate", "currentResidentLeaseStartDate", "currentResidentLeaseEndDate"] as const).map(field => ({
+              value: normalizePreviewDate(row[field] || existingUnit?.[field]),
+              preserved: !row[field] && Boolean(existingUnit?.[field]),
+            })),
+          };
+        }),
         creates: parsed.filter((unit) => !existing.has(unit.number.toUpperCase())).length,
         updates: parsed.filter((unit) => existing.has(unit.number.toUpperCase())).length,
         budgeted: parsed.filter((unit) => unit.isBudgeted !== false).length,
@@ -1483,11 +1516,18 @@ export function OperationsPanel({
       const parsedRows = parseAvailabilityRows();
       if (availabilityFullReport && availabilityDateInfo.error) throw new Error(availabilityDateInfo.error);
       const archivePreview = availabilityFullReport ? await previewAvailabilityArchives({ propertyId: selectedPropertyId, rows: parsedRows, reportDate: effectiveAvailabilityReportDate }) : null;
+      let occupiedIds: string[] = [];
+      if (archivePreview?.reviewCandidates?.length) {
+        setConfirmedOccupiedIds([]);
+        const selection = await new Promise<string[] | null>(resolve => setOccupiedReview({ items: archivePreview.reviewCandidates, resolve }));
+        if (selection === null) return;
+        occupiedIds = selection;
+      }
       if (archivePreview && !window.confirm(`Full report reconciliation for ${selectedProperty.code} (${effectiveAvailabilityReportDate}):\n${archivePreview.candidates.length ? archivePreview.candidates.map(item => `${item.unitNumber}: move-in ${item.moveInDate.slice(0, 10)} -> Occupied / Archive`).join("\n") : "No missing ready units qualify for archive."}\n\nConfirm this report includes ALL available units for this property, not a filtered or partial list.`)) return;
       if (!window.confirm(isSpanish
         ? `Importar ${parsedRows.length} filas de disponibilidad a ${selectedProperty.code} - ${selectedProperty.name}? Se actualizaran la ocupacion y el tablero de esta propiedad.${overrideConflicts ? " Se sobrescribiran los conflictos locales." : keepLocalConflicts ? " Las unidades con conflictos se conservaran sin cambios; se importaran las demas." : ""}`
         : `Import ${parsedRows.length} availability rows into ${selectedProperty.code} - ${selectedProperty.name}? This will update occupancy and board records for this property.${overrideConflicts ? " Local conflicts will be overwritten." : keepLocalConflicts ? " Conflicting units will stay unchanged; all other rows will be imported." : ""}`)) return;
-      const result = await onImportAvailability({ propertyId: selectedPropertyId, rows: parsedRows, updateExisting: true, createTurns: true, overrideConflicts, keepLocalConflicts, fullReport: availabilityFullReport, reportDate: effectiveAvailabilityReportDate, archivePreviewToken: archivePreview?.token });
+      const result = await onImportAvailability({ propertyId: selectedPropertyId, rows: parsedRows, updateExisting: true, createTurns: true, overrideConflicts, keepLocalConflicts, fullReport: availabilityFullReport, reportDate: effectiveAvailabilityReportDate, archivePreviewToken: archivePreview?.token, confirmedOccupiedIds: occupiedIds });
       setLastAvailabilityImport(result);
       setAvailabilityImportText("");
       setAvailabilityFullReport(false);
@@ -1789,8 +1829,13 @@ export function OperationsPanel({
               <label>{isSpanish ? "Área" : "Area"}<input data-testid="unit-edit-area" value={unitDraft.area} onChange={(event) => setUnitDraft((current) => ({ ...current, area: event.target.value }))} /></label>
               <label>{isSpanish ? "Piso" : "Floor"}<input data-testid="unit-edit-floor" value={unitDraft.floor} onChange={(event) => setUnitDraft((current) => ({ ...current, floor: event.target.value }))} /></label>
               <label>{isSpanish ? "Ocupación" : "Occupancy"}<select data-testid="unit-edit-occupancy" value={unitDraft.occupancyStatus} onChange={(event) => setUnitDraft((current) => ({ ...current, occupancyStatus: event.target.value as Unit["occupancyStatus"] }))}>{occupancyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+              {(["currentResidentLeaseStartDate", "currentResidentLeaseEndDate"] as const).map((field, index) => <label key={field}>
+                {isSpanish ? (index === 0 ? "Inicio de contrato" : "Fin de contrato") : (index === 0 ? "Lease start" : "Lease end")}
+                <input data-testid={index === 0 ? "unit-edit-lease-start" : "unit-edit-lease-end"} type="date" value={unitDraft[field]} onChange={event => setUnitDraft(current => ({ ...current, [field]: event.target.value }))} />
+              </label>)}
+              <small>{isSpanish ? "Fechas para correcciones históricas. Vacío conserva el valor existente. Use Registrar renovación para una renovación." : "Dates for historical corrections. Blank preserves the existing value. Use Record renewal for a renewal."}</small>
               <div className="admin-actions span-full">
-                <button data-testid="unit-save" className="button button-primary" onClick={() => void onUpdateUnit(selectedUnit.id, { propertyId: unitDraft.propertyId, number: unitDraft.number, floorPlanId: unitDraft.floorPlanId || null, floorPlan: unitDraft.floorPlan || null, squareFeet: unitDraft.squareFeet ? Number(unitDraft.squareFeet) : null, bedrooms: unitDraft.bedrooms ? Number(unitDraft.bedrooms) : null, bathrooms: unitDraft.bathrooms ? Number(unitDraft.bathrooms) : null, occupancyStatus: unitDraft.occupancyStatus, building: unitDraft.building || null, area: unitDraft.area || null, floor: unitDraft.floor || null, isBudgeted: unitDraft.isBudgeted })}>{isSpanish ? "Guardar" : "Save"}</button>
+                <button data-testid="unit-save" className="button button-primary" onClick={() => void onUpdateUnit(selectedUnit.id, { propertyId: unitDraft.propertyId, number: unitDraft.number, floorPlanId: unitDraft.floorPlanId || null, floorPlan: unitDraft.floorPlan || null, squareFeet: unitDraft.squareFeet ? Number(unitDraft.squareFeet) : null, bedrooms: unitDraft.bedrooms ? Number(unitDraft.bedrooms) : null, bathrooms: unitDraft.bathrooms ? Number(unitDraft.bathrooms) : null, occupancyStatus: unitDraft.occupancyStatus, building: unitDraft.building || null, area: unitDraft.area || null, floor: unitDraft.floor || null, isBudgeted: unitDraft.isBudgeted, ...(unitDraft.currentResidentLeaseStartDate ? { currentResidentLeaseStartDate: unitDraft.currentResidentLeaseStartDate } : {}), ...(unitDraft.currentResidentLeaseEndDate ? { currentResidentLeaseEndDate: unitDraft.currentResidentLeaseEndDate } : {}) })}>{isSpanish ? "Guardar" : "Save"}</button>
                 <button data-testid={selectedUnit.isActive ? "unit-archive" : "unit-restore"} className={selectedUnit.isActive ? "button button-danger" : "button button-secondary"} onClick={() => selectedUnit.isActive ? setConfirmTarget({ type: "unit", operation: "archive", record: selectedUnit }) : void onArchiveUnit(selectedUnit.id, true)}>{selectedUnit.isActive ? (isSpanish ? "Archivar" : "Archive") : (isSpanish ? "Restaurar" : "Restore")}</button>
                 {!selectedUnit.isActive ? <button data-testid="unit-delete" className="button button-danger" onClick={() => setConfirmTarget({ type: "unit", operation: "delete", record: selectedUnit })}>{isSpanish ? "Eliminar" : "Delete"}</button> : null}
               </div>
@@ -1976,9 +2021,10 @@ export function OperationsPanel({
                   : `Last availability import to ${lastAvailabilityImport.property.code}: ${lastAvailabilityImport.summary.turnsCreated} turns created, ${lastAvailabilityImport.summary.turnsUpdated} turns updated, ${lastAvailabilityImport.summary.unitsCreated} units created, ${lastAvailabilityImport.summary.unitsUpdated} units updated.`}
               </div>
             ) : null}
-            <label><input type="checkbox" data-testid="availability-full-report" checked={availabilityFullReport} onChange={event => setAvailabilityFullReport(event.target.checked)} /> Full property report: reconcile missing ready units after move-in</label>
+            <label><input type="checkbox" data-testid="availability-full-report" checked={availabilityFullReport} onChange={event => setAvailabilityFullReport(event.target.checked)} /> {isSpanish ? "Reporte completo: conciliar ingresos y revisar unidades faltantes" : "Full property report: reconcile move-ins and review missing units"}</label>
             {availabilityFullReport ? <div>{availabilityDateInfo.error ? <p role="alert">{availabilityDateInfo.error}</p> : availabilityDateInfo.date ? <p data-testid="availability-report-date-detected">Report date: <strong>{availabilityDateInfo.date}</strong> (from your file)</p> : <label>Report date (not supplied in file)<input type="date" data-testid="availability-report-date" value={availabilityReportDate} onChange={event => setAvailabilityReportDate(event.target.value)} /></label>}<small>Use only a complete, unfiltered report. Missing ready units with move-in dates before this date will be previewed, marked occupied, and archived. Partial imports never archive omitted units.</small></div> : null}
-            {lastAvailabilityImport?.summary.turnsArchived ? <p>{lastAvailabilityImport.summary.turnsArchived} missing ready units marked occupied and archived.</p> : null}
+            {availabilityFullReport ? <p>{isSpanish ? "La ausencia por sí sola no confirma ocupación ni cancelación de salida. Confirme estos cambios antes de seleccionar una unidad. Las no seleccionadas permanecen activas; el trabajo pendiente no se marca completo. Use Registrar renovación para guardar las fechas de renovación." : "Absence alone is not evidence of occupancy or a canceled move-out. Confirm these changes before selecting a unit. Unselected turns stay active; unfinished work is never marked complete. Use Record renewal to save renewal dates."}</p> : null}
+            {lastAvailabilityImport?.summary.turnsArchived ? <p>{lastAvailabilityImport.summary.turnsArchived} {isSpanish ? "rotaciones cerradas y archivadas como ocupadas." : "turns marked occupied and archived."}</p> : null}
             {lastAvailabilityImport?.preservedUnits?.length ? (
               <p role="status" className="admin-message warning" data-testid="availability-import-preserved">
                 {isSpanish ? "Importacion completada. Unidades conservadas sin cambios locales" : "Import completed. Units kept unchanged with local values"}: {lastAvailabilityImport.preservedUnits.join(", ")}.
@@ -2010,13 +2056,19 @@ export function OperationsPanel({
               <input
                 data-testid="unit-import-file"
                 type="file"
-                accept=".csv,.txt,.tsv,.xml,text/csv,text/tab-separated-values,text/plain,application/xml,text/xml"
+                accept=".xls,.csv,.txt,.tsv,.xml,application/vnd.ms-excel,text/csv,text/tab-separated-values,text/plain,application/xml,text/xml"
                 onChange={(event) => {
                   const file = event.currentTarget.files?.[0];
                   if (!file) return;
-                  void file.text()
+                  event.currentTarget.value = "";
+                  setUnitImportError("");
+                  setUnitImportText("");
+                  const textPromise = /\.xls$/i.test(file.name)
+                    ? import("../lib/allUnitsXls").then(({ readAllUnitsXls }) => readAllUnitsXls(file))
+                    : file.text();
+                  void textPromise
                     .then((text) => setUnitImportText(normalizeImportSourceText(text, "unitDirectory")))
-                    .catch(() => setUnitImportError(isSpanish ? "No se pudo leer ese archivo." : "Could not read that file."));
+                    .catch((error: unknown) => setUnitImportError(error instanceof Error ? error.message : (isSpanish ? "No se pudo leer ese archivo." : "Could not read that file.")));
                 }}
               />
               <button type="button" className="button button-secondary" onClick={() => setUnitImportText(unitDirectoryImportSamples.standard)}>{isSpanish ? "Cargar ejemplo" : "Load sample"}</button>
@@ -2050,6 +2102,16 @@ export function OperationsPanel({
               </div>
             ) : null}
             <textarea data-testid="unit-import-csv" rows={5} value={unitImportText} onChange={(event) => setUnitImportText(event.target.value)} placeholder={"unit\tbuilding\tfloorPlan\tbeds\tbaths\tsqft\toccupancyStatus\n101\t1\tA1\t1\t1\t720\tOCCUPIED"} />
+            <p className="helper-copy">{isSpanish ? "Cargue directamente All Units de Crystal Reports (.xls). Revise residente, ingreso e inicio/fin del contrato. Las fechas vacías conservan las existentes; no se cambian estados ni rotaciones." : "Upload Crystal Reports All Units (.xls) directly. Review resident, move-in, and lease start/end dates below. Blank dates preserve existing dates; statuses and turns are unchanged."}</p>
+            {unitImportPreview ? <div className="table-scroll" role="region" aria-label={isSpanish ? "Vista previa de residentes y contratos" : "Resident and lease preview"} tabIndex={0} style={{ overflow: "auto", maxHeight: 320 }}>
+              <table data-testid="unit-import-resident-preview">
+                <thead><tr>{(isSpanish ? ["Unidad", "Residente", "Ingreso", "Inicio de contrato", "Fin de contrato"] : ["Unit", "Resident", "Move-in", "Lease start", "Lease end"]).map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
+                <tbody>{unitImportPreview.residentRows.map(row => <tr key={row.number}>
+                  <td>{row.number}</td><td>{row.name || "-"}</td>
+                  {row.dates.map((date, index) => <td key={index}>{date.value || "-"}{date.preserved ? <small> ({isSpanish ? "se conserva" : "preserved"})</small> : null}</td>)}
+                </tr>)}</tbody>
+              </table>
+            </div> : null}
             {unitImportPreview ? (
               <div className="unit-import-preview" data-testid="unit-import-preview">
                 {unitImportPreview.ignoredRows.length ? (
@@ -2553,6 +2615,10 @@ export function OperationsPanel({
         </article>
       </section> : null}
 
+      <Modal open={occupiedReview !== null} title={isSpanish ? "Revisar unidades faltantes" : "Review missing units"} testId="availability-occupied-review" onClose={() => { occupiedReview?.resolve(null); setOccupiedReview(null); }} actions={<button className="button button-primary" type="button" onClick={() => { occupiedReview?.resolve(confirmedOccupiedIds); setOccupiedReview(null); }}>{isSpanish ? "Continuar importación" : "Continue import"}</button>}>
+        <p>{isSpanish ? "Estas unidades ya no aparecen en el reporte completo. La ausencia por sí sola no es evidencia. Seleccione solo unidades confirmadas ocupadas o con salida cancelada. Se cerrará la rotación y se cancelará el trabajo pendiente, sin aprobar reparaciones ni inspecciones. Las demás permanecen activas. Use Registrar renovación para guardar las fechas de renovación." : "These units are missing from the full report. Absence alone is not evidence. Select only units confirmed occupied or with a canceled move-out. Their turns will close and pending work will be canceled, without approving repairs or inspections. All others stay active. Use Record renewal to save renewal dates."}</p>
+        {occupiedReview?.items.map(item => <label key={item.id} style={{ display: "block", margin: "12px 0" }}><input type="checkbox" checked={confirmedOccupiedIds.includes(item.id)} onChange={event => setConfirmedOccupiedIds(ids => event.target.checked ? [...ids, item.id] : ids.filter(id => id !== item.id))} /> {item.unitNumber} / {item.vacancyStatus ?? "Unknown"} / {isSpanish ? "Confirmar ocupada / salida cancelada" : "Confirm occupied / canceled move-out"}</label>)}
+      </Modal>
       <ConfirmDialog
         open={Boolean(confirmTarget)}
         language={language}

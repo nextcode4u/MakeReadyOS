@@ -1913,6 +1913,9 @@ function App() {
         ? t(meQuery.data?.user.language ?? "en", "updates.cardMoved")
         : t(meQuery.data?.user.language ?? "en", "updates.itemUpdated");
       pushToast(title, tWithVars(meQuery.data?.user.language ?? "en", "updates.fieldSaved", { field: humanizeField(field) }), "success");
+      if (variables.data.vacancyStatus === "OCCUPIED") {
+        for (const key of ["meta", "operations", "planning", "assigned-work"]) void queryClient.invalidateQueries({ queryKey: [key] });
+      }
       queryClient.invalidateQueries({ queryKey: ["make-ready-items"] });
       queryClient.invalidateQueries({ queryKey: ["final-walk"] });
       queryClient.invalidateQueries({ queryKey: ["my-work"] });

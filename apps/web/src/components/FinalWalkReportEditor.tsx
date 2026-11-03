@@ -296,7 +296,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
         })}>{turnText(language, busy ? "Saving..." : draftDirty ? "Save inspection & mark ready" : "Mark unit ready")}</button>
         {settingsDirty ? <p>{turnText(language, "Save or reload your report wording changes before marking ready.")}</p> : null}
         {error ? <CompletionNotice error message={error} language={language} testId="final-report-ready-error" /> : null}
-        {initial.canOverrideCompletion ? <details className="final-report-move-in" data-testid="final-report-override">
+        {initial.canOverrideCompletion ? <details open={!!error} className="final-report-move-in" data-testid="final-report-override">
           <summary>{turnText(language, "Manager / admin override: mark Ready")}</summary>
           <p>{turnText(language, "Also assigned as the technician? Normal approval requires an independent inspector. As a manager or admin, you can explicitly override this rule and other completion blockers here.")}</p>
           <p>{turnText(language, "This records Ready status, not an independent inspection. Unfinished checks and report records stay unchanged; pending final-walk assignments are canceled. Your reason and bypassed blockers are recorded in the audit history.")}</p>

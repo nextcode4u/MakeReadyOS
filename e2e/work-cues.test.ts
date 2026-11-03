@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { hasActiveCorrections, moveInCountdown, turnWorkCategory, workCategoryLabel } from "../apps/web/src/lib/workCues.js";
+import { hasActiveCorrections, moveInCountdown, turnWorkCategory, workCategoryLabel, upcomingMoveInWindow } from "../apps/web/src/lib/workCues.js";
 import { myWorkCue } from "../apps/web/src/lib/myWorkCue.js";
+
+test("upcoming turn windows compare calendar dates and flag impossible or same-day schedules", () => {
+  assert.equal(upcomingMoveInWindow("2026-11-18", "2026-11-21T00:00:00Z", "en")?.label, "3 days between start and move-in");
+  assert.equal(upcomingMoveInWindow("2026-10-31", "2026-11-02", "en")?.days, 2);
+  assert.equal(upcomingMoveInWindow("2026-03-07", "2026-03-09", "en")?.days, 2);
+  assert.equal(upcomingMoveInWindow("2026-12-31", "2027-01-01", "en")?.label, "1 day between start and move-in");
+  assert.equal(upcomingMoveInWindow("2026-11-18", "2026-11-18", "en")?.warning, true);
+  assert.equal(upcomingMoveInWindow("2026-11-18", "2026-11-17", "en")?.label, "Warning: move-in 1 day before start");
+  assert.equal(upcomingMoveInWindow("2026-11-18", "2026-11-21", "es")?.label, "3 días entre inicio y mudanza");
+  for (const date of [null, undefined, "", "bad", "2026-02-30"]) assert.equal(upcomingMoveInWindow("2026-11-18", date, "en"), null);
+  assert.equal(upcomingMoveInWindow("bad", "2026-11-18", "en"), null);
+});
 
 test("move-in countdown distinguishes upcoming, today, past and missing dates", () => {
   assert.equal(moveInCountdown(3, "en"), "3 days till move-in");

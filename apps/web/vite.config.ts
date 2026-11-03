@@ -16,6 +16,9 @@ export default defineConfig({
           if (!id.includes("node_modules")) {
             return undefined;
           }
+          if (id.includes("/xlsx/")) {
+            return "spreadsheet-import";
+          }
           if (id.includes("@tanstack/react-query")) {
             return "query";
           }

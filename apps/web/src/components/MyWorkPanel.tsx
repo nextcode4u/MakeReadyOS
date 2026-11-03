@@ -11,7 +11,7 @@ import { LabelPill } from "./LabelPill";
 import { statusDisplayName } from "../lib/statusDisplayName";
 import { awaitingFinalWalk, normalizeTurnStatus } from "../lib/turnStatus";
 import { StatusState } from "./StatusState";
-import { hasActiveCorrections, moveInCountdown, turnWorkCategory, workCategoryLabel } from "../lib/workCues";
+import { hasActiveCorrections, moveInCountdown, turnWorkCategory, workCategoryLabel, upcomingMoveInWindow } from "../lib/workCues";
 
 type Props = {
   data?: MyWorkResponse;
@@ -312,9 +312,15 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
         <p className="helper-copy">{language === "es" ? "Las unidades con salida futura esperan aquí, incluso si ya están asignadas. Un cambio en la fecha de salida actualiza el inicio previsto sin borrar el trabajo. Las asignaciones tentativas pueden cambiar; no son instrucciones para iniciar trabajo." : "Units awaiting a future move-out stay here, including those already assigned. A changed move-out date updates the expected start without erasing work. Tentative assignments can change; these are not instructions to start work."}</p>
         {data.forecast?.warnings.map(warning => <p key={warning} role="status">{warning}</p>)}
         {!data.forecast?.turns.length ? <p className="empty-copy">{language === "es" ? "No hay turnos tentativos próximos. Se necesita un reparto habilitado y fechas de salida previstas." : "No tentative upcoming turns. Forecasts need an enabled staff split and expected vacancy dates."}</p> : <div className="my-work-list">
-          {data.forecast.turns.map(turn => <article className="my-work-card" key={turn.id} data-testid={`my-work-forecast-${turn.id}`}>
+          {data.forecast.turns.map(turn => {
+            const window = upcomingMoveInWindow(turn.expectedStartDate, turn.moveInDate, language);
+            return <article className="my-work-card" key={turn.id} data-testid={`my-work-forecast-${turn.id}`}>
             <div><strong>{turn.title}</strong><span>{turn.propertyName}</span></div>
             <strong>{language === "es" ? "Inicio previsto" : "Expected start"}: {turn.expectedStartDate.slice(0, 10)}</strong>
+            {turn.moveInDate ? <div className="my-work-move-in" data-warning={window?.warning || undefined} data-testid={`my-work-forecast-move-in-${turn.id}`}>
+              <strong>{language === "es" ? "Mudanza" : "Move-in"}: {turn.moveInDate.slice(0, 10)}</strong>
+              {window ? <span>{window.label}</span> : null}
+            </div> : <small>{language === "es" ? "Mudanza no programada" : "Move-in not scheduled"}</small>}
             <div className="my-work-tags"><span>{turn.confirmedAssignment ? (language === "es" ? "Asignado · Esperando desocupación" : "Assigned · Awaiting move-out") : (language === "es" ? "Asignación tentativa" : "Tentative assignment")}</span><span>{turn.projectedStart ? (language === "es" ? "Fecha proyectada" : "Projected date") : (language === "es" ? "Fecha guardada" : "Saved start date")}</span>{turn.percent !== undefined ? <span>{turn.percent}% {language === "es" ? "del reparto de la propiedad" : "property share"}</span> : null}</div>
             <div className="my-work-actions"><button type="button" className="button button-secondary" onClick={() => onOpenItem(turn.id)}>{language === "es" ? "Ver unidad" : "View unit"}</button>
               {(data.activeSessions ?? []).filter(session => session.sourceType === "MAKE_READY_ITEM" && session.sourceId === turn.id).map(session => <span key={session.id}>
@@ -322,7 +328,7 @@ export function MyWorkPanel({ data, loading, error, currentUser, staff, labelsBy
                 {session.userId === currentUser.id || canManageSessions ? <button type="button" className="button button-secondary" onClick={() => void onEndWork(session.id)}>{language === "es" ? "Finalizar trabajo" : "End Work"}</button> : null}
               </span>)}
             </div>
-          </article>)}
+          </article>; })}
         </div>}
       </section>
     </section>

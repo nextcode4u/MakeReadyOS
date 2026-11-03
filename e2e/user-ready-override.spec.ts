@@ -18,7 +18,7 @@ test("admin technician explicitly overrides Ready from the inspection report", a
   await expect(report.getByTestId("final-report-ready-error")).toContainText("cannot approve their own final walk");
   await expect(page.getByTestId("external-ready-reminder")).toHaveCount(0);
   const override = report.getByTestId("final-report-override");
-  await override.getByText("Manager / admin override: mark Ready", { exact: true }).click();
+  await expect(override).toHaveAttribute("open", "");
   const submit = override.getByTestId("final-report-override-submit");
   await expect(submit).toBeDisabled();
   await override.getByTestId("final-report-override-reason").fill("Admin reviewed the unit and accepts the completion exception.");

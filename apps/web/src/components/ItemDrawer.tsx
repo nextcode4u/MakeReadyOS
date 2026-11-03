@@ -21,7 +21,7 @@ import { TurnReportPanel } from "./TurnReportPanel";
 import { TurnMaterialsPanel } from "./TurnMaterialsPanel";
 import { ResidentCodesPanel } from "./ResidentCodesPanel";
 import { AccessCodesPanel } from "./AccessCodesPanel";
-import { canViewKeycodes, reopenMakeReadyFinalWalk } from "../lib/api";
+import { canViewKeycodes, reopenMakeReadyFinalWalk, renewMakeReadyItem } from "../lib/api";
 import { awaitingFinalWalk, isTurnReady, turnStageLabel } from "../lib/turnStatus";
 import { HelpTip } from "./HelpTip";
 import { TurnHandoffSummary } from "./TurnHandoffSummary";
@@ -215,6 +215,10 @@ export function ItemDrawer({
   const [completedReportOpen, setCompletedReportOpen] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
   const [reopenReason, setReopenReason] = useState("");
+  const [renewalStart, setRenewalStart] = useState("");
+  const [renewalEnd, setRenewalEnd] = useState("");
+  const [renewalConfirmed, setRenewalConfirmed] = useState(false);
+  const [renewalError, setRenewalError] = useState("");
   const [reopenMessage, setReopenMessage] = useState("");
   const [overrideConfirmed, setOverrideConfirmed] = useState(false);
   const [error, setError] = useState("");
@@ -767,6 +771,34 @@ export function ItemDrawer({
         </header>
         {completedReportOpen ? <FinalWalkReportEditor language={language} key={item.id} propertyId={item.propertyId} propertyName={item.property.name} itemId={item.id} onClose={() => setCompletedReportOpen(false)} /> : null}
 
+        {canManageItems && item.unitId && !item.isArchived ? <details className="drawer-section" data-testid="record-renewal">
+          <summary>{language === "es" ? "Renovación / cancelar rotación" : "Record renewal / cancel turn"}</summary>
+          <p>{language === "es" ? "El residente permanece en la unidad. Registra la nueva fecha de fin del contrato para cerrar esta rotación y retirar el trabajo pendiente de Mi trabajo. No aprueba reparaciones ni inspecciones." : "The resident is staying. Record the new lease end date to close this turn and remove pending assignments from My Work. This does not approve repairs or inspections."}</p>
+          {historyQuery.data?.unit.currentResidentLeaseEndDate ? <p>{language === "es" ? "Fin del contrato registrado" : "Recorded lease end"}: {dateValue(historyQuery.data.unit.currentResidentLeaseEndDate)}</p> : null}
+          <div className="drawer-fields">
+            <label className="drawer-field"><span>{language === "es" ? "Nuevo inicio del contrato (opcional)" : "New lease start (optional)"}</span><input type="date" data-testid="renewal-start" value={renewalStart} onChange={event => { setRenewalStart(event.target.value); setRenewalError(""); }} disabled={saving !== null} /><small>{language === "es" ? "Si lo dejas vacío, conserva la fecha existente." : "Leave blank to preserve the existing start date."}</small></label>
+            <label className="drawer-field"><span>{language === "es" ? "Nuevo fin del contrato (obligatorio)" : "New lease end (required)"}</span><input type="date" required data-testid="renewal-end" value={renewalEnd} onChange={event => { setRenewalEnd(event.target.value); setRenewalError(""); }} disabled={saving !== null} /></label>
+          </div>
+          <label style={{ display: "block", marginTop: 12 }}><input type="checkbox" data-testid="renewal-confirm" checked={renewalConfirmed} onChange={event => setRenewalConfirmed(event.target.checked)} disabled={saving !== null} /> {language === "es" ? "Confirmo la renovación y que ya no se requiere esta rotación." : "I confirm the renewal and this turn is no longer needed."}</label>
+          {renewalError ? <p role="alert" className="drawer-error">{renewalError}</p> : null}
+          <button type="button" className="button button-secondary" data-testid="renewal-submit" disabled={saving !== null || !renewalEnd || !renewalConfirmed} onClick={async () => {
+            if (renewalStart && renewalEnd < renewalStart) {
+              setRenewalError(language === "es" ? "El fin del contrato debe ser igual o posterior al inicio." : "Lease end must be on or after lease start.");
+              return;
+            }
+            setSaving("renewal"); setRenewalError("");
+            try {
+              await renewMakeReadyItem(item.id, { leaseEndDate: renewalEnd, ...(renewalStart ? { leaseStartDate: renewalStart } : {}) });
+              for (const key of ["make-ready-items", "meta", "operations", "my-work", "assigned-work", "planning", "activity", "calendar", "dashboard", "unit-history"]) void queryClient.invalidateQueries({ queryKey: [key] });
+              onRefreshItem();
+              onClose();
+            } catch (cause) { setRenewalError(isApiError(cause) && cause.status === 400 && cause.message === "Request failed: 400"
+              ? (language === "es" ? "Revisa las fechas: el fin debe ser igual o posterior al inicio y no puede acortar el contrato registrado." : "Check the lease dates: the end must be on or after the start and cannot shorten the recorded lease.")
+              : cause instanceof Error ? cause.message : (language === "es" ? "No se pudo registrar la renovación." : "Could not record renewal.")); }
+            finally { setSaving(null); }
+          }}>{saving === "renewal" ? (language === "es" ? "Guardando renovación..." : "Saving renewal...") : (language === "es" ? "Guardar renovación y cerrar rotación" : "Save renewal and close turn")}</button>
+        </details> : null}
+
         {canManageItems && approved && !item.isArchived ? <details className="drawer-section" data-testid="reopen-final-walk">
           <summary>{turnText(language, "Reopen for final walk")}</summary>
           <p>{turnText(language, "This unit is currently treated as fully complete, so it will not appear in an inspector's My Work. Reopen it to clear overall approval and request another final walk. Completed repairs, painting, cleaning and report evidence are preserved.")}</p>
@@ -879,6 +911,7 @@ export function ItemDrawer({
                       {options.map((option) => <option key={option.id} value={option.value}>{statusDisplayName(option)}{option.isArchived ? " (archived)" : ""}</option>)}
                     </select>
                     {column.key === "makeReadyStatus" ? <small>{language === "es" ? "DONE termina reparaciones, no la aprobacion final." : "DONE finishes repairs, not final approval."}</small> : null}
+                    {column.key === "vacancyStatus" ? <small>{language === "es" ? "Ocupada cierra la rotación sin aprobar trabajo incompleto. Para una renovación, usa Registrar renovación y especifica el nuevo fin del contrato." : "Occupied closes the turn without approving unfinished work. For a renewal, use Record renewal to save the new lease end date."}</small> : null}
                   </label>
                 );
               }
@@ -992,6 +1025,10 @@ export function ItemDrawer({
 
         <section className="drawer-section completion-section" data-testid="drawer-completion-section">
           <h3>{t(language, "drawer.completionFinalWalk")}</h3>
+          {canManageItems && !item.isArchived && item.vacancyStatus === "OCCUPIED" ? <div className="completion-blockers">
+            <p>{language === "es" ? "Esta unidad ya está ocupada, pero su rotación sigue activa. Ciérrala para retirarla de Mi trabajo; no requiere marcarla Lista." : "This unit is already occupied, but its turn is still active. Close it to remove it from My Work; marking it Ready is not required."}</p>
+            <button type="button" className="button button-primary" data-testid="close-occupied-turn" disabled={saving !== null} onClick={() => void commit("vacancyStatus", "OCCUPIED")}>{language === "es" ? "Cerrar rotación ocupada" : "Close occupied turn"}</button>
+          </div> : null}
           <FinalWalkControls key={item.id} itemId={item.id} propertyId={item.propertyId} propertyName={item.property.name} currentUser={currentUser} onMarkReady={onMarkReady} />
           {["ADMIN", "MANAGER"].includes(currentUser.role) ? <TurnReportPanel language={language} key={`report-${item.id}`} item={item} isAdmin={currentUser.role === "ADMIN"}/> : null}
           <p className="drawer-empty">
@@ -1024,8 +1061,9 @@ export function ItemDrawer({
               {saving === "markReady" ? t(language, "drawer.markingReady") : t(language, "drawer.managerSignoffMarkReady")}
             </button>
           ) : null}
-          {canManageItems && !approved ? <details data-testid="completion-override" className="drawer-section">
+          {canManageItems && !approved ? <details open={!!error} data-testid="completion-override" className="drawer-section">
             <summary>Manager / admin override</summary>
+            <p>{language === "es" ? "Para una renovación, usa Registrar renovación y especifica el nuevo fin del contrato. Para una salida cancelada, cambia Vacancia a Ocupada. Ninguna opción aprueba trabajo incompleto." : "For a renewal, use Record renewal and enter the new lease end date. For a canceled move-out, change Vacancy to Occupied. Neither approves unfinished work."}</p>
             <p>Correct this unit to fully complete and move it to Ready Units, bypassing unfinished work and final-walk requirements. This does not certify an inspection or change individual task, parts, or report records. Pending final-walk assignments will be cancelled.</p>
             <label className="drawer-field">
               <span>Reason for override (required)</span>

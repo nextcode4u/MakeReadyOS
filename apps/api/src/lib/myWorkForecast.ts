@@ -21,7 +21,7 @@ export async function myWorkForecast(target: { id: string; fullName: string }, s
       where: { isActive: true, ...(scopedProperties ? { id: { in: scopedProperties } } : {}) },
       select: { id: true, code: true, name: true, operatingCalendar: true, turnAssignmentPolicy: true, boardSections: true },
     });
-    const result: Array<{ id: string; title: string; propertyName: string; expectedStartDate: string; projectedStart: boolean; percent?: number; confirmedAssignment?: boolean }> = [];
+    const result: Array<{ id: string; title: string; propertyName: string; expectedStartDate: string; moveInDate: string | null; projectedStart: boolean; percent?: number; confirmedAssignment?: boolean }> = [];
     const warnings: string[] = [];
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -38,7 +38,7 @@ export async function myWorkForecast(target: { id: string; fullName: string }, s
         if (isDownTurn(item, property.boardSections) || !isUpcomingNotice(item, now)) continue;
         if (item.assignedTech !== target.fullName && !item.workAssignmentBlocks.some(block => block.assignedUserId === targetId)) continue;
         const start = plannedTurnStart(item, item.customFieldValues[0]?.value, property.operatingCalendar);
-        if (start) result.push({ id: item.id, title: `${property.code} ${item.unitNumber}`, propertyName: property.name, expectedStartDate: start.date, projectedStart: start.projected, confirmedAssignment: true });
+        if (start) result.push({ id: item.id, title: `${property.code} ${item.unitNumber}`, propertyName: property.name, expectedStartDate: start.date, moveInDate: item.moveInDate?.toISOString() ?? null, projectedStart: start.projected, confirmedAssignment: true });
       }
       if (!parsed.success || !parsed.data.some(share => share.userId === targetId)) continue;
       if (!policy?.enabled) { warnings.push(`${property.code}: turn assignment is paused; no tentative assignments shown.`); continue; }
@@ -52,7 +52,7 @@ export async function myWorkForecast(target: { id: string; fullName: string }, s
         const notice = (item.vacancyStatus ?? "").trim().toUpperCase().startsWith("NTV");
         const vacancyDate = notice ? item.moveOutDate : item.vacatedDate ?? item.moveOutDate;
         if (!start || !vacancyDate) return [];
-        return [{ id: item.id, vacancyDate: vacancyDate.toISOString(), start, unitNumber: item.unitNumber }];
+        return [{ id: item.id, vacancyDate: vacancyDate.toISOString(), start, unitNumber: item.unitNumber, moveInDate: item.moveInDate?.toISOString() ?? null }];
       });
       // Include earlier unassigned vacancies in the simulation before filtering future dates.
       const assignments = forecastRotation(candidates, parsed.data, policy.credits as Record<string, number>);
@@ -60,7 +60,7 @@ export async function myWorkForecast(target: { id: string; fullName: string }, s
         if (assignment.userId !== targetId) continue;
         const candidate = candidates.find(candidate => candidate.id === assignment.id)!;
         if (candidate.start.date.slice(0, 10) < today) continue;
-        result.push({ id: candidate.id, title: `${property.code} ${candidate.unitNumber}`, propertyName: property.name, expectedStartDate: candidate.start.date, projectedStart: candidate.start.projected, percent: parsed.data.find(share => share.userId === targetId)!.percent });
+        result.push({ id: candidate.id, title: `${property.code} ${candidate.unitNumber}`, propertyName: property.name, expectedStartDate: candidate.start.date, moveInDate: candidate.moveInDate, projectedStart: candidate.start.projected, percent: parsed.data.find(share => share.userId === targetId)!.percent });
       }
     }
     return { turns: result.sort((a, b) => a.expectedStartDate.slice(0, 10).localeCompare(b.expectedStartDate.slice(0, 10)) || a.title.localeCompare(b.title)), warnings };

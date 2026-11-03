@@ -39,6 +39,39 @@ Keep findings here so there is one queue rather than competing TODO documents.
 
 ### Current Pass
 
+- Renewal records require a new lease end date; an optional lease start preserves
+  the saved start when omitted. Closing a renewed turn preserves repair evidence
+  rather than approving unfinished work. Direct All Units spreadsheet imports
+  preview resident and lease dates; blank cells preserve existing lease dates.
+  A unit disappearing from availability alone is never renewal evidence.
+  Implementation and targeted verification are local until explicitly deployed.
+- Targeted renewal/import checks cover permissions, date ordering, transaction
+  rollback, backup restoration, and blank-date retention. Desktop/mobile browser
+  journeys upload a synthetic XLS, review and save dates, reload to verify them,
+  and record a manual renewal. The browser pass caught and fixed a drawer rule
+  hiding the renewal form outside All details. Private report files are not test
+  fixtures. These checks are not a full application or physical-device audit.
+
+- Upcoming My Work turns show their scheduled move-in date and calendar days
+  between expected start and move-in, for both tentative and confirmed assignments.
+  Same-day / earlier move-ins receive a warning; absent move-in dates remain
+  explicitly unscheduled. English and Spanish labels are supported.
+
+- Renewal / canceled move-out correction: explicitly marking a turn Occupied now
+  archives it and cancels pending work even when it has unfinished checks. It does
+  not approve the inspection or complete repair stages. Unfinished turns preserve
+  directory resident details. Occupied availability rows also close active turns.
+- Full availability imports show missing unfinished turns for explicit occupied /
+  canceled move-out confirmation. Renewals use the dated renewal form. Unselected units remain active, partial reports cannot
+  reconcile omitted units, and stale previews require review again. Directory-only
+  refreshes still preserve live availability. Admin override controls expand after
+  failed approval so ordinary completion blockers are not mistaken for a missing
+  override permission.
+  An already-Occupied active turn also has a Close occupied turn action in its
+  details. Desktop/mobile UI checks cover removal from My Work, selective renewal
+  reconciliation, preservation of unselected turns, and the Occupied board filter.
+  Focused lifecycle/import/override tests (12), builds, and lint passed.
+
 - PDF exports include the server-side Noto Color Emoji font so emoji in report
   introductions and resident footers no longer depend on fonts installed on the
   previewing device. Custom non-Docker API deployments also need an emoji font

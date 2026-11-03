@@ -1192,6 +1192,11 @@
   color: var(--text);
   font-size: .85rem;
 }
+.my-work-move-in[data-warning="true"] {
+  border-inline-start-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 15%, var(--panel));
+  font-weight: 600;
+}
 .final-report-check[data-check-status="ATTENTION"] {
   border-inline-start: 4px solid var(--warning);
   padding-inline-start: .75rem;
@@ -4511,7 +4516,7 @@ textarea {
 .drawer-work-facts dd { margin: .2rem 0 0; overflow-wrap: anywhere; font-size: .85rem; }
 /* Keep editors mounted when switching sections so in-progress inputs survive. */
 .item-drawer:where([data-focus-pane]:not([data-focus-pane="all"])) > .drawer-section { display: none; }
-.item-drawer[data-focus-pane] > [data-testid="reopen-final-walk"] { display: block; }
+.item-drawer[data-focus-pane] > :is([data-testid="reopen-final-walk"], [data-testid="record-renewal"]) { display: block; }
 .item-drawer[data-focus-pane="work"] > :is([data-testid="drawer-work-summary"], [data-testid="drawer-turn-details"], [data-testid="drawer-checklists"], [data-testid="turn-materials"], [data-testid="resident-codes-panel"]),
 .item-drawer[data-focus-pane="photos"] > [data-testid="drawer-attachments"],
 .item-drawer[data-focus-pane="notes"] > [data-testid="drawer-notes-section"],

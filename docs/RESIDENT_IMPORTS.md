@@ -14,6 +14,35 @@ Managers and administrators can use **Manage > Availability & Units** for the
 Availability, Unit Directory, Mailboxes, and Keys & Access sections. The same
 tools remain available in **Admin > Setup**, with the same property permissions.
 
+## Direct All Units XLS And Renewals
+
+In **Unit Directory**, choose the property and upload the original RealPage
+Crystal Reports **All Units `.xls`** export. The supported layout includes
+Bldg/Unit, Floorplan, SQFT, Name, Move-In, Lease Start, and Lease End. No AI
+conversion is needed. Other Excel layouts are rejected rather than guessed.
+Review the resident/date preview before importing. Repeated headings and totals
+are excluded; leading zeroes are preserved. Upload one property at a time,
+up to 10 MB and 1,500 units.
+
+Lease dates are stored separately from the original move-in date and future
+applicant dates. Blank dates preserve existing values. The report's Made Ready
+and financial fields are not imported. This directory refresh does not overwrite
+existing availability or automatically close turns. New units without explicit
+occupancy data start as Unknown; follow with the latest availability report and
+review occupancy where needed.
+
+For a known renewal, a manager or administrator can open the active turn and
+choose **Record renewal / cancel turn**. Enter the **new lease end date** and,
+if known, the new lease start. An omitted start retains the saved date. Confirm
+that the resident is staying and save. The obsolete turn is archived, pending
+assignments are canceled, and the unit becomes occupied without approving any
+unfinished repairs or inspection checks. Resident identity and original move-in
+remain unchanged. The dates and action are recorded in history.
+
+Never infer renewal dates from a unit disappearing from availability. Use the
+lease record or the All Units report. An end date cannot precede its start or
+shorten the recorded lease through the renewal action.
+
 ## Direct RealPage Availability XML
 
 In **Availability**, select the correct property and upload the original RealPage
