@@ -1,5 +1,27 @@
 import { getPestIssues, type PestIssue, type UserLanguage } from "./api";
 
+export function pestRequestPrintHtml(issues: PestIssue[], language: UserLanguage) {
+  const es = language === "es";
+  const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+  // Share exactly the vendor-safe fields used by Copy, never internal notes or reporter details.
+  const [title, ...requests] = formatPestRequestList(issues, language).split("\n");
+  return `<!doctype html><html lang="${es ? "es" : "en"}"><head><meta charset="utf-8"><title>${escape(title)}</title>
+<style>
+@page { size: auto; margin: 15mm; }
+body { font-family: sans-serif; color: #111; margin: 24px; }
+h1 { font-size: 21px; } p { font-size: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th, td { border: 1px solid #888; padding: 10px; text-align: left; vertical-align: top; }
+th { background: #eee; } tr { break-inside: avoid; } thead { display: table-header-group; }
+td:last-child { width: 32%; min-width: 100px; height: 48px; }
+button { padding: 8px 16px; } @media print { button { display: none; } body { margin: 0; } }
+</style></head><body><button onclick="window.print()">${es ? "Imprimir / Guardar PDF" : "Print / Save PDF"}</button>
+<h1>${escape(title)}</h1><p>${es ? "Lista filtrada para el proveedor. Fecha de servicio:" : "Filtered vendor handoff. Service date:"} ____________________</p>
+<table><thead><tr><th>${es ? "Solicitud / Unidad / Detalles" : "Request / Unit / Details"}</th><th>${es ? "Tratamiento / Notas del proveedor" : "Treatment / Vendor notes"}</th></tr></thead><tbody>
+${requests.filter(Boolean).map(request => `<tr><td>${escape(request)}</td><td></td></tr>`).join("")}
+</tbody></table></body></html>`;
+}
+
 export async function loadActivePestRequests(filters: Parameters<typeof getPestIssues>[0]) {
   const issues: PestIssue[] = [];
   let offset = 0;

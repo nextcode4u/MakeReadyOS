@@ -42,7 +42,7 @@ import { isTouchMobileViewport } from "../lib/responsive";
 import { SearchSelect, type SearchSelectOption } from "./SearchSelect";
 import { StatusState } from "./StatusState";
 import { UnitSearchSelect } from "./UnitSearchSelect";
-import { formatPestRequestList, loadActivePestRequests } from "../lib/pestRequestList";
+import { formatPestRequestList, loadActivePestRequests, pestRequestPrintHtml } from "../lib/pestRequestList";
 
 type Tab = "dashboard" | "active" | "make-ready" | "vendors" | "archive" | "reports";
 
@@ -219,6 +219,7 @@ function PestIssueCard({
       {action.error ? <p role="alert">{action.error}</p> : null}
       {action.busy ? <p role="status">{language === "es" ? "Guardando; espera la confirmación antes de salir." : "Saving; wait for confirmation before leaving."}</p> : null}
       <fieldset className="issue-action-fields" disabled={action.busy}>
+      <div className="pest-issue-summary-row">
       <button type="button" aria-expanded={expanded} className="compact-issue-summary pest-issue-summary" onClick={() => setExpanded((current) => !current)}>
         <div className="compact-issue-summary-main">
           <strong>{label} / {issue.pestType}{issue.additionalPestType ? ` + ${issue.additionalPestType}` : ""}</strong>
@@ -241,6 +242,18 @@ function PestIssueCard({
           <span aria-hidden="true">{expanded ? "-" : "+"}</span>
         </div>
       </button>
+      {canEdit && !issue.isArchived && !["Closed", "Cancelled", "Archived"].includes(issue.status) ? (
+        <button
+          type="button"
+          className="button button-secondary pest-quick-close"
+          onClick={closeIssue}
+          aria-label={language === "es" ? `Cerrar solicitud: ${label} / ${issue.pestType}` : `Close request: ${label} / ${issue.pestType}`}
+          title={language === "es" ? "Cerrar sin seguimiento y mover al archivo. Se conserva el historial." : "Close without follow-up and move to Archive. History is kept."}
+        >
+          {action.busy ? (language === "es" ? "Guardando..." : "Saving...") : (language === "es" ? "Cerrar" : "Close")}
+        </button>
+      ) : null}
+      </div>
       {expanded ? (
         <>
       {(issue.recurringConcern || issue.managerReviewRequired) ? (
@@ -624,6 +637,16 @@ export function PestControlPanel({ properties, units, userRole, language, select
     } catch {
       setCopyStatus(language === "es" ? "Seleccione y copie el texto de abajo." : "Select and copy the text below.");
     }
+  };
+  const printActiveRequests = () => {
+    const popup = window.open("", "_blank");
+    if (!popup) {
+      setCopyStatus(language === "es" ? "Permita ventanas emergentes para imprimir la lista." : "Allow pop-ups to print the list.");
+      return;
+    }
+    popup.opener = null;
+    popup.document.write(pestRequestPrintHtml(activeQuery.data?.issues ?? [], language));
+    popup.document.close();
   };
   const selectedQuickAddUnit = useMemo(
     () => propertyUnits.find((unit) => unit.id === quickAddUnitId) ?? null,
@@ -1132,6 +1155,7 @@ export function PestControlPanel({ properties, units, userRole, language, select
             <div className="pest-list-tools">
               <span>{activeQuery.data?.issues.length ?? 0} {language === "es" ? "solicitudes coincidentes" : "matching requests"}</span>
               <button type="button" className="button button-secondary" disabled={activeQuery.isFetching || activeQuery.isError || !activeQuery.data?.issues.length} onClick={() => void copyActiveRequests()}>{language === "es" ? "Copiar lista activa" : "Copy active list"}</button>
+              <button type="button" className="button button-secondary" disabled={activeQuery.isFetching || activeQuery.isError || !activeQuery.data?.issues.length} onClick={printActiveRequests}>{language === "es" ? "Imprimir lista activa" : "Print active list"}</button>
             </div>
             {copyStatus ? <p role="status">{copyStatus}</p> : null}
             {copyText ? <textarea aria-label={language === "es" ? "Lista para control de plagas" : "List for pest control"} value={copyText} readOnly rows={5} onFocus={event => event.currentTarget.select()} /> : null}

@@ -66,12 +66,12 @@ test("pest overview filters compact rows, copies the list and archives closed re
   expect((await card.boundingBox())!.height).toBeLessThan(180);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await panel.locator(".pest-active-list").screenshot({ path: testInfo.outputPath("pest-compact-mobile.png") });
-  await card.locator(".pest-issue-summary").click();
   const closed = page.waitForResponse(response => response.url().endsWith(`/pest/issues/${open.id}/close`) && response.request().method() === "POST");
-  await card.getByRole("button", { name: "Close Without Follow Up", exact: true }).click();
+  await card.getByRole("button", { name: "Close request: North laundry / Ants", exact: true }).click();
   expect((await closed).status()).toBe(200);
   await expect(card).toHaveCount(0);
   await panel.locator(".module-tabs").getByRole("button", { name: "Archive", exact: true }).click();
   await expect(panel.getByTestId(`pest-issue-${open.id}`)).toBeVisible();
   await expect(panel.getByTestId(`pest-issue-${open.id}`)).toContainText("Closed");
+  await expect(panel.getByTestId(`pest-issue-${open.id}`).getByRole("button", { name: /^Close request:/ })).toHaveCount(0);
 });

@@ -29,3 +29,15 @@ test("active list fetches every page with the same property and focus filters", 
   assert.deepEqual(calls.map(call => call.offset), [0, 1]);
   assert.ok(calls.every(call => call.activeOnly && !call.includeArchived && call.overdueOnly && call.propertyId === "demo" && call.q === "Ants"));
 });
+
+test("print handoff escapes request text and excludes archived history and internal details", () => {
+  const issue = { property: { code: "DEMO" }, unit: { number: "101" }, pestType: "Ants", status: "Open", priority: "Normal", description: '<script>alert("x")</script>', reportedBy: "Private name", notes: [{ body: "Internal note" }] };
+  const api = helper();
+  const html = api.pestRequestPrintHtml([issue, { ...issue, status: "Closed", description: "Closed request" }], "en");
+  assert.match(html, /Active pest requests \(1\)/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.doesNotMatch(html, /<script>|Private name|Internal note|Closed request/);
+  assert.match(html, /Treatment \/ Vendor notes/);
+  assert.match(html, /window.print\(\)/);
+  assert.match(api.pestRequestPrintHtml([issue], "es"), /Imprimir lista|Imprimir \/ Guardar PDF/);
+});
