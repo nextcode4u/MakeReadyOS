@@ -18,7 +18,11 @@ async function inspectorAccess(request: FastifyRequest, db: typeof prisma | impo
   if (!user || request.authType === "apiToken") throw Object.assign(new Error("A user session is required"), { statusCode: 403 });
   if (user.role === "ADMIN") return;
   if (!itemId || !["MANAGER", "LEASING", "TECH"].includes(user.role)) throw Object.assign(new Error("Only the assigned inspector can access this report"), { statusCode: 403 });
-  const item = await db.makeReadyItem.findFirst({ where: { id: itemId, propertyId, isArchived: false } });
+  const item = await db.makeReadyItem.findFirst({ where: { id: itemId, propertyId } });
+  if (item?.isArchived) {
+    if (!editing && ["MANAGER", "LEASING"].includes(user.role)) return;
+    throw Object.assign(new Error("Archived reports are read-only for leasing and management."), { statusCode: 403 });
+  }
   if (item && isTurnReady(item) && ["MANAGER", "LEASING"].includes(user.role)) return;
   const block = item && await db.workAssignmentBlock.findFirst({ where: { itemId, category: finalWalkCategory, status: { in: ["PLANNED", "IN_PROGRESS", "DONE"] } }, orderBy: { createdAt: "desc" } });
   if (!item || !block || block.assignedUserId !== user.id || item.assignedTech?.trim().toLowerCase() === user.fullName.trim().toLowerCase() || (!awaitingFinalWalk(item) && !isTurnReady(item)) || (editing && !isTurnReady(item) && block.status === "DONE")) {
@@ -39,12 +43,16 @@ async function context(request: FastifyRequest, reply: FastifyReply, itemId?: st
 }
 const itemInclude = { finalWalkReportDraft: true, checklistInstances: { include: { items: { orderBy: { sortOrder: "asc" as const }, select: { id: true, title: true, completed: true, completedAt: true } } } } };
 async function findItem(propertyId: string, id: string) {
-  const item = await prisma.makeReadyItem.findFirst({ where: { id, propertyId, isArchived: false }, include: itemInclude });
-  if (!item) throw Object.assign(new Error("Active turn not found in this property"), { statusCode: 404 });
+  const item = await prisma.makeReadyItem.findFirst({ where: { id, propertyId }, include: itemInclude });
+  if (!item) throw Object.assign(new Error("Turn not found in this property"), { statusCode: 404 });
   return item;
 }
-async function directoryMailbox(item: { propertyId: string; unitId: string | null; unitNumber: string } | null) {
+async function directoryMailbox(item: { propertyId: string; unitId: string | null; unitNumber: string; isArchived?: boolean; finalWalkReportDraft?: { payload: unknown } | null } | null) {
   if (!item) return null;
+  if (item.isArchived) {
+    const saved = savedReportDraftSchema.safeParse(item.finalWalkReportDraft?.payload);
+    return saved.success ? saved.data.value.mailbox : null;
+  }
   const unit = await prisma.unit.findFirst({ where: { propertyId: item.propertyId, ...(item.unitId ? { id: item.unitId } : { number: item.unitNumber }) }, select: { mailboxNumber: true } });
   return unit?.mailboxNumber ?? null;
 }
@@ -109,17 +117,17 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
     const mailbox = await directoryMailbox(item);
     const reviewer = item ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory }, orderBy: { createdAt: "desc" }, select: { assignedUser: { select: { fullName: true } } } }) : null;
     return {
-      canEditSettings: request.currentUser!.role === "ADMIN",
-      canMarkOccupied: canUpdateMakeReadyField(request.currentUser!, "vacancyStatus"),
+      canEditSettings: !item?.isArchived && request.currentUser!.role === "ADMIN",
+      canMarkOccupied: !item?.isArchived && canUpdateMakeReadyField(request.currentUser!, "vacancyStatus"),
       canOverrideCompletion: ["ADMIN", "MANAGER"].includes(request.currentUser!.role),
       inspectionToday: inspectionDateOrToday("", undefined, property.operatingCalendar?.timezone),
-      canEditDraft: request.currentUser!.role === "ADMIN" || Boolean(item && (awaitingFinalWalk(item) || isTurnReady(item))),
+      canEditDraft: !item?.isArchived && (request.currentUser!.role === "ADMIN" || Boolean(item && (awaitingFinalWalk(item) || isTurnReady(item)))),
       property: { id: property.id, name: property.name, code: property.code },
       settings: settings.success ? settings.data : { version: 0, value: defaultReportSettings },
-      draft: draft.success ? { ...draft.data, value: resolveReportMailbox(draft.data.value, mailbox) } : { version: 0, value: resolveReportMailbox(await initialReportDraft(item), mailbox), updatedAt: null },
+      draft: draft.success ? { ...draft.data, value: item?.isArchived ? draft.data.value : resolveReportMailbox(draft.data.value, mailbox) } : { version: 0, value: item?.isArchived ? emptyReportDraft() : resolveReportMailbox(await initialReportDraft(item), mailbox), updatedAt: null },
       sections: reportSections.map(section => ({ id: section.id, title: section.title })), checks: reportChecks, technicianChecks,
-      items: await prisma.makeReadyItem.findMany({ where: { propertyId: property.id, isArchived: false, ...(request.currentUser!.role === "ADMIN" ? {} : { id: itemId }) }, select: { id: true, unitNumber: true, boardGroup: true }, orderBy: { unitNumber: "asc" } }),
-      item: item ? { id: item.id, unitNumber: item.unitNumber, unitReady: isTurnReady(item), stockInspection: isStockInspection(item), directoryMailbox: mailbox, technician: item.assignedTech, reviewer: reviewer?.assignedUser.fullName ?? null, checklists: item.checklistInstances } : null,
+      items: await prisma.makeReadyItem.findMany({ where: { propertyId: property.id, ...(item?.isArchived ? { id: item.id } : { isArchived: false, ...(request.currentUser!.role === "ADMIN" ? {} : { id: itemId }) }) }, select: { id: true, unitNumber: true, boardGroup: true }, orderBy: { unitNumber: "asc" } }),
+      item: item ? { id: item.id, unitNumber: item.unitNumber, isArchived: item.isArchived, unitReady: isTurnReady(item), stockInspection: isStockInspection(item), directoryMailbox: mailbox, technician: item.assignedTech, reviewer: reviewer?.assignedUser.fullName ?? null, checklists: item.checklistInstances } : null,
     };
   });
   app.put("/final-walk-reports/:propertyId/settings", async (request, reply) => {
@@ -222,6 +230,13 @@ export async function finalWalkReportRoutes(app: FastifyInstance) {
       input.settings = saved.success ? saved.data.value : defaultReportSettings;
     }
     const item = input.itemId ? await findItem(property.id, input.itemId) : null;
+    if (item?.isArchived) {
+      const savedDraft = savedReportDraftSchema.safeParse(item.finalWalkReportDraft?.payload);
+      if (!savedDraft.success) throw Object.assign(new Error("No readable inspection report was saved for this archived turn."), { statusCode: 409 });
+      input.draft = savedDraft.data.value;
+      const saved = savedReportSettingsSchema.safeParse(property.branding?.finalWalkReportSettings);
+      input.settings = saved.success ? saved.data.value : defaultReportSettings;
+    }
     const reviewer = item ? await prisma.workAssignmentBlock.findFirst({ where: { itemId: item.id, category: finalWalkCategory }, orderBy: { createdAt: "desc" }, select: { assignedUser: { select: { fullName: true } } } }) : null;
     const html = finalWalkReportHtml({ propertyName: property.name, propertyCode: property.code, propertyLogo: property.branding?.logo ?? null, companyName: property.branding?.managementCompany?.name ?? null, companyLogo: property.branding?.managementCompany?.logo ?? null, unitNumber: item?.unitNumber ?? null, technician: item?.assignedTech ?? null, reviewer: reviewer?.assignedUser.fullName ?? null, stockInspection: Boolean(item && isStockInspection(item)) }, input.settings, item ? resolveReportMailbox(input.draft, await directoryMailbox(item)) : emptyReportDraft());
     if (input.format === "html") return { html };

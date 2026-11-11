@@ -762,7 +762,7 @@ export function ItemDrawer({
               {item.makeReadyStatus ? <LabelPill value={item.makeReadyStatus} label={repairStageDisplay(item, language === "es") ?? labelsByField.makeReadyStatus?.[item.makeReadyStatus]} /> : null}
               {item.riskLevel && item.riskLevel !== "NONE" ? <span className={`risk-level-badge ${item.riskLevel.toLowerCase()}`}>{item.riskLevel} risk / {item.riskScore}</span> : null}
             </div>
-            {approved && !item.isArchived && ["ADMIN", "MANAGER", "LEASING"].includes(currentUser.role) ? <div className="drawer-header-actions"><button type="button" className="button button-primary" data-testid="completed-unit-report" onClick={() => setCompletedReportOpen(true)}>{language === "es" ? "Editar / descargar informe final" : "Edit / download final-walk report"}</button></div> : null}
+            {(approved || item.isArchived) && ["ADMIN", "MANAGER", "LEASING"].includes(currentUser.role) ? <div className="drawer-header-actions"><button type="button" className="button button-primary" data-testid="completed-unit-report" onClick={() => setCompletedReportOpen(true)}>{item.isArchived ? (language === "es" ? "Ver / descargar informe final" : "View / download final-walk report") : (language === "es" ? "Editar / descargar informe final" : "Edit / download final-walk report")}</button></div> : null}
           </div>
           <button type="button" className="drawer-close" data-testid="item-drawer-close" onClick={onClose} aria-label={t(language, "drawer.closeDetails")}>×</button>
           <nav className="drawer-work-nav" aria-label={language === "es" ? "Secciones de la unidad" : "Unit work sections"}>

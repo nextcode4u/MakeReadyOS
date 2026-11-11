@@ -16,6 +16,7 @@ import { createConnectionRecovery } from "./lib/connectionRecovery";
 import { FilterBar, type ThemeMode } from "./components/FilterBar";
 import { LoginScreen } from "./components/LoginScreen";
 import { Modal } from "./components/Modal";
+import { DirectorySearchResults } from "./components/DirectorySearchResults";
 import { NotificationDrawer } from "./components/NotificationDrawer";
 import { DevicePushSettings } from "./components/DevicePushSettings";
 import { OnboardingPanel } from "./components/OnboardingPanel";
@@ -1166,7 +1167,8 @@ function App() {
 
   const applyQueuedMakeReadyPatch = (id: string, data: Record<string, unknown>) => {
     queryClient.setQueriesData<MakeReadyItemsPage>({ queryKey: ["make-ready-items"] }, (current) => {
-      if (!current) return current;
+      // Infinite directory-search pages refresh through invalidation, not this page-shaped patch.
+      if (!current || !Array.isArray(current.items)) return current;
       return {
         ...current,
         items: current.items.map((item) => (item.id === id ? { ...item, ...data } : item)),
@@ -4038,6 +4040,7 @@ function App() {
               <StatusState title={t(currentUser.language, "status.loadingWorkspace")} description={t(currentUser.language, "status.loadingWorkspaceCopy")} />
             </div>
           }>
+          {deferredSearch.trim() ? <DirectorySearchResults key={`${propertyId}:${deferredSearch.trim()}`} search={deferredSearch} propertyId={propertyId} units={metaQuery.data?.units ?? []} language={currentUser.language} onOpenItem={openItemDrawer} /> : null}
           {activeView === "dashboard" ? (
             <DashboardPanel
               data={dashboardQuery.data}

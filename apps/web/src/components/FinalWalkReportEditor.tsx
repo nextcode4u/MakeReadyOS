@@ -43,7 +43,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
   const [overrideConfirmed, setOverrideConfirmed] = useState(false);
   const [settings, setSettings] = useState(initial.settings.value);
   const [savedDraft, setSavedDraft] = useState(initial.draft);
-  const [draft, setDraft] = useState(() => datedInspection(initial.draft.value, Boolean(initial.item), initial.inspectionToday));
+  const [draft, setDraft] = useState(() => initial.item?.isArchived ? initial.draft.value : datedInspection(initial.draft.value, Boolean(initial.item), initial.inspectionToday));
   const [item, setItem] = useState(initial.item);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -129,6 +129,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
     <div className="final-report-notice"><strong>{item?.unitReady ? turnText(language, "Completed unit / inspection report") : turnText(language, "Inspection report workspace")}</strong><p>{turnText(language, "Saving inspection details does not change the unit's Ready status or create an electronic signature. Preview and draft downloads include unsaved edits. Resident PDFs use saved, completed inspection records only.")}</p>{item?.unitReady ? <p>{turnText(language, "You can return here from Table > Ready Units > open unit > Edit / download final-walk report, even after the unit leaves My Work.")}</p> : null}</div>
     {error ? <p role="alert">{error}</p> : null}{message ? <p role="status">{message}</p> : null}
     <fieldset disabled={busy} className="final-report-form">
+      {item?.isArchived ? <p role="status">{language === "es" ? "Informe archivado: solo lectura. Puede descargar la copia del residente sin reabrir la rotación." : "Archived report: read-only. Download the resident copy without reopening the turn."}</p> : null}
       <label>{turnText(language, "Property")}<input readOnly value={`${initial.property.code} / ${initial.property.name}`} /></label>
       <label>{turnText(language, "Turn to inspect")}<select disabled={!initial.canEditSettings} data-testid="final-report-unit" value={item?.id ?? ""} onChange={event => {
         const id = event.target.value;

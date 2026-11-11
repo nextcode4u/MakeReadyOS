@@ -1,6 +1,17 @@
 name: Dependency Security Audit
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '.github/workflows/security-audit.yml'
+  pull_request:
+    paths:
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '.github/workflows/security-audit.yml'
   schedule:
     - cron: '23 10 * * *'
   workflow_dispatch:

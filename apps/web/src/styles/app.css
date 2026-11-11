@@ -12916,6 +12916,9 @@ textarea {
 }
 
 .pest-active-list { display: grid; gap: 0.4rem; }
+.directory-search-results { padding: 1rem; margin-bottom: 1rem; border: 1px solid var(--line); border-radius: 12px; }
+.directory-search-results h2 { margin: 0; font-size: 1.1rem; }
+.directory-search-results .turn-row { flex-wrap: wrap; gap: 0.5rem; }
 .pest-issue-summary-row { display: flex; align-items: flex-start; gap: 0.5rem; }
 .pest-issue-summary-row > .pest-issue-summary { flex: 1; min-width: 0; }
 .pest-issue-summary-row > .pest-quick-close { flex: 0 0 auto; min-height: 44px; }

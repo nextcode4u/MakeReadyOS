@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { UnitHistoryButton } from "./UnitHistoryButton";
 import { applicantHeaders, currentResidentHeaders } from "../lib/importResidents";
 import { cleanXmlReportValue, convertAvailabilityXmlToCsv, normalizeXmlSpreadsheetDate, readImportFile, xmlAttributeValue, xmlChildText, xmlElementName } from "../lib/realpageAvailabilityXml";
 import { joinDelimitedLine, splitDelimitedLine } from "../lib/delimitedRows";
@@ -2419,6 +2420,7 @@ export function OperationsPanel({
                       <small>{unit.building ? `${isSpanish ? "Edificio" : "Building"} ${unit.building}` : (isSpanish ? "Sin edificio" : "No building")} / {unit.area || (isSpanish ? "Sin área" : "No area")} / {unit.floor ? `${isSpanish ? "Piso" : "Floor"} ${unit.floor}` : (isSpanish ? "Sin piso" : "No floor")} / {unit.isBudgeted ? (isSpanish ? "Presupuestada" : "Budgeted") : (isSpanish ? "No presupuestada" : "Non-budgeted")}</small>
                     </div>
                     <span className={activeTurn ? "status-chip warning" : "status-chip active"}>{activeTurn ? (isSpanish ? "Rotación activa" : "Active turn exists") : (isSpanish ? "Ocupada" : "Occupied")}</span>
+                    <UnitHistoryButton unitId={unit.id} label={`${unit.property.code} ${unit.number}`} language={isSpanish ? "es" : "en"} onOpenItem={onOpenItem} />
                     <button
                       type="button"
                       className="button button-secondary"

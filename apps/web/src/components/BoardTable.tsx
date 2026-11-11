@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
+import { UnitHistoryButton } from "./UnitHistoryButton";
 import { orderBoardSections } from "../lib/boardSectionOrder";
 import type { BoardColumnDefinition, BoardSection, CustomField, FloorPlan, LabelDefinition, MakeReadyItem, Property, StaffOption, Unit, UserLanguage } from "../lib/api";
 import type { ArchiveFilter } from "../lib/structuredFilters";
@@ -814,7 +815,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
               </div>
               {!isOccupiedDirectoryItem(item) ? (
                 <button type="button" className="item-details-button mobile-board-open" data-testid={`mobile-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={isSpanish ? `Abrir detalles para ${item.unitNumber}` : `Open details for ${item.unitNumber}`}>{isSpanish ? "Abrir" : "Open"}</button>
-              ) : null}
+              ) : item.unitId ? <UnitHistoryButton unitId={item.unitId} label={`${item.property.code} ${item.unitNumber}`} language={language} onOpenItem={onOpenItem} /> : null}
             </header>
             <div className="mobile-board-card-status-grid">
               <div>
@@ -1327,6 +1328,7 @@ export function BoardTable({ items, labelsByField, customFields, columnDefinitio
                                 {column.key === "unitNumber" && item.pestStatus && item.pestStatus !== "NONE" ? <small className="risk-marker warning">{isSpanish ? "Plagas" : "Pest"}: {item.pestStatus}</small> : null}
                               </button>
                               {column.key === "unitNumber" && !isOccupiedDirectoryItem(item) ? <button type="button" className="item-details-icon" data-testid={`item-details-${slug(item.unitNumber)}`} onClick={() => onOpenItem(item.id)} aria-label={isSpanish ? `Abrir detalles para ${item.unitNumber}` : `Open details for ${item.unitNumber}`}>›</button> : null}
+                              {column.key === "unitNumber" && isOccupiedDirectoryItem(item) && item.unitId ? <UnitHistoryButton unitId={item.unitId} label={`${item.property.code} ${item.unitNumber}`} language={language} onOpenItem={onOpenItem} /> : null}
                               {feedback}
                             </div>
                           )}

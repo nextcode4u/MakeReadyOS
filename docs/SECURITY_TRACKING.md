@@ -2,6 +2,18 @@
 
 This ledger describes repository dependencies, not any operator's production environment. A patched lockfile does not prove that a deployment has been updated. Do not add hostnames, IP addresses, credentials, private logs or customer records here.
 
+## Reviewed 2026-11-11
+
+- The daily Dependency Security Audit workflow is failing while the latest main-branch CI run passed. CI audits production dependencies only; the daily workflow includes development dependencies. GitHub's job/log endpoints returned HTTP 502 during review, so individual remote failure logs could not be verified.
+- Locally reproduced [CVE-2026-118764 / GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249): minimatch 10.2.6 in the root ESLint/parser dependency tree. Five audit entries describe one underlying moderate-severity denial-of-service advisory, not five independent defects. Added a constrained override to patched minimatch 11.0.1. Full root, API and web lockfile audits now report zero known vulnerabilities locally. Full lint and hook-order regression passed using Node 24.
+- The full dependency audit now also runs on main-branch dependency changes and dependency pull requests, without suppressing development advisories or raising the failure threshold.
+- Updated the web image from nginx:1.27-alpine to nginx:1.30.6-alpine, the current stable patched release listed in [upstream downloads](https://nginx.org/en/download.html) and [security advisories](https://nginx.org/en/security_advisories.html). Configuration validation and local static-app/SPA/asset smoke checks passed. Individual advisory exploitability depends on enabled modules and configuration; this is not a claim that every listed issue was reachable.
+- Added weekly Docker dependency checks for API and web images. Routine npm update PRs exist, but were not blindly merged. Major Prisma/client, TypeScript, Vite and web-push upgrades require separate compatibility testing.
+- Remaining coverage: GitHub reported no CodeQL analysis; no runs were found for the separate E2E workflow. npm audit does not scan application logic, container OS packages, host packages, or non-registry dependencies comprehensively. A full container/source scan and deployment verification remain separate tasks.
+- Exact-CVE Exploit-DB search found no indexed match for CVE-2026-118764; this does not establish absence of an exploit. No exploit was executed and no production security changes were made in this review.
+
+These changes are locally validated, not evidence that a remote workflow or deployed image has been updated.
+
 ## Reviewed 2026-10-23
 
 | Advisory | Dependency | Repository action | Verification |
