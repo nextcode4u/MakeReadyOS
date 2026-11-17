@@ -54,9 +54,10 @@ export const reportSettingsSchema = z.object({
 }).strict();
 export const defaultReportSettings = { title: "Your Home Preparation Checklist", introduction: "Recorded preparation checks and final presentation review for your home.", footer: "Please complete your move-in condition form and report concerns to the property team. This summary is not a safety certification or a guarantee of future performance.", residentInfoNewPage: false, onboardingLinks: [] as { label: string; url: string }[], accent: "#174d49" };
 const resultSchema = z.object({ status: z.enum(["NOT_CHECKED", "CHECKED", "ATTENTION", "NA"]), note: text(100) }).strict();
+const internetCheckIds = new Set(["presentation-v2-5", "review-7"]);
 export const reportDraftSchema = z.object({
   inspectionDate: z.union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => { const d = new Date(`${value}T12:00:00Z`); return Number.isFinite(d.getTime()) && d.toISOString().slice(0,10) === value; }, "Enter a valid date")]),
-  results: z.record(z.string(), resultSchema).refine(results => Object.keys(results).every(id => [...reportChecks, ...legacyReportChecks].some(check => check.id === id)), "Unknown checklist entry").refine(results => Object.values(results).every(result => !["NA", "ATTENTION"].includes(result.status) || result.note.length > 0), "Add a reason for Not applicable or Needs attention"),
+  results: z.record(z.string(), resultSchema).refine(results => Object.keys(results).every(id => [...reportChecks, ...legacyReportChecks].some(check => check.id === id)), "Unknown checklist entry").refine(results => Object.entries(results).every(([id, result]) => !["NA", "ATTENTION"].includes(result.status) || result.status === "NA" && internetCheckIds.has(id) || result.note.length > 0), "Add a reason for Not applicable or Needs attention"),
   technicianResults: z.record(z.string(), resultSchema).refine(results => Object.keys(results).every(id => technicianChecks.some(check => check.id === id)), "Unknown technician check").refine(results => Object.values(results).every(result => !["NA", "ATTENTION"].includes(result.status) || result.note.length > 0), "Add a reason for technician exceptions").default({}),
   handoffConfirmed: z.boolean().default(false),
   gateCode: text(60).default(""), pedestrianCode: text(60).default(""),
@@ -106,7 +107,7 @@ export function finalWalkReportHtml(context: { propertyName: string; propertyCod
   const sectionHtml = (section: { id: string; title: string }) => `<section><h2>${escape(section.title)}</h2>${checks.filter(check => check.section === section.id).map(check => {
     const result = (check.section === "tech-v2" ? draft.technicianResults : draft.results)[check.id] ?? { status: "NOT_CHECKED", note: "" };
     if (context.stockInspection && check.id === "handoff-v2-2" && result.status === "NOT_CHECKED") return `<div class="check"><span>${escape(check.label)}</span><b>Deferred until move-in</b></div>`;
-    return `<div class="check"><span>${escape(check.label)}${result.note ? `<small>${escape(result.note)}</small>` : ""}</span><b class="${result.status}">${labels[result.status]}</b></div>`;
+    return `<div class="check"><span>${escape(check.label)}${result.note ? `<small>${escape(result.note)}</small>` : ""}</span><b class="${result.status}">${result.status === "NA" && internetCheckIds.has(check.id) ? "Not applicable" : labels[result.status]}</b></div>`;
   }).join("")}</section>`;
   const details = [["Mailbox", draft.mailbox], ["Home / mailbox keys", `${draft.homeKeys || "Not recorded"} / ${draft.mailboxKeys || "Not recorded"}`], ["Fobs / remotes", `${draft.fobs || "Not recorded"} / ${draft.remotes || "Not recorded"}`], ["Parking / garage", draft.parking]];
   if (draft.includeResidentCodes) details.push(["Resident-only door code", draft.residentDoorCode], ["Resident-only access code", draft.residentAccessCode]);

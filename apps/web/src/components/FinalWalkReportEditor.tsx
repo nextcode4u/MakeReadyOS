@@ -14,6 +14,7 @@ import { FollowUpPhotos } from "./FollowUpPhotos";
 import { patchMakeReadyItem, uploadItemAttachment } from "../lib/api";
 
 const datedInspection = (draft: FinalReportDraft, hasItem: boolean, today = todayInputValue()) => hasItem && !draft.inspectionDate ? { ...draft, inspectionDate: today } : draft;
+const requiresCheckReason = (id: string, status: FinalReportResult["status"]) => status === "ATTENTION" || status === "NA" && !["presentation-v2-5", "review-7"].includes(id);
 
 export function FinalWalkReportEditor({ propertyId, propertyName, itemId, onClose, language }: { propertyId: string; propertyName: string; itemId?: string; onClose: () => void; language: string }) {
   const query = useQuery({ queryKey: ["final-report", propertyId, itemId], queryFn: () => getFinalReport(propertyId, itemId), staleTime: 0, gcTime: 0, refetchOnWindowFocus: false });
@@ -88,7 +89,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
   const updateResult = (id: string, patch: Partial<FinalReportResult>) => setDraft(current => ({ ...current, results: { ...current.results, [id]: { ...(current.results[id] ?? { status: "NOT_CHECKED", note: "" }), ...patch } } }));
   const validateDraft = () => {
     if (draft.handoffConfirmed && invalidCounts.length) throw new Error(countsWarning);
-    const missing = initial.checks.find(check => ["ATTENTION", "NA"].includes(result(check.id).status) && !result(check.id).note.trim());
+    const missing = initial.checks.find(check => requiresCheckReason(check.id, result(check.id).status) && !result(check.id).note.trim());
     if (missing) throw new Error(`${language === "es" ? "Agrega un motivo para" : "Add a reason for"}: ${turnText(language, missing.label)}`);
   };
   const residentHelp = !item ? "" : turnText(language, item.stockInspection
@@ -159,7 +160,7 @@ function ReportEditor({ initial, onDirty, onBusy, onReturned, language }: { init
         {initial.sections.map(section => <details open key={section.id}><summary>{turnText(language, item.stockInspection && section.id === "handoff-v2" ? "Final condition review" : section.title)}<small>{visibleChecks.filter(check => check.section === section.id && result(check.id).status !== "NOT_CHECKED").length} / {visibleChecks.filter(check => check.section === section.id).length} {turnText(language, "recorded")}</small></summary>
           {visibleChecks.filter(check => check.section === section.id).map(check => <div key={check.id} className="final-report-check" data-check-status={result(check.id).status}>
             <label>{turnText(language, check.label)}<select data-testid={`final-report-result-${check.id}`} value={result(check.id).status} onChange={event => updateResult(check.id, { status: event.target.value as FinalReportResult["status"] })}><option value="NOT_CHECKED">{turnText(language, "Not checked")}</option><option value="CHECKED">{turnText(language, "Checked")}</option><option value="ATTENTION">{turnText(language, "Needs attention")}</option><option value="NA">{turnText(language, "Not applicable")}</option></select></label>
-            {["ATTENTION", "NA"].includes(result(check.id).status) || result(check.id).note ? <label>{turnText(language, "Reason / detail")}{["ATTENTION", "NA"].includes(result(check.id).status) ? turnText(language, " (required)") : ""}<input maxLength={100} value={result(check.id).note} data-testid={`final-report-note-${check.id}`} onChange={event => updateResult(check.id, { note: event.target.value })} /></label> : null}
+            {requiresCheckReason(check.id, result(check.id).status) || result(check.id).note ? <label>{turnText(language, "Reason / detail")}{requiresCheckReason(check.id, result(check.id).status) ? turnText(language, " (required)") : ""}<input maxLength={100} value={result(check.id).note} data-testid={`final-report-note-${check.id}`} onChange={event => updateResult(check.id, { note: event.target.value })} /></label> : null}
           </div>)}
         </details>)}
         {item.stockInspection ? <section className="final-report-deferred" data-testid="stock-handoff-deferred" aria-label={turnText(language, "Resident handoff / not needed for stock-ready")}>

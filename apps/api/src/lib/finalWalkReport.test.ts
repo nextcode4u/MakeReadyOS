@@ -3,6 +3,21 @@ import { test } from "node:test";
 import { defaultReportSettings, emptyReportDraft, finalWalkReportHtml, reportChecks, technicianChecks, reportDraftSchema, reportSettingsSchema, residentReportBlockers } from "./finalWalkReport.js";
 import { inspectionDateOrToday } from "./finalWalkReport.js";
 
+test("internet not applicable needs no explanation and prints its full label", () => {
+  const context = { propertyName: "Demo", propertyCode: "DEMO", propertyLogo: null, companyName: null, companyLogo: null, unitNumber: "101", technician: null, reviewer: null };
+  for (const id of ["presentation-v2-5", "review-7"]) {
+    const draft = { ...emptyReportDraft(), results: { [id]: { status: "NA" as const, note: "" } } };
+    assert.equal(reportDraftSchema.safeParse(draft).success, true);
+    assert.match(finalWalkReportHtml(context, defaultReportSettings, draft), /class="NA">Not applicable<\/b>/);
+    assert.equal(reportDraftSchema.safeParse({ ...draft, results: { [id]: { status: "ATTENTION", note: "" } } }).success, false);
+  }
+  assert.equal(reportDraftSchema.safeParse({ ...emptyReportDraft(), results: { "presentation-v2-1": { status: "NA", note: "" } } }).success, false);
+  assert.equal(reportDraftSchema.safeParse({ ...emptyReportDraft(), technicianResults: { "tech-v2-1": { status: "NA", note: "" } } }).success, false);
+  const complete = { ...emptyReportDraft(), inspectionDate: "2026-11-16", handoffConfirmed: true, homeKeys: "2", mailboxKeys: "1", fobs: "0", remotes: "0", results: Object.fromEntries(reportChecks.map(check => [check.id, { status: check.id === "presentation-v2-5" ? "NA" as const : "CHECKED" as const, note: "" }])), technicianResults: Object.fromEntries(technicianChecks.map(check => [check.id, { status: "CHECKED" as const, note: "" }])) };
+  assert.equal(reportDraftSchema.safeParse(complete).success, true);
+  assert.deepEqual(residentReportBlockers(complete), []);
+});
+
 test("optional onboarding links validate secure URLs and stay out of resident reports", () => {
   const { onboardingLinks: ignored, ...legacy } = defaultReportSettings;
   assert.deepEqual(reportSettingsSchema.parse(legacy).onboardingLinks, []);
