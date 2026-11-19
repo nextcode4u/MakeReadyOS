@@ -46,6 +46,7 @@ test("checks and resident details autosave and survive reopening without pressin
   await page.getByLabel("New resident door code", { exact: true }).fill("1234");
   await expect.poll(() => fixture.saved().value.residentDoorCode).toBe("1234");
   await expect(page.getByTestId("preparation-save-status")).toHaveText("No unsaved changes.");
+  await expect(page.getByLabel("New resident door code", { exact: true })).toBeFocused();
   await page.getByRole("button", { name: "Toggle unit" }).click();
   await page.getByRole("button", { name: "Toggle unit" }).click();
   await expect(page.getByTestId("tech-check-tech-v2-1")).toHaveValue("CHECKED");

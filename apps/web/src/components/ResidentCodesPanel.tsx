@@ -80,6 +80,9 @@ export function ResidentCodesPanel({ itemId, status, language }: { itemId: strin
         return;
       }
       saving.current = true;
+      const focused = document.activeElement;
+      const inputFocus = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement;
+      const selection = inputFocus ? [focused.selectionStart, focused.selectionEnd] as const : null;
       setBusy(true); setError(""); setMessage("");
       const session = getVerifiedSession();
       try {
@@ -116,7 +119,15 @@ export function ResidentCodesPanel({ itemId, status, language }: { itemId: strin
         void client.invalidateQueries({ queryKey: ["planning", "item-drawer", itemId] });
         setMessage(language === "es" ? "Guardado automáticamente." : "Saved automatically.");
       } catch (cause) { setError(cause instanceof Error ? cause.message : turnText(language, "Could not save resident codes. Your entries are preserved.")); }
-      finally { saving.current = false; setBusy(false); }
+      finally {
+        saving.current = false; setBusy(false);
+        // Temporarily disabling inputs must not drop the user's typing position.
+        requestAnimationFrame(() => {
+          if (!isCurrentSession(session) || !inputFocus || !focused.isConnected || focused.disabled || document.activeElement !== document.body) return;
+          focused.focus({ preventScroll: true });
+          if (selection && selection[0] !== null && selection[1] !== null) focused.setSelectionRange(selection[0], selection[1]);
+        });
+      }
   };
   useLayoutEffect(() => { flush.current = () => { if (edit !== attempted.current) void save(); }; });
   useEffect(() => {
