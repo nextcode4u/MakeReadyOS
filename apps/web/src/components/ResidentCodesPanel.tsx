@@ -1,6 +1,6 @@
 import { turnText } from "../lib/turnLocale";
 import { FollowUpPhotos } from "./FollowUpPhotos";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getResidentCodes, isApiError, saveResidentCodes, type ResidentCodes, type FinalReportResult } from "../lib/api";
 import { enqueueResidentSave, getOfflineSyncJobs, getOfflineSyncEventName, offlineJobCompletedEvent, retryOfflineSyncJob, type CompletedOfflineJob } from "../lib/offlineSync";
@@ -18,6 +18,10 @@ export function ResidentCodesPanel({ itemId, status, language }: { itemId: strin
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
   const [pendingValues, setPendingValues] = useState<Partial<ResidentCodes["value"]> | null>(null);
+  const saving = useRef(false);
+  const owner = useRef(getVerifiedSession());
+  const attempted = useRef<ResidentCodes | null>(null);
+  const flush = useRef<() => void>(() => {});
   const android = import.meta.env.VITE_ANDROID_SHELL === "true";
   useEffect(() => {
     let active = true;
@@ -64,20 +68,18 @@ export function ResidentCodesPanel({ itemId, status, language }: { itemId: strin
     if (current) setEdit({ ...current, value: { ...current.value, ...value } });
     setMessage("");
   };
-  return <section className="drawer-section" data-testid="resident-codes-panel">
-    <h3>{turnText(language, "Technician preparation & resident handoff")}</h3>
-    {android ? <p className="helper-copy">{language === "es" ? "Pulsa Guardar antes de cerrar. Sin conexión, el guardado queda cifrado en este dispositivo hasta que el servidor lo confirme. La copia sin conexión de Mi trabajo es solo de lectura." : "Press Save before closing. Without a connection, the save stays encrypted on this device until the server confirms it. The offline My Work copy is read-only."}</p> : null}
-    {pending ? <p role="status">{language === "es" ? "Guardado pendiente en este dispositivo. Conéctate e inicia sesión con la misma cuenta. Si hay un conflicto, revísalo en Sincronización pendiente antes de editar otra vez." : "Pending save on this device. Reconnect and sign in with the same account. Review any conflict in Pending sync before editing again."}</p> : null}
-    <p className="helper-copy">{turnText(language, "Enter the new code assigned to this resident's unit during the make-ready. Never enter shared gate, staff, or master codes. These are the same fields used by the Final-Walk Report.")}</p>
-    {query.isPending ? <p role="status">{turnText(language, "Loading resident codes...")}</p> : null}
-    {query.isError ? <p role="alert">{turnText(language, "Could not load resident codes.")} <button type="button" onClick={() => void query.refetch()}>{turnText(language, "Retry")}</button></p> : null}
-    {current ? <form onSubmit={async event => {
-      event.preventDefault();
-      if (!edit || busy || preparationReadOnly) return;
+  const save = async () => {
+      if (!edit || saving.current || preparationReadOnly || accessDenied || !isCurrentSession(owner.current)) return;
+      attempted.current = edit;
+      if (Object.values(edit.value.technicianResults ?? {}).some(result => ["ATTENTION", "NA"].includes(result.status) && !result.note.trim())) {
+        setError(language === "es" ? "Añade un detalle para las excepciones; los cambios se guardarán automáticamente después." : "Add a detail for each exception; changes will save automatically afterward.");
+        return;
+      }
       if (query.data?.readOnly && (Object.keys(edit.value) as Array<keyof ResidentCodes["value"]>).some(field => field !== "technicianResults" && edit.value[field] !== query.data?.value[field])) {
         setError(turnText(language, "Resident handoff details became read-only. Your unsaved entries are preserved; reload saved values before revising preparation checks."));
         return;
       }
+      saving.current = true;
       setBusy(true); setError(""); setMessage("");
       const session = getVerifiedSession();
       try {
@@ -86,11 +88,17 @@ export function ResidentCodesPanel({ itemId, status, language }: { itemId: strin
           if (!session.userId) throw new Error("Sign in again before saving.");
           const job = await enqueueResidentSave(session.userId, itemId, input);
           if (!isCurrentSession(session)) return;
-          setPendingValues(input.value); setEdit(null); setShow(false); setPending(true);
+          setPendingValues(input.value); setEdit(null); setPending(true);
           setMessage(language === "es" ? "Copia cifrada guardada en este dispositivo; pendiente de confirmación del servidor." : "Encrypted retry copy saved on this device; awaiting server confirmation.");
           try {
             const outcome = await retryOfflineSyncJob(job.id);
-            if (isCurrentSession(session) && outcome.synced) { setPending(false); setMessage(language === "es" ? "Preparación y datos del residente guardados en el servidor." : "Preparation and resident details saved on the server."); }
+            if (isCurrentSession(session) && outcome.synced) {
+              // Fetch the new revision before accepting another autosave.
+              const saved = await getResidentCodes(itemId);
+              if (!isCurrentSession(session)) return;
+              client.setQueryData(key, saved); setPendingValues(null); setPending(false);
+              setMessage(language === "es" ? "Guardado automáticamente." : "Saved automatically.");
+            }
           } catch {
             if (isCurrentSession(session)) setError(language === "es" ? "El guardado sigue pendiente. Revisa Sincronización pendiente si requiere atención." : "Your save is still pending. Check Pending sync if it needs attention.");
           }
@@ -100,16 +108,33 @@ export function ResidentCodesPanel({ itemId, status, language }: { itemId: strin
         }
         const result = await saveResidentCodes(itemId, input, { expectedUserId: session.userId ?? "" });
         if (!isCurrentSession(session)) return;
-        client.setQueryData(key, result); setEdit(null); setShow(false);
+        client.setQueryData(key, result); setEdit(null);
         void client.invalidateQueries({ queryKey: ["final-report"] });
         void client.invalidateQueries({ queryKey: ["final-walk", itemId] });
         void client.invalidateQueries({ queryKey: ["my-work"] });
         void client.invalidateQueries({ queryKey: ["assigned-work"] });
         void client.invalidateQueries({ queryKey: ["planning", "item-drawer", itemId] });
-        setMessage(turnText(language, "Preparation and resident details saved. Revised preparation checks require the inspector to reconfirm handoff; unit status is unchanged."));
+        setMessage(language === "es" ? "Guardado automáticamente." : "Saved automatically.");
       } catch (cause) { setError(cause instanceof Error ? cause.message : turnText(language, "Could not save resident codes. Your entries are preserved.")); }
-      finally { setBusy(false); }
-    }}>
+      finally { saving.current = false; setBusy(false); }
+  };
+  useLayoutEffect(() => { flush.current = () => { if (edit !== attempted.current) void save(); }; });
+  useEffect(() => {
+    if (!edit || busy || pending || edit === attempted.current) return;
+    const timer = window.setTimeout(() => flush.current(), 800);
+    return () => window.clearTimeout(timer);
+  }, [edit, busy, pending]);
+  // Drawer/tab navigation must not cancel a change waiting for the debounce.
+  useEffect(() => () => flush.current(), []);
+  return <section className="drawer-section" data-testid="resident-codes-panel">
+    <h3>{turnText(language, "Technician preparation & resident handoff")}</h3>
+    <p className="helper-copy">{language === "es" ? "Los cambios se guardan automáticamente al dejar de editar. Comprueba el estado de guardado antes de cerrar." : "Changes save automatically after you stop editing. Check the save status before closing."}</p>
+    {android ? <p className="helper-copy">{language === "es" ? "Sin conexión, el guardado queda cifrado en este dispositivo hasta que el servidor lo confirme. La copia sin conexión de Mi trabajo es solo de lectura." : "Without a connection, the save stays encrypted on this device until the server confirms it. The offline My Work copy is read-only."}</p> : null}
+    {pending ? <p role="status">{language === "es" ? "Guardado pendiente en este dispositivo. Conéctate e inicia sesión con la misma cuenta. Si hay un conflicto, revísalo en Sincronización pendiente antes de editar otra vez." : "Pending save on this device. Reconnect and sign in with the same account. Review any conflict in Pending sync before editing again."}</p> : null}
+    <p className="helper-copy">{turnText(language, "Enter the new code assigned to this resident's unit during the make-ready. Never enter shared gate, staff, or master codes. These are the same fields used by the Final-Walk Report.")}</p>
+    {query.isPending ? <p role="status">{turnText(language, "Loading resident codes...")}</p> : null}
+    {query.isError ? <p role="alert">{turnText(language, "Could not load resident codes.")} <button type="button" onClick={() => void query.refetch()}>{turnText(language, "Retry")}</button></p> : null}
+    {current ? <form onSubmit={event => { event.preventDefault(); void save(); }}>
       {current.technicianFollowUp || current.correctionPending || current.technicianPhotoIds?.length ? <section data-testid="technician-corrections" className={current.correctionPending ? "work-correction-panel" : undefined}>
         <h4>{current.correctionPending ? turnText(language, "Final-walk corrections needed") : turnText(language, "Previous final-walk feedback")}</h4>
         <p style={{ whiteSpace: "pre-wrap" }}>{current.technicianFollowUp || turnText(language, "Review the final-walk findings with your inspector.")}</p>
@@ -137,10 +162,10 @@ export function ResidentCodesPanel({ itemId, status, language }: { itemId: strin
         <p className="helper-copy">{current.value.mailboxSource === "CUSTOM" ? turnText(language, "Using a mailbox number for this turn only; the property directory is unchanged.") : turnText(language, "Mailbox number comes from the unit directory. Editing it overrides this turn's report only.")} {turnText(language, "Mailbox details appear on the report even when code inclusion is off.")}</p>
         {current.value.mailboxSource === "CUSTOM" ? <button type="button" onClick={() => change({ mailboxSource: "DIRECTORY", mailbox: "" })}>{turnText(language, "Use directory mailbox on save")}</button> : null}
       </fieldset>
-      <button className="button button-primary" type="submit" disabled={!edit || busy || preparationReadOnly}>{busy ? turnText(language, "Saving...") : query.data?.readOnly ? turnText(language, "Save preparation checks") : turnText(language, "Save preparation & resident details")}</button>
+      <p role="status" data-testid="preparation-save-status">{busy ? turnText(language, "Saving...") : edit ? error ? (language === "es" ? "No guardado: revisa el error." : "Not saved: review the error below.") : (language === "es" ? "Cambios pendientes de guardado automático..." : "Changes waiting for autosave...") : pending ? (language === "es" ? "Pendiente de sincronización." : "Pending sync.") : (language === "es" ? "Sin cambios pendientes." : "No unsaved changes.")}</p>
+      {edit ? <button className="button button-secondary" type="submit" disabled={busy || preparationReadOnly}>{error ? turnText(language, "Retry") : (language === "es" ? "Guardar ahora" : "Save now")}</button> : null}
       <p className="helper-copy">{turnText(language, "Preparation checks can be revised after handoff, including changing Done back to Needs attention or Not checked. Revisions do not automatically reopen the unit; tell the inspector if work needs to be redone.")}</p>
       {query.data?.readOnly ? <p className="helper-copy">{preparationReadOnly ? turnText(language, "Editing requires the assigned technician or management and an active, non-archived turn.") : turnText(language, "Resident codes and handoff details are read-only here after handoff. Preparation checks above remain editable.")}</p> : null}
-      {edit ? <p role="status">{turnText(language, "Unsaved changes. Save before closing the unit. Codes are not stored as a browser draft.")}</p> : null}
       {current.updatedAt ? <p className="helper-copy">{turnText(language, "Report last saved:")} {new Date(current.updatedAt).toLocaleString(language === "es" ? "es-US" : "en-US")}</p> : null}
     </form> : null}
     {message ? <p role="status">{message}</p> : null}
