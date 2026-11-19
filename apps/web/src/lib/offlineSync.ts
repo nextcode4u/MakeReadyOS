@@ -664,7 +664,7 @@ function deliverQueuedJob(id: string) {
 }
 
 // Override a stale browser hint only after the caller has verified the server.
-type SyncConnection = { serverReachable?: boolean };
+type SyncConnection = { serverReachable?: boolean; manual?: boolean };
 
 export async function syncOfflineJobs(connection: SyncConnection = {}): Promise<{ processed: number; synced: number; remaining: number }> {
   const session = getVerifiedSession();
@@ -687,7 +687,9 @@ export async function syncOfflineJobs(connection: SyncConnection = {}): Promise<
       const now = Date.now();
       for (const job of jobs) {
         if (!isCurrentSession(session)) break;
-        if (!shouldAttemptAutomaticSync(job, now)) {
+        // A user retry bypasses network backoff, never conflict/validation review.
+        const manualRetry = connection.manual && !job.lastErrorStatus;
+        if (!manualRetry && !shouldAttemptAutomaticSync(job, now)) {
           continue;
         }
         try {

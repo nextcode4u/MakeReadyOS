@@ -116,6 +116,29 @@ test("repeated automatic sync honors backoff and leaves conflicts for review", a
   assert.deepEqual(jobs.map(job => job.id), ["conflict"]);
 });
 
+test("explicit sync bypasses network backoff but retains blocked work for review", async () => {
+  const jobs = [
+    { ...ownedJob("retry", "owner-a"), lastErrorStatus: 0, attemptCount: 5, lastAttemptAt: new Date().toISOString() },
+    { ...ownedJob("conflict", "owner-a"), lastErrorStatus: 409 },
+    { ...ownedJob("invalid", "owner-a"), lastErrorStatus: 400 },
+    ownedJob("other-account", "owner-b"),
+  ];
+  const sent = [];
+  const fixture = queue({ jobs, deliver: async job => { sent.push(job.id); } });
+  const result = await fixture.exports.syncOfflineJobs({ serverReachable: true, manual: true });
+  assert.deepEqual(sent, ["retry"]);
+  assert.equal(result.synced, 1);
+  assert.equal(result.remaining, 2);
+  assert.deepEqual(jobs.map(job => job.id), ["conflict", "invalid", "other-account"]);
+});
+
+test("retrying a blocked change explicitly removes it only after confirmed delivery", async () => {
+  const jobs = [{ ...ownedJob("blocked", "owner-a"), lastErrorStatus: 400 }];
+  const fixture = queue({ jobs, deliver: async () => {} });
+  assert.equal((await fixture.exports.retryOfflineSyncJob("blocked", { serverReachable: true })).synced, true);
+  assert.equal(jobs.length, 0);
+});
+
 for (const order of ["manual/manual", "automatic/manual", "manual/automatic"]) {
   test(`offline ${order} attempts share one delivery`, async () => {
     let release;

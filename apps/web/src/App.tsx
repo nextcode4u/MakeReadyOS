@@ -716,6 +716,7 @@ function App() {
   const [apiDegraded, setApiDegraded] = useState(false);
   const connectionRecovery = useRef<ReturnType<typeof createConnectionRecovery> | null>(null);
   const confirmedApiReachable = useRef(false);
+  const manualSyncRequested = useRef(false);
   const [lastConnectionIssueAt, setLastConnectionIssueAt] = useState<string | null>(null);
   const [offlineQueuePendingCount, setOfflineQueuePendingCount] = useState(0);
   const [unattributedOfflineWork, setUnattributedOfflineWork] = useState(false);
@@ -837,6 +838,7 @@ function App() {
   };
 
   const retryConnection = () => {
+    manualSyncRequested.current = true;
     connectionRecovery.current?.check(true);
   };
 
@@ -855,12 +857,12 @@ function App() {
     }
   };
 
-  const syncQueuedOfflineChanges = async () => {
+  const syncQueuedOfflineChanges = async (manual = false) => {
     if (typeof navigator !== "undefined" && !navigator.onLine && !confirmedApiReachable.current) return;
     const session = getVerifiedSession();
     if (!session.userId) return;
     let result;
-    try { result = await syncOfflineJobs({ serverReachable: confirmedApiReachable.current }); }
+    try { result = await syncOfflineJobs({ serverReachable: confirmedApiReachable.current, manual }); }
     catch (error) {
       if (isCurrentSession(session)) setOfflineQueueError(error instanceof Error ? error.message : "Could not sync offline work.");
       return;
@@ -868,6 +870,7 @@ function App() {
     if (!isCurrentSession(session)) return;
     await refreshOfflineQueueState();
     if (!isCurrentSession(session)) return;
+    if (manual && result.remaining > 0) setOfflineQueueReviewOpen(true);
     if (result.synced > 0) {
       pushToast(
         t(meQuery.data?.user.language ?? "en", "connection.syncedTitle"),
@@ -1439,6 +1442,7 @@ function App() {
     () => offlineQueueJobs.filter((job) => job.status === "retrying"),
     [offlineQueueJobs],
   );
+  const offlineQueueWaitingJobs = offlineQueueJobs.filter(job => job.status !== "blocked");
 
   useEffect(() => {
     const handleOpenProjectRecord = (event: Event) => {
@@ -3239,6 +3243,7 @@ function App() {
       void refreshOfflineQueueState();
     };
     const handleAccountChange = () => {
+      manualSyncRequested.current = false;
       const nextOwner = getVerifiedSession().userId;
       if (previousVerifiedOwner.current && previousVerifiedOwner.current !== nextOwner) {
         setSelectedItemId(null);
@@ -3277,15 +3282,18 @@ function App() {
   }, []);
 
   const onConnectionRecovered = useEffectEvent((refresh: boolean) => {
+    const manual = manualSyncRequested.current;
+    manualSyncRequested.current = false;
     confirmedApiReachable.current = true;
     setIsOnline(true);
     setApiDegraded(false);
     setLastConnectionIssueAt(null);
     onlineManager.setOnline(true);
     if (refresh) void queryClient.invalidateQueries();
-    if (!forceLoggedOut && getVerifiedSession().userId) void syncQueuedOfflineChanges();
+    if (!forceLoggedOut && getVerifiedSession().userId) void syncQueuedOfflineChanges(manual);
   });
   const onConnectionExpired = useEffectEvent(() => {
+    manualSyncRequested.current = false;
     confirmedApiReachable.current = false;
     setIsOnline(true);
     setApiDegraded(false);
@@ -5125,7 +5133,7 @@ function App() {
             <button type="button" className="button button-secondary" onClick={() => void refreshOfflineQueueState()}>
               {t(currentUser.language, "offlineQueue.refresh")}
             </button>
-            <button type="button" className="button button-primary" onClick={() => void syncQueuedOfflineChanges()} disabled={offlineQueueSyncing || !isOnline}>
+            <button type="button" className="button button-primary" onClick={retryConnection} disabled={offlineQueueSyncing || !isOnline}>
               {offlineQueueSyncing ? t(currentUser.language, "connection.syncingNow") : t(currentUser.language, "offlineQueue.syncNow")}
             </button>
           </>
@@ -5133,7 +5141,7 @@ function App() {
       >
         {offlineQueueError ? <p role="alert" className="error-text">{offlineQueueError}</p> : null}
         {unattributedOfflineWork ? <p role="status">{currentUser.language === "es" ? "Hay trabajo antiguo sin una cuenta identificada. Se conserva en este dispositivo y no se enviara ni eliminara automaticamente." : "Older offline work has no verified owner. It is being kept on this device and will not be sent or deleted automatically."}</p> : null}
-        {!offlineQueueBlockedJobs.length && !offlineQueueRetryingJobs.length && !offlineQueueError && !unattributedOfflineWork ? (
+        {!offlineQueueJobs.length && !offlineQueueError && !unattributedOfflineWork ? (
           <p className="admin-message success">{t(currentUser.language, "offlineQueue.empty")}</p>
         ) : (
           <div className="offline-queue-review-list">
@@ -5162,9 +5170,6 @@ function App() {
                         <button type="button" className="button button-secondary" onClick={() => void reviewOfflineQueueJob(job)}>
                           {t(currentUser.language, "offlineQueue.reviewDetails")}
                         </button>
-                        <button type="button" className="button button-secondary" onClick={() => void syncQueuedOfflineChanges()} disabled={offlineQueueSyncing || !isOnline}>
-                          {t(currentUser.language, "offlineQueue.retrySync")}
-                        </button>
                         <button type="button" className="button button-secondary" onClick={() => void retrySingleOfflineQueueJob(job)} disabled={offlineQueueSyncing || !isOnline}>
                           {t(currentUser.language, "offlineQueue.retryThis")}
                         </button>
@@ -5179,18 +5184,25 @@ function App() {
             ) : (
               <p className="admin-message">{t(currentUser.language, "offlineQueue.retryingOnly")}</p>
             )}
-            {offlineQueueRetryingJobs.length ? (
+            {offlineQueueWaitingJobs.length ? (
               <section className="admin-card offline-queue-review-card">
                 <div className="drawer-section-title">
-                  <h3>{t(currentUser.language, "offlineQueue.retryingNow").replace("{count}", String(offlineQueueRetryingJobs.length))}</h3>
+                  <h3>{t(currentUser.language, "connection.offlineChangesPending")} ({offlineQueueWaitingJobs.length})</h3>
                 </div>
                 <p className="helper-copy">{t(currentUser.language, "offlineQueue.retryingHelp")}</p>
                 <div className="offline-queue-change-list">
-                  {offlineQueueRetryingJobs.map((job) => (
+                  {offlineQueueWaitingJobs.map((job) => (
                     <div key={job.id} className="offline-queue-change-row">
                       <strong>{job.title}</strong>
                       <div>{t(currentUser.language, "offlineQueue.module")}: {job.module}</div>
                       <div>{t(currentUser.language, "offlineQueue.attempts")}: {job.attemptCount}</div>
+                      {job.lastError ? <p>{t(currentUser.language, "offlineQueue.lastError")}: {job.lastError}</p> : null}
+                      <button type="button" className="button button-secondary" onClick={() => void reviewOfflineQueueJob(job)}>
+                        {t(currentUser.language, "offlineQueue.reviewDetails")}
+                      </button>
+                      <button type="button" className="button button-secondary" onClick={() => void retrySingleOfflineQueueJob(job)} disabled={offlineQueueSyncing || !isOnline}>
+                        {t(currentUser.language, "offlineQueue.retryThis")}
+                      </button>
                       <div>
                         {t(currentUser.language, "offlineQueue.nextRetry")}: {job.nextRetryAt ? formatTime(job.nextRetryAt, clockMode, currentUser.language) : t(currentUser.language, "offlineQueue.pendingSync")}
                       </div>

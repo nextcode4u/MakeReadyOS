@@ -66,10 +66,10 @@ export function ConnectionStatus({ online, degraded, lastIssueAt, pendingSyncCou
         <span>{description}</span>
         {lastIssueAt ? <small>{t(language, "connection.lastIssue")} {formatTime(lastIssueAt, undefined, language)}</small> : null}
       </div>
-      {pendingSyncCount > 0 || degraded || !online || queueError ? <button type="button" className="button button-secondary" data-testid="connection-retry" onClick={onRetry}>
+      {pendingSyncCount > 0 || degraded || !online || queueError ? <button type="button" className="button button-secondary" data-testid="connection-retry" onClick={onRetry} disabled={syncing}>
         {syncing ? t(language, "connection.syncingNow") : t(language, "connection.retryNow")}
       </button> : null}
-      {blockedCount > 0 || unattributedWork || queueError ? (
+      {pendingSyncCount > 0 || unattributedWork || queueError ? (
         <button type="button" className="button button-secondary" data-testid="connection-review-queue" onClick={onReviewQueue}>
           {t(language, "connection.reviewQueue")}
         </button>
